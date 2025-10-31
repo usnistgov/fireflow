@@ -1,6 +1,8 @@
 use crate::config::{
-    AllowLoss, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
-    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    AllowHeaderTEXTOffsetMismatch, AllowLoss, AllowMissingRequiredOffsets, AllowOptionalDropping,
+    DisallowRangeTrunc, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
+    StdTextReadConfig, TemporalOpticalKey, TruncateOffsets, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -25,7 +27,7 @@ use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
     OptSegmentWithDefaultWarning, OtherSegment20, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, TEXTCorrection,
 };
 use crate::type_families::ApplyOnce as _;
 
@@ -1313,7 +1315,10 @@ pub trait Versioned {
     where
         R: Read + Seek,
         Self::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadLayoutConfig>
+            + AsRef<ReaderConfig>
+            + AsRef<ReadTEXTOffsetsConfig>
+            + AsRefOffsetLookup,
     {
         let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
             .map_cmt_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -1624,6 +1629,18 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
 
+pub trait AsRefOffsetLookup:
+    AsRef<TruncateOffsets>
+    + AsRef<TEXTCorrection<DataSegmentId>>
+    + AsRef<TEXTCorrection<AnalysisSegmentId>>
+    + AsRef<IgnoreTEXTDataOffsets>
+    + AsRef<IgnoreTEXTAnalysisOffsets>
+    + AsRef<AllowOptionalDropping>
+    + AsRef<AllowHeaderTEXTOffsetMismatch>
+    + AsRef<AllowMissingRequiredOffsets>
+{
+}
+
 pub trait VersionedTEXTOffsets: Sized {
     type TotDef: TotDefinition;
 
@@ -1634,7 +1651,7 @@ pub trait VersionedTEXTOffsets: Sized {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>;
+        C: AsRefOffsetLookup;
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
@@ -1643,7 +1660,7 @@ pub trait VersionedTEXTOffsets: Sized {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>;
+        C: AsRefOffsetLookup;
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
 
@@ -3720,7 +3737,10 @@ where
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<StdTextReadConfig>
+            + AsRef<ReadLayoutConfig>
+            + AsRef<ReadTEXTOffsetsConfig>
+            + AsRefOffsetLookup,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -7039,7 +7059,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
         Tot::remove_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
@@ -7057,7 +7077,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
         Tot::get_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
@@ -7091,41 +7111,17 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let file_len = Some(st.file_len.into());
-        let conf = st.conf.as_ref();
-        let data_res = KeyedReqSegment::remove_or(
-            kws,
-            data,
-            conf.ignore_text_data_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_data_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::remove_or(
-            kws,
-            analysis,
-            conf.ignore_text_analysis_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_analysis_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
+        let data_res = KeyedReqSegment::remove_or(kws, data, st)
+            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
+        let analysis_res = KeyedReqSegment::remove_or(kws, analysis, st)
+            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
@@ -7138,41 +7134,17 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let file_len = Some(st.file_len.into());
-        let conf = st.conf.as_ref();
-        let data_res = KeyedReqSegment::get_or(
-            kws,
-            data,
-            conf.ignore_text_data_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_data_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::get_or(
-            kws,
-            analysis,
-            conf.ignore_text_analysis_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_analysis_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
+        let data_res = KeyedReqSegment::get_or(kws, data, st)
+            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
+        let analysis_res = KeyedReqSegment::get_or(kws, analysis, st)
+            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
@@ -7198,44 +7170,20 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let file_len = Some(st.file_len.into());
-        let conf = st.conf.as_ref();
-        let data_res = KeyedReqSegment::remove_or(
-            kws,
-            data,
-            conf.ignore_text_data_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_data_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
-        tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
-            KeyedOptSegment::remove_or(
-                kws,
-                analysis,
-                conf.ignore_text_analysis_offsets,
-                conf.allow_header_text_offset_mismatch,
-                true, // TODO configure
-                &NewSegmentConfig::new(
-                    conf.text_analysis_correction,
-                    file_len,
-                    conf.truncate_text_offsets,
-                ),
-            )
-            .set_err_value(())
+        let data_res = KeyedReqSegment::remove_or(kws, data, st)
             .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from)
-            .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_errors(LookupTEXTOffsetsError::from);
+        tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
+            KeyedOptSegment::remove_or(kws, analysis, st)
+                .set_err_value(())
+                .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from)
+                .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
     }
 
@@ -7246,45 +7194,21 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRefOffsetLookup,
     {
-        let conf = &st.conf.as_ref();
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let file_len = Some(st.file_len.into());
-        let data_res = KeyedReqSegment::get_or(
-            kws,
-            data,
-            conf.ignore_text_data_offsets,
-            conf.allow_header_text_offset_mismatch,
-            conf.allow_missing_required_offsets,
-            &NewSegmentConfig::new(
-                conf.text_data_correction,
-                file_len,
-                conf.truncate_text_offsets,
-            ),
-        )
-        .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-        .map_errors(LookupTEXTOffsetsError::from);
+        let data_res = KeyedReqSegment::get_or(kws, data, st)
+            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
         tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
             // TODO flip order of required and optional
-            KeyedOptSegment::get_or(
-                kws,
-                analysis,
-                conf.ignore_text_analysis_offsets,
-                conf.allow_header_text_offset_mismatch,
-                true, // TODO configure
-                &NewSegmentConfig::new(
-                    conf.text_analysis_correction,
-                    file_len,
-                    conf.truncate_text_offsets,
-                ),
-            )
-            .set_err_value(())
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
-            .map_errors(LookupTEXTOffsetsError::from)
-            .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            KeyedOptSegment::get_or(kws, analysis, st)
+                .set_err_value(())
+                .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+                .map_errors(LookupTEXTOffsetsError::from)
+                .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
     }
 

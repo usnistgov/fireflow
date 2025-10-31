@@ -1,14 +1,14 @@
 use crate::config::{
-    ErrorFlag, HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig,
-    ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
-    ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig,
+    ConfigFlag as _, ErrorFlag, HeaderConfigInner, ReadHeaderAndTEXTConfig, ReadHeaderConfig,
+    ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig,
+    ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
+    ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
-    Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
-    StdDatasetFromRawWarning, StdDatasetWithKwsFailure, StdDatasetWithKwsOutput,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
+    Analysis, AnyCoreDataset, AnyCoreTEXT, AsRefOffsetLookup, DatasetSegments,
+    LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, OthersReader,
+    StdDatasetFromRawError, StdDatasetFromRawWarning, StdDatasetWithKwsFailure,
+    StdDatasetWithKwsOutput, StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::header::{
@@ -25,6 +25,7 @@ use crate::macros::def_failure;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NewSegmentConfig,
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
+    SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::optional::Nothing;
@@ -571,7 +572,10 @@ fn h_read_dataset_from_kws<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig>
+        + AsRef<ReaderConfig>
+        + AsRef<ReadTEXTOffsetsConfig>
+        + AsRefOffsetLookup,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .map_errors(ImpureError::inner_into)
@@ -678,7 +682,10 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig>
+        + AsRef<ReaderConfig>
+        + AsRef<ReadTEXTOffsetsConfig>
+        + AsRefOffsetLookup,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),
@@ -723,7 +730,7 @@ where
                 .map_ok_value(|()| (kws, delim))
         })
         .and_then_cmt(|(mut kws, delim)| {
-            if conf.ignore_supp_text {
+            if conf.ignore_supp_text.is_set() {
                 // NOTE rip out the STEXT keywords so they don't trigger a false
                 // positive pseudostandard keyword error later
                 let _ = kws.std.remove(&Beginstext::std());
@@ -1101,17 +1108,20 @@ fn lookup_stext_offsets<C>(
     STextSegmentError,
 >
 where
-    C: AsRef<ReadHeaderAndTEXTConfig>,
+    C: AsRef<TruncateOffsets>
+        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
+        + AsRef<ReadHeaderAndTEXTConfig>,
 {
-    let conf = st.conf.as_ref();
-    let seg_conf = NewSegmentConfig::new(
-        conf.supp_text_correction,
-        Some(st.file_len.into()),
-        conf.header.truncate_offsets,
-    );
+    // let conf = st.conf.as_ref();
+    // let seg_conf = NewSegmentConfig::new(
+    //     conf.supp_text_correction,
+    //     Some(st.file_len.into()),
+    //     conf.header.truncate_offsets,
+    // );
+    let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
     let res = match version {
         Version::FCS2_0 => LogResult::new_ok(None),
-        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get(kws, &seg_conf)
+        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get(kws, st)
             .nowarn_into_warn::<Vec<_>>()
             .recover_with(
                 |(), es| {
@@ -1123,7 +1133,7 @@ where
                 },
                 |t| LogResult::new_ok(Some(t)),
             ),
-        Version::FCS3_2 => KeyedOptSegment::get(kws, &seg_conf)
+        Version::FCS3_2 => KeyedOptSegment::get(kws, st)
             .nowarn_into_warn::<Vec<_>>()
             .recover_with(
                 |(), es| {

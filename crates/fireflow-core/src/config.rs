@@ -283,7 +283,7 @@ pub struct HeaderConfigInner {
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_offsets: bool,
+    pub truncate_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -316,7 +316,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
-    pub ignore_supp_text: bool,
+    pub ignore_supp_text: IgnoreSuppTEXT,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -491,13 +491,15 @@ pub struct ReadHeaderAndTEXTConfig {
     pub substitute_standard_key_values: SubPatterns,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, ignore DATA offsets in TEXT.
@@ -505,32 +507,36 @@ pub struct ReadTEXTOffsetsConfig {
     /// This may be useful if DATA offsets are different from those in HEADER,
     /// either inherently or after a correction. This obviously assumes the
     /// offsets in HEADER are correct.
-    pub ignore_text_data_offsets: bool,
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
     /// If true, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in
     /// HEADER, either inherently or after a correction. This obviously assumes
     /// the offsets in HEADER are correct.
-    pub ignore_text_analysis_offsets: bool,
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
 
     /// If true, throw error if offsets in HEADER and TEXT differ.
     ///
     /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
 
     /// If true, throw error if required TEXT offsets are missing.
     ///
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
+    #[as_ref(AllowMissingRequiredOffsets)]
+    pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
 
     /// If true, truncate TEXT offsets that exceed the end of the file.
     ///
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_text_offsets: bool,
+    pub truncate_text_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
@@ -702,8 +708,33 @@ pub struct SharedConfig {
     pub hide_warnings: bool,
 }
 
-pub trait ErrorFlag {
-    fn is_error(&self) -> bool;
+pub trait ConfigFlag {
+    fn is_set(&self) -> bool;
+}
+
+pub trait ErrorFlag: ConfigFlag {
+    const TRUE_IS_ERROR: bool;
+
+    fn is_error(&self) -> bool {
+        self.is_set() == Self::TRUE_IS_ERROR
+    }
+}
+
+macro_rules! impl_config_flag {
+    ($n:ident) => {
+        #[derive(From, Clone, Copy, Default)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        pub struct $n(pub bool);
+
+        #[cfg(feature = "python")]
+        impl_from_py_transparent!($n);
+
+        impl ConfigFlag for $n {
+            fn is_set(&self) -> bool {
+                self.0
+            }
+        }
+    };
 }
 
 macro_rules! impl_error_flag {
@@ -716,25 +747,21 @@ macro_rules! impl_error_flag {
     };
 
     ($n:ident, $true_is_error:expr) => {
-        #[derive(From, Clone, Copy, Default)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
-        pub struct $n(pub bool);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($n);
+        impl_config_flag!($n);
 
         impl ErrorFlag for $n {
-            fn is_error(&self) -> bool {
-                self.0 == $true_is_error
-            }
+            const TRUE_IS_ERROR: bool = $true_is_error;
         }
     };
 }
+
+impl_config_flag!(TruncateOffsets);
 
 impl_error_flag!(true_is_error AllowUnevenEventWidth);
 impl_error_flag!(true_is_error AllowTotMismatch);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
+impl_error_flag!(false_is_error IgnoreSuppTEXT);
 impl_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_error_flag!(false_is_error AllowNonunique);
@@ -743,6 +770,11 @@ impl_error_flag!(false_is_error AllowEmpty);
 impl_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+
+impl_config_flag!(IgnoreTEXTDataOffsets);
+impl_config_flag!(IgnoreTEXTAnalysisOffsets);
+impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
+impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowUnusedStandard);

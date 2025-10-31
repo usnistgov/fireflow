@@ -1,4 +1,4 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowLoss, StdTextReadConfig};
 use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResult, ResultExt as _};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
@@ -434,7 +434,7 @@ impl AppliedGates3_0 {
 
     pub(crate) fn try_into_2_0(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleErrors<AppliedGates2_0, AppliedGates3_0To2_0Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
@@ -456,13 +456,13 @@ impl AppliedGates3_0 {
             })
             .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To2_0Error::Index),
-                !allow_loss,
+                !flag.0,
             )
     }
 
     pub(crate) fn try_into_3_2(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleErrors<AppliedGates3_2, AppliedGates3_0To3_2Error> {
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
@@ -476,9 +476,9 @@ impl AppliedGates3_0 {
             .cmt_fung_errors_into()
             .extend_deferred_fungible_errors(
                 es.into_iter().map(AppliedGates3_0To3_2Error::Index),
-                !allow_loss,
+                !flag.0,
             )
-            .eval_deferred_fungible_error(!allow_loss, |_| {
+            .eval_deferred_fungible_error(!flag.0, |_| {
                 let n_gates = self.gated_measurements.0.len();
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
             })

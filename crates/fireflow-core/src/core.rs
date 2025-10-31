@@ -1,6 +1,6 @@
 use crate::config::{
-    DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig,
-    SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    AllowLoss, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
+    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -1361,15 +1361,14 @@ where
     Self: VersionedMetaroot,
     M: VersionedMetaroot,
 {
-    fn convert_from_metaroot(value: M, allow_loss: bool) -> MetarootConvertResult<Self>;
+    fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
 }
 
 pub trait ConvertFromOptical<O>: Sized
 where
     Self: VersionedOptical,
 {
-    fn convert_from_optical(value: O, i: MeasIndex, allow_loss: bool)
-        -> OpticalConvertResult<Self>;
+    fn convert_from_optical(value: O, i: MeasIndex, flag: AllowLoss) -> OpticalConvertResult<Self>;
 }
 
 pub trait ConvertFromTemporal<T>: Sized
@@ -1379,7 +1378,7 @@ where
     fn convert_from_temporal(
         value: T,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self>;
 }
 
@@ -1437,7 +1436,7 @@ pub trait VersionedMetaroot: Sized {
         tmp: Temporal<Self::Temporal>,
         opt: Optical<Self::Optical>,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> CmtFungibleErrorResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         Box<(Temporal<Self::Temporal>, Optical<Self::Optical>)>,
@@ -1472,7 +1471,7 @@ pub trait VersionedMetaroot: Sized {
             .nowarn_into_warn()
             .recover_with(
                 |(t, o), es| {
-                    if allow_loss {
+                    if flag.0 {
                         let ws: Vec<_> = es.into_iter().collect();
                         LogResult::new_ok(go(t, o)).set_cmt_warnings(ws)
                     } else {
@@ -1552,7 +1551,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         opt: Optical<O>,
         i: MeasIndex,
         data: Self::TData,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> CmtFungibleErrorResult<Temporal<Self>, Box<Optical<O>>, OpticalToTemporalSummary> {
         let opt_common_res = opt
             .check_keys_transfer(i)
@@ -1568,7 +1567,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
             .nowarn_into_warn()
             .recover_with(
                 |((), (o, d)), es| {
-                    if allow_loss {
+                    if flag.0 {
                         let v = Self::from_optical_unchecked(o, d);
                         let ws: Vec<_> = es.into_iter().collect();
                         LogResult::new_ok(v).set_cmt_warnings(ws)
@@ -1593,13 +1592,13 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
 
 pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     type TData;
-    type Loss;
+    type LossFlag;
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         tmp: Temporal<T>,
         i: MeasIndex,
-        allow_loss: Self::Loss,
+        flag: Self::LossFlag,
     ) -> CmtResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<T>>,
@@ -1700,11 +1699,11 @@ impl<T> Temporal<T> {
         })
     }
 
-    fn convert<ToT>(self, i: MeasIndex, allow_loss: bool) -> TemporalConvertResult<Temporal<ToT>>
+    fn convert<ToT>(self, i: MeasIndex, flag: AllowLoss) -> TemporalConvertResult<Temporal<ToT>>
     where
         ToT: ConvertFromTemporal<T>,
     {
-        ToT::convert_from_temporal(self.specific, i, allow_loss)
+        ToT::convert_from_temporal(self.specific, i, flag)
             .map_def_value(|specific| Temporal::new(self.common, specific))
     }
 
@@ -1736,9 +1735,9 @@ impl<O> Optical<O> {
     fn try_convert<Of: ConvertFromOptical<O>>(
         self,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Optical<Of>> {
-        Of::convert_from_optical(self.specific, i, allow_loss).map_ok_value(|specific| {
+        Of::convert_from_optical(self.specific, i, flag).map_ok_value(|specific| {
             Optical::new(
                 self.common,
                 self.filter,
@@ -1905,9 +1904,9 @@ where
 {
     fn try_convert<ToM: ConvertFromMetaroot<M>>(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Metaroot<ToM>> {
-        ToM::convert_from_metaroot(self.specific, allow_loss).map_ok_value(|specific| {
+        ToM::convert_from_metaroot(self.specific, flag).map_ok_value(|specific| {
             Metaroot::new(
                 self.abrt,
                 self.com,
@@ -2242,15 +2241,16 @@ where
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
+        let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_name(
             n,
             |i, old_o, old_t| {
-                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                M::swap_optical_temporal(old_o, old_t, i, flag)
                     .map_commutative_fungible_errors(SetTemporalSummary::from)
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                M::Temporal::from_optical(old_o, i, timestep, flag)
                     .map_commutative_fungible_errors(SetTemporalSummary::from)
                     .map_errors(SetTemporalByNameError::from)
             },
@@ -2267,15 +2267,16 @@ where
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
+        let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_index(
             index,
             |i, old_o, old_t| {
-                M::swap_optical_temporal(old_o, old_t, i, allow_loss)
+                M::swap_optical_temporal(old_o, old_t, i, flag)
                     .map_commutative_fungible_errors(SetTemporalSummary::from)
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
+                M::Temporal::from_optical(old_o, i, timestep, flag)
                     .map_commutative_fungible_errors(SetTemporalSummary::from)
                     .map_errors(SetTemporalByIndexError::from)
             },
@@ -2290,7 +2291,7 @@ where
         &mut self,
     ) -> Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
     {
         self.measurements
@@ -2313,7 +2314,7 @@ where
         UnsetTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
             Warning = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
@@ -2321,7 +2322,7 @@ where
     {
         // TODO ditto above
         self.measurements
-            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, allow_loss))
+            .unset_center(|i, old_t| M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss)))
             .summarize_errors()
     }
 
@@ -2380,7 +2381,7 @@ where
         m: Temporal<M::Temporal>,
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
     {
         self.measurements
@@ -2406,7 +2407,7 @@ where
         ReplaceTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
             Warning = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
@@ -2414,7 +2415,7 @@ where
     {
         self.measurements
             .replace_center_at(index, m, |i, old_t| {
-                M::Optical::from_temporal(old_t, i, allow_loss)
+                M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                     .map_ok_value(|(x, _)| x)
                     .map_commutative_fungible_errors(ReplaceTemporalError::from)
             })
@@ -2429,7 +2430,7 @@ where
         m: Temporal<M::Temporal>,
     ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError>
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = ()>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
     {
         self.measurements
@@ -2455,7 +2456,7 @@ where
         ReplaceTemporalFailure,
     >
     where
-        M::Optical: OpticalFromTemporal<M::Temporal, Loss = bool>,
+        M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
             Warning = Vec<TemporalToOpticalError>,
             Error = TemporalToOpticalError,
@@ -2463,7 +2464,7 @@ where
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                M::Optical::from_temporal(old_t, i, allow_loss)
+                M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                     .map_ok_value(|(x, _)| x)
                     .map_commutative_fungible_errors(ReplaceTemporalError::from)
             })
@@ -3072,18 +3073,19 @@ where
         ToM::Name: MightHave<Shortname> + Clone + TryFrom<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
     {
+        let flag = AllowLoss(allow_loss);
         let root_res = self
             .metaroot
-            .try_convert(allow_loss)
+            .try_convert(flag)
             .map_errors(ConvertErrorInner::Meta);
         let meas_res = self
             .measurements
-            .map_center_value(|v| v.value.convert(v.index, allow_loss))
+            .map_center_value(|v| v.value.convert(v.index, flag))
             .set_err_value(())
             .map_errors(ConvertErrorInner::Temporal)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .and_then_cmt(|meas| {
-                meas.map_non_center_values(|i, v| v.try_convert(i, allow_loss))
+                meas.map_non_center_values(|i, v| v.try_convert(i, flag))
                     .map_errors(ConvertErrorInner::Optical)
                     .map_cmt_warnings(MetarootConvertWarning::from)
             })
@@ -4873,9 +4875,9 @@ impl UnstainedData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let c = self.unstainedcenters.check_key_transfer(allow_loss);
-        let i = self.unstainedinfo.check_key_transfer(allow_loss);
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let c = self.unstainedcenters.check_key_transfer(flag);
+        let i = self.unstainedinfo.check_key_transfer(flag);
         [c, i]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -4898,9 +4900,9 @@ impl SubsetData {
             .chain(self.flags.opt_keywords())
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let f = self.flags.check_loss(allow_loss);
-        let b = self.bits.check_key_transfer(allow_loss).repack();
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let f = self.flags.check_loss(flag);
+        let b = self.bits.check_key_transfer(flag).repack();
         f.lift_f2_once(b, |(), ()| ())
     }
 }
@@ -4939,17 +4941,14 @@ impl CSVFlags {
             .chain(m)
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
         self.0
             .iter()
             .enumerate()
-            .map(|(i, f)| {
-                f.check_indexed_key_transfer_fungible(i, allow_loss)
-                    .repack()
-            })
+            .map(|(i, f)| f.check_indexed_key_transfer_fungible(i, flag).repack())
             .mappend_def()
             .set_def_value(())
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::new())
             })
     }
@@ -4973,10 +4972,10 @@ impl ModificationData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let d = self.last_modified.check_key_transfer(allow_loss);
-        let r = self.last_modifier.check_key_transfer(allow_loss);
-        let o = self.originality.check_key_transfer(allow_loss);
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let d = self.last_modified.check_key_transfer(flag);
+        let r = self.last_modifier.check_key_transfer(flag);
+        let o = self.originality.check_key_transfer(flag);
         [d, r, o]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5002,10 +5001,10 @@ impl CarrierData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let i = self.carrierid.check_key_transfer(allow_loss);
-        let t = self.carriertype.check_key_transfer(allow_loss);
-        let l = self.locationid.check_key_transfer(allow_loss);
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let i = self.carrierid.check_key_transfer(flag);
+        let t = self.carriertype.check_key_transfer(flag);
+        let l = self.locationid.check_key_transfer(flag);
         [i, t, l]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5035,10 +5034,10 @@ impl PlateData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, allow_loss: bool) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let n = self.platename.check_key_transfer(allow_loss);
-        let i = self.plateid.check_key_transfer(allow_loss);
-        let w = self.wellid.check_key_transfer(allow_loss);
+    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        let n = self.platename.check_key_transfer(flag);
+        let i = self.plateid.check_key_transfer(flag);
+        let w = self.wellid.check_key_transfer(flag);
         [n, i, w]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5068,10 +5067,10 @@ impl PeakData {
     fn check_loss(
         self,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleErrors<(), AnyMeasKeyLossError> {
-        let b = self.bin.check_indexed_key_transfer_fungible(i, allow_loss);
-        let s = self.size.check_indexed_key_transfer_fungible(i, allow_loss);
+        let b = self.bin.check_indexed_key_transfer_fungible(i, flag);
+        let s = self.size.check_indexed_key_transfer_fungible(i, flag);
         [b, s]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5146,9 +5145,9 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
     fn convert_from_optical(
         value: InnerOptical3_0,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        ScaleTransform::try_convert_to_scale(value.scale, i, allow_loss)
+        ScaleTransform::try_convert_to_scale(value.scale, i, flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
@@ -5161,14 +5160,12 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
     fn convert_from_optical(
         value: InnerOptical3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let cal = value
             .calibration
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let dpy = value
-            .display
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
         let check_res = [cal, dpy]
             .into_iter()
             .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
@@ -5176,13 +5173,13 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
-        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, allow_loss)
+        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
         let wave = value
             .wavelengths
-            .into_wavelength(allow_loss)
+            .into_wavelength(flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
@@ -5196,27 +5193,21 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
     fn convert_from_optical(
         value: InnerOptical3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let cal = value
             .calibration
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let dpy = value
-            .display
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let anal = value
-            .analyte
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let feat = value
-            .feature
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
+        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
+        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
         let det_name = value
             .detector_name
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
         let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
             .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
@@ -5224,14 +5215,14 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
-        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, allow_loss)
+        let xform = ScaleTransform::try_convert_to_scale(value.scale, i, flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
 
         let w = value
             .wavelengths
-            .into_wavelength(allow_loss)
+            .into_wavelength(flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
@@ -5248,7 +5239,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_0 {
     fn convert_from_optical(
         value: InnerOptical2_0,
         i: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         value
             .scale
@@ -5262,14 +5253,12 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
     fn convert_from_optical(
         value: InnerOptical3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let cal = value
             .calibration
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let dpy = value
-            .display
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
         let check_res = [cal, dpy]
             .into_iter()
             .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
@@ -5279,7 +5268,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
 
         let wave = value
             .wavelengths
-            .into_wavelength(allow_loss)
+            .into_wavelength(flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
@@ -5294,27 +5283,21 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
     fn convert_from_optical(
         value: InnerOptical3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let cal = value
             .calibration
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let dpy = value
-            .display
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let anal = value
-            .analyte
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let feat = value
-            .feature
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
+        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
+        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
         let det_name = value
             .detector_name
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
 
         let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
@@ -5325,7 +5308,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
 
         let wave = value
             .wavelengths
-            .into_wavelength(allow_loss)
+            .into_wavelength(flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
@@ -5340,7 +5323,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
     fn convert_from_optical(
         value: InnerOptical2_0,
         i: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
         value
@@ -5355,7 +5338,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
     fn convert_from_optical(
         value: InnerOptical3_0,
         _: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
         LogResult::new_ok(Self::new(value.scale, wave, None, None, value.peak))
@@ -5366,21 +5349,17 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
     fn convert_from_optical(
         value: InnerOptical3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let anal = value
-            .analyte
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let feat = value
-            .feature
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
+        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
+        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
         let det_name = value
             .detector_name
-            .check_indexed_key_transfer_fungible(i, allow_loss);
+            .check_indexed_key_transfer_fungible(i, flag);
 
         [anal, feat, meas, tag, det_name]
             .into_iter()
@@ -5405,12 +5384,12 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical2_0,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .and_then_cmt(|()| {
@@ -5439,12 +5418,12 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical3_0,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_cmt_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -5467,11 +5446,11 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_cmt_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer)
             .map_ok_value(|()| {
@@ -5767,11 +5746,11 @@ where
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_0,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let c = value.cytsn.check_key_transfer(allow_loss);
-        let u = value.unicode.check_key_transfer(allow_loss);
-        let s = value.subset.check_loss(allow_loss);
+        let c = value.cytsn.check_key_transfer(flag);
+        let u = value.unicode.check_key_transfer(flag);
+        let s = value.subset.check_loss(flag);
         [c, u]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5782,7 +5761,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             .and_then_cmt(|()| {
                 value
                     .applied_gates
-                    .try_into_2_0(allow_loss)
+                    .try_into_2_0(flag)
                     .map_cmt_warnings(MetarootConvertWarning::from)
                     .map_errors(MetarootConvertError::from)
                     .set_err_value(())
@@ -5802,14 +5781,14 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
 impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_1,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let cytsn = value.cytsn.check_key_transfer(allow_loss);
-        let vol = value.vol.check_key_transfer(allow_loss);
-        let spill = value.spillover.check_key_transfer(allow_loss);
-        let plate = value.plate.check_loss(allow_loss);
-        let subset = value.subset.check_loss(allow_loss);
-        let modi = value.modification.check_loss(allow_loss);
+        let cytsn = value.cytsn.check_key_transfer(flag);
+        let vol = value.vol.check_key_transfer(flag);
+        let spill = value.spillover.check_key_transfer(flag);
+        let plate = value.plate.check_loss(flag);
+        let subset = value.subset.check_loss(flag);
+        let modi = value.modification.check_loss(flag);
         [cytsn, vol, spill]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5820,7 +5799,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .and_then_cmt(|()| {
                 value
                     .applied_gates
-                    .try_into_2_0(allow_loss)
+                    .try_into_2_0(flag)
                     .map_cmt_warnings(MetarootConvertWarning::from)
                     .map_errors(MetarootConvertError::from)
                     .set_err_value(())
@@ -5840,17 +5819,17 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
 impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_2,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let cytsn = value.cytsn.check_key_transfer(allow_loss);
-        let vol = value.vol.check_key_transfer(allow_loss);
-        let spill = value.spillover.check_key_transfer(allow_loss);
-        let flow = value.flowrate.check_key_transfer(allow_loss);
-        let modi = value.modification.check_loss(allow_loss);
-        let plate = value.plate.check_loss(allow_loss);
-        let dt = value.datetimes.check_loss(allow_loss);
-        let carrier = value.carrier.check_loss(allow_loss);
-        let us = value.unstained.check_loss(allow_loss);
+        let cytsn = value.cytsn.check_key_transfer(flag);
+        let vol = value.vol.check_key_transfer(flag);
+        let spill = value.spillover.check_key_transfer(flag);
+        let flow = value.flowrate.check_key_transfer(flag);
+        let modi = value.modification.check_loss(flag);
+        let plate = value.plate.check_loss(flag);
+        let dt = value.datetimes.check_loss(flag);
+        let carrier = value.carrier.check_loss(flag);
+        let us = value.unstained.check_loss(flag);
 
         [cytsn, vol, spill, flow]
             .into_iter()
@@ -5859,7 +5838,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .mappend_def_void()
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates3_2To2_0Error)
             })
             .map_ok_value(|()| {
@@ -5875,7 +5854,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
 }
 
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
-    fn convert_from_metaroot(value: InnerMetaroot2_0, _: bool) -> MetarootConvertResult<Self> {
+    fn convert_from_metaroot(value: InnerMetaroot2_0, _: AllowLoss) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
             value.mode,
             value.cyt,
@@ -5892,11 +5871,11 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
 impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_1,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let plate = value.plate.check_loss(allow_loss);
-        let modi = value.modification.check_loss(allow_loss);
-        let vol = value.vol.check_key_transfer(allow_loss).into_semigroup();
+        let plate = value.plate.check_loss(flag);
+        let modi = value.modification.check_loss(flag);
+        let vol = value.vol.check_key_transfer(flag).into_semigroup();
         [plate, modi, vol]
             .into_iter()
             .mappend_def_void()
@@ -5920,15 +5899,15 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
 impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_2,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let vol = value.vol.check_key_transfer(allow_loss);
-        let flow = value.flowrate.check_key_transfer(allow_loss);
-        let modi = value.modification.check_loss(allow_loss);
-        let plate = value.plate.check_loss(allow_loss);
-        let dt = value.datetimes.check_loss(allow_loss);
-        let carrier = value.carrier.check_loss(allow_loss);
-        let us = value.unstained.check_loss(allow_loss);
+        let vol = value.vol.check_key_transfer(flag);
+        let flow = value.flowrate.check_key_transfer(flag);
+        let modi = value.modification.check_loss(flag);
+        let plate = value.plate.check_loss(flag);
+        let dt = value.datetimes.check_loss(flag);
+        let carrier = value.carrier.check_loss(flag);
+        let us = value.unstained.check_loss(flag);
         [vol, flow]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -5954,10 +5933,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
     fn convert_from_metaroot(
         value: InnerMetaroot2_0,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(())
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             })
             .map_ok_value(|()| {
@@ -5980,10 +5959,10 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_0,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let comp = value.comp.check_key_transfer(allow_loss);
-        let us = value.unicode.check_key_transfer(allow_loss);
+        let comp = value.comp.check_key_transfer(flag);
+        let us = value.unicode.check_key_transfer(flag);
         [comp, us]
             .into_iter()
             .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
@@ -6010,15 +5989,12 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
 impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_2,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let dt = value.datetimes.check_loss(allow_loss);
-        let carrier = value.carrier.check_loss(allow_loss);
-        let us = value.unstained.check_loss(allow_loss);
-        let flow = value
-            .flowrate
-            .check_key_transfer(allow_loss)
-            .into_semigroup();
+        let dt = value.datetimes.check_loss(flag);
+        let carrier = value.carrier.check_loss(flag);
+        let us = value.unstained.check_loss(flag);
+        let flow = value.flowrate.check_key_transfer(flag).into_semigroup();
         [dt, carrier, us, flow]
             .into_iter()
             .mappend_def_void()
@@ -6044,18 +6020,18 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
     fn convert_from_metaroot(
         value: InnerMetaroot2_0,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let check_res = LogResult::new_ok(())
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 (!value.applied_gates.is_empty()).then_some(gating::AppliedGates2_0To3_2Error)
             })
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             });
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!allow_loss)
+            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
@@ -6090,11 +6066,11 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_0,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let uni = value.unicode.check_key_transfer(allow_loss);
-        let comp = value.comp.check_key_transfer(allow_loss);
-        let subset = value.subset.check_loss(allow_loss);
+        let uni = value.unicode.check_key_transfer(flag);
+        let comp = value.comp.check_key_transfer(flag);
+        let subset = value.subset.check_loss(flag);
         let check_res = [uni, comp]
             .into_iter()
             .map(LogResult::into_semigroup)
@@ -6105,11 +6081,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
 
         let ag_res = value
             .applied_gates
-            .try_into_3_2(allow_loss)
+            .try_into_3_2(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!allow_loss)
+            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6143,21 +6119,21 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
 impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_1,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let ss = value
             .subset
-            .check_loss(allow_loss)
+            .check_loss(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let ag_res = value
             .applied_gates
-            .try_into_3_2(allow_loss)
+            .try_into_3_2(flag)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<Vec<_>>(!allow_loss)
+            .into_deferred_fungible_opt::<Vec<_>>(!flag.0)
             .map_cmt_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6196,13 +6172,13 @@ impl ScaleTransform {
     fn try_convert_to_scale(
         self,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleError<Scale, AnyMeasKeyLossError> {
         match self {
             Self::Lin(x) => {
                 if x.is_one() {
                     let e = IndexedKeyLossError::<Gain>::new(i).into();
-                    LogResult::new_deferred_fungible(Scale::Linear, e, !allow_loss)
+                    LogResult::new_deferred_fungible(Scale::Linear, e, !flag.0)
                 } else {
                     LogResult::new_ok(Scale::Linear)
                 }
@@ -6296,11 +6272,11 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
         _: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .timestep
-            .check_conversion(allow_loss)
+            .check_conversion(flag)
             .map_def_value(|()| Self::new(true, value.peak))
             .map_commutative_fungible_errors(TemporalConvertError::from)
             .repack()
@@ -6311,16 +6287,16 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         let t = value
             .timestep
-            .check_conversion(allow_loss)
+            .check_conversion(flag)
             .map_commutative_fungible_errors(TemporalConvertError::from)
             .into_semigroup();
         let d = value
             .display
-            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
+            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::from)
             .into_semigroup();
         t.lift_f2_once(d, |(), ()| Self::new(true, value.peak))
@@ -6331,21 +6307,21 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         let di = value
             .display
-            .check_indexed_key_transfer_fungible(i, allow_loss)
+            .check_indexed_key_transfer_fungible(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .into_semigroup();
         let m = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss)
+            .check_indexed_key_transfer_fungible(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .into_semigroup();
         let t = value
             .timestep
-            .check_conversion(allow_loss)
+            .check_conversion(flag)
             .map_commutative_fungible_errors(TemporalConvertError::Timestep)
             .into_semigroup();
         di.lift_f3_once(m, t, |(), (), ()| Self::new(true, PeakData::default()))
@@ -6356,7 +6332,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
     fn convert_from_temporal(
         value: InnerTemporal2_0,
         _: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         LogResult::new_ok(Self::new(Timestep::default(), value.peak))
     }
@@ -6366,11 +6342,11 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .display
-            .check_indexed_key_transfer_fungible(i, allow_loss)
+            .check_indexed_key_transfer_fungible(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.peak))
             .repack()
@@ -6381,16 +6357,16 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         let di = value
             .display
-            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, allow_loss)
+            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .into_semigroup();
         let m = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss)
+            .check_indexed_key_transfer_fungible(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .into_semigroup();
         di.lift_f2_once(m, |(), ()| Self::new(value.timestep, PeakData::default()))
@@ -6401,7 +6377,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
     fn convert_from_temporal(
         value: InnerTemporal2_0,
         _: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         LogResult::new_ok(Self::new(Timestep::default(), None, value.peak))
     }
@@ -6411,7 +6387,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
         _: MeasIndex,
-        _: bool,
+        _: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         LogResult::new_ok(Self::new(value.timestep, None, value.peak))
     }
@@ -6421,11 +6397,11 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
     fn convert_from_temporal(
         value: InnerTemporal3_2,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, allow_loss)
+            .check_indexed_key_transfer_fungible(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.display, PeakData::default()))
             .repack()
@@ -6436,11 +6412,11 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
     fn convert_from_temporal(
         value: InnerTemporal2_0,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(Timestep::default(), None, TemporalType::default()))
             .repack()
@@ -6451,11 +6427,11 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, None, TemporalType::default()))
     }
@@ -6465,11 +6441,11 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     fn convert_from_temporal(
         value: InnerTemporal3_1,
         i: MeasIndex,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
         value
             .peak
-            .check_loss(i, allow_loss)
+            .check_loss(i, flag)
             .map_commutative_fungible_errors(TemporalConvertError::Xfer)
             .map_def_value(|()| Self::new(value.timestep, value.display, TemporalType::default()))
     }
@@ -7324,13 +7300,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
 impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     type TData = ();
-    type Loss = ();
+    type LossFlag = ();
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         tmp: Temporal<InnerTemporal2_0>,
         i: MeasIndex,
-        (): Self::Loss,
+        (): Self::LossFlag,
     ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal2_0>>, Infallible>
     {
         tmp.specific
@@ -7347,13 +7323,13 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
 
 impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     type TData = Timestep;
-    type Loss = ();
+    type LossFlag = ();
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         tmp: Temporal<InnerTemporal3_0>,
         i: MeasIndex,
-        (): Self::Loss,
+        (): Self::LossFlag,
     ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_0>>, Infallible>
     {
         tmp.specific
@@ -7370,13 +7346,13 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
 
 impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     type TData = Timestep;
-    type Loss = ();
+    type LossFlag = ();
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         tmp: Temporal<InnerTemporal3_1>,
         i: MeasIndex,
-        (): Self::Loss,
+        (): Self::LossFlag,
     ) -> ErrorsResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_1>>, Infallible>
     {
         tmp.specific
@@ -7399,13 +7375,13 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
 
 impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     type TData = Timestep;
-    type Loss = bool;
+    type LossFlag = AllowLoss;
 
     #[allow(clippy::type_complexity)]
     fn from_temporal(
         tmp: Temporal<InnerTemporal3_2>,
         i: MeasIndex,
-        allow_loss: Self::Loss,
+        flag: AllowLoss,
     ) -> CmtFungibleErrorsResult<
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal3_2>>,
@@ -7418,7 +7394,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             .repack_errors()
             .recover_with(
                 |((), t), es| {
-                    if allow_loss {
+                    if flag.0 {
                         let ws: Vec<_> = es.into_iter().collect();
                         let o = Self::from_temporal_unchecked(t);
                         LogResult::new_ok(o).set_cmt_warnings(ws)

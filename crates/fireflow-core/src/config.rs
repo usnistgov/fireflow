@@ -703,6 +703,10 @@ pub struct SharedConfig {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DisallowRangeTrunc(pub bool);
 
+#[derive(From, Clone, Copy, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct AllowLoss(pub bool);
+
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
@@ -831,7 +835,7 @@ mod python {
     use crate::segment::OffsetCorrection;
 
     use super::{
-        DisallowRangeTrunc, ParseTemporalOpticalKeyError, TemporalOpticalKey,
+        AllowLoss, DisallowRangeTrunc, ParseTemporalOpticalKeyError, TemporalOpticalKey,
         TimeMeasNamePattern,
     };
 
@@ -842,6 +846,7 @@ mod python {
     impl_value_err!(ParseTemporalOpticalKeyError);
 
     impl_from_py_transparent!(DisallowRangeTrunc);
+    impl_from_py_transparent!(AllowLoss);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

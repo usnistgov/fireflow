@@ -1,3 +1,4 @@
+use crate::config::AllowLoss;
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
 use crate::logging::{
     DeferredError, ErrorResult, FungibleErrorResult, LogResult, WarningAndErrorResult,
@@ -137,7 +138,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
 
     fn check_key_transfer(
         &self,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningAndErrorResult<(), (), AnyMetarootKeyLossError, AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
@@ -146,14 +147,14 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-            LogResult::new_fungible((), (), e, !allow_loss)
+            LogResult::new_fungible((), (), e, !allow_loss.0)
         }
     }
 
     fn check_indexed_key_transfer_fungible<E>(
         &self,
         i: impl Into<IndexFromOne>,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningAndErrorResult<(), (), E, E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
@@ -162,7 +163,7 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
             LogResult::new_ok(())
         } else {
             let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-            LogResult::new_fungible((), (), e, !allow_loss)
+            LogResult::new_fungible((), (), e, !allow_loss.0)
         }
     }
 

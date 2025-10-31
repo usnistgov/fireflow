@@ -1,4 +1,4 @@
-use crate::config::{DisallowRangeTrunc, StdTextReadConfig};
+use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
 use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -80,12 +80,12 @@ impl Default for Timestep {
 impl Timestep {
     pub(crate) fn check_conversion(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleError<(), TimestepLossError> {
         if self.0.is_one() {
             LogResult::new_ok(())
         } else {
-            LogResult::new_deferred_fungible((), TimestepLossError(self), !allow_loss)
+            LogResult::new_deferred_fungible((), TimestepLossError(self), !flag.0)
         }
     }
 }
@@ -553,13 +553,13 @@ impl FromStrDelim for Wavelengths {
 impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleError<Option<Wavelength>, WavelengthsLossError> {
         NonEmpty::from_vec(self.0).map_or(LogResult::new_ok_def(), |ws| {
             let ret = Some(Wavelength(ws.head));
             let n = ws.len();
             if n > 1 {
-                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !allow_loss)
+                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), !flag.0)
             } else {
                 LogResult::new_ok(ret)
             }

@@ -1,4 +1,4 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowLoss, StdTextReadConfig};
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
@@ -105,14 +105,15 @@ impl Datetimes {
 
     pub(crate) fn check_loss(
         self,
-        allow_loss: bool,
+        flag: AllowLoss,
     ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
+        // TODO these errors are linked
         LogResult::new_ok(())
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 let e = UnitaryKeyLossError::<BeginDateTime>::new();
                 self.begin.is_some().then_some(e)
             })
-            .eval_deferred_fungible_error(!allow_loss, |()| {
+            .eval_deferred_fungible_error(!flag.0, |()| {
                 let e = UnitaryKeyLossError::<EndDateTime>::new();
                 self.end.is_some().then_some(e)
             })

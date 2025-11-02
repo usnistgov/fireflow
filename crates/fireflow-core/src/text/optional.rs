@@ -133,66 +133,14 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn check_key_transfer1(&self) -> Option<AnyMetarootKeyLossError>
+    fn root_key_convert_error(&self) -> Option<AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
         (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::new().into())
-        // if self.is_default() {
-        //     LogResult::new_ok(())
-        // } else {
-        //     let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-        //     LogResult::new_fungible((), (), e, allow_loss)
-        // }
     }
 
-    // TODO it would be simpler to just have all of these return an option<E>
-    // and then eval them in one result
-    fn check_key_transfer(
-        &self,
-        flag: AllowLoss,
-    ) -> FungibleErrorResult<(), (), AllowLoss, AnyMetarootKeyLossError>
-    where
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
-    {
-        let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-        LogResult::new_fungible_ok_if(self.is_default(), (), (), e, flag)
-        // if self.is_default() {
-        //     LogResult::new_ok(())
-        // } else {
-        //     let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-        //     LogResult::new_fungible((), (), e, allow_loss)
-        // }
-    }
-
-    fn check_indexed_key_transfer_fungible1<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
-    where
-        E: From<IndexedKeyLossError<Self::Inner>>,
-    {
-        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>::new(i).into())
-    }
-
-    fn check_indexed_key_transfer_fungible<E>(
-        &self,
-        i: impl Into<IndexFromOne>,
-        flag: AllowLoss,
-    ) -> FungibleErrorResult<(), (), AllowLoss, E>
-    where
-        E: From<IndexedKeyLossError<Self::Inner>>,
-    {
-        let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-        LogResult::new_fungible_ok_if(self.is_default(), (), (), e, flag)
-    }
-
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> ErrorResult<(), (), E>
-    where
-        E: From<IndexedKeyLossError<Self::Inner>>,
-    {
-        let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-        LogResult::new_non_fungible((), (), e, self.is_default())
-    }
-
-    fn check_indexed_key_transfer1<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
+    fn indexed_key_convert_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {

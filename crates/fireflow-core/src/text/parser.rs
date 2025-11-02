@@ -1,8 +1,7 @@
 use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
-    DeferredFungibleErrors, DeferredWarningsAndErrors, LogResult, ResultExt as _,
-    WarningsAndErrorsResult,
+    DeferredWarningsAndErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::validated::keys::{
     BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
@@ -560,7 +559,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
         LogResult::new_ok(None)
     } else {
         Gain::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
-            let is_ok = !gain.is_some_and(|g| !g.0.is_one());
+            let is_ok = gain.is_none_or(|g| g.0.is_one());
             let flag = conf.allow_optional_dropping;
             let e = TemporalGainError(i).into();
             LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag).fungible_into_commutative()

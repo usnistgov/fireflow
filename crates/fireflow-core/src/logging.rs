@@ -78,6 +78,7 @@ pub type IOWarningsAndErrorsResult<V, P, W, E> = WarningsAndErrorsResult<V, P, W
 // Results with errors which can be warnings and is also commutable
 //
 
+// TODO better name for these
 pub type CmtFungibleErrorResult<V, P, E> = WarningAndErrorResult<V, P, E, E>;
 pub type CmtFungibleErrorsResult<V, P, E> = WarningsAndErrorsResult<V, P, E, E>;
 
@@ -988,6 +989,21 @@ pub trait ResultExt: Sized {
     }
 
     // TODO versions of the above that go to errors?
+
+    fn infallible_err_into<E>(self) -> Option<E>
+    where
+        Self: ResultExt<Ok = (), Error = Infallible>,
+    {
+        None
+    }
+
+    fn unwrap_infallible(self) -> Self::Ok
+    where
+        Self: ResultExt<Error = Infallible>,
+    {
+        let Ok(x) = self.into_result();
+        x
+    }
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1653,27 +1669,28 @@ impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
     // }
 }
 
-// // non-commutative/resolveable
-// impl<V, LWC, E> LogResult<V, (), LWC, Nothing<()>, E, Nothing<E>> {
-//     /// Resolve non-commutative Result with regular Result type.
-//     ///
-//     /// Warnings will be given on the Succ side since non-commutative Result's
-//     /// by definition cannot have warnings in the Fail branch.
-//     pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
-//         self,
-//         f_warnings: Fwarn,
-//         f_errors: Ferr,
-//     ) -> Result<(V, WarnRes), FailRes>
-//     where
-//         Fwarn: FnOnce(LWC) -> WarnRes,
-//         Ferr: FnOnce(E) -> FailRes,
-//     {
-//         match self {
-//             Succ(x) => Ok(x.resolve(f_warnings)),
-//             Fail(x) => Err(f_errors(x.errors.head)),
-//         }
-//     }
-// }
+// non-commutative/resolveable
+impl<V, LWC, E> NonCmtResult<V, (), LWC, E, Nothing<E>> {
+    /// Resolve non-commutative Result with regular Result type.
+    ///
+    /// Warnings will be given on the Succ side since non-commutative Result's
+    /// by definition cannot have warnings in the Fail branch.
+    #[cfg(feature = "python")]
+    pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+        self,
+        f_warnings: Fwarn,
+        f_errors: Ferr,
+    ) -> Result<(V, WarnRes), FailRes>
+    where
+        Fwarn: FnOnce(LWC) -> WarnRes,
+        Ferr: FnOnce(E) -> FailRes,
+    {
+        match self {
+            Succ(x) => Ok(x.resolve(f_warnings)),
+            Fail(x) => Err(f_errors(x.errors.head)),
+        }
+    }
+}
 
 // fungible
 impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
@@ -2429,7 +2446,7 @@ mod python {
         text::optional::Nothing,
     };
 
-    use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NowarnResult};
+    use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
 
     use pyo3::prelude::*;
     use std::convert::Infallible;
@@ -2457,7 +2474,7 @@ mod python {
     }
 
     impl<V, WC, E> CmtResult<V, (), WC, E, Nothing<E>> {
-        pub fn py_termfail_resolve<W>(self) -> PyResult<V>
+        pub fn py_resolve_commutative<W>(self) -> PyResult<V>
         where
             WC: IntoIterator<Item = W>,
             W: Display,
@@ -2469,8 +2486,21 @@ mod python {
         }
     }
 
+    impl<V, WC, E> NonCmtResult<V, (), WC, E, Nothing<E>> {
+        pub fn py_resolve_non_commutative<W>(self) -> PyResult<V>
+        where
+            WC: IntoIterator<Item = W>,
+            W: Display,
+            E: Into<PyErr>,
+        {
+            let (res, warn) = self.resolve_non_cmt(emit_warnings, Into::into)?;
+            warn?;
+            Ok(res)
+        }
+    }
+
     impl<V, E> NowarnResult<V, (), E, Nothing<E>> {
-        pub fn py_termfail_resolve_nowarn(self) -> PyResult<V>
+        pub fn py_resolve_nowarn(self) -> PyResult<V>
         where
             E: Into<PyErr>,
         {
@@ -2479,7 +2509,7 @@ mod python {
     }
 
     impl<V, LWC, RWC> LogResult<V, (), LWC, RWC, (), Infallible, Nothing<Infallible>> {
-        pub fn py_term_resolve_noerror<W>(self) -> PyResult<V>
+        pub fn py_resolve_infallible<W>(self) -> PyResult<V>
         where
             LWC: IntoIterator<Item = W>,
             W: Display,

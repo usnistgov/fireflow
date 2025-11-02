@@ -23,15 +23,15 @@ use crate::logging::{
 };
 use crate::macros::def_failure;
 use crate::segment::{
-    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, OptSegmentError,
-    OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
+    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
+    OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::parser::{
-    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ParseKeyError, ReqKeyError,
+    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
 };
-use crate::type_families::ApplyOnce;
+use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
@@ -48,6 +48,7 @@ use thiserror::Error;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
+use std::iter::once;
 use std::num::{NonZeroUsize, ParseIntError};
 use std::path::PathBuf;
 
@@ -860,8 +861,7 @@ fn split_raw_supp_text(
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
-            // TODO inject
-            .eval_deferred_fungible_error(flag, |()| {
+            .eval_warning_or_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
             .map_errors(ParseSupplementalTEXTError::from)
@@ -1122,27 +1122,31 @@ where
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
     let res = match version {
         Version::FCS2_0 => LogResult::new_ok(None),
-        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get(kws, st)
-            .nowarn_into_warn::<Vec<_>>()
-            .recover_with(
-                |(), es| {
+        Version::FCS3_0 | Version::FCS3_1 => {
+            let pair = SupplementalTextSegmentId::get_req_pair(kws);
+            match SupplementalTextSegmentId::with_req_pair(pair, st) {
+                Ok(seg) => LogResult::new_ok(Some(seg)),
+                Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
-                    LogResult::<_, _, Vec<_>, _, _, _, Vec<_>>::new_ok(None)
-                        .extend_deferred_fungible_errors(es, flag)
+                    FungibleErrorsResult::new_deferred_fungible(None, e0, flag)
+                        .extend_deferred_fungible_errors(e1)
+                        .fungible_into_commutative()
                         .map_errors(STextSegmentError::from)
                         .map_commutative_warnings(STextSegmentWarning::from)
-                },
-                |t| LogResult::new_ok(Some(t)),
-            ),
-        Version::FCS3_2 => KeyedOptSegment::get(kws, st)
-            .nowarn_into_warn::<Vec<_>>()
-            .recover_with(
-                |(), es| {
-                    let ws: Vec<_> = es.into_iter().map(STextSegmentWarning::from).collect();
-                    LogResult::new_ok(None).set_cmt_warnings(ws)
-                },
-                LogResult::new_ok,
-            ),
+                }
+            }
+        }
+        Version::FCS3_2 => {
+            let pair = SupplementalTextSegmentId::get_opt_pair(kws);
+            match SupplementalTextSegmentId::with_opt_pair(pair, st) {
+                Ok(seg) => LogResult::new_ok(seg),
+                Err((e0, e1)) => {
+                    let mut res = DeferredWarningsAndErrors::new_ok(None);
+                    res.extend_commutative_warnings(once(e0).chain(e1));
+                    res.map_commutative_warnings(STextSegmentWarning::from)
+                }
+            }
+        }
     };
     res.and_then_def(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {

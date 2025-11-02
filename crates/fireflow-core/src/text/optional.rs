@@ -191,6 +191,13 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
         LogResult::new_non_fungible((), (), e, self.is_default())
     }
+
+    fn check_indexed_key_transfer1<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>::new(i).into())
+    }
 }
 
 impl DisplayMaybe for OptionalString {

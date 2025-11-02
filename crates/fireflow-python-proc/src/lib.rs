@@ -45,7 +45,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
-            Ok(#fun_path(&path, &conf).py_termfail_resolve_nowarn()?.into())
+            Ok(#fun_path(&path, &conf).py_resolve_nowarn()?.into())
         }
     }
     .into()
@@ -83,7 +83,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             let raw = #raw_conf { header, #(#raw_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, shared };
-            Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
+            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
         }
     }
     .into()
@@ -136,7 +136,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             let layout = #layout_conf { #(#layout_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, shared };
-            let (core, data) = #fun_path(&path, &conf).py_termfail_resolve()?;
+            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
     }
@@ -184,7 +184,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, layout, offsets, data, shared };
-            Ok(#fun_path(&path, &conf).py_termfail_resolve()?.into())
+            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
         }
     }
     .into()
@@ -240,7 +240,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, data, shared };
-            let (core, data) = #fun_path(&path, &conf).py_termfail_resolve()?;
+            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
     }
@@ -295,7 +295,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
             let conf = #conf_path { offsets, layout, data, shared };
             let ret = #fun_path(
                 &path, version, &std, data_seg, analysis_seg, &other_segs[..], &conf
-            ).py_termfail_resolve()?;
+            ).py_resolve_commutative()?;
             Ok(ret.into())
         }
     }
@@ -362,7 +362,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
             let conf = #conf_path { standard, offsets, layout, data, shared };
             let (core, data) = #fun_path(
                 &path, version, kws, data_seg, analysis_seg, &other_segs[..], &conf
-            ).py_termfail_resolve()?;
+            ).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
     }
@@ -941,7 +941,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> PyResult<Self> {
                 let ret = #fun(#coretext_inner_args)
                     .summarize_errors_with(fireflow_core::core::NewCoreTEXTFailure)
-                    .py_termfail_resolve_nowarn()?;
+                    .py_resolve_nowarn()?;
                 Ok(ret.into())
             }
         }
@@ -953,7 +953,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 // TODO hide this in core.rs
                 let x = #fun(#coretext_inner_args)
                     .summarize_errors_with(fireflow_core::core::NewCoreDatasetFailure)
-                    .py_termfail_resolve_nowarn()?;
+                    .py_resolve_nowarn()?;
                 Ok(x.into_coredataset(data.0.try_into()?, analysis, others)?.into())
             }
         }
@@ -1167,7 +1167,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                     skip_conversion_check,
                     big_other,
                 };
-                self.0.h_write_dataset(&mut h, &conf).py_termfail_resolve()
+                self.0.h_write_dataset(&mut h, &conf).py_resolve_commutative()
             }
         }
     }
@@ -1339,12 +1339,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), allow_loss).py_termfail_resolve()
+                self.0.set_temporal(&name, (), allow_loss).py_resolve_non_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), allow_loss).py_termfail_resolve()
+                self.0.set_temporal_at(index, (), allow_loss).py_resolve_non_commutative()
             }
         }
     } else {
@@ -1357,14 +1357,14 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal(&name, timestep, allow_loss)
-                    .py_termfail_resolve()
+                    .py_resolve_non_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal_at(index, timestep, allow_loss)
-                    .py_termfail_resolve()
+                    .py_resolve_non_commutative()
             }
         }
     };
@@ -1434,7 +1434,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #doc
             fn unset_temporal(&mut self, allow_loss: bool) -> PyResult<#ret> {
-                self.0.unset_temporal_lossy(allow_loss).py_termfail_resolve()
+                self.0.unset_temporal_lossy(allow_loss).py_resolve_non_commutative()
             }
         }
     };
@@ -1495,7 +1495,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "all_scales",
             true,
             |_, _| quote!(self.0.scales().collect()),
-            |n, _| quote!(self.0.set_scales(#n).py_termfail_resolve_nowarn()),
+            |n, _| quote!(self.0.set_scales(#n).py_resolve_nowarn()),
         )
     } else {
         let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
@@ -1516,7 +1516,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "all_scale_transforms",
             true,
             |_, _| quote!(self.0.transforms().collect()),
-            |n, _| quote!(self.0.set_transforms(#n).py_termfail_resolve_nowarn()),
+            |n, _| quote!(self.0.set_transforms(#n).py_resolve_nowarn()),
         )
     }
     .into()
@@ -1659,7 +1659,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_termfail_resolve_nowarn()
+                    .py_resolve_nowarn()
             }
         }
     }
@@ -1703,7 +1703,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
                 self.0
                     .push_optical(#opt_inner_args)
-                    .py_termfail_resolve()
+                    .py_resolve_commutative()
                     .map(|_| ())
             }
 
@@ -1711,7 +1711,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
                 self.0
                     .push_temporal(#tmp_inner_args)
-                    .py_termfail_resolve()
+                    .py_resolve_commutative()
             }
         }
     }
@@ -1826,7 +1826,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_optical(#opt_inner_args)
-                    .py_termfail_resolve()
+                    .py_resolve_commutative()
                     .map(|_| ())
             }
 
@@ -1837,7 +1837,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ) -> PyResult<()> {
                 self.0
                     .insert_temporal(#tmp_inner_args)
-                    .py_termfail_resolve()
+                    .py_resolve_commutative()
             }
         }
     }
@@ -1917,7 +1917,8 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
     let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
-        let go = |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_termfail_resolve()?);
+        let go =
+            |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_resolve_non_commutative()?);
         (
             go(quote! {replace_temporal_at_lossy}, quote! {index}),
             go(quote! {replace_temporal_named_lossy}, quote! {&name}),
@@ -2063,7 +2064,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
-                let (core, uncore) = #path::new_from_keywords(kws, &conf).py_termfail_resolve()?;
+                let (core, uncore) = #path::new_from_keywords(kws, &conf).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
         }
@@ -2162,7 +2163,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let conf = #core_conf { standard, layout, offsets, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     path, kws, data_seg, analysis_seg, &other_segs[..], &conf
-                ).py_termfail_resolve()?;
+                ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
         }
@@ -2238,7 +2239,7 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
-                self.0.truncate_data(#inner_arg).py_term_resolve_noerror()
+                self.0.truncate_data(#inner_arg).py_resolve_infallible()
             }
         }
     }
@@ -2284,7 +2285,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_termfail_resolve_nowarn()
+                    .py_resolve_nowarn()
             }
         }
     }
@@ -2320,7 +2321,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
                         allow_shared_names,
                         skip_index_check,
                     )
-                    .py_termfail_resolve_nowarn()
+                    .py_resolve_nowarn()
             }
         }
     }
@@ -2732,7 +2733,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
                     .collect()
             }
         },
-        |n, _| quote!(self.0.set_temporal_optical2(#n).py_termfail_resolve_nowarn()),
+        |n, _| quote!(self.0.set_temporal_optical2(#n).py_resolve_nowarn()),
     )
     .into()
 }
@@ -2847,7 +2848,7 @@ where
         },
         |n, _| {
             if optical_only {
-                quote!(self.0.set_optical(#n).py_termfail_resolve_nowarn())
+                quote!(self.0.set_optical(#n).py_resolve_nowarn())
             } else {
                 quote!(Ok(self.0.set_meas(#n)?))
             }
@@ -2894,7 +2895,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             quote! {
                 #doc
                 fn #fn_name(&self, allow_loss: bool) -> PyResult<#target_pytype> {
-                    self.0.clone().try_convert(allow_loss).py_termfail_resolve().map(Into::into)
+                    self.0.clone().try_convert(allow_loss).py_resolve_commutative().map(Into::into)
                 }
             }
         })
@@ -5741,12 +5742,7 @@ impl DocArgRWIvar {
             layout_desc,
             true,
             |_, _| quote!(self.0.layout().clone().into()),
-            |_, _| {
-                quote!(self
-                    .0
-                    .set_layout(layout.into())
-                    .py_termfail_resolve_nowarn())
-            },
+            |_, _| quote!(self.0.set_layout(layout.into()).py_resolve_nowarn()),
         )
     }
 
@@ -5916,12 +5912,7 @@ impl DocArgRWIvar {
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
-            |n, _| {
-                quote!(self
-                    .0
-                    .set_unstained_centers(#n)
-                    .py_termfail_resolve_nowarn())
-            },
+            |n, _| quote!(self.0.set_unstained_centers(#n).py_resolve_nowarn()),
         )
         .def_auto()
     }

@@ -1,14 +1,12 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
-    ErrorFlag, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadState,
+    IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadState,
     ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::logging::{
-    DeferredErrors, DeferredFungibleErrors, DeferredWarningsAndErrors, ErrorsResult,
-    FungibleResult, ImpureError, LogResult, OptionExt as _, RecoverableErrorsResult,
-    ResultExt as _, WarningsAndErrorsResult,
+    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, FungibleErrorsResult, ImpureError,
+    LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
-use crate::macros;
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
@@ -185,7 +183,7 @@ where
 {
     type IgnoreFlag: ConfigFlag;
 
-    fn get_or<C>(
+    fn get_req_or<C>(
         kws: &StdKeywords,
         default: HeaderSegment<Self>,
         st: &ReadState<C>,
@@ -199,12 +197,11 @@ where
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let res = Self::get(kws, &inner_st);
-            Self::default_or(res, default, st.conf.as_ref())
+            Self::with_req_pair_default(Self::get_req_pair(kws), default, &inner_st)
         }
     }
 
-    fn remove_or<C>(
+    fn remove_req_or<C>(
         kws: &mut StdKeywords,
         default: HeaderSegment<Self>,
         st: &ReadState<C>,
@@ -218,90 +215,85 @@ where
         // return the default segment
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
-            let _ = Self::remove_pair(kws);
+            let _ = Self::remove_req_pair(kws);
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let res = Self::remove(kws, &inner_st);
-            Self::default_or(res, default, st.conf.as_ref())
+            Self::with_req_pair_default(Self::remove_req_pair(kws), default, &inner_st)
         }
     }
 
-    fn get<C>(
-        kws: &StdKeywords,
+    fn with_req_pair<C>(
+        pair: ReqPair<Self::B, Self::E>,
         st: &ReadState<C>,
-    ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError>
+    ) -> Result<
+        Segment<Self, SegmentFromTEXT, UintZeroPad20>,
+        (ReqSegmentError, Option<ReqSegmentError>),
+    >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
     {
-        let new_conf = Self::segment_conf(st);
-        Self::get_pair(kws).errors_into().and_then_cmt(|(y0, y1)| {
-            Segment::try_new(y0, y1, &new_conf)
-                .map_err(Into::into)
-                .into_log()
-        })
+        match pair {
+            (Ok(x0), Ok(x1)) => {
+                let new_conf = Self::segment_conf(st);
+                Segment::try_new(x0, x1, &new_conf)
+                    .map_err(ReqSegmentError::from)
+                    .map_err(|e| (e, None))
+            }
+            (Err(e), Ok(_)) => Err((e.into(), None)),
+            (Ok(_), Err(e)) => Err((e.into(), None)),
+            (Err(e0), Err(e1)) => Err((e0.into(), Some(e1.into()))),
+        }
     }
 
-    fn remove<C>(
-        kws: &mut StdKeywords,
-        st: &ReadState<C>,
-    ) -> RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError>
-    where
-        C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
-    {
-        let new_conf = Self::segment_conf(st);
-        Self::remove_pair(kws)
-            .errors_into()
-            .and_then_cmt(|(y0, y1)| {
-                Segment::try_new(y0, y1, &new_conf)
-                    .map_err(Into::into)
-                    .into_log()
-            })
-    }
-
-    fn default_or(
-        res: RecoverableErrorsResult<TEXTSegment<Self>, ReqSegmentError>,
+    fn with_req_pair_default<C>(
+        pair: ReqPair<Self::B, Self::E>,
         default: HeaderSegment<Self>,
-        conf: &ReadTEXTOffsetsConfig,
-    ) -> ReqSegResult<Self> {
-        let mismatch_flag = conf.allow_header_text_offset_mismatch;
-        let missing_flag = conf.allow_missing_required_offsets;
-        res.nowarn_into_warn().recover_with(
-            |(), es| {
-                if missing_flag.is_error() {
-                    LogResult::new_err(es).map_errors(ReqSegmentWithDefaultError::from)
-                } else {
-                    let w = SegmentDefaultWarning::default().into();
-                    let ws: Vec<_> = es.into_iter().map(Into::into).chain([w]).collect();
-                    LogResult::new_ok(default.into_any()).set_cmt_warnings(ws)
-                }
-            },
-            |other| {
-                let (seg, warn) = default.unless(other);
-                warn.map_or(LogResult::new_ok(seg), |w| {
-                    FungibleResult::<_, _, _, _, Vec<_>>::new_fungible(seg, (), w, mismatch_flag)
-                        .fungible_into_commutative()
-                        .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
-                        .map_errors(ReqSegmentWithDefaultError::from)
-                })
-            },
-        )
+        st: &ReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        C: AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<AllowMissingRequiredOffsets>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<Self>>,
+    {
+        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
+        let missing_flag: &AllowMissingRequiredOffsets = st.conf.as_ref();
+        let header_seg = default.into_any();
+
+        match Self::with_req_pair(pair, st) {
+            Ok(text_seg) => {
+                let (seg, warn) = default.unless(text_seg);
+                FungibleErrorsResult::new_fungible_maybe(seg, (), warn, *mismatch_flag)
+                    .map_fungible_errors(SegmentMismatchWarning::from)
+                    .fungible_into_commutative()
+                    .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
+                    .map_errors(ReqSegmentWithDefaultError::from)
+            }
+            Err((e0, e1)) => {
+                let mut res = FungibleErrorsResult::new_fungible((), (), e0, *missing_flag)
+                    .extend_deferred_fungible_errors(e1)
+                    .fungible_into_commutative()
+                    .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
+                    .map_errors(ReqSegmentWithDefaultError::from)
+                    .set_ok_value(header_seg);
+                let w = SegmentDefaultWarning::default().into();
+                res.eval_warning(|_| Some(w));
+                res
+            }
+        }
     }
 
-    fn get_pair(
-        kws: &StdKeywords,
-    ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_req(kws).into_nowarn();
-        let x1 = Self::E::get_metaroot_req(kws).into_nowarn();
-        x0.zip_cmt(x1)
+    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::B::get_metaroot_req(kws);
+        let x1 = Self::E::get_metaroot_req(kws);
+        (x0, x1)
     }
 
-    fn remove_pair(
-        kws: &mut StdKeywords,
-    ) -> RecoverableErrorsResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_req(kws).into_nowarn();
-        let x1 = Self::E::remove_metaroot_req(kws).into_nowarn();
-        x0.zip_cmt(x1)
+    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::B::remove_metaroot_req(kws);
+        let x1 = Self::E::remove_metaroot_req(kws);
+        (x0, x1)
     }
 }
 
@@ -313,7 +305,7 @@ where
 {
     type IgnoreFlag: ConfigFlag;
 
-    fn get_or<C>(
+    fn get_opt_or<C>(
         kws: &StdKeywords,
         default: HeaderSegment<Self>,
         st: &ReadState<C>,
@@ -321,22 +313,18 @@ where
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
         ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-        // C: AsRef<TruncateOffsets>
-        //     + AsRef<TEXTCorrection<Self>>
-        //     + AsRef<Self::IgnoreFlag>
-        //     + AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let res = Self::get(kws, &inner_st);
-            Self::default_or(res, default, st.conf.as_ref())
+            let pair = Self::get_opt_pair(kws);
+            Self::with_opt_pair_default(pair, default, &inner_st)
         }
     }
 
-    fn remove_or<C>(
+    fn remove_opt_or<C>(
         kws: &mut StdKeywords,
         default: HeaderSegment<Self>,
         st: &ReadState<C>,
@@ -344,111 +332,98 @@ where
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
         ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-        // C: AsRef<TruncateOffsets>
-        //     + AsRef<TEXTCorrection<Self>>
-        //     + AsRef<Self::IgnoreFlag>
-        //     + AsRef<AllowHeaderTEXTOffsetMismatch>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
-            let _ = Self::remove_pair(kws);
+            let _ = Self::remove_opt_pair(kws);
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let res = Self::remove(kws, &inner_st);
-            Self::default_or(res, default, st.conf.as_ref())
+            let pair = Self::remove_opt_pair(kws);
+            Self::with_opt_pair_default(pair, default, &inner_st)
         }
     }
 
-    fn get<C>(
-        kws: &StdKeywords,
+    fn with_opt_pair<C>(
+        pair: OptPair<Self::B, Self::E>,
         st: &ReadState<C>,
-    ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError>
+    ) -> Result<
+        Option<Segment<Self, SegmentFromTEXT, UintZeroPad20>>,
+        (OptSegmentError, Option<OptSegmentError>),
+    >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
     {
-        let new_conf = Self::segment_conf(st);
-        Self::get_pair(kws).errors_into().and_then_cmt(|pair| {
-            pair.map(|(z0, z1)| {
-                Segment::try_new(z0, z1, &new_conf)
+        match pair {
+            (Ok(x0), Ok(x1)) => {
+                let new_conf = Self::segment_conf(st);
+                x0.zip(x1)
+                    .map(|(y0, y1)| Segment::try_new(y0, y1, &new_conf))
+                    .transpose()
                     .map_err(OptSegmentError::from)
-                    .into_log()
-            })
-            .transpose_log_result()
-        })
+                    .map_err(|e| (e, None))
+            }
+            (Err(e), Ok(_)) => Err((e.into(), None)),
+            (Ok(_), Err(e)) => Err((e.into(), None)),
+            (Err(e0), Err(e1)) => Err((e0.into(), Some(e1.into()))),
+        }
     }
 
-    fn remove<C>(
-        kws: &mut StdKeywords,
-        st: &ReadState<C>,
-    ) -> RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError>
-    where
-        C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
-    {
-        let new_conf = Self::segment_conf(st);
-        Self::remove_pair(kws).errors_into().and_then_cmt(|pair| {
-            pair.map(|(z0, z1)| {
-                Segment::try_new(z0, z1, &new_conf)
-                    .map_err(Into::into)
-                    .into_log()
-            })
-            .transpose_log_result()
-        })
-    }
-
-    fn default_or<C>(
-        res: RecoverableErrorsResult<Option<TEXTSegment<Self>>, OptSegmentError>,
+    fn with_opt_pair_default<C>(
+        pair: OptPair<Self::B, Self::E>,
         default: HeaderSegment<Self>,
-        conf: &C,
+        st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
-        C: AsRef<AllowHeaderTEXTOffsetMismatch>,
+        C: AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<Self>>,
     {
         // TODO configure this
         let drop_flag = AllowOptionalDropping(true);
-        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = conf.as_ref();
-        let def = default.into_any();
-        res.nowarn_into_warn().recover_with(
-            |(), es| {
-                if drop_flag.is_error() {
-                    LogResult::new_err(es)
-                        .set_err_value(def)
-                        .map_errors(Into::into)
-                } else {
-                    let ws = es.into_iter().map(Into::into).collect();
-                    LogResult::new_ok(def).set_cmt_warnings(ws)
+        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
+        let header_seg = default.into_any();
+
+        match Self::with_opt_pair(pair, st) {
+            Ok(text_seg) => match text_seg {
+                None => LogResult::new_ok(header_seg),
+                Some(ts) => {
+                    let (seg, warn) = default.unless(ts);
+                    FungibleErrorsResult::new_deferred_fungible_maybe(seg, warn, *mismatch_flag)
+                        .map_fungible_errors(OptSegmentWithDefaultWarning::from)
+                        .fungible_into_commutative()
                 }
             },
-            |other| {
-                other.map_or(LogResult::new_ok(def), |o| {
-                    let (seg, warn) = default.unless(o);
-                    warn.map_or(LogResult::new_fungible_ok(seg, *mismatch_flag), |w| {
-                        LogResult::new_fungible(seg, def, w.into(), *mismatch_flag)
-                    })
-                })
-            },
-        )
+            Err((e0, e1)) => FungibleErrorsResult::new_deferred_fungible(header_seg, e0, drop_flag)
+                .extend_deferred_fungible_errors(e1)
+                .map_fungible_errors(OptSegmentError::from)
+                .map_fungible_errors(OptSegmentWithDefaultWarning::from)
+                .fungible_into_commutative(),
+        }
     }
 
-    // TODO what if I don't want to drop optional keywords on error?
-    #[allow(clippy::type_complexity)]
-    fn get_pair(
-        kws: &StdKeywords,
-    ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::get_metaroot_opt(kws).into_nowarn();
-        let x1 = Self::E::get_metaroot_opt(kws).into_nowarn();
-        x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
+    fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
+        let x0 = Self::B::get_metaroot_opt(kws);
+        let x1 = Self::E::get_metaroot_opt(kws);
+        (x0, x1)
     }
 
-    #[allow(clippy::type_complexity)]
-    fn remove_pair(
-        kws: &mut StdKeywords,
-    ) -> RecoverableErrorsResult<Option<(Self::B, Self::E)>, OptKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_metaroot_opt(kws).into_nowarn();
-        let x1 = Self::E::remove_metaroot_opt(kws).into_nowarn();
-        x0.zip_cmt(x1).map_ok_value(|(x, y)| x.zip(y))
+    fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
+        let x0 = Self::B::remove_metaroot_opt(kws);
+        let x1 = Self::E::remove_metaroot_opt(kws);
+        (x0, x1)
     }
 }
+
+type ReqPair<B, E> = (
+    Result<B, ReqKeyError<ParseIntError>>,
+    Result<E, ReqKeyError<ParseIntError>>,
+);
+
+type OptPair<B, E> = (
+    Result<Option<B>, OptKeyError<ParseIntError>>,
+    Result<Option<E>, OptKeyError<ParseIntError>>,
+);
 
 /// Denotes that a type comes from a specific part of the FCS file
 pub(crate) trait HasSource {

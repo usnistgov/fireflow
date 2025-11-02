@@ -2288,7 +2288,7 @@ where
                         .map(|w| ColumnError::new(i, w))
                 })
                 .collect();
-            write_res.set_cmt_warnings(cs)
+            write_res.set_commutative_warnings(cs)
         }
     }
 
@@ -2317,7 +2317,7 @@ where
             })
             .unzip();
         let ws: Vec<_> = warnings.into_iter().flatten().collect();
-        LogResult::new_ok(FCSDataFrame::try_new(columns).unwrap()).set_cmt_warnings(ws)
+        LogResult::new_ok(FCSDataFrame::try_new(columns).unwrap()).set_commutative_warnings(ws)
     }
 }
 
@@ -2643,7 +2643,7 @@ where
                 .enumerate()
                 .filter_map(|(i, c)| c.as_err(i.into()))
                 .collect();
-            write_res.set_cmt_warnings(ws)
+            write_res.set_commutative_warnings(ws)
         }
     }
 
@@ -2671,7 +2671,7 @@ where
             .enumerate()
             .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)))
             .collect();
-        LogResult::new_ok(FCSDataFrame::try_new(new_columns).unwrap()).set_cmt_warnings(ws)
+        LogResult::new_ok(FCSDataFrame::try_new(new_columns).unwrap()).set_commutative_warnings(ws)
     }
 }
 

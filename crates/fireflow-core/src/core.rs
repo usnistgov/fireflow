@@ -1442,7 +1442,7 @@ pub trait VersionedMetaroot: Sized {
         flag: AllowLoss,
     ) -> FungibleErrorResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
-        Box<(Temporal<Self::Temporal>, Optical<Self::Optical>)>,
+        (Temporal<Self::Temporal>, Optical<Self::Optical>),
         AllowLoss,
         SwapOpticalTemporalSummary,
     > {
@@ -1458,26 +1458,23 @@ pub trait VersionedMetaroot: Sized {
         let (tmp_index, tmp) = old;
         let (opt_index, opt) = new;
 
-        let o_to_t_errors = opt
-            .specific
-            .optical_to_temporal_errors(opt_index)
-            .map(SwapOpticalTemporalError::from);
-        // TODO this is infallible for all but 3.2
-        let t_to_o_error = tmp.specific.temporal_to_optical_error(tmp_index);
-        let o_common_errs = opt
-            .key_loss_errors(opt_index)
-            .map(OpticalToTemporalError::from)
-            .map(SwapOpticalTemporalError::from);
+        let o_to_t_specific_errors = opt.specific.optical_to_temporal_loss_errors(opt_index);
+        let scale_error = opt.specific.nonlinear_scale_error(opt_index);
+        let t_to_o_err = tmp.specific.temporal_to_optical_error(tmp_index);
+        let o_to_t_common_errs = opt.key_loss_errors(opt_index);
 
-        // TODO make this error more sophisticated
-        let es = t_to_o_error
-            .into_iter()
-            .chain(o_to_t_errors)
-            .chain(o_common_errs);
-        let e = NonEmpty::collect(es).map(SwapOpticalTemporalSummary);
+        let o_to_t_errs = o_to_t_specific_errors.chain(o_to_t_common_errs);
+
+        let e = SwapOpticalTemporalSummary::try_new(
+            opt_index,
+            tmp_index,
+            scale_error,
+            t_to_o_err,
+            o_to_t_errs,
+        );
+
         FungibleErrorResult::new_deferred_fungible_maybe((tmp, opt), e, flag)
             .map_ok_value(|(t, o)| go(t, o))
-            .map_err_value(|(t, o)| Box::new((t, o)))
     }
 
     fn swap_optical_temporal_inner(
@@ -1499,10 +1496,12 @@ pub trait VersionedOptical: Sized {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)>;
 
-    fn optical_to_temporal_errors(
+    fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError>;
+
+    fn optical_to_temporal_loss_errors(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = OpticalToTemporalError>;
+    ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError>;
 }
 
 pub trait LookupOptical: Sized + VersionedOptical {
@@ -1526,7 +1525,7 @@ pub trait VersionedTemporal: Sized {
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 
-    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError>;
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError>;
 }
 
 pub trait LookupTemporal: VersionedTemporal {
@@ -1546,17 +1545,20 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         data: Self::TData,
         flag: AllowLoss,
-    ) -> FungibleErrorResult<Temporal<Self>, Box<Optical<O>>, AllowLoss, OpticalToTemporalSummary>
-    {
-        let opt_common_errs = opt.key_loss_errors(i).map(OpticalToTemporalError::from);
-        let opt_specific_errs = opt.specific.optical_to_temporal_errors(i);
+    ) -> FungibleErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalSummary> {
+        let opt_common_errs = opt.key_loss_errors(i);
+        let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
+        let scale_err = opt.specific.nonlinear_scale_error(i);
 
-        // TODO make this error more sophisticated
-        let es = opt_common_errs.chain(opt_specific_errs);
-        let e = NonEmpty::collect(es).map(OpticalToTemporalSummary::from);
+        let e = OpticalToTemporalSummary::try_new(
+            i,
+            scale_err,
+            opt_common_errs.chain(opt_specific_errs),
+        );
+
         FungibleErrorResult::new_deferred_fungible_maybe((opt, data), e, flag)
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
-            .map_err_value(|(o, _)| Box::new(o))
+            .map_err_value(|(o, _)| o)
     }
 
     fn from_optical_unchecked(o: Optical<O>, d: Self::TData) -> Temporal<Self> {
@@ -2290,14 +2292,14 @@ where
     ) -> WarningOrErrorResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         (),
-        TemporalToOpticalError,
-        TemporalToOpticalError,
+        AnyTemporalToOpticalKeyLossError,
+        AnyTemporalToOpticalKeyLossError,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<TemporalToOpticalError>,
-            Error = TemporalToOpticalError,
+            Warning = Option<AnyTemporalToOpticalKeyLossError>,
+            Error = AnyTemporalToOpticalKeyLossError,
         >,
     {
         // TODO ditto above
@@ -2384,14 +2386,14 @@ where
     ) -> WarningOrErrorResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         (),
-        TemporalToOpticalError,
+        AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalError,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<TemporalToOpticalError>,
-            Error = TemporalToOpticalError,
+            Warning = Option<AnyTemporalToOpticalKeyLossError>,
+            Error = AnyTemporalToOpticalKeyLossError,
         >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
@@ -2432,14 +2434,14 @@ where
     ) -> WarningOrErrorResult<
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         (),
-        TemporalToOpticalError,
+        AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalError,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<TemporalToOpticalError>,
-            Error = TemporalToOpticalError,
+            Warning = Option<AnyTemporalToOpticalKeyLossError>,
+            Error = AnyTemporalToOpticalKeyLossError,
         >,
     {
         self.measurements
@@ -6713,20 +6715,18 @@ impl VersionedOptical for InnerOptical2_0 {
         .chain(self.peak.opt_keywords(i))
     }
 
-    fn optical_to_temporal_errors(
-        &self,
-        i: MeasIndex,
-    ) -> impl Iterator<Item = OpticalToTemporalError> {
-        let a = self
-            .wavelength
-            .indexed_key_convert_error(i)
-            .map(OpticalToTemporalError::Loss);
-        let b = self
-            .scale
+    fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
+        self.scale
             .as_ref()
             .is_some_and(|s| *s == Scale::Linear)
-            .then_some(OpticalNonLinearError(i).into());
-        [a, b].into_iter().flatten()
+            .then_some(OpticalNonLinearError(i))
+    }
+
+    fn optical_to_temporal_loss_errors(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
+        self.wavelength.indexed_key_convert_error(i).into_iter()
     }
 }
 
@@ -6748,16 +6748,15 @@ impl VersionedOptical for InnerOptical3_0 {
             .chain(self.scale.opt_suffixes(i))
     }
 
-    fn optical_to_temporal_errors(
+    fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+    }
+
+    fn optical_to_temporal_loss_errors(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = OpticalToTemporalError> {
-        let a = self
-            .wavelength
-            .indexed_key_convert_error(i)
-            .map(OpticalToTemporalError::Loss);
-        let b = (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into());
-        [a, b].into_iter().flatten()
+    ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
+        self.wavelength.indexed_key_convert_error(i).into_iter()
     }
 }
 
@@ -6784,20 +6783,17 @@ impl VersionedOptical for InnerOptical3_1 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn optical_to_temporal_errors(
+    fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+    }
+
+    fn optical_to_temporal_loss_errors(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = OpticalToTemporalError> {
-        let a = self
-            .calibration
-            .indexed_key_convert_error(i)
-            .map(OpticalToTemporalError::Loss);
-        let b = self
-            .wavelengths
-            .indexed_key_convert_error(i)
-            .map(OpticalToTemporalError::Loss);
-        let c = (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into());
-        [a, b, c].into_iter().flatten()
+    ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
+        let a = self.calibration.indexed_key_convert_error(i);
+        let b = self.wavelengths.indexed_key_convert_error(i);
+        [a, b].into_iter().flatten()
     }
 }
 
@@ -6828,10 +6824,14 @@ impl VersionedOptical for InnerOptical3_2 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn optical_to_temporal_errors(
+    fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+    }
+
+    fn optical_to_temporal_loss_errors(
         &self,
         i: MeasIndex,
-    ) -> impl Iterator<Item = OpticalToTemporalError> {
+    ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
         let cal = self.calibration.indexed_key_convert_error(i);
         let wave = self.wavelengths.indexed_key_convert_error(i);
         let meas = self.measurement_type.indexed_key_convert_error(i);
@@ -6839,13 +6839,9 @@ impl VersionedOptical for InnerOptical3_2 {
         let tag = self.tag.indexed_key_convert_error(i);
         let det_name = self.detector_name.indexed_key_convert_error(i);
         let feat = self.feature.indexed_key_convert_error(i);
-        let scale = (!self.scale.is_noop()).then_some(OpticalNonLinearError(i).into());
-
         [cal, wave, meas, anal, tag, det_name, feat]
             .into_iter()
             .flatten()
-            .map(OpticalToTemporalError::Loss)
-            .chain(scale)
     }
 }
 
@@ -6874,7 +6870,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
         Ok(())
     }
 
-    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
@@ -6902,7 +6898,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
         Ok(())
     }
 
-    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
@@ -6932,15 +6928,15 @@ impl VersionedTemporal for InnerTemporal3_1 {
         Ok(())
     }
 
-    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
 
 impl VersionedTemporal for InnerTemporal3_2 {
     type Ver = Version3_2;
-    type Warning = Option<TemporalToOpticalError>;
-    type Error = TemporalToOpticalError;
+    type Warning = Option<AnyTemporalToOpticalKeyLossError>;
+    type Error = AnyTemporalToOpticalKeyLossError;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
         [self.timestep.pair()].into_iter()
@@ -6957,14 +6953,11 @@ impl VersionedTemporal for InnerTemporal3_2 {
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
         self.measurement_type
             .indexed_key_convert_error(i)
-            .map(TemporalToOpticalError::Loss)
             .map_or(Ok(()), Err)
     }
 
-    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
-        self.can_convert_to_optical(i)
-            .err()
-            .map(SwapOpticalTemporalError::from)
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
+        self.can_convert_to_optical(i).err()
     }
 }
 
@@ -7223,7 +7216,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         (Optical<Self>, Self::TData),
         Box<Temporal<InnerTemporal3_2>>,
         AllowLoss,
-        TemporalToOpticalError,
+        AnyTemporalToOpticalKeyLossError,
     > {
         tmp.specific
             .can_convert_to_optical(i)
@@ -8244,7 +8237,7 @@ pub struct NoScaleError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
 pub enum ReplaceTemporalError {
-    ToOptical(TemporalToOpticalError),
+    ToOptical(AnyTemporalToOpticalKeyLossError),
     Set(SetCenterError),
     Name(KeyNotFoundError),
 }
@@ -8267,8 +8260,33 @@ pub enum SetTemporalSummary {
     ToOptical(OpticalToTemporalSummary),
 }
 
-#[derive(From, Debug, Error)]
-pub struct SwapOpticalTemporalSummary(NonEmpty<SwapOpticalTemporalError>);
+#[derive(From, Debug, Error, new)]
+pub struct SwapOpticalTemporalSummary {
+    opt_index: MeasIndex,
+    tmp_index: MeasIndex,
+    nonlinear: Option<OpticalNonLinearError>,
+    tmp_loss: Option<AnyTemporalToOpticalKeyLossError>,
+    opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
+}
+
+impl SwapOpticalTemporalSummary {
+    fn try_new(
+        opt_index: MeasIndex,
+        tmp_index: MeasIndex,
+        nonlinear: Option<OpticalNonLinearError>,
+        tmp_loss: Option<AnyTemporalToOpticalKeyLossError>,
+        opt_loss: impl IntoIterator<Item = AnyOpticalToTemporalKeyLossError>,
+    ) -> Option<Self> {
+        let opt_loss_: Vec<_> = opt_loss.into_iter().collect();
+        if nonlinear.is_none() && tmp_loss.is_none() && opt_loss_.is_empty() {
+            None
+        } else {
+            Some(Self::new(
+                opt_index, tmp_index, nonlinear, tmp_loss, opt_loss_,
+            ))
+        }
+    }
+}
 
 impl std::fmt::Display for SwapOpticalTemporalSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -8276,14 +8294,27 @@ impl std::fmt::Display for SwapOpticalTemporalSummary {
     }
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum SwapOpticalTemporalError {
-    ToTemporal(OpticalToTemporalError),
-    ToOptical(TemporalToOpticalError),
+#[derive(From, Debug, Error, new)]
+pub struct OpticalToTemporalSummary {
+    opt_index: MeasIndex,
+    nonlinear: Option<OpticalNonLinearError>,
+    opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
 }
 
-#[derive(From, Debug, Error)]
-pub struct OpticalToTemporalSummary(NonEmpty<OpticalToTemporalError>);
+impl OpticalToTemporalSummary {
+    fn try_new(
+        opt_index: MeasIndex,
+        nonlinear: Option<OpticalNonLinearError>,
+        opt_loss: impl IntoIterator<Item = AnyOpticalToTemporalKeyLossError>,
+    ) -> Option<Self> {
+        let opt_loss_: Vec<_> = opt_loss.into_iter().collect();
+        if nonlinear.is_none() && opt_loss_.is_empty() {
+            None
+        } else {
+            Some(Self::new(opt_index, nonlinear, opt_loss_))
+        }
+    }
+}
 
 impl std::fmt::Display for OpticalToTemporalSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -8295,11 +8326,6 @@ impl std::fmt::Display for OpticalToTemporalSummary {
 pub enum OpticalToTemporalError {
     NonLinear(OpticalNonLinearError),
     Loss(AnyOpticalToTemporalKeyLossError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum TemporalToOpticalError {
-    Loss(AnyTemporalToOpticalKeyLossError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8631,11 +8657,11 @@ mod python {
     use crate::validated::dataframe::python::SeriesToColumnError;
 
     use super::{
-        Analysis, CSVFlags, ColumnsToDataframeError, CompParMismatchError, ExistingLinkError,
-        GatingMeasLinkError, MeasDataMismatchError, MissingMeasurementNameError, NewCoreTEXTError,
-        Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError,
-        ScaleTransform, SetMeasurementsError, SetTemporalByIndexError, SetTemporalByNameError,
-        SpilloverLinkError, TemporalToOpticalError, TriggerLinkError,
+        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
+        CompParMismatchError, ExistingLinkError, GatingMeasLinkError, MeasDataMismatchError,
+        MissingMeasurementNameError, NewCoreTEXTError, Other, Others, RemoveMeasByIndexError,
+        RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, SetMeasurementsError,
+        SetTemporalByIndexError, SetTemporalByNameError, SpilloverLinkError, TriggerLinkError,
     };
 
     use derive_more::{Display, From};
@@ -8697,7 +8723,7 @@ mod python {
     impl_pyreflow_err!(NewCoreTEXTError);
     impl_pyreflow_err!(SetTemporalByIndexError);
     impl_pyreflow_err!(SetTemporalByNameError);
-    impl_pyreflow_err!(TemporalToOpticalError);
+    impl_pyreflow_err!(AnyTemporalToOpticalKeyLossError);
     impl_pyreflow_err!(ReplaceTemporalError);
 
     impl From<RemoveMeasByIndexError> for PyErr {

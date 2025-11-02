@@ -1265,8 +1265,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         Fswap: FnOnce(
             (MeasIndex, U),
             (MeasIndex, V),
-        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
+        ) -> LogResult<(V, U), (U, V), LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, V, LWC, RWC, (), E, EC>,
         E: From<KeyNotFoundError>,
         EC: Default,
         LWC: Default,
@@ -1290,8 +1290,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         Fswap: FnOnce(
             (MeasIndex, U),
             (MeasIndex, V),
-        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
+        ) -> LogResult<(V, U), (U, V), LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, V, LWC, RWC, (), E, EC>,
         E: From<SetCenterError>,
         EC: Default,
         RWC: Default,
@@ -1314,8 +1314,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         Fswap: FnOnce(
             (MeasIndex, U),
             (MeasIndex, V),
-        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
+        ) -> LogResult<(V, U), (U, V), LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, V, LWC, RWC, (), E, EC>,
         EC: Default,
         RWC: Default,
         LWC: Default,
@@ -1329,7 +1329,6 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let old_center = (split.stable.center_index, split.center_value);
                     let new_center = (j, split.selected_left_value);
                     swap(old_center, new_center)
-                        .map_err_value(|x| *x)
                         .inject_value(split.stable)
                         .map_ok_value(|((new_right_val, new_center_val), stable)| {
                             let sp =
@@ -1347,7 +1346,6 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let old_center = (split.stable.center_index, split.center_value);
                     let new_center = (j, split.selected_right_value);
                     swap(old_center, new_center)
-                        .map_err_value(|x| *x)
                         .inject_value(split.stable)
                         .map_ok_value(|((new_right_val, new_center_val), stable)| {
                             let sp =
@@ -1369,7 +1367,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         (Self::new_split(left, center, right), true)
                     })
                     .map_err_value(|(old_value, (left, key, right))| {
-                        let center = Pair::new(key, *old_value);
+                        let center = Pair::new(key, old_value);
                         let new = left.into_iter().chain([center]).chain(right).collect();
                         Self::new_unsplit(new)
                     })

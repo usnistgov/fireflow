@@ -1262,7 +1262,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_u: FtoU,
     ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        Fswap: FnOnce(
+            (MeasIndex, U),
+            (MeasIndex, V),
+        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         E: From<KeyNotFoundError>,
         EC: Default,
@@ -1284,7 +1287,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_u: FtoU,
     ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        Fswap: FnOnce(
+            (MeasIndex, U),
+            (MeasIndex, V),
+        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         E: From<SetCenterError>,
         EC: Default,
@@ -1305,7 +1311,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_u: FtoU,
     ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        Fswap: FnOnce(
+            (MeasIndex, U),
+            (MeasIndex, V),
+        ) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         EC: Default,
         RWC: Default,
@@ -1313,10 +1322,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         // ASSUME index is valid
+        let j = index.into();
         let res = match mem::take(self) {
             Self::Split(s) => match s.split_at_index(index) {
                 PartialSplit::Left(split) => {
-                    swap(index.into(), split.center_value, split.selected_left_value)
+                    let old_center = (split.stable.center_index, split.center_value);
+                    let new_center = (j, split.selected_left_value);
+                    swap(old_center, new_center)
                         .map_err_value(|x| *x)
                         .inject_value(split.stable)
                         .map_ok_value(|((new_right_val, new_center_val), stable)| {
@@ -1332,7 +1344,9 @@ impl<K, U, V> NamedVec<K, U, V> {
                 PartialSplit::Center(sc) => LogResult::new_ok((Self::Split(sc), false)),
 
                 PartialSplit::Right(split) => {
-                    swap(index.into(), split.center_value, split.selected_right_value)
+                    let old_center = (split.stable.center_index, split.center_value);
+                    let new_center = (j, split.selected_right_value);
+                    swap(old_center, new_center)
                         .map_err_value(|x| *x)
                         .inject_value(split.stable)
                         .map_ok_value(|((new_right_val, new_center_val), stable)| {
@@ -1348,7 +1362,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
             Self::Unsplit(u) => {
                 let x = split_paired_vec(u.members, index);
-                to_u(index.into(), x.selected.value)
+                to_u(j, x.selected.value)
                     .inject_value((x.left, x.selected.key, x.right))
                     .map_ok_value(|(new_value, (left, key, right))| {
                         let center = Pair::new(key.to_opt().unwrap(), new_value);
@@ -1827,6 +1841,7 @@ struct LeftSplitStable<K, V> {
     selected_left_key: K,
     left_right: PairedVec<K, V>,
     center_key: Shortname,
+    center_index: MeasIndex,
     right: PairedVec<K, V>,
 }
 
@@ -1834,6 +1849,7 @@ struct LeftSplitStable<K, V> {
 struct RightSplitStable<K, V> {
     left: PairedVec<K, V>,
     center_key: Shortname,
+    center_index: MeasIndex,
     right_left: PairedVec<K, V>,
     selected_right_key: K,
     right_right: PairedVec<K, V>,
@@ -1865,6 +1881,7 @@ impl<K, U, V> SplitVec<K, U, V> {
                     split_left.selected.key,
                     split_left.right,
                     self.center.key,
+                    nleft.into(),
                     self.right,
                 );
                 let split = LeftSplit::new(split_left.selected.value, self.center.value, stable);
@@ -1876,6 +1893,7 @@ impl<K, U, V> SplitVec<K, U, V> {
                 let stable = RightSplitStable::new(
                     self.left,
                     self.center.key,
+                    nleft.into(),
                     split_right.left,
                     split_right.selected.key,
                     split_right.right,

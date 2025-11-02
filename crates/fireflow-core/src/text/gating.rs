@@ -1,7 +1,6 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, StdTextReadConfig};
 use crate::logging::{
-    DeferredFungibleErrors, DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorResult,
-    FungibleErrorsResult, FungibleResult, LogResult, ResultExt as _, WarningsAndErrorsResult,
+    DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
@@ -487,7 +486,7 @@ impl AppliedGates3_0 {
             .partition_result();
         FungibleErrorsResult::new_fungible_ok((), flag)
             .extend_deferred_fungible_errors(es.into_iter().map(AppliedGates3_0To3_2Error::Index))
-            .eval_deferred_fungible_error(|_| {
+            .eval_deferred_fungible_error(|()| {
                 let n_gates = self.gated_measurements.0.len();
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
             })

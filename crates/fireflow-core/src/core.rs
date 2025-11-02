@@ -1437,9 +1437,8 @@ pub trait VersionedMetaroot: Sized {
     /// recover the original state.
     #[allow(clippy::type_complexity)]
     fn swap_optical_temporal(
-        tmp: Temporal<Self::Temporal>,
-        opt: Optical<Self::Optical>,
-        i: MeasIndex,
+        old: (MeasIndex, Temporal<Self::Temporal>),
+        new: (MeasIndex, Optical<Self::Optical>),
         flag: AllowLoss,
     ) -> FungibleErrorResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
@@ -1456,20 +1455,24 @@ pub trait VersionedMetaroot: Sized {
             (new_o, new_t)
         };
 
-        let t_errs = opt
+        let (tmp_index, tmp) = old;
+        let (opt_index, opt) = new;
+
+        let o_to_t_errors = opt
             .specific
-            .convert_to_temporal_errors(i)
+            .optical_to_temporal_errors(opt_index)
             .map(SwapOpticalTemporalError::from);
-        let o_specific_err = tmp.specific.swap_to_optical_error(i);
+        // TODO this is infallible for all but 3.2
+        let t_to_o_error = tmp.specific.temporal_to_optical_error(tmp_index);
         let o_common_errs = opt
-            .key_loss_errors(i)
+            .key_loss_errors(opt_index)
             .map(OpticalToTemporalError::from)
             .map(SwapOpticalTemporalError::from);
 
         // TODO make this error more sophisticated
-        let es = o_specific_err
+        let es = t_to_o_error
             .into_iter()
-            .chain(t_errs)
+            .chain(o_to_t_errors)
             .chain(o_common_errs);
         let e = NonEmpty::collect(es).map(SwapOpticalTemporalSummary);
         FungibleErrorResult::new_deferred_fungible_maybe((tmp, opt), e, flag)
@@ -1496,7 +1499,7 @@ pub trait VersionedOptical: Sized {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)>;
 
-    fn convert_to_temporal_errors(
+    fn optical_to_temporal_errors(
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OpticalToTemporalError>;
@@ -1523,7 +1526,7 @@ pub trait VersionedTemporal: Sized {
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 
-    fn swap_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError>;
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError>;
 }
 
 pub trait LookupTemporal: VersionedTemporal {
@@ -1546,7 +1549,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
     ) -> FungibleErrorResult<Temporal<Self>, Box<Optical<O>>, AllowLoss, OpticalToTemporalSummary>
     {
         let opt_common_errs = opt.key_loss_errors(i).map(OpticalToTemporalError::from);
-        let opt_specific_errs = opt.specific.convert_to_temporal_errors(i);
+        let opt_specific_errs = opt.specific.optical_to_temporal_errors(i);
 
         // TODO make this error more sophisticated
         let es = opt_common_errs.chain(opt_specific_errs);
@@ -2217,8 +2220,8 @@ where
         let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_name(
             n,
-            |i, old_o, old_t| {
-                M::swap_optical_temporal(old_o, old_t, i, flag)
+            |old, new| {
+                M::swap_optical_temporal(old, new, flag)
                     .map_fungible_errors(SetTemporalSummary::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
@@ -2245,8 +2248,8 @@ where
         let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_index(
             index,
-            |i, old_o, old_t| {
-                M::swap_optical_temporal(old_o, old_t, i, flag)
+            |old, new| {
+                M::swap_optical_temporal(old, new, flag)
                     .map_fungible_errors(SetTemporalSummary::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
@@ -6710,7 +6713,7 @@ impl VersionedOptical for InnerOptical2_0 {
         .chain(self.peak.opt_keywords(i))
     }
 
-    fn convert_to_temporal_errors(
+    fn optical_to_temporal_errors(
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OpticalToTemporalError> {
@@ -6745,7 +6748,7 @@ impl VersionedOptical for InnerOptical3_0 {
             .chain(self.scale.opt_suffixes(i))
     }
 
-    fn convert_to_temporal_errors(
+    fn optical_to_temporal_errors(
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OpticalToTemporalError> {
@@ -6781,7 +6784,7 @@ impl VersionedOptical for InnerOptical3_1 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn convert_to_temporal_errors(
+    fn optical_to_temporal_errors(
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OpticalToTemporalError> {
@@ -6825,7 +6828,7 @@ impl VersionedOptical for InnerOptical3_2 {
         .chain(self.scale.opt_suffixes(i))
     }
 
-    fn convert_to_temporal_errors(
+    fn optical_to_temporal_errors(
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OpticalToTemporalError> {
@@ -6871,7 +6874,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
         Ok(())
     }
 
-    fn swap_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
@@ -6899,7 +6902,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
         Ok(())
     }
 
-    fn swap_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
@@ -6929,7 +6932,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
         Ok(())
     }
 
-    fn swap_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
 }
@@ -6958,7 +6961,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
             .map_or(Ok(()), Err)
     }
 
-    fn swap_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
+    fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<SwapOpticalTemporalError> {
         self.can_convert_to_optical(i)
             .err()
             .map(SwapOpticalTemporalError::from)

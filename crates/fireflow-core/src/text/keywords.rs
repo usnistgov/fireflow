@@ -1,5 +1,5 @@
 use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
-use crate::logging::{DeferredFungibleError, LogResult, ResultExt as _};
+use crate::logging::{DeferredFungibleError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -78,15 +78,8 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn check_conversion(
-        self,
-        flag: AllowLoss,
-    ) -> DeferredFungibleError<(), TimestepLossError> {
-        if self.0.is_one() {
-            LogResult::new_ok(())
-        } else {
-            LogResult::new_deferred_fungible((), TimestepLossError(self), flag)
-        }
+    pub(crate) fn loss_error(self) -> Option<TimestepLossError> {
+        (!self.0.is_one()).then_some(TimestepLossError(self))
     }
 }
 
@@ -554,15 +547,12 @@ impl Wavelengths {
     pub(crate) fn into_wavelength(
         self,
         flag: AllowLoss,
-    ) -> DeferredFungibleError<Option<Wavelength>, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok_def(), |ws| {
+    ) -> DeferredFungibleError<Option<Wavelength>, AllowLoss, WavelengthsLossError> {
+        NonEmpty::from_vec(self.0).map_or(LogResult::new_fungible_ok(None, flag), |ws| {
             let ret = Some(Wavelength(ws.head));
             let n = ws.len();
-            if n > 1 {
-                LogResult::new_deferred_fungible(ret, WavelengthsLossError(n), flag)
-            } else {
-                LogResult::new_ok(ret)
-            }
+            let e = WavelengthsLossError(n);
+            LogResult::new_deferred_fungible_ok_if(n == 1, ret, e, flag)
         })
     }
 }
@@ -842,17 +832,19 @@ impl<I> RegionGateIndex<I> {
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
     {
-        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_then_def(|maybe| {
-            if let Some(x) = maybe {
-                Self::check_link(&x, par)
-                    .map(|()| x)
-                    .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-                    .cmt_fung_errors_into()
-            } else {
-                LogResult::new_ok_def()
-            }
-            .map_ok_value(Into::into)
-        })
+        let flag = conf.allow_optional_dropping;
+        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_then_def_result(
+            flag,
+            |maybe| {
+                maybe
+                    .map(|x| {
+                        Self::check_link(&x, par)
+                            .map_err(LookupKeysWarning::from)
+                            .map(|()| x)
+                    })
+                    .transpose()
+            },
+        )
     }
 
     fn check_link(&self, par: Par) -> Result<(), RegionIndexError>
@@ -1333,7 +1325,7 @@ impl Range {
     pub(crate) fn into_uint<T>(
         self,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<T, IntRangeError<()>>
+    ) -> DeferredFungibleError<T, DisallowRangeTrunc, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
@@ -1345,15 +1337,13 @@ impl Range {
             },
             |x| (x, None),
         );
-        err.map_or(LogResult::new_ok(b), |e| {
-            LogResult::new_deferred_fungible(b, e, flag)
-        })
+        LogResult::new_deferred_fungible_maybe(b, err, flag)
     }
 
     pub(crate) fn into_float<T>(
         self,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<FloatDecimal<T>, DecimalToFloatError>
+    ) -> DeferredFungibleError<FloatDecimal<T>, DisallowRangeTrunc, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
@@ -1369,10 +1359,7 @@ impl Range {
             },
             |x| (x, None),
         );
-        match err {
-            None => LogResult::new_ok(x),
-            Some(e) => LogResult::new_deferred_fungible(x, e, flag),
-        }
+        LogResult::new_deferred_fungible_maybe(x, err, flag)
     }
 }
 

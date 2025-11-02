@@ -431,7 +431,8 @@ where
                     Self::check_link(&x, names)
                         .map(|()| x)
                         .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-                        .cmt_fung_errors_into()
+                        .fungible_errors_into()
+                        .fungible_into_commutative()
                 })
             })
         })
@@ -455,13 +456,8 @@ pub(crate) fn parse_opt_tnt<T: FromStr>(
 where
     ParseOptKeyError: From<T::Err>,
 {
-    parse_opt(k.clone(), v)
-        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-        .cmt_fung_errors_into()
-        .eval_deferred_fungible_error(conf.disallow_deprecated, |val| {
-            (is_deprecated && val.is_some()).then_some(DeprecatedError::Key(DepKeyWarning(k)))
-        })
+    let res = parse_opt(k.clone(), v).map_err(|x| LookupKeysWarning::Parse(x.inner_into()));
+    eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
 pub(crate) fn parse_opt_st<T: FromStrStateful>(
@@ -483,12 +479,25 @@ pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
 where
     ParseOptKeyError: From<T::Err>,
 {
-    parse_opt_st(k.clone(), v, data, conf)
-        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()))
-        .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-        .cmt_fung_errors_into()
-        .eval_deferred_fungible_error(conf.disallow_deprecated, |val| {
-            (is_deprecated && val.is_some()).then_some(DeprecatedError::Key(DepKeyWarning(k)))
+    let res = parse_opt_st(k.clone(), v, data, conf)
+        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()));
+    eval_drop_and_deprecated(res, k, is_deprecated, conf)
+}
+
+pub(crate) fn eval_drop_and_deprecated<T>(
+    res: Result<T, LookupKeysWarning>,
+    k: StdKey,
+    is_deprecated: bool,
+    conf: &StdTextReadConfig,
+) -> LookupTentative<Option<T>> {
+    res.into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
+        .fungible_into_commutative()
+        .and_then_def(|value| {
+            let is_ok = !(is_deprecated && value.is_some());
+            let flag = conf.disallow_deprecated;
+            let error = LookupKeysWarning::from(DeprecatedError::Key(DepKeyWarning(k)));
+            LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
+                .fungible_into_commutative()
         })
 }
 
@@ -550,13 +559,12 @@ pub(crate) fn lookup_temporal_gain_3_0(
         nonstd.transfer_demoted(kws, Gain::std(i));
         LogResult::new_ok(None)
     } else {
-        Gain::lookup_meas_opt(kws, i, false, conf).eval_deferred_fungible_error(
-            conf.allow_optional_dropping,
-            |gain| {
-                gain.is_some_and(|g| !g.0.is_one())
-                    .then_some(TemporalGainError(i))
-            },
-        )
+        Gain::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
+            let is_ok = !gain.is_some_and(|g| !g.0.is_one());
+            let flag = conf.allow_optional_dropping;
+            let e = TemporalGainError(i).into();
+            LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag).fungible_into_commutative()
+        })
     }
 }
 
@@ -568,7 +576,8 @@ pub(crate) type OptKwResult<T> = Result<Option<T>, OptKeyError<<T as FromStr>::E
 
 pub(crate) type LookupResult<V> =
     WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
-pub(crate) type LookupTentative<V> = DeferredFungibleErrors<V, LookupKeysWarning>;
+pub(crate) type LookupTentative<V> =
+    DeferredWarningsAndErrors<V, LookupKeysWarning, LookupKeysWarning>;
 pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 
 /// Errors when looking up any key.

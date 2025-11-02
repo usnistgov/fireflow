@@ -1,5 +1,8 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, StdTextReadConfig};
-use crate::logging::{DeferredFungibleErrors, DeferredIter as _, LogResult, ResultExt as _};
+use crate::logging::{
+    DeferredFungibleErrors, DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorResult,
+    FungibleErrorsResult, FungibleResult, LogResult, ResultExt as _, WarningsAndErrorsResult,
+};
 use crate::nonempty::FCSNonEmpty;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
@@ -25,6 +28,8 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::parser::LookupKeysWarning;
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -299,11 +304,10 @@ impl AppliedGates2_0 {
             conf,
         );
         let gm = GatedMeasurements::lookup(kws, false, conf);
+        let flag = conf.allow_optional_dropping;
         ag.zip_f2_once(gm)
-            .and_then_def(|(scheme, gated_measurements)| {
-                Self::try_new(gated_measurements.0, scheme)
-                    .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
-                    .cmt_fung_errors_into()
+            .and_then_def_result(flag, |(scheme, gated_measurements)| {
+                Self::try_new(gated_measurements.0, scheme).map_err(LookupKeysWarning::from)
             })
     }
 
@@ -432,10 +436,16 @@ impl AppliedGates3_0 {
             .chain(gate.map(|x| OptMetarootKey::metaroot_pair(&x)))
     }
 
+    // TODO use flag to control optional dropping
     pub(crate) fn try_into_2_0(
         self,
         flag: AllowLoss,
-    ) -> DeferredFungibleErrors<AppliedGates2_0, AppliedGates3_0To2_0Error> {
+    ) -> DeferredWarningsAndErrors<
+        AppliedGates2_0,
+        AppliedGates3_0To2_0Error,
+        AppliedGates3_0To2_0Error,
+    > {
+        let drop_flag = AllowOptionalDropping(true);
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -443,27 +453,31 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        // TODO this should be an error based on if we want to drop optional
-        // keywords
-        GatingScheme::try_new(self.scheme.gating, regions)
-            .into_succ_opt::<_, _, Vec<_>, _, _>()
-            .cmt_warnings_into()
-            .and_then_def(|scheme| match scheme {
-                Some(s) => AppliedGates2_0::try_new(self.gated_measurements.0, s)
-                    .into_deferred_fungible::<_, Vec<_>>(AllowOptionalDropping(true))
-                    .cmt_fung_errors_into(),
-                None => LogResult::new_ok_def(),
+        let index_res = FungibleErrorsResult::new_fungible_ok((), flag)
+            .extend_deferred_fungible_errors(es.into_iter().map(AppliedGates3_0To2_0Error::Index))
+            .map_fungible_errors(AppliedGates3_0To2_0Error::from)
+            .fungible_into_commutative();
+        let scheme_res = GatingScheme::try_new(self.scheme.gating, regions)
+            .into_deferred_fungible::<_, Vec<_>>(drop_flag)
+            .map_fungible_errors(AppliedGates3_0To2_0Error::from)
+            .fungible_into_commutative();
+        index_res
+            .lift_f2_once(scheme_res, |(), scheme| scheme)
+            .and_then_def_result(drop_flag, |scheme| {
+                AppliedGates2_0::try_new(self.gated_measurements.0, scheme)
+                    .map_err(AppliedGates3_0To2_0Error::from)
             })
-            .extend_deferred_fungible_errors(
-                es.into_iter().map(AppliedGates3_0To2_0Error::Index),
-                flag,
-            )
     }
 
     pub(crate) fn try_into_3_2(
         self,
         flag: AllowLoss,
-    ) -> DeferredFungibleErrors<AppliedGates3_2, AppliedGates3_0To3_2Error> {
+    ) -> DeferredWarningsAndErrors<
+        AppliedGates3_2,
+        AppliedGates3_0To3_2Error,
+        AppliedGates3_0To3_2Error,
+    > {
+        let drop_flag = AllowOptionalDropping(true);
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -471,16 +485,16 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        AppliedGates3_2::try_new(self.scheme.gating, regions)
-            .into_deferred_fungible::<_, Vec<_>>(AllowOptionalDropping(true))
-            .cmt_fung_errors_into()
-            .extend_deferred_fungible_errors(
-                es.into_iter().map(AppliedGates3_0To3_2Error::Index),
-                flag,
-            )
-            .eval_deferred_fungible_error(flag, |_| {
+        FungibleErrorsResult::new_fungible_ok((), flag)
+            .extend_deferred_fungible_errors(es.into_iter().map(AppliedGates3_0To3_2Error::Index))
+            .eval_deferred_fungible_error(|_| {
                 let n_gates = self.gated_measurements.0.len();
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
+            })
+            .fungible_into_commutative()
+            .and_then_def_result(drop_flag, |()| {
+                AppliedGates3_2::try_new(self.scheme.gating, regions)
+                    .map_err(AppliedGates3_0To3_2Error::from)
             })
     }
 }
@@ -680,20 +694,20 @@ impl<I> GatingScheme<I> {
         F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
         F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
     {
+        let flag = conf.allow_optional_dropping;
         lookup_gating(kws).and_then_def(|gating| {
             gating
                 .as_ref()
-                .map_or(LogResult::new_ok_def(), |g| {
+                .map_or(LogResult::new_ok_default(), |g| {
                     g.region_indices()
                         .into_iter()
                         .map(|ri| lookup_region(kws, ri).map_def_value(|x| x.map(|y| (ri, y))))
                         .mappend_def()
                 })
-                .and_then_def(|rs| {
+                .and_then_def_result(flag, |rs| {
+                    // TODO impl iterator for try_new
                     let regions = rs.into_iter().flatten().collect();
-                    Self::try_new(gating, regions)
-                        .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
-                        .cmt_fung_errors_into()
+                    Self::try_new(gating, regions).map_err(LookupKeysWarning::from)
                 })
         })
     }
@@ -771,15 +785,13 @@ impl<I> Region<I> {
     {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());
-        n.zip_f2_once(w)
-            .and_then_def(|(n_, y_)| {
-                n_.zip(y_)
-                    .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
-                    .ok_or(MismatchedIndexAndWindowError)
-                    .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-                    .cmt_fung_errors_into()
-            })
-            .map_ok_value(Into::into)
+        let flag = conf.allow_optional_dropping;
+        n.zip_f2_once(w).and_then_def_result(flag, |(n_, y_)| {
+            n_.zip(y_)
+                .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
+                .ok_or(LookupKeysWarning::from(MismatchedIndexAndWindowError))
+                .map(Some)
+        })
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
@@ -925,7 +937,7 @@ impl GatedMeasurements {
                     .mappend_def()
                     .map_def_value(Self)
             } else {
-                LogResult::new_ok_def()
+                LogResult::new_ok_default()
             }
         })
     }

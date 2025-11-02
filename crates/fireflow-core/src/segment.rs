@@ -4,8 +4,9 @@ use crate::config::{
     ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::logging::{
-    DeferredErrors, DeferredFungibleErrors, ErrorsResult, ImpureError, LogResult, OptionExt as _,
-    RecoverableErrorsResult, ResultExt as _, WarningsAndErrorsResult,
+    DeferredErrors, DeferredFungibleErrors, DeferredWarningsAndErrors, ErrorsResult,
+    FungibleResult, ImpureError, LogResult, OptionExt as _, RecoverableErrorsResult,
+    ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::macros;
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
@@ -140,8 +141,11 @@ pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
     ReqSegmentWithDefaultError<T>,
 >;
 
-pub(crate) type OptSegTentative<T> =
-    DeferredFungibleErrors<AnySegment<T>, OptSegmentWithDefaultWarning<T>>;
+pub(crate) type OptSegTentative<T> = DeferredWarningsAndErrors<
+    AnySegment<T>,
+    OptSegmentWithDefaultWarning<T>,
+    OptSegmentWithDefaultWarning<T>,
+>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum InnerSegment<T> {
@@ -275,9 +279,9 @@ where
             |other| {
                 let (seg, warn) = default.unless(other);
                 warn.map_or(LogResult::new_ok(seg), |w| {
-                    LogResult::<_, _, _, _, _, Vec<_>>::new_fungible(seg, (), w, mismatch_flag)
-                        .non_cmt_into_cmt()
-                        .map_cmt_warnings(ReqSegmentWithDefaultWarning::from)
+                    FungibleResult::<_, _, _, _, Vec<_>>::new_fungible(seg, (), w, mismatch_flag)
+                        .fungible_into_commutative()
+                        .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
                         .map_errors(ReqSegmentWithDefaultError::from)
                 })
             },
@@ -418,7 +422,7 @@ where
             |other| {
                 other.map_or(LogResult::new_ok(def), |o| {
                     let (seg, warn) = default.unless(o);
-                    warn.map_or(LogResult::new_ok(seg), |w| {
+                    warn.map_or(LogResult::new_fungible_ok(seg, *mismatch_flag), |w| {
                         LogResult::new_fungible(seg, def, w.into(), *mismatch_flag)
                     })
                 })

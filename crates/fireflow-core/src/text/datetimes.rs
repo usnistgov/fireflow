@@ -5,7 +5,7 @@ use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::StdKeywords;
 
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{LookupTentative, OptMetarootKey as _};
+use super::parser::{LookupKeysWarning, LookupTentative, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -90,10 +90,9 @@ impl Datetimes {
     pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
         let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
         let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
-        b.zip_f2_once(e).and_then_def(|(begin, end)| {
-            Self::try_new(begin, end)
-                .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
-                .cmt_fung_errors_into()
+        let flag = conf.allow_optional_dropping;
+        b.zip_f2_once(e).and_then_def_result(flag, |(begin, end)| {
+            Self::try_new(begin, end).map_err(LookupKeysWarning::from)
         })
     }
 
@@ -103,20 +102,12 @@ impl Datetimes {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    pub(crate) fn check_loss(
-        self,
-        flag: AllowLoss,
-    ) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        // TODO these errors are linked
-        LogResult::new_ok(())
-            .eval_deferred_fungible_error(flag, |()| {
-                let e = UnitaryKeyLossError::<BeginDateTime>::new();
-                self.begin.is_some().then_some(e)
-            })
-            .eval_deferred_fungible_error(flag, |()| {
-                let e = UnitaryKeyLossError::<EndDateTime>::new();
-                self.end.is_some().then_some(e)
-            })
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let x0 = UnitaryKeyLossError::<BeginDateTime>::new();
+        let y0 = self.begin.is_some().then_some(x0.into());
+        let x1 = UnitaryKeyLossError::<EndDateTime>::new();
+        let y1 = self.end.is_some().then_some(x1.into());
+        [y0, y1].into_iter().flatten()
     }
 }
 

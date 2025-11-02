@@ -5,7 +5,9 @@ use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
-use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
+use super::parser::{
+    FromStrStateful, LookupKeysWarning, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError,
+};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -174,11 +176,11 @@ impl<X> Timestamps<X> {
         let b = Btim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         let e = Etim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
         let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        b.zip_f3_once(e, d).and_then_def(|(btim, etim, date)| {
-            Self::try_new(btim, etim, date)
-                .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
-                .cmt_fung_errors_into()
-        })
+        let flag = conf.allow_optional_dropping;
+        b.zip_f3_once(e, d)
+            .and_then_def_result(flag, |(btim, etim, date)| {
+                Self::try_new(btim, etim, date).map_err(LookupKeysWarning::from)
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>

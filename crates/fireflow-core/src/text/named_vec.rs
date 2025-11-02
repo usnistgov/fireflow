@@ -1,13 +1,12 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CmtResult, CmtResultIter as _, ErrorsResult, IntoNewCardinality, LogResult, ResultExt as _,
+    CmtResult, CmtResultIter as _, ErrorResult, ErrorsResult, LogResult, ResultExt as _,
 };
 use crate::text::optional::MightHave;
 use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
-use super::optional::Nothing;
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -354,12 +353,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let check_optical = |ys: Vec<Element<X, Y>>| {
             ys.into_iter()
                 .enumerate()
-                .map(|(i, x)| {
-                    x.both(
-                        |_| LogResult::<_, _, _, _, _, Vec<_>>::new_err1(i),
-                        LogResult::new_ok,
-                    )
-                })
+                .map(|(i, x)| x.both(|_| ErrorsResult::new_err1(i), ErrorsResult::new_ok))
                 .mappend_cmt()
                 .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
         };
@@ -482,19 +476,20 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Apply function over center value, possibly changing it's type
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_center_value<F, X, Y, LWC, RWC, E, EC>(
+    pub(crate) fn map_center_value<F, Uf, P, LWC, RWC, E, EC>(
         self,
         f: F,
     ) -> LogResult<
-        NamedVec<K, X, V>,
-        Y,
+        NamedVec<K, Uf, V>,
+        P,
         LWC,
         RWC,
+        (),
         IndexedElementError<E>,
         Sibling1<EC, IndexedElementError<E>>,
     >
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<X, Y, LWC, RWC, E, EC>,
+        F: Fn(IndexedElement<&Shortname, U>) -> LogResult<Uf, P, LWC, RWC, (), E, EC>,
         EC: Functor<E>,
         LWC: Default,
     {
@@ -1094,9 +1089,9 @@ impl<K, U, V> NamedVec<K, U, V> {
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
         E: From<KeyNotFoundError>,
         EC: Default,
         LWC: Default,
@@ -1140,9 +1135,9 @@ impl<K, U, V> NamedVec<K, U, V> {
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
         E: From<SetCenterError>,
         LWC: Default,
         RWC: Default,
@@ -1175,8 +1170,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         F: FnOnce(MeasIndex, U) -> V,
         K: MightHave<Shortname>,
     {
-        let go =
-            |j, u| LogResult::<_, _, _, _, Infallible, Nothing<Infallible>>::new_ok(to_v(j, u));
+        let go = |j, u| ErrorResult::<_, _, Infallible>::new_ok(to_v(j, u));
 
         self.get_index_if_named(index).map(|i| {
             let res = self.replace_center_at_inner(i.into(), value, go);
@@ -1209,9 +1203,9 @@ impl<K, U, V> NamedVec<K, U, V> {
         index: MeasIndex,
         value: U,
         to_v: F,
-    ) -> LogResult<Element<U, V>, (), LWC, RWC, E, EC>
+    ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
         LWC: Default,
         K: MightHave<Shortname>,
     {
@@ -1266,10 +1260,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         n: &Shortname,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, E, EC>
+    ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         E: From<KeyNotFoundError>,
         EC: Default,
         LWC: Default,
@@ -1288,10 +1282,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         index: MeasIndex,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, E, EC>
+    ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         E: From<SetCenterError>,
         EC: Default,
         RWC: Default,
@@ -1309,10 +1303,10 @@ impl<K, U, V> NamedVec<K, U, V> {
         index: usize,
         swap: Fswap,
         to_u: FtoU,
-    ) -> LogResult<bool, (), LWC, RWC, E, EC>
+    ) -> LogResult<bool, (), LWC, RWC, (), E, EC>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, E, EC>,
-        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, E, EC>,
+        Fswap: FnOnce(MeasIndex, U, V) -> LogResult<(V, U), Box<(U, V)>, LWC, RWC, (), E, EC>,
+        FtoU: FnOnce(MeasIndex, V) -> LogResult<U, Box<V>, LWC, RWC, (), E, EC>,
         EC: Default,
         RWC: Default,
         LWC: Default,
@@ -1382,9 +1376,9 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn unset_center<F, X, LWC, RWC, E, EC>(
         &mut self,
         to_v: F,
-    ) -> LogResult<Option<X>, (), LWC, RWC, E, EC>
+    ) -> LogResult<Option<X>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, (), E, EC>,
         LWC: Default,
         K: Applicative<Shortname>,
     {

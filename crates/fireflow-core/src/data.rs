@@ -54,9 +54,9 @@ use crate::config::{
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, IOResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, WarningOrErrorResult,
-    WarningsAndErrorsResult,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
+    FungibleErrorResult, FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError,
+    LogResult, ResultExt as _, WarningOrErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -487,12 +487,12 @@ pub trait TotDefinition {
         total_events: u64,
         tot: Self::Tot,
         flag: AllowTotMismatch,
-    ) -> DeferredFungibleError<(), TotEventMismatch> {
+    ) -> FungibleErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
         Self::with_tot(
             (),
             tot,
             |(), t| Self::check_tot_inner(total_events, t, flag),
-            |()| LogResult::new_ok(()),
+            |()| LogResult::new_fungible_ok((), flag),
         )
     }
 
@@ -501,15 +501,11 @@ pub trait TotDefinition {
         total_events: u64,
         tot: Tot,
         flag: AllowTotMismatch,
-    ) -> DeferredFungibleError<(), TotEventMismatch> {
+    ) -> FungibleErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
-        if tot.0 == count {
-            LogResult::new_ok(())
-        } else {
-            let i = TotEventMismatch { tot, total_events };
-            LogResult::new_fungible((), (), i, flag)
-        }
+        let i = TotEventMismatch { tot, total_events };
+        LogResult::new_fungible_ok_if(tot.0 == count, (), (), i, flag)
     }
 }
 
@@ -550,10 +546,8 @@ pub trait LayoutOps<'a, T>: Sized {
     where
         T: TotDefinition;
 
-    fn check_writer(
-        &self,
-        df: &'a FCSDataFrame,
-    ) -> DeferredFungibleErrors<(), ColumnError<AnyLossError>>;
+    fn check_writer(&self, df: &'a FCSDataFrame)
+        -> ErrorsResult<(), (), ColumnError<AnyLossError>>;
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -623,13 +617,13 @@ pub trait InterLayoutOps<D> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError>;
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
 
     fn push(
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError>;
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
 
     fn clear(&mut self);
 }
@@ -762,7 +756,7 @@ trait FromRange: Sized {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error>;
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error>;
 }
 
 /// A type which has a width that may vary
@@ -2015,12 +2009,13 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
     {
         Bytes::try_from(width)
             .into_log::<_, _, Vec<_>>()
-            .errors_into()
+            .map_errors(FloatWidthError::from)
             .and_then_cmt(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
                     Self::from_range(range, flag)
                         .set_err_value(())
-                        .errors_into()
+                        .fungible_into_commutative()
+                        .map_errors(FloatWidthError::from)
                 } else {
                     let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN));
                     LogResult::new_err1(e)
@@ -2110,8 +2105,9 @@ impl AnyNullBitmask {
             .map_errors(NewUintTypeError::from)
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, flag)
-                    .map_errors(NewUintTypeError::from)
                     .set_err_value(())
+                    .fungible_into_commutative()
+                    .map_errors(NewUintTypeError::from)
             })
     }
 
@@ -2120,7 +2116,7 @@ impl AnyNullBitmask {
         width: Bytes,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, BitmaskError> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, BitmaskError> {
         match width {
             Bytes::B1 => Bitmask08::from_range(range, flag).map_def_value(Into::into),
             Bytes::B2 => Bitmask16::from_range(range, flag).map_def_value(Into::into),
@@ -2238,11 +2234,7 @@ where
         res.into_log()
     }
 
-    // TODO aren't these always warnings?
-    fn check_writer(
-        &self,
-        df: &FCSDataFrame,
-    ) -> DeferredFungibleErrors<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), ColumnError<AnyLossError>> {
         df.iter_columns()
             .enumerate()
             .map(|(i, c)| {
@@ -2250,8 +2242,7 @@ where
                     .map_err(|error| ColumnError::new(i, AnyLossError::Int(error)))
                     .into_log()
             })
-            .mappend_def()
-            .map_def_value(|_| ())
+            .mappend_def_void()
     }
 
     fn h_write_df_inner<W: Write>(
@@ -2344,10 +2335,10 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
             .into_uint(flag)
-            .cmt_fung_errors_into()
+            .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.insert(index.into(), r))
             .set_err_value(())
             .repack()
@@ -2357,10 +2348,10 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
             .into_uint(flag)
-            .cmt_fung_errors_into()
+            .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.push(r))
             .set_err_value(())
             .repack()
@@ -2583,7 +2574,8 @@ where
             .repack()
             .and_then_cmt(|n| {
                 let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
-                    .map_cmt_warnings(ReadDataframeWarning::from)
+                    .fungible_into_commutative()
+                    .map_commutative_warnings(ReadDataframeWarning::from)
                     .map_errors(ReadDataframeError::from)
                     .map_errors(ImpureError::Pure)
                     .repack::<_, _, Vec<_>>();
@@ -2593,11 +2585,10 @@ where
             })
     }
 
-    // TODO these are always warnings, this is confusing
     fn check_writer(
         &self,
         df: &'a FCSDataFrame,
-    ) -> DeferredFungibleErrors<(), ColumnError<AnyLossError>> {
+    ) -> ErrorsResult<(), (), ColumnError<AnyLossError>> {
         // ASSUME df has same number of columns as layout
         self.columns
             .iter()
@@ -2609,8 +2600,7 @@ where
                     .map_err(|error| ColumnError::new(i, error))
                     .into_log()
             })
-            .mappend_cmt()
-            .set_ok_value(())
+            .mappend_def_void()
     }
 
     fn h_write_df_inner<W: Write>(
@@ -2708,9 +2698,9 @@ where
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         C::from_range(range, flag)
-            .cmt_fung_errors_into()
+            .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|col| self.insert_column(index, col))
             .set_err_value(())
     }
@@ -2719,9 +2709,9 @@ where
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         C::from_range(range, flag)
-            .cmt_fung_errors_into()
+            .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|col| self.push_column(col))
             .set_err_value(())
     }
@@ -2775,7 +2765,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map(|(i, c)| {
                 new_col_f(c)
                     .map_errors(|error| ColumnError::new(i, error))
-                    .map_cmt_warnings(|error| ColumnError::new(i, error))
+                    .map_commutative_warnings(|error| ColumnError::new(i, error))
             })
             .mappend_cmt()
             .map_ok_value(|columns| Self::new(columns, byte_layout))
@@ -2874,14 +2864,12 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         } else {
             let total_events = n / w;
             let remainder = n % w;
-            if remainder > 0 {
-                let e = UnevenEventWidth::new(w, n, remainder);
-                let flag = conf.allow_uneven_event_width;
-                LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(total_events, (), e, flag)
-                    .map_errors(EventWidthError::from)
-            } else {
-                LogResult::new_ok(total_events)
-            }
+            let is_ok = remainder == 0;
+            let e = UnevenEventWidth::new(w, n, remainder);
+            let flag = conf.allow_uneven_event_width;
+            FungibleErrorResult::new_fungible_ok_if(is_ok, total_events, (), e, flag)
+                .fungible_into_non_commutative()
+                .map_errors(EventWidthError::from)
         }
     }
 }
@@ -2892,7 +2880,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<DataLayout3_2, AnyRangeError>
+    ) -> DeferredFungibleErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
@@ -2915,7 +2903,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<DataLayout3_2, AnyRangeError>
+    ) -> DeferredFungibleErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
@@ -3033,15 +3021,15 @@ where
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint(flag)
-            .map_commutative_fungible_errors(BitmaskError::from)
+            .map_fungible_errors(BitmaskError::from)
             .repack()
-            .and_then_def(|x| {
+            .and_then_fungible(|x| {
                 Self::try_from_native(x, flag)
-                    .map_commutative_fungible_errors(BitmaskError::from)
+                    .map_fungible_errors(BitmaskError::from)
                     .repack()
             })
     }
@@ -3056,7 +3044,7 @@ where
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         range.into_float(flag).map_def_value(Self::new).repack()
     }
 }
@@ -3071,7 +3059,7 @@ impl FromRange for AsciiRange {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         range
             .into_uint::<u64>(flag)
             .map_def_value(Self::from)
@@ -3089,7 +3077,7 @@ impl FromRange for AnyNullBitmask {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint(flag)
@@ -3111,13 +3099,13 @@ impl FromRange for NullMixedType {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, Self::Error> {
+    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         if range.0.is_integer() {
             AnyBitmask::from_range(range, flag)
                 .map_def_value(Self::Uint)
-                .map_commutative_fungible_errors(AnyRangeError::from)
+                .map_fungible_errors(AnyRangeError::from)
         } else {
-            let res = FloatDecimal::<f32>::try_from(range.0)
+            FloatDecimal::<f32>::try_from(range.0)
                 .map_or_else(
                     |e| FloatDecimal::<f64>::try_from(e.src).map(|r| Self::F64(FloatRange::new(r))),
                     |r| Ok(Self::F32(FloatRange::new(r))),
@@ -3131,11 +3119,11 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = Self::F64(FloatRange::new(m));
-                        LogResult::new_deferred_fungible(f, e, flag)
+                        FungibleErrorsResult::new_deferred_fungible(f, e, flag)
+                            .map_fungible_errors(AnyRangeError::from)
                     },
-                    LogResult::<_, _, _, _, _, Vec<_>>::new_ok,
-                );
-            res.map_commutative_fungible_errors(AnyRangeError::from)
+                    |x| FungibleErrorsResult::new_fungible_ok(x, flag),
+                )
         }
     }
 }
@@ -3334,7 +3322,9 @@ impl<T> AnyOrderedUintLayout<T> {
         let layout_res =
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
-                    Bitmask::from_range(c.range, notrunc).map_errors(IntOrderedColumnError::from)
+                    Bitmask::from_range(c.range, notrunc)
+                        .fungible_into_commutative()
+                        .map_errors(IntOrderedColumnError::from)
                 })
                 .set_err_value(())
                 .map_errors(NewFixedIntLayoutError::from)
@@ -3382,7 +3372,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .map(|(i, c)| {
                     c.range
                         .into_uint::<u64>(flag)
-                        .map_cmt_warnings(|e| ColumnError::new(i, e))
+                        .fungible_into_commutative()
+                        .map_commutative_warnings(|e| ColumnError::new(i, e))
                         .map_errors(NewAsciiRangeError::from)
                         .map_errors(|e| ColumnError::new(i, e))
                         .repack()
@@ -3468,7 +3459,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Self::from)
-            .map_cmt_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::inner_into)
     }
 }
 
@@ -3501,7 +3492,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Self::from)
-            .map_cmt_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::inner_into)
     }
 }
 
@@ -3534,7 +3525,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     {
         NonMixedEndianLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Into::into)
-            .map_cmt_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::inner_into)
     }
 }
 
@@ -3549,7 +3540,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     {
         macro_rules! from {
             ($i:expr) => {
-                $i.map_cmt_warnings(LookupLayoutWarning::from)
+                $i.map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             };
         }
@@ -3572,7 +3563,7 @@ impl VersionedDataLayout for DataLayout3_2 {
 
         macro_rules! from2 {
             ($i:expr) => {
-                $i.map_cmt_warnings(RawToLayoutWarning::from)
+                $i.map_commutative_warnings(RawToLayoutWarning::from)
                     .map_errors(RawToLayoutError::from)
             };
         }
@@ -3617,7 +3608,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .collect();
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf)
                     .map_ok_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
-                    .map_cmt_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::inner_into)
             }
             // has columns with 1+ datatypes, use mixed layout
             _ => {
@@ -3662,7 +3653,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         match mem::replace(self, Self::mixed_dummy()) {
             // If layout is mixed, interpret range as a mixed type
             Self::Mixed(mut x) => x
@@ -3690,7 +3681,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), AnyRangeError> {
+    ) -> DeferredFungibleErrors<(), DisallowRangeTrunc, AnyRangeError> {
         match mem::replace(self, Self::mixed_dummy()) {
             Self::Mixed(mut x) => x.push(range, flag).set_def_value(Self::Mixed(x)),
             Self::NonMixed(x) => match x {
@@ -3784,7 +3775,7 @@ impl<T> AnyOrderedLayout<T> {
     {
         macro_rules! from {
             ($i:expr) => {
-                $i.map_cmt_warnings(LookupLayoutWarning::from)
+                $i.map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             };
         }
@@ -3807,7 +3798,7 @@ impl<T> AnyOrderedLayout<T> {
 
         macro_rules! from2 {
             ($i:expr) => {
-                $i.map_cmt_warnings(RawToLayoutWarning::from)
+                $i.map_commutative_warnings(RawToLayoutWarning::from)
                     .map_errors(RawToLayoutError::from)
             };
         }
@@ -3872,7 +3863,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_errors(NewDataLayoutError::from)
-                    .map_cmt_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };
         }
@@ -3944,11 +3935,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
         let n = ByteOrd3_1::lookup_req(kws);
         d.zip3_cmt(n, cs)
-            .map_cmt_warnings(LookupLayoutWarning::from)
+            .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf.as_ref())
-                    .map_cmt_warnings(LookupLayoutWarning::from)
+                    .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })
     }
@@ -3962,11 +3953,11 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
             .map_err(RawParsedError::from)
             .into_log();
         d.zip3_cmt(n, cs)
-            .map_cmt_warnings(RawToLayoutWarning::from)
+            .map_commutative_warnings(RawToLayoutWarning::from)
             .map_errors(RawToLayoutError::from)
             .and_then_cmt(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf)
-                    .map_cmt_warnings(RawToLayoutWarning::from)
+                    .map_commutative_warnings(RawToLayoutWarning::from)
                     .map_errors(RawToLayoutError::from)
             })
     }
@@ -3989,7 +3980,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
         macro_rules! from {
             ($x:expr) => {
                 $x.map_errors(NewDataLayoutError::from)
-                    .map_cmt_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::inner_into)
                     .map_ok_value(Self::from)
             };
         }

@@ -16,8 +16,9 @@ use crate::header::{
 use crate::logging::{
     CmtFungibleErrorResult, CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError,
     DeferredErrors, DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
-    ErrorSummary, ErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
-    SummaryResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    ErrorSummary, ErrorsResult, FungibleErrorResult, FungibleErrorsResult,
+    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
+    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult, WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
@@ -34,7 +35,11 @@ use crate::text::{
     byteord::OrderedToEndianError,
     compensation::{Compensation, Compensation2_0, Compensation3_0},
     datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError},
-    gating::{self, AppliedGates2_0, AppliedGates3_0, AppliedGates3_2},
+    gating::{
+        AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
+        AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error,
+        GateToMeasIndexError, MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
+    },
     index::{IndexFromOne, MeasIndex},
     keywords::{
         Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
@@ -1316,10 +1321,10 @@ pub trait Versioned {
         C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
-            .map_cmt_warnings(LookupAndReadDataAnalysisWarning::from)
+            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, st)
-            .map_cmt_warnings(LookupAndReadDataAnalysisWarning::from)
+            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
             .zip_cmt(offset_res)
@@ -1330,7 +1335,7 @@ pub trait Versioned {
                 let read_conf: &ReaderConfig = st.conf.as_ref();
                 let data_res = layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .map_cmt_warnings(LookupAndReadDataAnalysisWarning::from)
+                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(ImpureError::inner_into);
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
                 data_res
@@ -2895,7 +2900,7 @@ where
             .copied()
             .cloned()
             .map(MissingMeasurementNameError);
-        LogResult::<_, _, _, _, _, Vec<_>>::new_err_from_iter(it, ())
+        ErrorsResult::new_err_from_iter(it, ())
             .when_ok(|| {
                 *self
                     .metaroot
@@ -3083,11 +3088,11 @@ where
             .map_center_value(|v| v.value.convert(v.index, flag))
             .set_err_value(())
             .map_errors(ConvertErrorInner::Temporal)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .and_then_cmt(|meas| {
                 meas.map_non_center_values(|i, v| v.try_convert(i, flag))
                     .map_errors(ConvertErrorInner::Optical)
-                    .map_cmt_warnings(MetarootConvertWarning::from)
+                    .map_commutative_warnings(MetarootConvertWarning::from)
             })
             .and_then_cmt(|meas| {
                 meas.try_rewrapped()
@@ -3198,6 +3203,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .push(r, flag)
+                    .fungible_into_commutative()
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| {
@@ -3222,6 +3228,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
+                    .fungible_into_commutative()
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -3238,7 +3245,12 @@ where
             .push(n, m)
             .map_err(PushOpticalError::from)
             .into_log()
-            .and_cmt(|| self.layout.push(r, flag).map_errors(PushOpticalError::from))
+            .and_cmt(|| {
+                self.layout
+                    .push(r, flag)
+                    .fungible_into_commutative()
+                    .map_errors(PushOpticalError::from)
+            })
             .map_ok_value(|ret| {
                 let i = self.par().0.into();
                 self.metaroot.specific.insert_meas_index_inner(i);
@@ -3261,6 +3273,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
+                    .fungible_into_commutative()
                     .map_errors(InsertOpticalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -3628,7 +3641,7 @@ where
                         .map_err(LookupKeysError::from)
                         .into_log()
                 })
-                .map_cmt_warnings(LookupMeasWarning::from)
+                .map_commutative_warnings(LookupMeasWarning::from)
         })
     }
 
@@ -3727,7 +3740,7 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
-            .map_cmt_warnings(StdTEXTFromRawWarning::from)
+            .map_commutative_warnings(StdTEXTFromRawWarning::from)
             .map_errors(StdTEXTFromRawError::from);
 
         Self::lookup_inner(kws, &st.conf)
@@ -3790,7 +3803,7 @@ where
 
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::lookup_req(&mut kws.std)
-            .map_cmt_warnings(StdTEXTFromRawWarning::from)
+            .map_commutative_warnings(StdTEXTFromRawWarning::from)
             .map_errors(StdTEXTFromRawError::from);
 
         let version = Version::from(M::Ver::fcs_version());
@@ -3799,18 +3812,18 @@ where
         par_res.and_then_cmt(|par| {
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(&mut kws.std, par, &mut kws.nonstd, std_conf)
-                .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                .map_commutative_warnings(StdTEXTFromRawWarning::from)
                 .map_errors(StdTEXTFromRawError::from);
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf, par)
-                .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                .map_commutative_warnings(StdTEXTFromRawWarning::from)
                 .map_errors(Box::new)
                 .map_errors(StdTEXTFromRawError::from);
 
             let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
                 Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
                     .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
-                    .map_cmt_warnings(StdTEXTFromRawWarning::from)
+                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from)
             });
 
@@ -3851,6 +3864,8 @@ where
             let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
             let us = esks.unused.keys().cloned().map(UnusedStandardError);
 
+            // TODO this is a case where the fungible errors are "inside" other
+            // errors
             root_res
                 .extend_fungible_errors(
                     ps,
@@ -4080,7 +4095,7 @@ where
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
             .map_errors(Box::new)
-            .map_cmt_warnings(StdDatasetFromRawWarning::from)
+            .map_commutative_warnings(StdDatasetFromRawWarning::from)
             .map_errors(StdDatasetFromRawError::from)
             .map_errors(ImpureError::Pure)
             .and_then_cmt(|(text, extra, offsets)| {
@@ -4091,7 +4106,7 @@ where
                 let data_res = text
                     .layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .map_cmt_warnings(StdDatasetFromRawWarning::from)
+                    .map_commutative_warnings(StdDatasetFromRawWarning::from)
                     .map_errors(ImpureError::inner_into);
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
                 let others_res = or.h_read(h).map_err(ImpureError::IO).into_log();
@@ -4129,7 +4144,7 @@ where
                 .check_writer(df)
                 .map_errors(StdWriterError::from)
                 .map_errors(ImpureError::Pure)
-                .map_cmt_warnings(StdWriterWarning::from)
+                .nowarn_into_warn()
         };
 
         check_res
@@ -4164,7 +4179,7 @@ where
             .and_cmt(|| {
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
-                    .map_cmt_warnings(StdWriterWarning::from)
+                    .map_commutative_warnings(StdWriterWarning::from)
                     .map_errors(ImpureError::IO)
                     .repack_errors()
             })
@@ -4875,13 +4890,10 @@ impl UnstainedData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let c = self.unstainedcenters.check_key_transfer(flag);
-        let i = self.unstainedinfo.check_key_transfer(flag);
-        [c, i]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .mappend_def_void()
+    fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let a = self.unstainedcenters.check_key_transfer1();
+        let b = self.unstainedinfo.check_key_transfer1();
+        [a, b].into_iter().flatten()
     }
 }
 
@@ -4900,10 +4912,10 @@ impl SubsetData {
             .chain(self.flags.opt_keywords())
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let f = self.flags.check_loss(flag);
-        let b = self.bits.check_key_transfer(flag).repack();
-        f.lift_f2_once(b, |(), ()| ())
+    fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        self.flags
+            .loss_errors()
+            .chain(self.bits.check_key_transfer1())
     }
 }
 
@@ -4916,13 +4928,11 @@ impl CSVFlags {
                 if let Some(n) = m {
                     let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
                     fs.mappend_def().and_then_def(|flags| {
-                        if flags.is_empty() {
-                            let flag = conf.allow_optional_dropping;
-                            let e = NewCSVFlagsError.into();
-                            LogResult::new_deferred_fungible(flags, e, flag)
-                        } else {
-                            LogResult::new_ok(flags)
-                        }
+                        let flag = conf.allow_optional_dropping;
+                        let e = NewCSVFlagsError.into();
+                        let is_ok = !flags.is_empty();
+                        LogResult::new_deferred_fungible_ok_if(is_ok, flags, e, flag)
+                            .fungible_into_commutative()
                     })
                 } else {
                     LogResult::new_ok(vec![])
@@ -4941,16 +4951,10 @@ impl CSVFlags {
             .chain(m)
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        self.0
-            .iter()
-            .enumerate()
-            .map(|(i, f)| f.check_indexed_key_transfer_fungible(i, flag).repack())
-            .mappend_def()
-            .set_def_value(())
-            .eval_deferred_fungible_error(flag, |()| {
-                (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::new())
-            })
+    fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let e = (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::new().into());
+        let go = |(i, f): (usize, &Option<_>)| f.check_indexed_key_transfer_fungible1(i);
+        self.0.iter().enumerate().filter_map(go).chain(e)
     }
 }
 
@@ -4972,14 +4976,11 @@ impl ModificationData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let d = self.last_modified.check_key_transfer(flag);
-        let r = self.last_modifier.check_key_transfer(flag);
-        let o = self.originality.check_key_transfer(flag);
-        [d, r, o]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .mappend_def_void()
+    fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let a = self.last_modified.check_key_transfer1();
+        let b = self.last_modifier.check_key_transfer1();
+        let c = self.originality.check_key_transfer1();
+        [a, b, c].into_iter().flatten()
     }
 }
 
@@ -4992,23 +4993,17 @@ impl CarrierData {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        [
-            self.carrierid.metaroot_opt_pair(),
-            self.carriertype.metaroot_opt_pair(),
-            self.locationid.metaroot_opt_pair(),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+        let a = self.carrierid.metaroot_opt_pair();
+        let b = self.carriertype.metaroot_opt_pair();
+        let c = self.locationid.metaroot_opt_pair();
+        [a, b, c].into_iter().filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let i = self.carrierid.check_key_transfer(flag);
-        let t = self.carriertype.check_key_transfer(flag);
-        let l = self.locationid.check_key_transfer(flag);
-        [i, t, l]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .mappend_def_void()
+    fn loss_errors(&self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let a = self.carrierid.check_key_transfer1();
+        let b = self.carriertype.check_key_transfer1();
+        let c = self.locationid.check_key_transfer1();
+        [a, b, c].into_iter().flatten()
     }
 }
 
@@ -5034,14 +5029,11 @@ impl PlateData {
         .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    fn check_loss(self, flag: AllowLoss) -> DeferredFungibleErrors<(), AnyMetarootKeyLossError> {
-        let n = self.platename.check_key_transfer(flag);
-        let i = self.plateid.check_key_transfer(flag);
-        let w = self.wellid.check_key_transfer(flag);
-        [n, i, w]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .mappend_def_void()
+    fn loss_errors(self) -> impl Iterator<Item = AnyMetarootKeyLossError> {
+        let a = self.platename.check_key_transfer1();
+        let b = self.plateid.check_key_transfer1();
+        let c = self.wellid.check_key_transfer1();
+        [a, b, c].into_iter().flatten()
     }
 }
 
@@ -5064,17 +5056,10 @@ impl PeakData {
         [self.bin.meas_opt_triple(i), self.size.meas_opt_triple(i)].into_iter()
     }
 
-    fn check_loss(
-        self,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> DeferredFungibleErrors<(), AnyMeasKeyLossError> {
-        let b = self.bin.check_indexed_key_transfer_fungible(i, flag);
-        let s = self.size.check_indexed_key_transfer_fungible(i, flag);
-        [b, s]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .mappend_def_void()
+    fn check_loss(&self, i: MeasIndex) -> impl Iterator<Item = AnyMeasKeyLossError> {
+        let a = self.bin.check_indexed_key_transfer_fungible1(i);
+        let b = self.size.check_indexed_key_transfer_fungible1(i);
+        [a, b].into_iter().flatten()
     }
 }
 
@@ -5148,7 +5133,8 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         ScaleTransform::try_convert_to_scale(value.scale, i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
             .set_err_value(())
@@ -5162,25 +5148,24 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value
-            .calibration
-            .check_indexed_key_transfer_fungible(i, flag);
-        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
-        let check_res = [cal, dpy]
-            .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+        let cal = value.calibration.check_indexed_key_transfer_fungible1(i);
+        let dpy = value.display.check_indexed_key_transfer_fungible1(i);
+        let it = [cal, dpy].into_iter().flatten();
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), it, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
         let wave = value
             .wavelengths
             .into_wavelength(flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
         check_res
@@ -5195,35 +5180,34 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value
-            .calibration
-            .check_indexed_key_transfer_fungible(i, flag);
-        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
-        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
-        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
+        let cal = value.calibration.check_indexed_key_transfer_fungible1(i);
+        let dpy = value.display.check_indexed_key_transfer_fungible1(i);
+        let anal = value.analyte.check_indexed_key_transfer_fungible1(i);
+        let feat = value.feature.check_indexed_key_transfer_fungible1(i);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
-        let det_name = value
-            .detector_name
-            .check_indexed_key_transfer_fungible(i, flag);
-        let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
+            .check_indexed_key_transfer_fungible1(i);
+        let tag = value.tag.check_indexed_key_transfer_fungible1(i);
+        let det_name = value.detector_name.check_indexed_key_transfer_fungible1(i);
+        let it = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+            .flatten();
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), it, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
 
         let w = value
             .wavelengths
             .into_wavelength(flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
 
@@ -5255,21 +5239,19 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value
-            .calibration
-            .check_indexed_key_transfer_fungible(i, flag);
-        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
-        let check_res = [cal, dpy]
-            .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+        let cal = value.calibration.check_indexed_key_transfer_fungible1(i);
+        let dpy = value.display.check_indexed_key_transfer_fungible1(i);
+        let it = [cal, dpy].into_iter().flatten();
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), it, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
         let wave = value
             .wavelengths
             .into_wavelength(flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
 
@@ -5285,31 +5267,29 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value
-            .calibration
-            .check_indexed_key_transfer_fungible(i, flag);
-        let dpy = value.display.check_indexed_key_transfer_fungible(i, flag);
-        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
-        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
+        let cal = value.calibration.check_indexed_key_transfer_fungible1(i);
+        let dpy = value.display.check_indexed_key_transfer_fungible1(i);
+        let anal = value.analyte.check_indexed_key_transfer_fungible1(i);
+        let feat = value.feature.check_indexed_key_transfer_fungible1(i);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
-        let det_name = value
-            .detector_name
-            .check_indexed_key_transfer_fungible(i, flag);
+            .check_indexed_key_transfer_fungible1(i);
+        let tag = value.tag.check_indexed_key_transfer_fungible1(i);
+        let det_name = value.detector_name.check_indexed_key_transfer_fungible1(i);
 
-        let check_res = [cal, dpy, anal, feat, meas, tag, det_name]
+        let it = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+            .flatten();
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), it, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer);
 
         let wave = value
             .wavelengths
             .into_wavelength(flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .into_semigroup();
 
@@ -5351,21 +5331,18 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let anal = value.analyte.check_indexed_key_transfer_fungible(i, flag);
-        let feat = value.feature.check_indexed_key_transfer_fungible(i, flag);
+        let anal = value.analyte.check_indexed_key_transfer_fungible1(i);
+        let feat = value.feature.check_indexed_key_transfer_fungible1(i);
         let meas = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag);
-        let tag = value.tag.check_indexed_key_transfer_fungible(i, flag);
-        let det_name = value
-            .detector_name
-            .check_indexed_key_transfer_fungible(i, flag);
+            .check_indexed_key_transfer_fungible1(i);
+        let tag = value.tag.check_indexed_key_transfer_fungible1(i);
+        let det_name = value.detector_name.check_indexed_key_transfer_fungible1(i);
 
-        [anal, feat, meas, tag, det_name]
-            .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+        let it = [anal, feat, meas, tag, det_name].into_iter().flatten();
+        FungibleErrorsResult::new_deferred_fungible_iter((), it, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer)
             .map_ok_value(|()| {
                 Self::new(
@@ -5387,10 +5364,10 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+        let es = value.peak.check_loss(i);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .and_then_cmt(|()| {
                 value
@@ -5421,10 +5398,10 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::from)
+        let es = value.peak.check_loss(i);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::from)
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5448,10 +5425,10 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_cmt_warnings(OpticalConvertWarning::Xfer)
+        let es = value.peak.check_loss(i);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(OpticalConvertWarning::Xfer)
             .map_errors(OpticalConvertError::Xfer)
             .map_ok_value(|()| {
                 Self::new(
@@ -5475,7 +5452,7 @@ type MetarootConvertResult<M> =
 type OpticalConvertResult<M> =
     WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
 
-type TemporalConvertResult<M> = DeferredFungibleErrors<M, TemporalConvertError>;
+type TemporalConvertResult<M> = DeferredFungibleErrors<M, AllowLoss, TemporalConvertError>;
 
 pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
@@ -5748,21 +5725,19 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let c = value.cytsn.check_key_transfer(flag);
-        let u = value.unicode.check_key_transfer(flag);
-        let s = value.subset.check_loss(flag);
-        [c, u]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([s])
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let c = value.cytsn.check_key_transfer1();
+        let u = value.unicode.check_key_transfer1();
+        let s = value.subset.loss_errors();
+        let es = [c, u].into_iter().flatten().chain(s);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .and_then_cmt(|()| {
                 value
                     .applied_gates
                     .try_into_2_0(flag)
-                    .map_cmt_warnings(MetarootConvertWarning::from)
+                    .map_commutative_warnings(MetarootConvertWarning::from)
                     .map_errors(MetarootConvertError::from)
                     .set_err_value(())
                     .map_ok_value(|ag| {
@@ -5783,24 +5758,27 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let cytsn = value.cytsn.check_key_transfer(flag);
-        let vol = value.vol.check_key_transfer(flag);
-        let spill = value.spillover.check_key_transfer(flag);
-        let plate = value.plate.check_loss(flag);
-        let subset = value.subset.check_loss(flag);
-        let modi = value.modification.check_loss(flag);
-        [cytsn, vol, spill]
+        let cytsn = value.cytsn.check_key_transfer1();
+        let vol = value.vol.check_key_transfer1();
+        let spill = value.spillover.check_key_transfer1();
+        let plate = value.plate.loss_errors();
+        let subset = value.subset.loss_errors();
+        let modi = value.modification.loss_errors();
+        let es = [cytsn, vol, spill]
             .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([subset, plate, modi])
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .flatten()
+            .chain(plate)
+            .chain(subset)
+            .chain(modi);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .and_then_cmt(|()| {
                 value
                     .applied_gates
                     .try_into_2_0(flag)
-                    .map_cmt_warnings(MetarootConvertWarning::from)
+                    .map_commutative_warnings(MetarootConvertWarning::from)
                     .map_errors(MetarootConvertError::from)
                     .set_err_value(())
                     .map_ok_value(|applied_gates| {
@@ -5821,25 +5799,31 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let cytsn = value.cytsn.check_key_transfer(flag);
-        let vol = value.vol.check_key_transfer(flag);
-        let spill = value.spillover.check_key_transfer(flag);
-        let flow = value.flowrate.check_key_transfer(flag);
-        let modi = value.modification.check_loss(flag);
-        let plate = value.plate.check_loss(flag);
-        let dt = value.datetimes.check_loss(flag);
-        let carrier = value.carrier.check_loss(flag);
-        let us = value.unstained.check_loss(flag);
+        let cytsn = value.cytsn.check_key_transfer1();
+        let vol = value.vol.check_key_transfer1();
+        let spill = value.spillover.check_key_transfer1();
+        let flow = value.flowrate.check_key_transfer1();
+        let modi = value.modification.loss_errors();
+        let plate = value.plate.loss_errors();
+        let dt = value.datetimes.loss_errors();
+        let carrier = value.carrier.loss_errors();
+        let us = value.unstained.loss_errors();
 
-        [cytsn, vol, spill, flow]
+        let es = [cytsn, vol, spill, flow]
             .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([plate, modi, dt, carrier, us])
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .flatten()
+            .chain(modi)
+            .chain(plate)
+            .chain(dt)
+            .chain(carrier)
+            .chain(us);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .eval_deferred_fungible_error(flag, |()| {
-                (!value.applied_gates.is_empty()).then_some(gating::AppliedGates3_2To2_0Error)
+            // TODO need a function to inject this into either warning or error types
+            .eval_deferred_fungible_error(|()| {
+                (!value.applied_gates.is_empty()).then_some(AppliedGates3_2To2_0Error)
             })
             .map_ok_value(|()| {
                 Self::new(
@@ -5873,13 +5857,13 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let plate = value.plate.check_loss(flag);
-        let modi = value.modification.check_loss(flag);
-        let vol = value.vol.check_key_transfer(flag).into_semigroup();
-        [plate, modi, vol]
-            .into_iter()
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let plate = value.plate.loss_errors();
+        let modi = value.modification.loss_errors();
+        let vol = value.vol.check_key_transfer1();
+        let es = vol.into_iter().chain(plate).chain(modi);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5901,19 +5885,24 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let vol = value.vol.check_key_transfer(flag);
-        let flow = value.flowrate.check_key_transfer(flag);
-        let modi = value.modification.check_loss(flag);
-        let plate = value.plate.check_loss(flag);
-        let dt = value.datetimes.check_loss(flag);
-        let carrier = value.carrier.check_loss(flag);
-        let us = value.unstained.check_loss(flag);
-        [vol, flow]
+        let vol = value.vol.check_key_transfer1();
+        let flow = value.flowrate.check_key_transfer1();
+        let modi = value.modification.loss_errors();
+        let plate = value.plate.loss_errors();
+        let dt = value.datetimes.loss_errors();
+        let carrier = value.carrier.loss_errors();
+        let us = value.unstained.loss_errors();
+        let es = [vol, flow]
             .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([modi, plate, dt, carrier, us])
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .flatten()
+            .chain(modi)
+            .chain(plate)
+            .chain(dt)
+            .chain(carrier)
+            .chain(us);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5935,10 +5924,12 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        LogResult::new_ok(())
-            .eval_deferred_fungible_error(flag, |()| {
-                value.comp.is_some().then_some(Comp2_0TransferError)
-            })
+        let is_ok = !value.comp.is_some();
+        let e = Comp2_0TransferError;
+        FungibleErrorsResult::new_deferred_fungible_ok_if(is_ok, (), e, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
                     value.mode,
@@ -5961,13 +5952,12 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let comp = value.comp.check_key_transfer(flag);
-        let us = value.unicode.check_key_transfer(flag);
-        [comp, us]
-            .into_iter()
-            .map(LogResult::into_semigroup::<Vec<_>, Vec<_>>)
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let comp = value.comp.check_key_transfer1();
+        let us = value.unicode.check_key_transfer1();
+        let es = [comp, us].into_iter().flatten();
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5991,14 +5981,14 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let dt = value.datetimes.check_loss(flag);
-        let carrier = value.carrier.check_loss(flag);
-        let us = value.unstained.check_loss(flag);
-        let flow = value.flowrate.check_key_transfer(flag).into_semigroup();
-        [dt, carrier, us, flow]
-            .into_iter()
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let dt = value.datetimes.loss_errors();
+        let carrier = value.carrier.loss_errors();
+        let us = value.unstained.loss_errors();
+        let flow = value.flowrate.check_key_transfer1();
+        let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
+        FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -6022,9 +6012,10 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
+        // TODO these need to be injected
         let check_res = LogResult::new_ok(())
             .eval_deferred_fungible_error(flag, |()| {
-                (!value.applied_gates.is_empty()).then_some(gating::AppliedGates2_0To3_2Error)
+                (!value.applied_gates.is_empty()).then_some(AppliedGates2_0To3_2Error)
             })
             .eval_deferred_fungible_error(flag, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
@@ -6032,7 +6023,8 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
 
         let mode_res = Mode3_2::try_from(value.mode)
             .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let cyt_res = value
@@ -6068,25 +6060,24 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let uni = value.unicode.check_key_transfer(flag);
-        let comp = value.comp.check_key_transfer(flag);
-        let subset = value.subset.check_loss(flag);
-        let check_res = [uni, comp]
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([subset])
-            .mappend_def_void()
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let uni = value.unicode.check_key_transfer1();
+        let comp = value.comp.check_key_transfer1();
+        let subset = value.subset.loss_errors();
+        let es = [uni, comp].into_iter().flatten().chain(subset);
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
             .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
             .cyt
@@ -6121,20 +6112,21 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let ss = value
-            .subset
-            .check_loss(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+        let es = value.subset.loss_errors();
+        let check_res = FungibleErrorsResult::new_deferred_fungible_iter((), es, flag)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
             .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .map_cmt_warnings(MetarootConvertWarning::from)
+            .fungible_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
             .cyt
@@ -6142,8 +6134,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        ss.zip4_cmt(ag_res, mode_rs, cyt_res)
-            .map_ok_value(|((), applied_gates, mode, cyt)| {
+        check_res.zip4_cmt(ag_res, mode_rs, cyt_res).map_ok_value(
+            |((), applied_gates, mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps,
@@ -6159,7 +6151,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                     Flowrate::default(),
                     applied_gates,
                 )
-            })
+            },
+        )
     }
 }
 
@@ -6173,17 +6166,14 @@ impl ScaleTransform {
         self,
         i: MeasIndex,
         flag: AllowLoss,
-    ) -> DeferredFungibleError<Scale, AnyMeasKeyLossError> {
+    ) -> DeferredFungibleError<Scale, AllowLoss, AnyMeasKeyLossError> {
         match self {
             Self::Lin(x) => {
-                if x.is_one() {
-                    let e = IndexedKeyLossError::<Gain>::new(i).into();
-                    LogResult::new_deferred_fungible(Scale::Linear, e, flag)
-                } else {
-                    LogResult::new_ok(Scale::Linear)
-                }
+                let e = IndexedKeyLossError::<Gain>::new(i).into();
+                let v = Scale::Linear;
+                LogResult::new_deferred_fungible_ok_if(!x.is_one(), v, e, flag)
             }
-            Self::Log(x) => LogResult::new_ok(Scale::Log(x)),
+            Self::Log(x) => LogResult::new_fungible_ok(Scale::Log(x), flag),
         }
     }
 
@@ -6274,12 +6264,9 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         _: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
-            .timestep
-            .check_conversion(flag)
-            .map_def_value(|()| Self::new(true, value.peak))
-            .map_commutative_fungible_errors(TemporalConvertError::from)
-            .repack()
+        let e = value.timestep.loss_error().map(TemporalConvertError::from);
+        let v = Self::new(true, value.peak);
+        FungibleErrorsResult::new_deferred_fungible_maybe(v, e, flag)
     }
 }
 
@@ -6289,17 +6276,14 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let t = value
-            .timestep
-            .check_conversion(flag)
-            .map_commutative_fungible_errors(TemporalConvertError::from)
-            .into_semigroup();
+        let t = value.timestep.loss_error().map(TemporalConvertError::from);
         let d = value
             .display
-            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::from)
-            .into_semigroup();
-        t.lift_f2_once(d, |(), ()| Self::new(true, value.peak))
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
+        let es = [t, d].into_iter().flatten();
+        let v = Self::new(true, value.peak);
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -6311,20 +6295,19 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
     ) -> TemporalConvertResult<Self> {
         let di = value
             .display
-            .check_indexed_key_transfer_fungible(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .into_semigroup();
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
         let m = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .into_semigroup();
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
         let t = value
             .timestep
-            .check_conversion(flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Timestep)
-            .into_semigroup();
-        di.lift_f3_once(m, t, |(), (), ()| Self::new(true, PeakData::default()))
+            .loss_error()
+            .map(TemporalConvertError::Timestep);
+        let v = Self::new(true, PeakData::default());
+        let es = [di, m, t].into_iter().flatten();
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -6332,9 +6315,9 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
     fn convert_from_temporal(
         value: InnerTemporal2_0,
         _: MeasIndex,
-        _: AllowLoss,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_ok(Self::new(Timestep::default(), value.peak))
+        LogResult::new_fungible_ok(Self::new(Timestep::default(), value.peak), flag)
     }
 }
 
@@ -6344,12 +6327,12 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
+        let e = value
             .display
-            .check_indexed_key_transfer_fungible(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .map_def_value(|()| Self::new(value.timestep, value.peak))
-            .repack()
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
+        let v = Self::new(value.timestep, value.peak);
+        LogResult::new_deferred_fungible_maybe(v, e, flag)
     }
 }
 
@@ -6361,15 +6344,15 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
     ) -> TemporalConvertResult<Self> {
         let di = value
             .display
-            .check_indexed_key_transfer_fungible::<AnyMeasKeyLossError>(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .into_semigroup();
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
         let m = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .into_semigroup();
-        di.lift_f2_once(m, |(), ()| Self::new(value.timestep, PeakData::default()))
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
+        let es = [di, m].into_iter().flatten();
+        let v = Self::new(value.timestep, PeakData::default());
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -6377,9 +6360,9 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
     fn convert_from_temporal(
         value: InnerTemporal2_0,
         _: MeasIndex,
-        _: AllowLoss,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_ok(Self::new(Timestep::default(), None, value.peak))
+        LogResult::new_fungible_ok(Self::new(Timestep::default(), None, value.peak), flag)
     }
 }
 
@@ -6387,9 +6370,9 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
         _: MeasIndex,
-        _: AllowLoss,
+        flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_ok(Self::new(value.timestep, None, value.peak))
+        LogResult::new_fungible_ok(Self::new(value.timestep, None, value.peak), flag)
     }
 }
 
@@ -6399,12 +6382,12 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
+        let e = value
             .measurement_type
-            .check_indexed_key_transfer_fungible(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .map_def_value(|()| Self::new(value.timestep, value.display, PeakData::default()))
-            .repack()
+            .check_indexed_key_transfer_fungible1(i)
+            .map(TemporalConvertError::Xfer);
+        let v = Self::new(value.timestep, value.display, PeakData::default());
+        LogResult::new_deferred_fungible_maybe(v, e, flag)
     }
 }
 
@@ -6414,12 +6397,9 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .map_def_value(|()| Self::new(Timestep::default(), None, TemporalType::default()))
-            .repack()
+        let es = value.peak.check_loss(i).map(TemporalConvertError::Xfer);
+        let v = Self::new(Timestep::default(), None, TemporalType::default());
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -6429,11 +6409,9 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .map_def_value(|()| Self::new(value.timestep, None, TemporalType::default()))
+        let es = value.peak.check_loss(i).map(TemporalConvertError::Xfer);
+        let v = Self::new(value.timestep, None, TemporalType::default());
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -6443,11 +6421,9 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        value
-            .peak
-            .check_loss(i, flag)
-            .map_commutative_fungible_errors(TemporalConvertError::Xfer)
-            .map_def_value(|()| Self::new(value.timestep, value.display, TemporalType::default()))
+        let es = value.peak.check_loss(i).map(TemporalConvertError::Xfer);
+        let v = Self::new(value.timestep, value.display, TemporalType::default());
+        LogResult::new_deferred_fungible_iter(v, es, flag)
     }
 }
 
@@ -7043,7 +7019,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     {
         Tot::remove_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
@@ -7061,7 +7037,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     {
         Tot::get_metaroot_opt(kws)
             .into_succ::<_, _, Vec<_>, _, _>()
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
@@ -7097,10 +7073,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
         let data_res = KeyedReqSegment::remove_or(kws, data, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         let analysis_res = KeyedReqSegment::remove_or(kws, analysis, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
@@ -7120,10 +7096,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
         let data_res = KeyedReqSegment::get_or(kws, data, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         let analysis_res = KeyedReqSegment::get_or(kws, analysis, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_cmt(data_res, analysis_res)
@@ -7156,12 +7132,12 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
         let data_res = KeyedReqSegment::remove_or(kws, data, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
             KeyedOptSegment::remove_or(kws, analysis, st)
                 .set_err_value(())
-                .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
                 .map_errors(LookupTEXTOffsetsError::from)
                 .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
@@ -7180,13 +7156,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
         let data_res = KeyedReqSegment::get_or(kws, data, st)
-            .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
             // TODO flip order of required and optional
             KeyedOptSegment::get_or(kws, analysis, st)
                 .set_err_value(())
-                .map_cmt_warnings(LookupTEXTOffsetsWarning::from)
+                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
                 .map_errors(LookupTEXTOffsetsError::from)
                 .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
         })
@@ -7448,13 +7424,11 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::Uncorrelated => Some(DepValueWarning::ModeUncorrelated),
                 Mode::List => None,
             };
-            let res = if let Some(e) = err {
-                let flag = conf.disallow_deprecated;
-                LogResult::new_fungible(mode, (), DeprecatedError::Value(e), flag)
-            } else {
-                LogResult::<_, _, _, _, _, Vec<_>>::new_ok(mode)
-            };
-            res.map_cmt_warnings(LookupKeysWarning::from)
+            let flag = conf.disallow_deprecated;
+            let e = err.map(DeprecatedError::Value);
+            FungibleErrorsResult::new_fungible_iter(mode, (), e, flag)
+                .fungible_into_commutative()
+                .map_commutative_warnings(LookupKeysWarning::from)
                 .map_errors(LookupKeysWarning::from)
                 .map_errors(LookupKeysError::from)
         };
@@ -8395,14 +8369,14 @@ pub struct OpticalNonLinearError(MeasIndex);
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
     Mode(ModeUpgradeError),
-    GateLink(gating::RegionToGateIndexError),
-    MeasLink(gating::RegionToMeasIndexError),
-    GateToMeas(gating::GateToMeasIndexError),
-    MeasToGate(gating::MeasToGateIndexError),
-    Gates3_0To2_0(gating::AppliedGates3_0To2_0Error),
-    Gates3_0To3_2(gating::AppliedGates3_0To3_2Error),
-    Gates3_2To2_0(gating::AppliedGates3_2To2_0Error),
-    Gates2_0To3_2(gating::AppliedGates2_0To3_2Error),
+    GateLink(RegionToGateIndexError),
+    MeasLink(RegionToMeasIndexError),
+    GateToMeas(GateToMeasIndexError),
+    MeasToGate(MeasToGateIndexError),
+    Gates3_0To2_0(AppliedGates3_0To2_0Error),
+    Gates3_0To3_2(AppliedGates3_0To3_2Error),
+    Gates3_2To2_0(AppliedGates3_2To2_0Error),
+    Gates2_0To3_2(AppliedGates2_0To3_2Error),
     Loss(AnyMetarootKeyLossError),
     Comp2_0(Comp2_0TransferError),
 }
@@ -8410,10 +8384,10 @@ pub enum MetarootConvertError {
 #[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertWarning {
     Mode(ModeUpgradeError),
-    Gates3_0To2_0(gating::AppliedGates3_0To2_0Error),
-    Gates3_0To3_2(gating::AppliedGates3_0To3_2Error),
-    Gates3_2To2_0(gating::AppliedGates3_2To2_0Error),
-    Gates2_0To3_2(gating::AppliedGates2_0To3_2Error),
+    Gates3_0To2_0(AppliedGates3_0To2_0Error),
+    Gates3_0To3_2(AppliedGates3_0To3_2Error),
+    Gates3_2To2_0(AppliedGates3_2To2_0Error),
+    Gates2_0To3_2(AppliedGates2_0To3_2Error),
     Loss(AnyMetarootKeyLossError),
     Optical(OpticalConvertWarning),
     Temporal(TemporalConvertError),

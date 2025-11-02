@@ -1,5 +1,8 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
-use crate::logging::{DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, LogResult};
+use crate::logging::{
+    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, FungibleErrorResult,
+    FungibleErrorsResult, LogResult, WarningAndErrorResult, WarningOrErrorResult,
+};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
@@ -528,7 +531,7 @@ impl ParsedKeywords {
         k: &[u8],
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredFungibleError<(), KeywordInsertError> {
+    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         // ASSUME key and value are never blank since we checked both prior to
         // calling this. The FCS standards do not allow either to be blank.
         let to_std = conf.promote_to_standard.as_matcher();
@@ -541,6 +544,7 @@ impl ParsedKeywords {
         let blank_err = || {
             let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
             LogResult::new_deferred_fungible((), e, conf.allow_empty)
+                .fungible_into_non_commutative()
         };
 
         let vv = if conf.use_latin1 {
@@ -595,6 +599,7 @@ impl ParsedKeywords {
                         LogResult::new_ok(())
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                            .fungible_into_non_commutative()
                     } else {
                         let rk = renames.get(&kk).cloned().unwrap_or(kk);
                         let rv = if let Some(s) = subs.get(&rk) {
@@ -603,14 +608,17 @@ impl ParsedKeywords {
                             value
                         };
                         insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
+                            .fungible_into_non_commutative()
                     }
                 } else {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
                     if to_std.is_match(&kk) {
                         insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                            .fungible_into_non_commutative()
                     } else {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                            .fungible_into_non_commutative()
                     }
                 }
             } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
@@ -633,22 +641,17 @@ impl ParsedKeywords {
         &mut self,
         new: &HashMap<KeyString, String>,
         flag: AllowNonunique,
-    ) -> DeferredFungibleErrors<(), StdPresent> {
-        new.iter()
-            .map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => {
-                    let key = e.key().clone();
-                    let value = v.clone();
-                    let w = KeyPresent { key, value };
-                    LogResult::new_deferred_fungible((), w, flag)
-                }
+    ) -> FungibleErrorsResult<(), (), AllowNonunique, StdPresent> {
+        let es = new
+            .iter()
+            .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
+                Entry::Occupied(e) => Some(KeyPresent::new(e.key().clone(), v.clone())),
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
-                    LogResult::new_ok(())
+                    None
                 }
-            })
-            .mappend_def()
-            .map_def_value(|_| ())
+            });
+        LogResult::new_fungible_ok((), flag).extend_deferred_fungible_errors(es)
     }
 }
 
@@ -678,7 +681,7 @@ impl fmt::Display for BlankValueError {
     }
 }
 
-#[derive(Debug, PartialEq, Error)]
+#[derive(Debug, PartialEq, Error, new)]
 #[error("key '{key}' already present, has value '{value}'")]
 pub struct KeyPresent<T> {
     pub key: T,
@@ -746,16 +749,17 @@ fn insert_nonunique<K>(
     k: K,
     value: String,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredFungibleError<(), KeywordInsertError>
+) -> FungibleErrorResult<(), (), AllowNonunique, KeywordInsertError>
 where
     K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
 {
+    let flag = conf.allow_nonunique;
     match kws.entry(k) {
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
             let err = KeyPresent { key, value };
-            LogResult::new_deferred_fungible((), err.into(), conf.allow_nonunique)
+            LogResult::new_deferred_fungible((), err.into(), flag)
         }
         Entry::Vacant(ent) => {
             let v = conf
@@ -764,7 +768,7 @@ where
                 .map(ToString::to_string)
                 .unwrap_or(value);
             ent.insert(v);
-            LogResult::new_ok(())
+            LogResult::new_fungible_ok((), flag)
         }
     }
 }

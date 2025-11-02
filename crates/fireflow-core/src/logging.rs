@@ -12,6 +12,7 @@ use std::fmt;
 use std::io;
 use std::iter;
 use std::marker::PhantomData;
+use std::mem;
 use std::vec;
 use thiserror::Error;
 
@@ -41,15 +42,14 @@ pub type IOErrorResult<V, P, E> = ErrorResult<V, P, ImpureError<E>>;
 pub type IOErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 
 //
-// Results with errors which can also be warnings but are not commutable.
-//
-// NOTE: None of these have boxed versions because the error type is also on
-// the warning side (in an option, which makes it insignificantly larger).
-// Thus the stack space required for either is about the same.
+// Results with errors which can also be warnings
 //
 
-pub type FungibleErrorResult<V, P, E> = NonCmtFungibleResult<V, P, E, Nothing<E>>;
-pub type FungibleErrorsResult<V, P, E> = NonCmtFungibleResult<V, P, E, Vec<E>>;
+pub type FungibleErrorResult<V, P, X, E> = FungibleResult<V, P, X, E, Nothing<E>>;
+pub type FungibleErrorsResult<V, P, X, E> = FungibleResult<V, P, X, E, Vec<E>>;
+
+pub type DeferredFungibleError<V, X, E> = FungibleErrorResult<V, V, X, E>;
+pub type DeferredFungibleErrors<V, X, E> = FungibleErrorsResult<V, V, X, E>;
 
 //
 // Results with warnings and errors of differing types which are not commutable
@@ -96,15 +96,12 @@ pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
 pub type DeferredWarningAndErrors<V, W, E> = WarningAndErrorsResult<V, V, W, E>;
 pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E>;
 
-pub type DeferredFungibleError<V, E> = CmtFungibleErrorResult<V, V, E>;
-pub type DeferredFungibleErrors<V, E> = CmtFungibleErrorsResult<V, V, E>;
-
 //
 // helper types for constructing the "complete" types above
 //
 
-pub type NonCmtFungibleResult<V, P, E, EC> = NonCmtResult<V, P, <EC as FungibleError>::Warn, E, EC>;
-pub type CmtFungibleResult<V, P, E, EC> = CmtResult<V, P, <EC as FungibleError>::Warn, E, EC>;
+// pub type NonCmtFungibleResult<V, P, E, EC> = NonCmtResult<V, P, <EC as FungibleError>::Warn, E, EC>;
+// pub type CmtFungibleResult<V, P, E, EC> = CmtResult<V, P, <EC as FungibleError>::Warn, E, EC>;
 
 pub type NowarnResult<V, P, E, EC> = CmtResult<V, P, Nothing<()>, E, EC>;
 
@@ -112,17 +109,19 @@ pub type Deferred<V, WC, E, EC> = CmtResult<V, V, WC, E, EC>;
 
 pub type DeferredNowarn<V, E, EC> = NowarnResult<V, V, E, EC>;
 
-pub type DeferredFungible<V, E, EC> = Deferred<V, <EC as FungibleError>::Warn, E, EC>;
+// pub type DeferredFungible<V, E, EC> = Deferred<V, <EC as FungibleError>::Warn, E, EC>;
 
-pub type CmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, E, EC>;
+pub type CmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
 
-pub type NonCmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, E, EC>;
+pub type NonCmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
 
-pub type FungibleResult<V, P, RWC, E, EC> =
-    LogResult<V, P, <EC as FungibleError>::Warn, RWC, E, EC>;
+pub type FungibleResult<V, P, X, E, EC> =
+    LogResult<V, P, <EC as FungibleError>::Warn, Nothing<()>, X, E, EC>;
 
-pub enum LogResult<V, P, LWC, RWC, E, EC> {
-    Succ(Success<V, LWC>),
+pub type DeferredFungible<V, X, E, EC> = FungibleResult<V, V, X, E, EC>;
+
+pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
+    Succ(Success<V, X, LWC>),
     Fail(Failure<P, RWC, E, EC>),
 }
 
@@ -130,8 +129,9 @@ use LogResult::{Fail, Succ};
 
 #[derive(new)]
 #[new(visibility = "")]
-pub struct Success<V, WC> {
+pub struct Success<V, X, WC> {
     value: V,
+    flag: X,
     warnings: WC,
 }
 
@@ -172,9 +172,10 @@ pub enum ImpureError<E> {
 
 pub struct GenNonEmptyFamilyInner<C>(PhantomData<C>);
 
-pub struct LogResultFamily<LWC, RWC, E, EC>(
+pub struct LogResultFamily<LWC, RWC, X, E, EC>(
     PhantomData<LWC>,
     PhantomData<RWC>,
+    PhantomData<X>,
     PhantomData<E>,
     PhantomData<EC>,
 );
@@ -207,12 +208,12 @@ impl<X, C: IsKind1> IsKind1 for GenNonEmpty<X, C> {
     type Family = GenNonEmptyFamilyInner<C::Family>;
 }
 
-impl<LWC, RWC, E, EC> Kind2 for LogResultFamily<LWC, RWC, E, EC> {
-    type Type<A, B> = LogResult<A, B, LWC, RWC, E, EC>;
+impl<LWC, RWC, X, E, EC> Kind2 for LogResultFamily<LWC, RWC, X, E, EC> {
+    type Type<A, B> = LogResult<A, B, LWC, RWC, X, E, EC>;
 }
 
-impl<A, B, LWC, RWC, E, EC> IsKind2 for LogResult<A, B, LWC, RWC, E, EC> {
-    type Family = LogResultFamily<LWC, RWC, E, EC>;
+impl<A, B, LWC, RWC, X, E, EC> IsKind2 for LogResult<A, B, LWC, RWC, X, E, EC> {
+    type Family = LogResultFamily<LWC, RWC, X, E, EC>;
 }
 
 impl<A, C: Functor<A>> Functor<A> for GenNonEmpty<A, C> {
@@ -316,16 +317,16 @@ impl<E> FungibleError for Vec<E> {
     }
 }
 
-pub struct SuccessFamily1<WC>(PhantomData<WC>);
+pub struct SuccessFamily1<X, WC>(PhantomData<X>, PhantomData<WC>);
 
 pub struct FailureFamily3<WC, E, EC>(PhantomData<WC>, PhantomData<E>, PhantomData<EC>);
 
-impl<WC> Kind1 for SuccessFamily1<WC> {
-    type Type<V> = Success<V, WC>;
+impl<X, WC> Kind1 for SuccessFamily1<X, WC> {
+    type Type<V> = Success<V, X, WC>;
 }
 
-impl<V, WC> IsKind1 for Success<V, WC> {
-    type Family = SuccessFamily1<WC>;
+impl<V, X, WC> IsKind1 for Success<V, X, WC> {
+    type Family = SuccessFamily1<X, WC>;
 }
 
 impl<WC, E, EC> Kind1 for FailureFamily3<WC, E, EC> {
@@ -336,9 +337,9 @@ impl<V, WC, E, EC> IsKind1 for Failure<V, WC, E, EC> {
     type Family = FailureFamily3<WC, E, EC>;
 }
 
-impl<V, WC> FunctorOnce<V> for Success<V, WC> {
+impl<V, X, WC> FunctorOnce<V> for Success<V, X, WC> {
     fn fmap_once<F: FnOnce(V) -> Y, Y>(self, f: F) -> Sibling1<Self, Y> {
-        Success::new(f(self.value), self.warnings)
+        Success::new(f(self.value), self.flag, self.warnings)
     }
 }
 
@@ -348,13 +349,14 @@ impl<V, WC, E, EC> FunctorOnce<V> for Failure<V, WC, E, EC> {
     }
 }
 
-impl<V, WC: Semigroup> ApplyOnce<V> for Success<V, WC> {
+impl<V, X, WC: Semigroup> ApplyOnce<V> for Success<V, X, WC> {
     fn lift_f2_once<F, B, C>(self, other: Sibling1<Self, B>, f: F) -> Sibling1<Self, C>
     where
         F: FnOnce(V, B) -> C,
     {
         Success::new(
             f(self.value, other.value),
+            self.flag,
             self.warnings.sappend(other.warnings),
         )
     }
@@ -412,27 +414,40 @@ where
     }
 }
 
-impl<V, WC> Success<V, WC> {
-    pub fn new1(value: V) -> Self
+impl<V, WC> Success<V, (), WC> {
+    pub fn new_non_fungible(value: V) -> Self
     where
         WC: Default,
     {
-        Self::new(value, WC::default())
+        Self::new(value, (), WC::default())
+    }
+}
+
+impl<V, X, WC> Success<V, X, WC> {
+    pub fn new_flagged(value: V, flag: X) -> Self
+    where
+        WC: Default,
+    {
+        Self::new(value, flag, WC::default())
     }
 
-    pub(crate) fn repack<WCf>(self) -> Success<V, WCf>
+    fn remove_flag(self) -> Success<V, (), WC> {
+        Success::new(self.value, (), self.warnings)
+    }
+
+    pub(crate) fn repack<WCf>(self) -> Success<V, X, WCf>
     where
         WC: IntoNewCardinality<WCf>,
     {
-        Success::new(self.value, self.warnings.into_new_cardinality())
+        Success::new(self.value, self.flag, self.warnings.into_new_cardinality())
     }
 
-    pub(crate) fn map_warnings<F, W, Wf>(self, f: F) -> Success<V, Sibling1<WC, Wf>>
+    pub(crate) fn map_warnings<F, W, Wf>(self, f: F) -> Success<V, X, Sibling1<WC, Wf>>
     where
         WC: Functor<W>,
         F: Fn(W) -> Wf,
     {
-        Success::new(self.value, self.warnings.fmap(f))
+        Success::new(self.value, self.flag, self.warnings.fmap(f))
     }
 
     pub(crate) fn push_warning<W>(&mut self, w: W)
@@ -467,7 +482,7 @@ impl<V, WC> Success<V, WC> {
         match f(self.value) {
             Succ(s) => {
                 let ws = self.warnings.sappend(s.warnings);
-                Succ(Success::new(s.value, ws))
+                Succ(Success::new(s.value, s.flag, ws))
             }
             Fail(e) => {
                 let ws = self.warnings.sappend(e.warnings);
@@ -495,25 +510,26 @@ impl<V, WC> Success<V, WC> {
 
     pub(crate) fn combine<Fv, Fw, V0, WC0, Vf, WCf>(
         self,
-        other: Success<V0, WC0>,
+        other: Success<V0, X, WC0>,
         fv: Fv,
         fw: Fw,
-    ) -> Success<Vf, WCf>
+    ) -> Success<Vf, X, WCf>
     where
         Fv: FnOnce(V, V0) -> Vf,
         Fw: FnOnce(WC, WC0) -> WCf,
     {
         Success::new(
             fv(self.value, other.value),
+            self.flag,
             fw(self.warnings, other.warnings),
         )
     }
 
-    fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, Option<Wf>>
+    fn aggregate_warnings<F, Wf>(self, f: F) -> Success<V, X, Option<Wf>>
     where
         F: FnOnce(WC) -> Option<Wf>,
     {
-        Success::new(self.value, f(self.warnings))
+        Success::new(self.value, self.flag, f(self.warnings))
     }
 
     /// Remove warnings while maintaining the warning type.
@@ -524,14 +540,14 @@ impl<V, WC> Success<V, WC> {
     where
         WC: Default,
     {
-        Self::new1(self.value)
+        Self::new_flagged(self.value, self.flag)
     }
 
     /// Convert warnings to errors while maintaining the warning type.
     ///
     /// This is useful for cases where warnings might be optionally converted
     /// so we can't just set them to `()`
-    fn warnings_to_errors<E, W, P, EC, F, G>(self, f: F, g: G) -> LogResult<V, P, WC, WC, E, EC>
+    fn warnings_to_errors<E, W, P, EC, F, G>(self, f: F, g: G) -> LogResult<V, P, WC, WC, X, E, EC>
     where
         F: Fn(W) -> E,
         G: FnOnce(V) -> P,
@@ -539,26 +555,26 @@ impl<V, WC> Success<V, WC> {
         WC: Default + IntoIterator<Item = W>,
     {
         match GenNonEmpty::<E, EC>::collect(self.warnings.into_iter().map(f)) {
-            None => Succ(Self::new1(self.value)),
+            None => Succ(Self::new_flagged(self.value, self.flag)),
             Some(es) => Fail(Failure::new_from_many(es, g(self.value))),
         }
     }
 
-    fn resolve<F, X>(self, f: F) -> (V, X)
+    fn resolve<F, Wres>(self, f: F) -> (V, Wres)
     where
-        F: FnOnce(WC) -> X,
+        F: FnOnce(WC) -> Wres,
     {
         (self.value, f(self.warnings))
     }
 }
 
-impl<V> Success<V, Nothing<()>> {
-    fn nowarn_into_warn<WC: Default>(self) -> Success<V, WC> {
-        Success::new1(self.value)
+impl<V> Success<V, (), Nothing<()>> {
+    fn nowarn_into_warn<WC: Default>(self) -> Success<V, (), WC> {
+        Success::new_non_fungible(self.value)
     }
 
-    pub(crate) fn set_warnings<WC>(self, ws: WC) -> Success<V, WC> {
-        Success::new(self.value, ws)
+    pub(crate) fn set_warnings<WC>(self, ws: WC) -> Success<V, (), WC> {
+        Success::new(self.value, self.flag, ws)
     }
 }
 
@@ -661,7 +677,7 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         match f(self.value) {
             Succ(s) => {
                 let ws = self.warnings.sappend(s.warnings);
-                Succ(Success::new(s.value, ws))
+                Succ(Success::new(s.value, s.flag, ws))
             }
             Fail(e) => {
                 let ws = self.warnings.sappend(e.warnings);
@@ -671,7 +687,7 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         }
     }
 
-    fn with_success<F, V, PF>(self, other: Success<V, WC>, f: F) -> Failure<PF, WC, E, EC>
+    fn with_success<F, V, X, PF>(self, other: Success<V, X, WC>, f: F) -> Failure<PF, WC, E, EC>
     where
         F: FnOnce(P, V) -> PF,
         WC: Monoid,
@@ -791,6 +807,20 @@ impl<X, C> GenNonEmpty<X, C> {
     {
         GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
     }
+
+    fn prepend<I>(&mut self, other: I)
+    where
+        I: IntoIterator<Item = X>,
+        C: Extend<X> + Default + IntoIterator<Item = X>,
+    {
+        let mut it = other.into_iter();
+        if let Some(x0) = it.by_ref().next() {
+            let mut new = GenNonEmpty::new1(x0);
+            new.extend(it);
+            let oldself = mem::replace(self, new);
+            self.extend(oldself.into_iter());
+        }
+    }
 }
 
 impl<X> GenNonEmpty<X, Nothing<X>> {
@@ -810,9 +840,11 @@ pub trait OptionExt: Sized {
 
     fn into_option(self) -> Option<Self::Inner>;
 
-    fn transpose_log_result<V, P, LWC, RWC, E, EC>(self) -> LogResult<Option<V>, P, LWC, RWC, E, EC>
+    fn transpose_log_result<V, P, LWC, RWC, E, EC>(
+        self,
+    ) -> LogResult<Option<V>, P, LWC, RWC, (), E, EC>
     where
-        Self: OptionExt<Inner = LogResult<V, P, LWC, RWC, E, EC>>,
+        Self: OptionExt<Inner = LogResult<V, P, LWC, RWC, (), E, EC>>,
         LWC: Default,
     {
         self.into_option()
@@ -850,7 +882,7 @@ pub trait ResultExt: Sized {
         self.into_log()
     }
 
-    fn into_log<LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), LWC, RWC, Self::Error, EC>
+    fn into_log<LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), LWC, RWC, (), Self::Error, EC>
     where
         EC: Default,
         LWC: Default,
@@ -858,11 +890,13 @@ pub trait ResultExt: Sized {
     {
         self.into_result().map_or_else(
             |e| Fail(Failure::new_from_one(e, ())),
-            |s| Succ(Success::new1(s)),
+            |s| Succ(Success::new_non_fungible(s)),
         )
     }
 
-    fn into_io_log<Ef, LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), LWC, RWC, ImpureError<Ef>, EC>
+    fn into_io_log<Ef, LWC, RWC, EC>(
+        self,
+    ) -> LogResult<Self::Ok, (), LWC, RWC, (), ImpureError<Ef>, EC>
     where
         Self: ResultExt<Error = io::Error>,
         EC: Default,
@@ -872,7 +906,10 @@ pub trait ResultExt: Sized {
         self.into_result().map_err(ImpureError::IO).into_log()
     }
 
-    fn into_deferred_fungible<X, EC>(self, flag: X) -> DeferredFungible<Self::Ok, Self::Error, EC>
+    fn into_deferred_fungible<X, EC>(
+        self,
+        flag: X,
+    ) -> DeferredFungible<Self::Ok, X, Self::Error, EC>
     where
         Self::Ok: Default,
         EC: FungibleError<Inner = Self::Error> + Default,
@@ -880,12 +917,13 @@ pub trait ResultExt: Sized {
         X: ErrorFlag,
     {
         match self.into_result() {
-            Ok(s) => Succ(Success::new1(s)),
+            Ok(s) => Succ(Success::new_flagged(s, flag)),
             Err(e) => {
                 if flag.is_error() {
                     Fail(Failure::new_from_one(e, Self::Ok::default()))
                 } else {
-                    Succ(Success::new(Self::Ok::default(), EC::error_to_warning(e)))
+                    let ws = EC::error_to_warning(e);
+                    Succ(Success::new(Self::Ok::default(), flag, ws))
                 }
             }
         }
@@ -894,7 +932,7 @@ pub trait ResultExt: Sized {
     fn into_deferred_fungible_opt<X, EC>(
         self,
         flag: X,
-    ) -> DeferredFungible<Option<Self::Ok>, Self::Error, EC>
+    ) -> DeferredFungible<Option<Self::Ok>, X, Self::Error, EC>
     where
         EC: FungibleError<Inner = Self::Error> + Default,
         EC::Warn: Default,
@@ -907,7 +945,7 @@ pub trait ResultExt: Sized {
         self,
         default: Self::Ok,
         flag: X,
-    ) -> DeferredFungible<Self::Ok, Self::Error, EC>
+    ) -> DeferredFungible<Self::Ok, X, Self::Error, EC>
     where
         EC: FungibleError<Inner = Self::Error> + Default,
         EC::Warn: Default,
@@ -918,19 +956,21 @@ pub trait ResultExt: Sized {
             .map_def_value(|v| v.unwrap_or(default))
     }
 
-    fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, E, EC>
+    fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
     where
         Self::Ok: Default,
         LWC: Default + Applicative<Self::Error>,
     {
         let ret = self.into_result().map_or_else(
-            |e| Success::new(Self::Ok::default(), LWC::pure(e)),
-            Success::new1,
+            |e| Success::new(Self::Ok::default(), (), LWC::pure(e)),
+            Success::new_non_fungible,
         );
         Succ(ret)
     }
 
-    fn into_succ_opt<P, LWC, RWC, E, EC>(self) -> LogResult<Option<Self::Ok>, P, LWC, RWC, E, EC>
+    fn into_succ_opt<P, LWC, RWC, E, EC>(
+        self,
+    ) -> LogResult<Option<Self::Ok>, P, LWC, RWC, (), E, EC>
     where
         LWC: Default + Applicative<Self::Error>,
     {
@@ -940,7 +980,7 @@ pub trait ResultExt: Sized {
     fn into_succ_or<P, LWC, RWC, E, EC>(
         self,
         default: Self::Ok,
-    ) -> LogResult<Self::Ok, P, LWC, RWC, E, EC>
+    ) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
     where
         LWC: Applicative<Self::Error> + Default,
     {
@@ -968,20 +1008,72 @@ impl<V, E> ResultExt for Result<V, E> {
 }
 
 // fungible
-impl<V, P, RWC, E, EC> LogResult<V, P, EC::Warn, RWC, E, EC>
+impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
 where
     EC: FungibleError,
 {
-    pub(crate) fn new_fungible<X>(value: V, default: P, error: E, flag: X) -> Self
+    pub(crate) fn new_fungible_ok(value: V, flag: X) -> Self
     where
         EC: FungibleError<Inner = E> + Default,
-        RWC: Default,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        Succ(Success::new_flagged(value, flag))
+    }
+
+    pub(crate) fn new_fungible(value: V, default: P, error: E, flag: X) -> Self
+    where
+        EC: FungibleError<Inner = E> + Default,
         X: ErrorFlag,
     {
         if flag.is_error() {
             Fail(Failure::new_from_one(error, default))
         } else {
-            Succ(Success::new(value, EC::error_to_warning(error)))
+            Succ(Success::new(value, flag, EC::error_to_warning(error)))
+        }
+    }
+
+    pub(crate) fn new_fungible_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
+    where
+        EC: FungibleError<Inner = E> + Default,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        if is_ok {
+            FungibleResult::new_fungible_ok(value, flag)
+        } else {
+            FungibleResult::new_fungible(value, default, error, flag)
+        }
+    }
+
+    pub(crate) fn new_fungible_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
+    where
+        EC: FungibleError<Inner = E> + Default,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        match error {
+            Some(e) => FungibleResult::new_fungible(value, default, e, flag),
+            None => FungibleResult::new_fungible_ok(value, flag),
+        }
+    }
+
+    pub(crate) fn new_fungible_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        EC: FungibleError<Inner = E> + Default + Extend<E>,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        match GenNonEmpty::collect(errors) {
+            Some(es) => {
+                if flag.is_error() {
+                    Fail(Failure::new_from_many(es, default))
+                } else {
+                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+                }
+            }
+            None => FungibleResult::new_fungible_ok(value, flag),
         }
     }
 }
@@ -1000,7 +1092,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
     {
         match self {
             Succ(s) => s.with_value(f_succ),
-            Fail(f) => Success::new(f.value, f.warnings).with_value(|v| f_err(v, f.errors)),
+            Fail(f) => Success::new(f.value, (), f.warnings).with_value(|v| f_err(v, f.errors)),
         }
     }
 
@@ -1010,11 +1102,14 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         W: Into<Wf>,
         WC: Functor<W>,
     {
-        self.map_cmt_warnings(Into::into)
+        self.map_commutative_warnings(Into::into)
     }
 
     /// Map function over warnings of commutative Result
-    pub(crate) fn map_cmt_warnings<F, W, Wf>(self, f: F) -> CmtResult<V, P, Sibling1<WC, Wf>, E, EC>
+    pub(crate) fn map_commutative_warnings<F, W, Wf>(
+        self,
+        f: F,
+    ) -> CmtResult<V, P, Sibling1<WC, Wf>, E, EC>
     where
         F: Fn(W) -> Wf,
         WC: Functor<W>,
@@ -1088,46 +1183,46 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         }
     }
 
-    pub(crate) fn extend_fungible_errors<X, M, W, Fv, Fp, Fw, Fe>(
-        mut self,
-        errors: impl IntoIterator<Item = M>,
-        fv: Fv,
-        fp: Fp,
-        fw: Fw,
-        fe: Fe,
-        flag: X,
-    ) -> Self
-    where
-        Fv: FnOnce(V) -> P,
-        Fp: FnOnce(P) -> P,
-        Fe: Fn(M) -> E,
-        Fw: Fn(M) -> W,
-        WC: Extend<W>,
-        EC: Extend<E> + Default + FungibleError<Inner = E>,
-        X: ErrorFlag,
-    {
-        if flag.is_error() {
-            let mut it = errors.into_iter().map(fe);
-            match self {
-                Succ(succ) => {
-                    if let Some(e0) = it.by_ref().next() {
-                        let mut es_ = GenNonEmpty::new1(e0);
-                        es_.extend(it);
-                        Fail(succ.fail(es_).fmap_once(fv))
-                    } else {
-                        Succ(succ)
-                    }
-                }
-                Fail(mut err) => {
-                    err.extend_errors(it);
-                    Fail(err.fmap_once(fp))
-                }
-            }
-        } else {
-            self.extend_commutative_warnings(errors.into_iter().map(fw));
-            self.map_err_value(fp)
-        }
-    }
+    // pub(crate) fn extend_fungible_errors<X, M, W, Fv, Fp, Fw, Fe>(
+    //     mut self,
+    //     errors: impl IntoIterator<Item = M>,
+    //     fv: Fv,
+    //     fp: Fp,
+    //     fw: Fw,
+    //     fe: Fe,
+    //     flag: X,
+    // ) -> Self
+    // where
+    //     Fv: FnOnce(V) -> P,
+    //     Fp: FnOnce(P) -> P,
+    //     Fe: Fn(M) -> E,
+    //     Fw: Fn(M) -> W,
+    //     WC: Extend<W>,
+    //     EC: Extend<E> + Default + FungibleError<Inner = E>,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         let mut it = errors.into_iter().map(fe);
+    //         match self {
+    //             Succ(succ) => {
+    //                 if let Some(e0) = it.by_ref().next() {
+    //                     let mut es_ = GenNonEmpty::new1(e0);
+    //                     es_.extend(it);
+    //                     Fail(succ.fail(es_).fmap_once(fv))
+    //                 } else {
+    //                     Succ(succ)
+    //                 }
+    //             }
+    //             Fail(mut err) => {
+    //                 err.extend_errors(it);
+    //                 Fail(err.fmap_once(fp))
+    //             }
+    //         }
+    //     } else {
+    //         self.extend_commutative_warnings(errors.into_iter().map(fw));
+    //         self.map_err_value(fp)
+    //     }
+    // }
 
     pub(crate) fn and_cmt<F>(self, f: F) -> Self
     where
@@ -1279,18 +1374,27 @@ impl<V, WC, E> CmtResult<V, (), WC, E, Nothing<E>> {
     }
 }
 
-// deferred
-impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
+impl<V, LWC, RWC, X, E, EC> LogResult<V, V, LWC, RWC, X, E, EC> {
     /// Set value of deferred Result
-    pub(crate) fn set_def_value<Vf>(self, x: Vf) -> Deferred<Vf, WC, E, EC> {
+    pub(crate) fn set_def_value<Vf>(self, x: Vf) -> LogResult<Vf, Vf, LWC, RWC, X, E, EC> {
         self.map_def_value(|_| x)
     }
 
     /// Map function over Succ and Failor value of result (assumed same type).
-    pub(crate) fn map_def_value<F: FnOnce(V) -> Vf, Vf>(self, f: F) -> Deferred<Vf, WC, E, EC> {
-        self.fmap_once(f)
+    pub(crate) fn map_def_value<F: FnOnce(V) -> Vf, Vf>(
+        self,
+        f: F,
+    ) -> LogResult<Vf, Vf, LWC, RWC, X, E, EC> {
+        match self {
+            Succ(s) => Succ(s.fmap_once(f)),
+            Fail(s) => Fail(s.fmap_once(f)),
+        }
+        // self.fmap_once(f)
     }
+}
 
+// deferred/commutative
+impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     /// Push a warning based on the value in a deferred Result.
     ///
     /// This must be a deferred result because the same value type must exist
@@ -1360,27 +1464,27 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     //     }
     // }
 
-    /// Push fungible error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn eval_deferred_fungible_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
-    where
-        F: FnOnce(&V) -> Option<M>,
-        M: Into<E> + Into<W>,
-        EC: Extend<E> + Default + FungibleError,
-        WC: Extend<W>,
-        X: ErrorFlag,
-    {
-        if flag.is_error() {
-            self.eval_deferred_error(|x| f(x).map(Into::into))
-        } else {
-            self.eval_def_warning(|x| f(x).map(Into::into));
-            self
-        }
-    }
+    // /// Push fungible error to a deferred Result based on its value.
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // pub(crate) fn eval_deferred_fungible_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
+    // where
+    //     F: FnOnce(&V) -> Option<M>,
+    //     M: Into<E> + Into<W>,
+    //     EC: Extend<E> + Default + FungibleError,
+    //     WC: Extend<W>,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         self.eval_deferred_error(|x| f(x).map(Into::into))
+    //     } else {
+    //         self.eval_def_warning(|x| f(x).map(Into::into));
+    //         self
+    //     }
+    // }
 
     /// Monad-ically apply commutative result operation to deferred result.
     ///
@@ -1407,10 +1511,24 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
             Fail(e) => e.with_value(f),
         }
     }
+
+    pub(crate) fn and_then_def_result<F, X, Vf>(self, flag: X, f: F) -> Deferred<Vf, WC, E, EC>
+    where
+        X: ErrorFlag,
+        Vf: Default,
+        F: FnOnce(V) -> Result<Vf, E>,
+        WC: Semigroup + Default,
+        EC: Extend<E> + IntoIterator<Item = E> + FungibleError<Inner = E, Warn = WC> + Default,
+    {
+        self.and_then_def(|v| {
+            f(v).into_deferred_fungible(flag)
+                .fungible_into_commutative()
+        })
+    }
 }
 
 // nowarn
-impl<V, P, E, EC> LogResult<V, P, Nothing<()>, Nothing<()>, E, EC> {
+impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     /// Lift Result with no warnings to non-commutative Result
     pub(crate) fn nowarn_into_non_cmt_warn<LWCf>(self) -> NonCmtResult<V, P, LWCf, E, EC>
     where
@@ -1451,9 +1569,12 @@ impl<V, P, E, EC> LogResult<V, P, Nothing<()>, Nothing<()>, E, EC> {
     ///
     /// If we know there are no warnings, then the function can return a
     /// non-commutative result type.
-    pub(crate) fn and_then_nowarn<F, Vf, LWC, RWC>(self, f: F) -> LogResult<Vf, P, LWC, RWC, E, EC>
+    pub(crate) fn and_then_nowarn<F, Vf, LWC, RWC, X>(
+        self,
+        f: F,
+    ) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
     where
-        F: FnOnce(V) -> LogResult<Vf, P, LWC, RWC, E, EC>,
+        F: FnOnce(V) -> LogResult<Vf, P, LWC, RWC, X, E, EC>,
         RWC: Default,
     {
         match self {
@@ -1463,14 +1584,14 @@ impl<V, P, E, EC> LogResult<V, P, Nothing<()>, Nothing<()>, E, EC> {
     }
 }
 
-impl<V, P, EC> LogResult<V, P, Nothing<()>, Nothing<()>, Infallible, EC> {
+impl<V, P, EC> NowarnResult<V, P, Infallible, EC> {
     pub(crate) fn infallible_nowarn_into(self) -> V {
         let Succ(ret) = self;
         ret.value
     }
 }
 
-impl<V, E> LogResult<V, (), Nothing<()>, Nothing<()>, E, Nothing<E>> {
+impl<V, E> NowarnResult<V, (), E, Nothing<E>> {
     /// Resolve Result with no warnings into regular Result type.
     pub fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
     where
@@ -1484,7 +1605,7 @@ impl<V, E> LogResult<V, (), Nothing<()>, Nothing<()>, E, Nothing<E>> {
 }
 
 // non-commutative
-impl<V, P, LWC, E, EC> LogResult<V, P, LWC, Nothing<()>, E, EC> {
+impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
     /// Lift non-commutative Result into commutative Result
     pub(crate) fn non_cmt_into_cmt(self) -> CmtResult<V, P, LWC, E, EC>
     where
@@ -1554,30 +1675,30 @@ impl<V, P, LWC, E, EC> LogResult<V, P, LWC, Nothing<()>, E, EC> {
 //     }
 // }
 
-// non-cummutative/fungible
-impl<V, P, E, EC> LogResult<V, P, EC::Warn, Nothing<()>, E, EC>
+// fungible
+impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
 where
     EC: FungibleError,
 {
     /// Convert errors in commutative/fungible Results
     #[allow(clippy::type_complexity)]
-    pub(crate) fn non_cmt_fung_errors_into<Ef>(
+    pub(crate) fn fungible_errors_into<Ef>(
         self,
-    ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, Ef, Sibling1<EC, Ef>>
+    ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
     where
         E: Into<Ef>,
         EC: FungibleError<Inner = E> + Functor<E>,
         <EC as FungibleError>::Warn: Functor<E>,
     {
-        self.map_non_cmt_fung_errors(Into::into)
+        self.map_fungible_errors(Into::into)
     }
 
     /// Convert errors in non-commutative/fungible Results
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_non_cmt_fung_errors<F, Ef>(
+    pub(crate) fn map_fungible_errors<F, Ef>(
         self,
         f: F,
-    ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, Ef, Sibling1<EC, Ef>>
+    ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
         EC: FungibleError<Inner = E> + Functor<E>,
@@ -1589,68 +1710,80 @@ where
         }
     }
 
+    pub(crate) fn fungible_into_non_commutative(self) -> NonCmtResult<V, P, EC::Warn, E, EC> {
+        self.map(Success::remove_flag)
+    }
+
+    pub(crate) fn fungible_into_commutative(self) -> CmtResult<V, P, EC::Warn, E, EC>
+    where
+        EC::Warn: Default,
+    {
+        self.map(Success::remove_flag)
+            .map_err(Failure::nowarn_into_warn)
+    }
+
     // TODO add error eval
 }
 
-// commutative/fungible
-impl<V, P, E, EC> LogResult<V, P, EC::Warn, EC::Warn, E, EC>
-where
-    EC: FungibleError,
-{
-    /// Map function over errors in commutative/fungible Results
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn cmt_fung_errors_into<Ef>(
-        self,
-    ) -> CmtResult<V, P, Sibling1<EC::Warn, Ef>, Ef, Sibling1<EC, Ef>>
-    where
-        E: Into<Ef>,
-        EC: FungibleError<Inner = E> + Functor<E>,
-        EC::Warn: Functor<E>,
-    {
-        self.map_commutative_fungible_errors(Into::into)
-    }
+// // commutative/fungible
+// impl<V, P, E, EC> LogResult<V, P, EC::Warn, EC::Warn, E, EC>
+// where
+//     EC: FungibleError,
+// {
+//     /// Map function over errors in commutative/fungible Results
+//     #[allow(clippy::type_complexity)]
+//     pub(crate) fn cmt_fung_errors_into<Ef>(
+//         self,
+//     ) -> CmtResult<V, P, Sibling1<EC::Warn, Ef>, Ef, Sibling1<EC, Ef>>
+//     where
+//         E: Into<Ef>,
+//         EC: FungibleError<Inner = E> + Functor<E>,
+//         EC::Warn: Functor<E>,
+//     {
+//         self.map_commutative_fungible_errors(Into::into)
+//     }
 
-    /// Map function over errors in non-commutative/fungible Results
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn map_commutative_fungible_errors<F, Ef>(
-        self,
-        f: F,
-    ) -> CmtResult<V, P, Sibling1<EC::Warn, Ef>, Ef, Sibling1<EC, Ef>>
-    where
-        F: Fn(E) -> Ef,
-        EC: FungibleError<Inner = E> + Functor<E>,
-        EC::Warn: Functor<E>,
-    {
-        match self {
-            Succ(s) => Succ(s.map_warnings(f)),
-            Fail(e) => Fail(e.map_errors(&f).map_warnings(f)),
-        }
-    }
+//     /// Map function over errors in non-commutative/fungible Results
+//     #[allow(clippy::type_complexity)]
+//     pub(crate) fn map_commutative_fungible_errors<F, Ef>(
+//         self,
+//         f: F,
+//     ) -> CmtResult<V, P, Sibling1<EC::Warn, Ef>, Ef, Sibling1<EC, Ef>>
+//     where
+//         F: Fn(E) -> Ef,
+//         EC: FungibleError<Inner = E> + Functor<E>,
+//         EC::Warn: Functor<E>,
+//     {
+//         match self {
+//             Succ(s) => Succ(s.map_warnings(f)),
+//             Fail(e) => Fail(e.map_errors(&f).map_warnings(f)),
+//         }
+//     }
 
-    /// Aggregate commutative/fungible errors into one error.
-    pub(crate) fn aggregate_commutative_fungible_errors<F, G, Ef>(
-        self,
-        f: F,
-        g: G,
-    ) -> CmtFungibleResult<V, P, Ef, Nothing<Ef>>
-    where
-        F: FnOnce(EC::Warn) -> Option<Ef>,
-        G: FnOnce(GenNonEmpty<E, EC>) -> Ef,
-        EC: FungibleError<Inner = E>,
-    {
-        match self {
-            Succ(s) => Succ(s.aggregate_warnings(f)),
-            Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
-        }
-    }
-}
+//     /// Aggregate commutative/fungible errors into one error.
+//     pub(crate) fn aggregate_commutative_fungible_errors<F, G, Ef>(
+//         self,
+//         f: F,
+//         g: G,
+//     ) -> CmtFungibleResult<V, P, Ef, Nothing<Ef>>
+//     where
+//         F: FnOnce(EC::Warn) -> Option<Ef>,
+//         G: FnOnce(GenNonEmpty<E, EC>) -> Ef,
+//         EC: FungibleError<Inner = E>,
+//     {
+//         match self {
+//             Succ(s) => Succ(s.aggregate_warnings(f)),
+//             Fail(e) => Fail(e.aggregate_errors(g).aggregate_warnings(f)),
+//         }
+//     }
+// }
 
 // deferred/fungible
-impl<V, E, EC> Deferred<V, EC::Warn, E, EC>
+impl<V, X, E, EC> DeferredFungible<V, X, E, EC>
 where
     EC: FungibleError,
 {
-    pub(crate) fn new_deferred_fungible<X>(value: V, error: E, flag: X) -> Self
+    pub(crate) fn new_deferred_fungible(value: V, error: E, flag: X) -> Self
     where
         EC: FungibleError<Inner = E> + Default,
         EC::Warn: Default,
@@ -1659,7 +1792,51 @@ where
         if flag.is_error() {
             Fail(Failure::new_from_one(error, value))
         } else {
-            Succ(Success::new(value, EC::error_to_warning(error)))
+            Succ(Success::new(value, flag, EC::error_to_warning(error)))
+        }
+    }
+
+    pub(crate) fn new_deferred_fungible_ok_if(is_ok: bool, value: V, error: E, flag: X) -> Self
+    where
+        EC: FungibleError<Inner = E> + Default,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        if is_ok {
+            FungibleResult::new_fungible_ok(value, flag)
+        } else {
+            FungibleResult::new_deferred_fungible(value, error, flag)
+        }
+    }
+
+    pub(crate) fn new_deferred_fungible_maybe(value: V, error: Option<E>, flag: X) -> Self
+    where
+        EC: FungibleError<Inner = E> + Default,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        match error {
+            Some(e) => FungibleResult::new_deferred_fungible(value, e, flag),
+            None => FungibleResult::new_fungible_ok(value, flag),
+        }
+    }
+
+    pub(crate) fn new_deferred_fungible_iter<I>(value: V, errors: I, flag: X) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        EC: FungibleError<Inner = E> + Default + Extend<E>,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        match GenNonEmpty::collect(errors) {
+            Some(es) => {
+                if flag.is_error() {
+                    Fail(Failure::new_from_many(es, value))
+                } else {
+                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+                }
+            }
+            None => FungibleResult::new_fungible_ok(value, flag),
         }
     }
 
@@ -1669,21 +1846,91 @@ where
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_fungible_errors<X>(
-        self,
-        errors: impl IntoIterator<Item = E>,
-        flag: X,
-    ) -> Self
+    pub(crate) fn extend_deferred_fungible_errors(self, errors: impl IntoIterator<Item = E>) -> Self
     where
         EC: Extend<E> + Default + FungibleError<Inner = E>,
+        EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
+        X: ErrorFlag,
+    {
+        match self {
+            Succ(mut succ) => {
+                if succ.flag.is_error() {
+                    let ws = succ.warnings.into_iter().chain(errors);
+                    if let Some(es) = GenNonEmpty::collect(ws) {
+                        Fail(Failure::new_from_many(es, succ.value))
+                    } else {
+                        Succ(Success::new_flagged(succ.value, succ.flag))
+                    }
+                } else {
+                    succ.extend_warnings(errors);
+                    Succ(succ)
+                }
+            }
+            Fail(mut fail) => {
+                fail.extend_errors(errors);
+                Fail(fail)
+            }
+        }
+    }
+
+    pub(crate) fn eval_deferred_fungible_error<F>(self, f: F) -> Self
+    where
+        F: FnOnce(&V) -> Option<E>,
+        EC: Extend<E> + Default + FungibleError,
         EC::Warn: Extend<E>,
         X: ErrorFlag,
     {
-        self.extend_fungible_errors(errors, |v| v, |p| p, |w| w, |e| e, flag)
+        match self {
+            Succ(succ) => {
+                if let Some(e) = f(&succ.value) {
+                    Fail(Failure::new_from_one(e, succ.value))
+                } else {
+                    Succ(succ)
+                }
+            }
+            Fail(mut fail) => {
+                if let Some(e) = f(&fail.value) {
+                    fail.push_error(e);
+                }
+                Fail(fail)
+            }
+        }
+    }
+
+    pub(crate) fn and_then_fungible<F, Vf>(self, f: F) -> DeferredFungible<Vf, X, E, EC>
+    where
+        F: FnOnce(V) -> DeferredFungible<Vf, X, E, EC>,
+        EC: Extend<E> + Default + FungibleError + IntoIterator<Item = E>,
+        EC::Warn: Extend<E> + IntoIterator<Item = E>,
+        X: ErrorFlag,
+    {
+        // TODO clean this up
+        match self {
+            Succ(mut x) => match f(x.value) {
+                Succ(y) => {
+                    x.warnings.extend(y.warnings);
+                    Succ(Success::new(y.value, x.flag, x.warnings))
+                }
+                Fail(mut y) => {
+                    y.errors.prepend(x.warnings);
+                    Fail(Failure::new_from_many(y.errors, y.value))
+                }
+            },
+            Fail(mut x) => match f(x.value) {
+                Succ(y) => {
+                    x.errors.extend(y.warnings);
+                    Fail(Failure::new_from_many(x.errors, y.value))
+                }
+                Fail(y) => {
+                    x.errors.extend(y.errors);
+                    Fail(Failure::new_from_many(x.errors, y.value))
+                }
+            },
+        }
     }
 }
 
-impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, E, EC> {
+impl<V, LWC, RWC, X, E, EC> LogResult<V, (), LWC, RWC, X, E, EC> {
     pub(crate) fn new_err1(error: E) -> Self
     where
         RWC: Default,
@@ -1700,7 +1947,9 @@ impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, E, EC> {
     {
         Fail(Failure::new_from_many(error, ()))
     }
+}
 
+impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, (), E, EC> {
     pub(crate) fn new_err_from_iter<I>(errors: I, default: V) -> Self
     where
         I: IntoIterator<Item = E>,
@@ -1715,44 +1964,15 @@ impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, E, EC> {
     }
 }
 
-impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
-    pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Ef, ECf>(
-        self,
-        f: F,
-        g: G,
-    ) -> LogResult<Vf, Pf, LWCf, RWCf, Ef, ECf>
-    where
-        F: FnOnce(Success<V, LWC>) -> Success<Vf, LWCf>,
-        G: FnOnce(Failure<P, RWC, E, EC>) -> Failure<Pf, RWCf, Ef, ECf>,
-    {
-        match self {
-            Succ(s) => Succ(f(s)),
-            Fail(e) => Fail(g(e)),
-        }
-    }
-
-    pub(crate) fn map<F, Vf, LWCf>(self, f: F) -> LogResult<Vf, P, LWCf, RWC, E, EC>
-    where
-        F: FnOnce(Success<V, LWC>) -> Success<Vf, LWCf>,
-    {
-        self.map_either(f, |x| x)
-    }
-
-    pub(crate) fn map_err<F, Pf, RWCf, Ef, ECf>(self, f: F) -> LogResult<V, Pf, LWC, RWCf, Ef, ECf>
-    where
-        F: FnOnce(Failure<P, RWC, E, EC>) -> Failure<Pf, RWCf, Ef, ECf>,
-    {
-        self.map_either(|x| x, f)
-    }
-
+impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
     pub(crate) fn new_ok(value: V) -> Self
     where
         LWC: Default,
     {
-        Succ(Success::new1(value))
+        Succ(Success::new_non_fungible(value))
     }
 
-    pub(crate) fn new_ok_def() -> Self
+    pub(crate) fn new_ok_default() -> Self
     where
         V: Default,
         LWC: Default,
@@ -1769,12 +1989,46 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
         if is_error {
             Fail(Failure::new_from_one(error, default))
         } else {
-            Succ(Success::new1(value))
+            Succ(Success::new_non_fungible(value))
+        }
+    }
+}
+
+impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
+    pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>(
+        self,
+        f: F,
+        g: G,
+    ) -> LogResult<Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>
+    where
+        F: FnOnce(Success<V, X, LWC>) -> Success<Vf, Xf, LWCf>,
+        G: FnOnce(Failure<P, RWC, E, EC>) -> Failure<Pf, RWCf, Ef, ECf>,
+    {
+        match self {
+            Succ(s) => Succ(f(s)),
+            Fail(e) => Fail(g(e)),
         }
     }
 
+    pub(crate) fn map<F, Vf, Xf, LWCf>(self, f: F) -> LogResult<Vf, P, LWCf, RWC, Xf, E, EC>
+    where
+        F: FnOnce(Success<V, X, LWC>) -> Success<Vf, Xf, LWCf>,
+    {
+        self.map_either(f, |x| x)
+    }
+
+    pub(crate) fn map_err<F, Pf, RWCf, Ef, ECf>(
+        self,
+        f: F,
+    ) -> LogResult<V, Pf, LWC, RWCf, X, Ef, ECf>
+    where
+        F: FnOnce(Failure<P, RWC, E, EC>) -> Failure<Pf, RWCf, Ef, ECf>,
+    {
+        self.map_either(|x| x, f)
+    }
+
     /// Map function over Succ value of Result
-    pub(crate) fn map_ok_value<F, Vf>(self, f: F) -> LogResult<Vf, P, LWC, RWC, E, EC>
+    pub(crate) fn map_ok_value<F, Vf>(self, f: F) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
     where
         F: FnOnce(V) -> Vf,
     {
@@ -1793,7 +2047,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     }
 
     /// Map function over Failor value of Result
-    pub(crate) fn map_err_value<F, Pf>(self, f: F) -> LogResult<V, Pf, LWC, RWC, E, EC>
+    pub(crate) fn map_err_value<F, Pf>(self, f: F) -> LogResult<V, Pf, LWC, RWC, X, E, EC>
     where
         F: FnOnce(P) -> Pf,
     {
@@ -1801,12 +2055,12 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     }
 
     /// Set value of Succ Result
-    pub(crate) fn set_ok_value<Vf>(self, x: Vf) -> LogResult<Vf, P, LWC, RWC, E, EC> {
+    pub(crate) fn set_ok_value<Vf>(self, x: Vf) -> LogResult<Vf, P, LWC, RWC, X, E, EC> {
         self.map_ok_value(|_| x)
     }
 
     /// Set value of Failor Result
-    pub(crate) fn set_err_value<Pf>(self, x: Pf) -> LogResult<V, Pf, LWC, RWC, E, EC> {
+    pub(crate) fn set_err_value<Pf>(self, x: Pf) -> LogResult<V, Pf, LWC, RWC, X, E, EC> {
         self.map_err_value(|_| x)
     }
 
@@ -1817,7 +2071,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     /// (move) the value before the other can use it. This function will move
     /// the value once depending on the branch where is can be consumed by
     /// both closures as an argument.
-    pub(crate) fn inject_value<X>(self, x: X) -> LogResult<(V, X), (P, X), LWC, RWC, E, EC> {
+    pub(crate) fn inject_value<I>(self, x: I) -> LogResult<(V, I), (P, I), LWC, RWC, X, E, EC> {
         match self {
             Succ(s) => Succ(s.fmap_once(|v| (v, x))),
             Fail(e) => Fail(e.fmap_once(|v| (v, x))),
@@ -1830,7 +2084,8 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`*_fung_errors_into`] for functions that will map over warnings
     /// if they are the same type as errors.
-    pub(crate) fn errors_into<Ef>(self) -> LogResult<V, P, LWC, RWC, Ef, Sibling1<EC, Ef>>
+    // TODO this should always be non-fungible
+    pub(crate) fn errors_into<Ef>(self) -> LogResult<V, P, LWC, RWC, X, Ef, Sibling1<EC, Ef>>
     where
         E: Into<Ef>,
         EC: Functor<E>,
@@ -1844,7 +2099,11 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     /// Result to non-fungible one, which is generally not a good idea.
     /// See [`map_*_fung_errors`] for functions that will map over warnings
     /// if they are the same type as errors.
-    pub(crate) fn map_errors<F, Ef>(self, f: F) -> LogResult<V, P, LWC, RWC, Ef, Sibling1<EC, Ef>>
+    // ditto
+    pub(crate) fn map_errors<F, Ef>(
+        self,
+        f: F,
+    ) -> LogResult<V, P, LWC, RWC, X, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
         EC: Functor<E>,
@@ -1852,7 +2111,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
         self.map_err(|e| e.map_errors(f))
     }
 
-    pub(crate) fn repack<LWCf, RWCf, ECf>(self) -> LogResult<V, P, LWCf, RWCf, E, ECf>
+    pub(crate) fn repack<LWCf, RWCf, ECf>(self) -> LogResult<V, P, LWCf, RWCf, X, E, ECf>
     where
         LWC: IntoNewCardinality<LWCf>,
         RWC: IntoNewCardinality<RWCf>,
@@ -1863,7 +2122,8 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
             .repack_errors()
     }
 
-    pub(crate) fn into_semigroup<LWCf, RWCf>(self) -> LogResult<V, P, LWCf, RWCf, E, Vec<E>>
+    // TODO fungible version
+    pub(crate) fn into_semigroup<LWCf, RWCf>(self) -> LogResult<V, P, LWCf, RWCf, X, E, Vec<E>>
     where
         LWC: IntoNewCardinality<LWCf>,
         RWC: IntoNewCardinality<RWCf>,
@@ -1872,21 +2132,22 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
         self.repack()
     }
 
-    pub(crate) fn repack_left_warnings<LWCf>(self) -> LogResult<V, P, LWCf, RWC, E, EC>
+    // these seem not necessary
+    pub(crate) fn repack_left_warnings<LWCf>(self) -> LogResult<V, P, LWCf, RWC, X, E, EC>
     where
         LWC: IntoNewCardinality<LWCf>,
     {
         self.map(Success::repack)
     }
 
-    pub(crate) fn repack_right_warnings<RWCf>(self) -> LogResult<V, P, LWC, RWCf, E, EC>
+    pub(crate) fn repack_right_warnings<RWCf>(self) -> LogResult<V, P, LWC, RWCf, X, E, EC>
     where
         RWC: IntoNewCardinality<RWCf>,
     {
         self.map_err(Failure::repack_warnings)
     }
 
-    pub(crate) fn repack_errors<ECf>(self) -> LogResult<V, P, LWC, RWC, E, ECf>
+    pub(crate) fn repack_errors<ECf>(self) -> LogResult<V, P, LWC, RWC, X, E, ECf>
     where
         EC: IntoNewCardinality<ECf>,
     {
@@ -1935,7 +2196,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     pub(crate) fn aggregate_non_fung_errors<Ef, F>(
         self,
         f: F,
-    ) -> LogResult<V, P, LWC, RWC, Ef, Nothing<Ef>>
+    ) -> LogResult<V, P, LWC, RWC, X, Ef, Nothing<Ef>>
     where
         // NOTE pretend there is a negative trait bound for "non-fungible"
         F: FnOnce(GenNonEmpty<E, EC>) -> Ef,
@@ -1946,7 +2207,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn summarize_errors<S>(
         self,
-    ) -> LogResult<V, P, LWC, RWC, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, X, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
     where
         EC: IntoNewCardinality<Vec<E>>,
         S: Default,
@@ -1959,7 +2220,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     pub fn summarize_errors_with<S>(
         self,
         s: S,
-    ) -> LogResult<V, P, LWC, RWC, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, X, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
     where
         EC: IntoNewCardinality<Vec<E>>,
     {
@@ -1984,8 +2245,10 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, E, EC> {
     }
 }
 
-impl<V, P, LWC, RWC, EC> LogResult<V, P, LWC, RWC, Infallible, EC> {
-    pub(crate) fn infallible_into<Pf, RWCf, Ef, ECf>(self) -> LogResult<V, Pf, LWC, RWCf, Ef, ECf> {
+impl<V, P, LWC, X, RWC, EC> LogResult<V, P, LWC, RWC, X, Infallible, EC> {
+    pub(crate) fn infallible_into<Pf, RWCf, Ef, ECf>(
+        self,
+    ) -> LogResult<V, Pf, LWC, RWCf, X, Ef, ECf> {
         let Succ(ret) = self;
         Succ(ret)
     }
@@ -2046,7 +2309,7 @@ pub(crate) trait CmtResultIter<T, P, WC, E, EC>:
             }
             Fail(Failure::new(ws, es, ()))
         } else {
-            Succ(Success::new(left_vs, ws))
+            Succ(Success::new(left_vs, (), ws))
         }
     }
 }
@@ -2105,7 +2368,7 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
             }
             Fail(Failure::new(ws, es, vs))
         } else {
-            Succ(Success::new(vs, ws))
+            Succ(Success::new(vs, (), ws))
         }
     }
 
@@ -2215,7 +2478,7 @@ mod python {
         }
     }
 
-    impl<V, LWC, RWC> LogResult<V, (), LWC, RWC, Infallible, Nothing<Infallible>> {
+    impl<V, LWC, RWC> LogResult<V, (), LWC, RWC, (), Infallible, Nothing<Infallible>> {
         pub fn py_term_resolve_noerror<W>(self) -> PyResult<V>
         where
             LWC: IntoIterator<Item = W>,

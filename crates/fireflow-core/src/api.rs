@@ -1,6 +1,5 @@
 use crate::config::{
-    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, ConfigFlag as _, ErrorFlag,
-    HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadHeaderAndTEXTConfig,
+    AllowMissingFinalDelim, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
     ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
     ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
@@ -17,21 +16,20 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, IOSummaryResult,
+    CmtResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
+    DeferredWarningsAndErrors, FungibleErrorResult, FungibleErrorsResult, IOSummaryResult,
     ImpureError, LogResult, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult,
 };
 use crate::macros::def_failure;
 use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment,
-    KeyedReqSegment, NewSegmentConfig, OptSegmentError, OtherSegment20, PrimaryTextSegment,
-    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
+    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, OptSegmentError,
+    OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
+    SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
-use crate::text::optional::Nothing;
 use crate::text::parser::{
-    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
+    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ParseKeyError, ReqKeyError,
 };
 use crate::type_families::ApplyOnce;
 use crate::validated::ascii_uint::UintSpacePad20;
@@ -727,7 +725,7 @@ where
         .and_then_cmt(|(delim, bytes)| {
             let mut kws = ParsedKeywords::default();
             split_raw_primary_text(&mut kws, delim, bytes, conf)
-                .map_cmt_warnings(ParseRawTEXTWarning::from)
+                .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParseRawTEXTError::from)
                 .map_errors(ImpureError::Pure)
                 .map_ok_value(|()| (kws, delim))
@@ -741,13 +739,13 @@ where
                 LogResult::new_ok((delim, kws, None))
             } else {
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
-                    .map_cmt_warnings(ParseRawTEXTWarning::from)
+                    .map_commutative_warnings(ParseRawTEXTWarning::from)
                     .map_errors(ParseRawTEXTError::from)
                     .map_errors(ImpureError::Pure)
                     .and_then_def(|seg| {
                         buf.clear();
                         h_read_raw_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
-                            .map_cmt_warnings(ParseRawTEXTWarning::from)
+                            .map_commutative_warnings(ParseRawTEXTWarning::from)
                             .map_errors(ImpureError::inner_into)
                             .map_ok_value(|()| (delim, kws, seg))
                     })
@@ -755,16 +753,17 @@ where
         })
         .and_then_cmt(|(delim, mut kws, supp_text_seg)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
-                .map_cmt_warnings(ParseRawTEXTWarning::from)
+                .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParseRawTEXTError::from)
                 .map_errors(ImpureError::Pure)
                 .repack();
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                .map_commutative_fungible_errors(KeywordInsertError::from)
-                .map_commutative_fungible_errors(ParseKeywordsIssue::from)
-                .map_cmt_warnings(ParseRawTEXTWarning::from)
+                .map_fungible_errors(KeywordInsertError::from)
+                .map_fungible_errors(ParseKeywordsIssue::from)
+                .fungible_into_commutative()
+                .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParsePrimaryTEXTError::from)
                 .map_errors(ParseRawTEXTError::from)
                 .map_errors(ImpureError::Pure);
@@ -828,15 +827,12 @@ fn split_first_delim<'a>(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimVerifyError> {
     if let Some((delim, rest)) = bytes.split_first() {
-        let x = (*delim, rest);
-        if (1..=126).contains(delim) {
-            LogResult::new_ok(x)
-        } else {
-            let e = DelimCharError(*delim);
-            let is_err = conf.allow_non_ascii_delim;
-            LogResult::<_, _, _, _, _, Nothing<_>>::new_fungible(x, (), e, is_err)
-                .map_errors(DelimVerifyError::from)
-        }
+        let is_ok = (1..=126).contains(delim);
+        let e = DelimCharError(*delim);
+        let flag = conf.allow_non_ascii_delim;
+        FungibleErrorResult::new_fungible_ok_if(is_ok, (*delim, rest), (), e, flag)
+            .fungible_into_commutative()
+            .map_errors(DelimVerifyError::from)
     } else {
         LogResult::new_err1(EmptyTEXTError.into())
     }
@@ -864,6 +860,7 @@ fn split_raw_supp_text(
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+            // TODO inject
             .eval_deferred_fungible_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
@@ -881,7 +878,7 @@ fn split_raw_text_inner(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
+) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
     if conf.use_literal_delims {
         split_raw_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
@@ -896,20 +893,9 @@ fn split_raw_text_literal_delim(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
-    type LogType = DeferredFungibleError<(), ParseKeywordsIssue>;
-
-    fn push_issue<X>(res: &mut Vec<LogType>, flag: X, error: ParseKeywordsIssue)
-    where
-        X: ErrorFlag,
-    {
-        res.push(LogResult::new_deferred_fungible((), error, flag));
-    }
-
-    // TODO probably more elegant way to do this. This method will allocate
-    // a vector of results which themselves have vectors which store the errors
-    // which then get mappend-ed at the end.
-    let mut results = vec![];
+) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    let mut blank_errors = vec![];
+    let mut insert_results = vec![];
 
     // ASSUME input slice does not start with delim
     let mut it = bytes.split(|x| *x == delim);
@@ -923,7 +909,7 @@ fn split_raw_text_literal_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_word = value;
-                push_issue(&mut results, conf.allow_empty, BlankKeyError(tk).into());
+                blank_errors.push(BlankKeyError(tk).into());
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -933,20 +919,13 @@ fn split_raw_text_literal_delim(
             prev_was_key = false;
             prev_word = value;
             if value.is_empty() {
-                let e = BlankValueError(key.to_vec()).into();
-                push_issue(&mut results, conf.allow_empty, e);
+                blank_errors.push(BlankValueError(key.to_vec()).into());
             } else {
-                let e = kws.insert(key, value, conf).cmt_fung_errors_into();
-                results.push(e);
-                // TODO need to somehow process warnings and errors from here,
-                // the ideal way is to just push them all to a stack and deal
-                // with them later, but to use the current system I would need
-                // to unpack the warning and error individually and push it
-                // to a vector
-                // match lvl.inner_into() {
-                //     Leveled::Error(e) => push_issue(false, e),
-                //     Leveled::Warning(w) => push_issue(true, w),
-                // }
+                let e = kws
+                    .insert(key, value, conf)
+                    .map_non_cmt_warnings(ParseKeywordsIssue::from)
+                    .map_errors(ParseKeywordsIssue::from);
+                insert_results.push(e);
             }
         } else {
             // exiting here means we found a key without a value and also didn't
@@ -955,20 +934,33 @@ fn split_raw_text_literal_delim(
         }
     }
 
-    if !prev_was_key {
-        push_issue(&mut results, conf.allow_odd, UnevenWordsError(tk).into());
-    }
+    // We should end on a blank, which corresponds to a (not valid) key. If this
+    // is not the case, the number of words was not even.
+    let uneven_err = UnevenWordsError(tk).into();
+    let uneven_res =
+        LogResult::new_fungible_ok_if(prev_was_key, (), (), uneven_err, conf.allow_odd)
+            .fungible_into_commutative();
 
-    if let Some(bs) = NonEmpty::from_slice(prev_word) {
-        let e = FinalDelimError::new(tk, bs).into();
-        push_issue(&mut results, conf.allow_missing_final_delim, e);
-    }
+    // If the last word was not a blank, we did not end on a delimiter.
 
-    results
+    let delim_flag = conf.allow_missing_final_delim;
+    let final_delim_res =
+        check_final_delimiter(prev_word, tk, delim_flag).fungible_into_commutative();
+
+    let blank_res = LogResult::new_fungible_iter((), (), blank_errors, conf.allow_empty)
+        .fungible_into_commutative();
+
+    // TODO this is one instance where it could be inefficient to chain together
+    // lots of options, which are stack allocated but need to be converted to
+    // singleton vectors (heap allocated) to turn each of the results into
+    // a semigroup that can be concated. Two options a) tune the iterator so
+    // it can consume options or b) use stack-vectors for warnings
+    insert_results
         .into_iter()
+        .map(LogResult::non_cmt_into_cmt)
         .map(LogResult::into_semigroup)
-        .mappend_def()
-        .set_def_value(())
+        .chain([uneven_res, final_delim_res, blank_res])
+        .mappend_def_void()
 }
 
 fn split_raw_text_escaped_delim(
@@ -977,25 +969,16 @@ fn split_raw_text_escaped_delim(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredFungibleErrors<(), ParseKeywordsIssue> {
-    // let push_issue = |res: &mut Vec<_>, is_warning: bool, error: ParseKeywordsIssue| {
-    //     res.push(LogResult::new_deferred_fungible((), error, !is_warning));
-    // };
+) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    let mut insert_results = vec![];
+    let mut boundary_errors = vec![];
 
-    type LogType = DeferredFungibleError<(), ParseKeywordsIssue>;
-
-    fn push_issue<X>(res: &mut Vec<LogType>, flag: X, error: ParseKeywordsIssue)
-    where
-        X: ErrorFlag,
-    {
-        res.push(LogResult::new_deferred_fungible((), error, flag));
-    }
-
-    let mut results = vec![];
-
-    let mut push_pair = |res: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
-        let e = kws.insert(kb, vb, conf).cmt_fung_errors_into();
-        res.push(e);
+    let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
+        let e = kws
+            .insert(kb, vb, conf)
+            .map_non_cmt_warnings(ParseKeywordsIssue::from)
+            .map_errors(ParseKeywordsIssue::from);
+        insert_results.push(e);
     };
 
     let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {
@@ -1020,7 +1003,7 @@ fn split_raw_text_escaped_delim(
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    push_pair(&mut results, &keybuf, &valuebuf);
+                    push_pair(&keybuf, &valuebuf);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -1031,11 +1014,8 @@ fn split_raw_text_escaped_delim(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    push_issue(
-                        &mut results,
-                        conf.allow_delim_at_boundary,
-                        DelimBoundError.into(),
-                    );
+                    // TODO should probably say which boundary
+                    boundary_errors.push(DelimBoundError.into());
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -1071,33 +1051,57 @@ fn split_raw_text_escaped_delim(
     // more escaped delimiters (error: on a boundary) and the TEXT ended with a
     // delimiter (not an error).
 
-    if let Some(bs) = NonEmpty::from_slice(lastbuf) {
-        let e = FinalDelimError::new(tk, bs).into();
-        push_issue(&mut results, conf.allow_missing_final_delim, e);
-    }
+    let mut even_delim_err = None;
 
     if consec_blanks > 1 {
-        let be = DelimBoundError.into();
-        push_issue(&mut results, conf.allow_delim_at_boundary, be);
+        boundary_errors.push(DelimBoundError.into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
         if consec_blanks & 1 == 1 {
-            let fe = EvenFinalDelimError.into();
-            push_issue(&mut results, conf.allow_missing_final_delim, fe);
+            even_delim_err = Some(EvenFinalDelimError.into());
         }
     }
 
-    if valuebuf.is_empty() {
-        push_issue(&mut results, conf.allow_odd, UnevenWordsError(tk).into());
+    let uneven_err = if valuebuf.is_empty() {
+        Some(UnevenWordsError(tk).into())
     } else {
-        push_pair(&mut results, &keybuf, &valuebuf);
-    }
+        push_pair(&keybuf, &valuebuf);
+        None
+    };
 
-    results
+    let uneven_res = LogResult::new_fungible_maybe((), (), uneven_err, conf.allow_odd)
+        .fungible_into_commutative();
+
+    // NOTE this is the same flag used for when the delimiter is missing
+    // entirely since this is the net result of escaping an even number of
+    // delimiters
+    let delim_flag = conf.allow_missing_final_delim;
+    let even_delim_res = LogResult::new_fungible_maybe((), (), even_delim_err, delim_flag)
+        .fungible_into_commutative();
+    let final_delim_res =
+        check_final_delimiter(lastbuf, tk, delim_flag).fungible_into_commutative();
+
+    let boundary_res =
+        LogResult::new_fungible_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
+            .fungible_into_commutative();
+
+    insert_results
         .into_iter()
+        .map(LogResult::non_cmt_into_cmt)
         .map(LogResult::into_semigroup)
-        .mappend_def()
-        .set_def_value(())
+        .chain([uneven_res, final_delim_res, even_delim_res, boundary_res])
+        .mappend_def_void()
+}
+
+fn check_final_delimiter(
+    buf: &[u8],
+    tk: TEXTKind,
+    flag: AllowMissingFinalDelim,
+) -> FungibleErrorsResult<(), (), AllowMissingFinalDelim, ParseKeywordsIssue> {
+    let e = NonEmpty::from_slice(buf)
+        .map(|bs| FinalDelimError::new(tk, bs))
+        .map(ParseKeywordsIssue::from);
+    LogResult::new_fungible_maybe((), (), e, flag)
 }
 
 fn lookup_stext_offsets<C>(
@@ -1123,10 +1127,10 @@ where
             .recover_with(
                 |(), es| {
                     let flag = conf.allow_missing_supp_text;
-                    LogResult::<_, _, Vec<_>, _, _, Vec<_>>::new_ok(None)
+                    LogResult::<_, _, Vec<_>, _, _, _, Vec<_>>::new_ok(None)
                         .extend_deferred_fungible_errors(es, flag)
                         .map_errors(STextSegmentError::from)
-                        .map_cmt_warnings(STextSegmentWarning::from)
+                        .map_commutative_warnings(STextSegmentWarning::from)
                 },
                 |t| LogResult::new_ok(Some(t)),
             ),
@@ -1142,15 +1146,14 @@ where
     };
     res.and_then_def(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
+            // shouldn't this detect any overlap?
             if seg.same_coords(&text_segment) {
                 let flag = conf.allow_duplicated_supp_text;
-                LogResult::<_, _, _, _, _, Vec<_>>::new_deferred_fungible(
-                    None,
-                    DuplicatedSuppTEXT,
-                    flag,
-                )
-                .map_errors(STextSegmentError::from)
-                .map_cmt_warnings(STextSegmentWarning::from)
+                // TODO why return None?
+                FungibleErrorsResult::new_deferred_fungible(None, DuplicatedSuppTEXT, flag)
+                    .fungible_into_commutative()
+                    .map_errors(STextSegmentError::from)
+                    .map_commutative_warnings(STextSegmentWarning::from)
             } else {
                 LogResult::new_ok(Some(seg))
             }

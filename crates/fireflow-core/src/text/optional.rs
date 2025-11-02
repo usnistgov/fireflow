@@ -1,6 +1,6 @@
 use crate::config::AllowLoss;
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{ErrorResult, LogResult, WarningAndErrorResult};
+use crate::logging::{ErrorResult, FungibleErrorResult, LogResult, WarningAndErrorResult};
 use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
@@ -133,35 +133,55 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn check_key_transfer(
-        &self,
-        allow_loss: AllowLoss,
-    ) -> WarningAndErrorResult<(), (), AnyMetarootKeyLossError, AnyMetarootKeyLossError>
+    fn check_key_transfer1(&self) -> Option<AnyMetarootKeyLossError>
     where
         AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
     {
-        if self.is_default() {
-            LogResult::new_ok(())
-        } else {
-            let e = UnitaryKeyLossError::<Self::Inner>::new().into();
-            LogResult::new_fungible((), (), e, allow_loss)
-        }
+        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::new().into())
+        // if self.is_default() {
+        //     LogResult::new_ok(())
+        // } else {
+        //     let e = UnitaryKeyLossError::<Self::Inner>::new().into();
+        //     LogResult::new_fungible((), (), e, allow_loss)
+        // }
+    }
+
+    // TODO it would be simpler to just have all of these return an option<E>
+    // and then eval them in one result
+    fn check_key_transfer(
+        &self,
+        flag: AllowLoss,
+    ) -> FungibleErrorResult<(), (), AllowLoss, AnyMetarootKeyLossError>
+    where
+        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
+    {
+        let e = UnitaryKeyLossError::<Self::Inner>::new().into();
+        LogResult::new_fungible_ok_if(self.is_default(), (), (), e, flag)
+        // if self.is_default() {
+        //     LogResult::new_ok(())
+        // } else {
+        //     let e = UnitaryKeyLossError::<Self::Inner>::new().into();
+        //     LogResult::new_fungible((), (), e, allow_loss)
+        // }
+    }
+
+    fn check_indexed_key_transfer_fungible1<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
+    where
+        E: From<IndexedKeyLossError<Self::Inner>>,
+    {
+        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>::new(i).into())
     }
 
     fn check_indexed_key_transfer_fungible<E>(
         &self,
         i: impl Into<IndexFromOne>,
-        allow_loss: AllowLoss,
-    ) -> WarningAndErrorResult<(), (), E, E>
+        flag: AllowLoss,
+    ) -> FungibleErrorResult<(), (), AllowLoss, E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
-        if self.is_default() {
-            LogResult::new_ok(())
-        } else {
-            let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
-            LogResult::new_fungible((), (), e, allow_loss)
-        }
+        let e = IndexedKeyLossError::<Self::Inner>::new(i).into();
+        LogResult::new_fungible_ok_if(self.is_default(), (), (), e, flag)
     }
 
     fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> ErrorResult<(), (), E>

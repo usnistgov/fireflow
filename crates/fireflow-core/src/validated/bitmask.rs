@@ -86,7 +86,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     pub(crate) fn try_from_native(
         value: T,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<Self, BitmaskTruncationError>
+    ) -> DeferredFungibleError<Self, DisallowRangeTrunc, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
@@ -96,7 +96,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             bytes: Self::bits(),
             value: u64::from(value),
         });
-        error.map_or(LogResult::new_ok(bitmask), |e| {
+        error.map_or(LogResult::new_fungible_ok(bitmask, flag), |e| {
             LogResult::new_deferred_fungible(bitmask, e, flag)
         })
     }

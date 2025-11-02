@@ -1183,46 +1183,46 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         }
     }
 
-    // pub(crate) fn extend_fungible_errors<X, M, W, Fv, Fp, Fw, Fe>(
-    //     mut self,
-    //     errors: impl IntoIterator<Item = M>,
-    //     fv: Fv,
-    //     fp: Fp,
-    //     fw: Fw,
-    //     fe: Fe,
-    //     flag: X,
-    // ) -> Self
-    // where
-    //     Fv: FnOnce(V) -> P,
-    //     Fp: FnOnce(P) -> P,
-    //     Fe: Fn(M) -> E,
-    //     Fw: Fn(M) -> W,
-    //     WC: Extend<W>,
-    //     EC: Extend<E> + Default + FungibleError<Inner = E>,
-    //     X: ErrorFlag,
-    // {
-    //     if flag.is_error() {
-    //         let mut it = errors.into_iter().map(fe);
-    //         match self {
-    //             Succ(succ) => {
-    //                 if let Some(e0) = it.by_ref().next() {
-    //                     let mut es_ = GenNonEmpty::new1(e0);
-    //                     es_.extend(it);
-    //                     Fail(succ.fail(es_).fmap_once(fv))
-    //                 } else {
-    //                     Succ(succ)
-    //                 }
-    //             }
-    //             Fail(mut err) => {
-    //                 err.extend_errors(it);
-    //                 Fail(err.fmap_once(fp))
-    //             }
-    //         }
-    //     } else {
-    //         self.extend_commutative_warnings(errors.into_iter().map(fw));
-    //         self.map_err_value(fp)
-    //     }
-    // }
+    pub(crate) fn extend_warnings_or_errors<X, M, W, Fv, Fp, Fw, Fe>(
+        mut self,
+        errors: impl IntoIterator<Item = M>,
+        fv: Fv,
+        fp: Fp,
+        fw: Fw,
+        fe: Fe,
+        flag: X,
+    ) -> Self
+    where
+        Fv: FnOnce(V) -> P,
+        Fp: FnOnce(P) -> P,
+        Fe: Fn(M) -> E,
+        Fw: Fn(M) -> W,
+        WC: Extend<W>,
+        EC: Extend<E> + Default + FungibleError<Inner = E>,
+        X: ErrorFlag,
+    {
+        if flag.is_error() {
+            let mut it = errors.into_iter().map(fe);
+            match self {
+                Succ(succ) => {
+                    if let Some(e0) = it.by_ref().next() {
+                        let mut es_ = GenNonEmpty::new1(e0);
+                        es_.extend(it);
+                        Fail(succ.fail(es_).fmap_once(fv))
+                    } else {
+                        Succ(succ)
+                    }
+                }
+                Fail(mut err) => {
+                    err.extend_errors(it);
+                    Fail(err.fmap_once(fp))
+                }
+            }
+        } else {
+            self.extend_commutative_warnings(errors.into_iter().map(fw));
+            self.map_err_value(fp)
+        }
+    }
 
     pub(crate) fn and_cmt<F>(self, f: F) -> Self
     where
@@ -1464,27 +1464,27 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     //     }
     // }
 
-    // /// Push fungible error to a deferred Result based on its value.
-    // ///
-    // /// If Result is Ok, the result will be converted to an error.
-    // ///
-    // /// This must be deferred because the value type will be the same
-    // /// if the Result needs to flip from Ok to Error.
-    // pub(crate) fn eval_deferred_fungible_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
-    // where
-    //     F: FnOnce(&V) -> Option<M>,
-    //     M: Into<E> + Into<W>,
-    //     EC: Extend<E> + Default + FungibleError,
-    //     WC: Extend<W>,
-    //     X: ErrorFlag,
-    // {
-    //     if flag.is_error() {
-    //         self.eval_deferred_error(|x| f(x).map(Into::into))
-    //     } else {
-    //         self.eval_def_warning(|x| f(x).map(Into::into));
-    //         self
-    //     }
-    // }
+    /// Push fungible error to a deferred Result based on its value.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn eval_warning_or_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
+    where
+        F: FnOnce(&V) -> Option<M>,
+        M: Into<E> + Into<W>,
+        EC: Extend<E> + Default + FungibleError,
+        WC: Extend<W>,
+        X: ErrorFlag,
+    {
+        if flag.is_error() {
+            self.eval_deferred_error(|x| f(x).map(Into::into))
+        } else {
+            self.eval_def_warning(|x| f(x).map(Into::into));
+            self
+        }
+    }
 
     /// Monad-ically apply commutative result operation to deferred result.
     ///

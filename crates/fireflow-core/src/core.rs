@@ -16,10 +16,9 @@ use crate::header::{
 use crate::logging::{
     CmtFungibleErrorResult, CmtFungibleErrorsResult, CmtResult, CmtResultIter as _, DeferredError,
     DeferredErrors, DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
-    ErrorSummary, ErrorsResult, FungibleErrorResult, FungibleErrorsResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
-    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult, WarningsAndSummaryResult,
+    ErrorSummary, ErrorsResult, FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError,
+    LogResult, ResultExt as _, SummaryResult, WarningAndErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOSummaryResult, WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -3864,10 +3863,8 @@ where
             let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
             let us = esks.unused.keys().cloned().map(UnusedStandardError);
 
-            // TODO this is a case where the fungible errors are "inside" other
-            // errors
             root_res
-                .extend_fungible_errors(
+                .extend_warnings_or_errors(
                     ps,
                     |_v| (),
                     |_p| (),
@@ -3875,7 +3872,7 @@ where
                     StdTEXTFromRawError::from,
                     std_conf.allow_pseudostandard,
                 )
-                .extend_fungible_errors(
+                .extend_warnings_or_errors(
                     us,
                     |_v| (),
                     |_p| (),
@@ -5821,8 +5818,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .fungible_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            // TODO need a function to inject this into either warning or error types
-            .eval_deferred_fungible_error(|()| {
+            .eval_warning_or_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(AppliedGates3_2To2_0Error)
             })
             .map_ok_value(|()| {
@@ -6012,12 +6008,11 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        // TODO these need to be injected
         let check_res = LogResult::new_ok(())
-            .eval_deferred_fungible_error(flag, |()| {
+            .eval_warning_or_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(AppliedGates2_0To3_2Error)
             })
-            .eval_deferred_fungible_error(flag, |()| {
+            .eval_warning_or_error(flag, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             });
 

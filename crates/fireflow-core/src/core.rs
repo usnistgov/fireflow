@@ -53,7 +53,7 @@ use crate::text::{
     },
     named_vec::{
         EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
-        InsertCenterError, InsertError, KeyLengthError, KeyNotFoundError, NameMapping, NamedVec,
+        InputLengthError, InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec,
         NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
         SetElementsError, SetKeysError, SetNamesError,
     },
@@ -2322,8 +2322,8 @@ where
     /// This includes the time measurement if present.
     pub fn set_meas_nonstandard(
         &mut self,
-        xs: Vec<HashMap<NonStdKey, String>>,
-    ) -> Result<(), KeyLengthError> {
+        xs: impl IntoIterator<Item = HashMap<NonStdKey, String>>,
+    ) -> Result<(), InputLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, y: &mut HashMap<_, _>, x| *y = x)
             .map(|_| ())
@@ -2492,7 +2492,7 @@ where
         xs: Vec<X>,
         f: F,
         g: G,
-    ) -> Result<Vec<R>, KeyLengthError>
+    ) -> Result<Vec<R>, InputLengthError>
     where
         F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
@@ -2557,7 +2557,7 @@ where
     }
 
     /// Set the field on all measurements to values in a vector
-    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), KeyLengthError>
+    pub fn set_meas<X>(&mut self, xs: Vec<X>) -> Result<(), InputLengthError>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<X>,
@@ -2631,7 +2631,7 @@ where
     }
 
     /// Set field which is on both optical and temporal measurement types
-    pub fn set_temporal_optical<T>(&mut self, xs: Vec<T>) -> Result<(), KeyLengthError>
+    pub fn set_temporal_optical<T>(&mut self, xs: Vec<T>) -> Result<(), InputLengthError>
     where
         Optical<M::Optical>: AsMut<T>,
         Temporal<M::Temporal>: AsMut<T>,
@@ -2867,17 +2867,13 @@ where
     pub fn set_unstained_centers(
         &mut self,
         us: UnstainedCenters,
-    ) -> SummaryResult<(), MissingMeasurementNameError, SetUnstainedFailure>
+    ) -> SummaryResult<(), KeyNotFoundError, SetUnstainedFailure>
     where
         M: HasUnstainedCenters,
     {
         let ms = self.measurement_names();
         let ns = us.names();
-        let it = ns
-            .difference(&ms)
-            .copied()
-            .cloned()
-            .map(MissingMeasurementNameError);
+        let it = ns.difference(&ms).copied().cloned().map(KeyNotFoundError);
         ErrorsResult::new_err_from_iter(it, ())
             .when_ok(|| {
                 *self
@@ -4429,6 +4425,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .into_log()
             .and_then_cmt(|ms| {
                 let ns: Vec<_> = ms.indexed_names().collect();
+                // TODO this will throw an error if any measurement links
+                // exist, which is the opposite of what we want
                 let link_res = metaroot
                     .check_meas_links(&ns[..])
                     .into_nowarn()
@@ -8081,10 +8079,12 @@ pub enum SetSpilloverError {
     Link(SpilloverLinkError),
 }
 
+// which one's were not found?
 #[derive(Debug, Error)]
 #[error("all $SPILLOVER names must match a $PnN")]
 pub struct SpilloverLinkError;
 
+// what PnN?
 #[derive(Debug, Error)]
 #[error("$TR measurement must match a $PnN")]
 pub struct TriggerLinkError;
@@ -8186,10 +8186,6 @@ pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
 }
-
-#[derive(Debug, Error)]
-#[error("name {0} does not exist in measurements")]
-pub struct MissingMeasurementNameError(Shortname);
 
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
@@ -8691,21 +8687,20 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::exceptions::PyreflowException;
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use crate::python::macros::{
+        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err, impl_pyreflow_err,
+    };
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::dataframe::python::SeriesToColumnError;
 
     use super::{
         Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
         CompParMismatchError, ExistingLinkError, GatingMeasLinkError, MeasDataMismatchError,
-        MissingMeasurementNameError, NewCoreTEXTError, Other, Others, RemoveMeasByIndexError,
-        RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, SetMeasurementsError,
-        SetTemporalByIndexError, SetTemporalByNameError, SpilloverLinkError, TriggerLinkError,
+        NewCoreTEXTError, Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError,
+        ReplaceTemporalError, ScaleTransform, SetTemporalByIndexError, SetTemporalByNameError,
+        SetTemporalSummary, SpilloverLinkError, TriggerLinkError,
     };
 
-    use derive_more::{Display, From};
-    use pyo3::exceptions::{PyIndexError, PyValueError};
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::IntoPyObjectExt as _;
 
@@ -8744,43 +8739,24 @@ mod python {
         }
     }
 
-    #[derive(From, Display)]
-    pub enum SetMeasurementsAndDataframeError {
-        Meas(SetMeasurementsError),
-        DataFrame(SeriesToColumnError),
-        Mismatch(MeasDataMismatchError),
-    }
-
-    impl_pyreflow_err!(MeasDataMismatchError);
-    impl_pyreflow_err!(SetMeasurementsAndDataframeError);
     impl_pyreflow_err!(ColumnsToDataframeError);
-    impl_pyreflow_err!(MissingMeasurementNameError);
-    impl_pyreflow_err!(ExistingLinkError);
-    impl_pyreflow_err!(SpilloverLinkError);
-    impl_pyreflow_err!(CompParMismatchError);
-    impl_pyreflow_err!(TriggerLinkError);
-    impl_pyreflow_err!(GatingMeasLinkError);
+
     impl_pyreflow_err!(NewCoreTEXTError);
-    impl_pyreflow_err!(SetTemporalByIndexError);
-    impl_pyreflow_err!(SetTemporalByNameError);
-    impl_pyreflow_err!(AnyTemporalToOpticalKeyLossError);
-    impl_pyreflow_err!(ReplaceTemporalError);
 
-    impl From<RemoveMeasByIndexError> for PyErr {
-        fn from(value: RemoveMeasByIndexError) -> Self {
-            match value {
-                RemoveMeasByIndexError::Link(x) => PyreflowException::new_err(x.to_string()),
-                RemoveMeasByIndexError::Index(x) => PyIndexError::new_err(x.to_string()),
-            }
-        }
-    }
+    impl_pyreflow1_err!(MeasurementException, MeasDataMismatchError);
 
-    impl From<RemoveMeasByNameError> for PyErr {
-        fn from(value: RemoveMeasByNameError) -> Self {
-            match value {
-                RemoveMeasByNameError::Link(x) => PyreflowException::new_err(x.to_string()),
-                RemoveMeasByNameError::Name(x) => PyIndexError::new_err(x.to_string()),
-            }
-        }
-    }
+    impl_pyreflow1_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
+    impl_pyreflow1_err!(ConversionException, SetTemporalSummary);
+
+    impl_pyreflow1_err!(RelationalException, ExistingLinkError);
+    impl_pyreflow1_err!(RelationalException, SpilloverLinkError);
+    impl_pyreflow1_err!(RelationalException, TriggerLinkError);
+    impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
+    impl_pyreflow1_err!(RelationalException, CompParMismatchError);
+
+    impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
+    impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
+    impl_from_pyerr!(RemoveMeasByNameError, Link, Name);
+    impl_from_pyerr!(SetTemporalByIndexError, Inner, Set);
+    impl_from_pyerr!(SetTemporalByNameError, Inner, Name);
 }

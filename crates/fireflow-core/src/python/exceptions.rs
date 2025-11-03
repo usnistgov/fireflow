@@ -10,6 +10,27 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    MeasurementException,
+    PyreflowException,
+    "Exception caused by manipulating measurement vector"
+);
+
+create_exception!(
+    _pyreflow,
+    ConversionException,
+    PyreflowException,
+    "Exception caused by converting FCS data between versions"
+);
+
+create_exception!(
+    _pyreflow,
+    RelationalException,
+    PyreflowException,
+    "Exception caused by an FCS keyword that incorrectly references another"
+);
+
+create_exception!(
+    _pyreflow,
     PyreflowWarning,
     PyWarning,
     "Warning created by internal pyreflow."

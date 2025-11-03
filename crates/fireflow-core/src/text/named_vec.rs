@@ -281,16 +281,16 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Center and non-center values will be projected to a common type.
     pub(crate) fn alter_common_values_zip<F, X, R, T>(
         &mut self,
-        xs: Vec<X>,
+        xs: impl IntoIterator<Item = X>,
         f: F,
-    ) -> Result<Vec<R>, KeyLengthError>
+    ) -> Result<Vec<R>, InputLengthError>
     where
         F: Fn(MeasIndex, &mut T, X) -> R,
         U: AsMut<T>,
         V: AsMut<T>,
     {
         self.alter_values_zip(
-            xs,
+            xs.into_iter().collect(),
             |v, x| f(v.index, v.value.as_mut(), x),
             |v, x| f(v.index, v.value.as_mut(), x),
         )
@@ -306,7 +306,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         xs: Vec<X>,
         f: F,
         g: G,
-    ) -> Result<Vec<R>, KeyLengthError>
+    ) -> Result<Vec<R>, InputLengthError>
     where
         F: Fn(IndexedElement<&K, &mut V>, X) -> R,
         G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
@@ -318,28 +318,22 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let nleft = s.left.len();
                 let nright = s.right.len();
                 let mut it = xs.into_iter();
-                let left_r: Vec<_> = go(&mut s.left, it.by_ref().take(nleft).collect(), 0);
+                let left_r = go(&mut s.left, it.by_ref().take(nleft).collect(), 0);
                 let c = &mut s.center;
                 let center_r = g(
                     IndexedElement::new(nleft.into(), &c.key, &mut c.value),
                     it.next().unwrap(),
                 );
-                let right_r: Vec<_> =
-                    go(&mut s.right, it.by_ref().take(nright).collect(), 1 + nleft);
-                left_r
-                    .into_iter()
-                    .chain([center_r])
-                    .chain(right_r)
-                    .collect()
+                let right_r = go(&mut s.right, it.by_ref().take(nright).collect(), 1 + nleft);
+                left_r.chain([center_r]).chain(right_r).collect()
             }
-            Self::Unsplit(u) => go(&mut u.members, xs, 0),
+            Self::Unsplit(u) => go(&mut u.members, xs, 0).collect(),
         };
         Ok(x)
     }
 
     pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, X, Y, R>(
         &mut self,
-        // TODO make this (and others like it) take an iterator
         xs: Vec<Element<X, Y>>,
         f_noncenter: Fnoncenter,
         f_center: Fcenter,
@@ -355,7 +349,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err1(i), ErrorsResult::new_ok))
                 .mappend_cmt()
-                .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(false)))
+                .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(true)))
         };
 
         self.check_keys_length(&xs[..], true)
@@ -384,16 +378,12 @@ impl<K, U, V> NamedVec<K, U, V> {
                                     IndexedElement::new(nleft.into(), &c.key, &mut c.value);
                                 let center_out = f_center(center_index, y_center);
                                 let right_out = go(&mut s.right, ys_right, 1 + nleft);
-                                left_out
-                                    .into_iter()
-                                    .chain([center_out])
-                                    .chain(right_out)
-                                    .collect()
+                                left_out.chain([center_out]).chain(right_out).collect()
                             },
                         )
                     }
                     Self::Unsplit(u) => {
-                        check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0))
+                        check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())
                     }
                 };
                 res.map_errors(SetElementsError::from)
@@ -968,7 +958,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.check_keys_length(&ks[..], true)
             .map_err(SetNamesError::Length)?;
         if !all_unique_names(ks.iter().map(MightHave::as_opt)) {
-            return Err(SetNamesError::NonUnique.into());
+            return Err(SetNamesError::NonUnique(NonUniqueKeysError).into());
         }
         let mut mapping = HashMap::new();
         let mut go = |side: &mut PairedVec<K, V>, ks_side: Vec<K>| {
@@ -991,7 +981,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     s.center.key = center_name;
                     go(&mut s.right, ks_right);
                 } else {
-                    return Err(SetKeysError::MissingCenter);
+                    return Err(MissingCenterError.into());
                 }
             }
             Self::Unsplit(u) => go(&mut u.members, ks),
@@ -1055,8 +1045,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     {
         self.check_keys_length(&ns[..], true)
             .map_err(SetNamesError::Length)?;
-        if !all_unique(ns.iter()) {
-            return Err(SetNamesError::NonUnique);
+        if !all_unique(&ns) {
+            return Err(NonUniqueKeysError.into());
         }
         let mut mapping = HashMap::new();
         let mut go = |side: &mut PairedVec<K, V>, ns_side: Vec<Shortname>| {
@@ -1179,23 +1169,19 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     fn alter_paired_vec<X, F, R>(
-        zs: &mut PairedVec<K, V>,
-        ys: Vec<X>,
+        xs: &mut PairedVec<K, V>,
+        ys: impl IntoIterator<Item = X>,
         offset: usize,
         f: &F,
-    ) -> Vec<R>
+    ) -> impl Iterator<Item = R>
     where
         F: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
-        // ASSUME both vectors are the same length
-        zs.iter_mut()
-            .zip(ys)
-            .enumerate()
-            .map(|(i, (y, x))| {
-                let e = IndexedElement::new((i + offset).into(), &y.key, &mut y.value);
-                f(e, x)
-            })
-            .collect()
+        // ASSUME both xs and ys are the same length
+        xs.iter_mut().zip(ys).zip(offset..).map(|((y, x), i)| {
+            let e = IndexedElement::new(i.into(), &y.key, &mut y.value);
+            f(e, x)
+        })
     }
 
     fn replace_center_at_inner<F, LWC, RWC, E, EC>(
@@ -1520,24 +1506,14 @@ impl<K, U, V> NamedVec<K, U, V> {
     ) -> Result<usize, ElementIndexError> {
         let len = self.len();
         IndexFromOne::from(index).check_index(len).map_or_else(
-            |e| {
-                Err(ElementIndexError {
-                    index: e,
-                    center: None,
-                })
-            },
+            |e| Err(ElementIndexError::new(e, None)),
             |i| {
                 if let Some(j) = self.center_index()
                     && !include_center
                     && usize::from(j) == i
                 {
-                    return Err(ElementIndexError {
-                        index: IndexError {
-                            index: i.into(),
-                            len,
-                        },
-                        center: Some(j),
-                    });
+                    let e = IndexError::new(i.into(), len);
+                    return Err(ElementIndexError::new(e, Some(j)));
                 }
                 Ok(i)
             },
@@ -1559,7 +1535,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         if has_name {
             Ok(i)
         } else {
-            Err(SetCenterError::NoName)
+            Err(NoNameError.into())
         }
     }
 
@@ -1567,7 +1543,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         IndexFromOne::from(index).check_boundary_index(self.len())
     }
 
-    fn check_keys_length<X>(&self, xs: &[X], include_center: bool) -> Result<(), KeyLengthError> {
+    fn check_keys_length<X>(&self, xs: &[X], include_center: bool) -> Result<(), InputLengthError> {
         let this_len = if include_center {
             self.len()
         } else {
@@ -1575,7 +1551,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         };
         let other_len = xs.len();
         if this_len != other_len {
-            return Err(KeyLengthError {
+            return Err(InputLengthError {
                 this_len,
                 other_len,
                 include_center,
@@ -1804,7 +1780,7 @@ fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> 
     )
 }
 
-fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
+fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
     let mut unique = HashSet::new();
     for x in xs {
         if unique.contains(&x) {
@@ -1918,10 +1894,6 @@ pub enum RenameError {
 }
 
 #[derive(Debug, Error)]
-#[error("'{0}' matches no measurement")]
-pub struct KeyNotFoundError(Shortname);
-
-#[derive(Debug, Error)]
 pub enum InsertCenterError {
     #[error("Center already exists")]
     Present,
@@ -1929,29 +1901,53 @@ pub enum InsertCenterError {
     Insert(InsertError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display, From)]
 pub enum SetKeysError {
-    #[error("{0}")]
-    Names(#[from] SetNamesError),
-    #[error("center must not be missing")]
-    MissingCenter,
+    Names(SetNamesError),
+    MissingCenter(MissingCenterError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display, From)]
 pub enum SetNamesError {
-    #[error("{0}")]
-    Length(#[from] KeyLengthError),
-    #[error("not all supplied keys are unique")]
-    NonUnique,
+    Length(InputLengthError),
+    NonUnique(NonUniqueKeysError),
+}
+
+#[derive(Debug, Error, Display, From)]
+pub enum SetCenterError {
+    Index(ElementIndexError),
+    NoName(NoNameError),
 }
 
 #[derive(Debug, Error)]
-pub enum SetCenterError {
-    #[error("{0}")]
-    Index(#[from] ElementIndexError),
-    #[error("index refers to element with no name")]
-    NoName,
+pub enum NewNamedVecError {
+    #[error("names must be unique")]
+    NonUnique,
+    #[error("only zero or one center values allowed")]
+    MultiCenter,
 }
+
+#[derive(From, Display, Debug, Error)]
+pub enum SetElementsError {
+    Length(InputLengthError),
+    Mismatch(ColumnError<OpticalMismatchError>),
+}
+
+#[derive(Debug, Error)]
+#[error("index refers to element with no name")]
+pub struct NoNameError;
+
+#[derive(Debug, Error)]
+#[error("center must not be missing")]
+pub struct MissingCenterError;
+
+#[derive(Debug, Error)]
+#[error("not all supplied keys are unique")]
+pub struct NonUniqueKeysError;
+
+#[derive(Debug, Error)]
+#[error("'{0}' matches no measurement")]
+pub struct KeyNotFoundError(pub Shortname);
 
 #[derive(Debug, Error)]
 #[error("'{name}' already present")]
@@ -1959,7 +1955,7 @@ pub struct NonUniqueKeyError {
     name: Shortname,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
@@ -1982,22 +1978,13 @@ impl fmt::Display for ElementIndexError {
 
 #[derive(Debug, Error)]
 #[error(
-    "supplied list must be {this_len} ({c}including center) \
-     elements long, got {other_len}",
+    "input must be {this_len} ({c}including center) elements long, got {other_len}",
     c = if self.include_center { "" } else { "not " }
 )]
-pub struct KeyLengthError {
+pub struct InputLengthError {
     this_len: usize,
     other_len: usize,
     include_center: bool,
-}
-
-#[derive(Debug, Error)]
-pub enum NewNamedVecError {
-    #[error("names must be unique")]
-    NonUnique,
-    #[error("only zero or one center values allowed")]
-    MultiCenter,
 }
 
 #[derive(Debug, Error, new)]
@@ -2005,12 +1992,6 @@ pub enum NewNamedVecError {
 pub struct IndexedElementError<E> {
     error: E,
     index: MeasIndex,
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum SetElementsError {
-    Length(KeyLengthError),
-    Mismatch(ColumnError<OpticalMismatchError>),
 }
 
 #[derive(Debug, Error, new)]
@@ -2034,15 +2015,14 @@ impl fmt::Display for OpticalMismatchError {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        Element, ElementIndexError, KeyLengthError, KeyNotFoundError, NonCenterElement,
-        SetCenterError, SetKeysError, SetNamesError,
+        Element, ElementIndexError, InputLengthError, KeyNotFoundError, MissingCenterError,
+        NoNameError, NonCenterElement, NonUniqueKeysError, SetCenterError, SetKeysError,
+        SetNamesError,
     };
-    use crate::python::macros::{impl_index_err, impl_pyreflow_err};
+    use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow1_err};
+    use pyo3::exceptions::PyKeyError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-
-    impl_index_err!(ElementIndexError);
-    impl_index_err!(KeyNotFoundError);
 
     impl<'py, V> FromPyObject<'py> for NonCenterElement<V>
     where
@@ -2058,8 +2038,20 @@ mod python {
         }
     }
 
-    impl_pyreflow_err!(KeyLengthError);
-    impl_pyreflow_err!(SetNamesError);
-    impl_pyreflow_err!(SetKeysError);
-    impl_pyreflow_err!(SetCenterError);
+    impl_index_err!(ElementIndexError);
+
+    impl From<KeyNotFoundError> for PyErr {
+        fn from(value: KeyNotFoundError) -> Self {
+            PyKeyError::new_err(value.to_string())
+        }
+    }
+
+    impl_pyreflow1_err!(MeasurementException, NonUniqueKeysError);
+    impl_pyreflow1_err!(MeasurementException, InputLengthError);
+    impl_pyreflow1_err!(MeasurementException, MissingCenterError);
+    impl_pyreflow1_err!(MeasurementException, NoNameError);
+
+    impl_from_pyerr!(SetNamesError, Length, NonUnique);
+    impl_from_pyerr!(SetKeysError, Names, MissingCenter);
+    impl_from_pyerr!(SetCenterError, Index, NoName);
 }

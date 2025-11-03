@@ -1,4 +1,5 @@
 use derive_more::{Display, From, FromStr, Into};
+use derive_new::new;
 use std::num::NonZeroUsize;
 use thiserror::Error;
 
@@ -50,7 +51,7 @@ impl IndexFromOne {
         if i < len {
             Ok(i)
         } else {
-            Err(IndexError { index: self, len })
+            Err(IndexError::new(self, len))
         }
     }
 
@@ -59,7 +60,7 @@ impl IndexFromOne {
         if i <= len {
             Ok(i)
         } else {
-            Err(BoundaryIndexError { index: self, len })
+            Err(BoundaryIndexError::new(self, len))
         }
     }
 }
@@ -79,14 +80,14 @@ newtype_index!(
     RegionIndex
 );
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i < {len}, got {x}", x = usize::from(self.index))]
 pub struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
 pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
@@ -110,10 +111,13 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::IndexFromOne;
+    use super::{BoundaryIndexError, IndexFromOne};
+    use crate::python::macros::impl_index_err;
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
     use std::convert::Infallible;
+
+    impl_index_err!(BoundaryIndexError);
 
     impl<'py> FromPyObject<'py> for IndexFromOne {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

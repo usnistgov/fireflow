@@ -2344,6 +2344,9 @@ mod python {
         }
     }
 
+    // TODO make this work with different exception types that can be caught,
+    // right now anything that has a given error type will simply become a
+    // 'PyreflowWarning'
     fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
     where
         W: Display,

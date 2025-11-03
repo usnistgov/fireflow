@@ -1,5 +1,5 @@
 use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
-use crate::logging::{DeferredFungibleError, LogResult};
+use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -544,15 +544,11 @@ impl FromStrDelim for Wavelengths {
 }
 
 impl Wavelengths {
-    pub(crate) fn into_wavelength(
-        self,
-        flag: AllowLoss,
-    ) -> DeferredFungibleError<Option<Wavelength>, AllowLoss, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(LogResult::new_fungible_ok(None, flag), |ws| {
-            let ret = Some(Wavelength(ws.head));
+    pub(crate) fn into_wavelength(self) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
+        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
             let e = WavelengthsLossError(n);
-            LogResult::new_deferred_fungible_ok_if(n == 1, ret, e, flag)
+            LogResult::new_deferred_if(n == 1, Some(Wavelength(ws.head)), e)
         })
     }
 }

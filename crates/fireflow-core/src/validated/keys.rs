@@ -160,7 +160,7 @@ pub(crate) struct KeyMatcher<'a, T> {
 ///
 /// The constant traits is assumed to only contain ASCII characters.
 // TODO const_trait_impl will be able to clean this up once stable
-pub(crate) trait Key {
+pub trait Key {
     const C: &'static str;
 
     fn std() -> StdKey {
@@ -175,7 +175,7 @@ pub(crate) trait Key {
 /// A standard key with on index
 ///
 /// The constant traits are assumed to only contain ASCII characters.
-pub(crate) trait IndexedKey {
+pub trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 

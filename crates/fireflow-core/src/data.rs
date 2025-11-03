@@ -587,9 +587,9 @@ pub trait LayoutOps<'a, T>: Sized {
                 // vague about what should happen to ASCII values (presumably
                 // since nobody cares) so here we just treat them like we treat
                 // floating point types to keep the logic simple.
-                let is_err = datatype != AlphaNumType::Integer && !scale.is_noop();
+                let is_ok = !(datatype != AlphaNumType::Integer && !scale.is_noop());
                 let e = ScaleMismatchTransformError { datatype, scale };
-                LogResult::new_non_fungible((), (), ColumnError::new(i, e), is_err)
+                LogResult::new_log_if(is_ok, (), (), ColumnError::new(i, e))
             })
             .mappend_def()
             .map_def_value(|_| ())

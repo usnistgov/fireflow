@@ -1320,6 +1320,18 @@ impl<VP, LWC, RWC, X, E, EC> LogResult<VP, VP, LWC, RWC, X, E, EC> {
 
 // deferred/commutative
 impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
+    pub(crate) fn new_deferred_if(is_ok: bool, value: V, error: E) -> Self
+    where
+        WC: Default,
+        EC: Default,
+    {
+        if is_ok {
+            Succ(Success::new_non_fungible(value))
+        } else {
+            Fail(Failure::new_from_one(error, value))
+        }
+    }
+
     /// Push a warning based on the value in a deferred Result.
     ///
     /// This must be a deferred result because the same value type must exist
@@ -1361,33 +1373,30 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    // /// Push errors to a deferred Result.
-    // ///
-    // /// If Result is Ok, the result will be converted to an error.
-    // ///
-    // /// This must be deferred because the value type will be the same
-    // /// if the Result needs to flip from Ok to Error.
-    // pub(crate) fn extend_deferred_errors<E>(self, es: impl IntoIterator<Item = E>) -> Self
-    // where
-    //     EC: Extend<E> + Default,
-    // {
-    //     match self {
-    //         Succ(succ) => {
-    //             let mut it = es.into_iter();
-    //             if let Some(e0) = it.by_ref().next() {
-    //                 let mut es_ = GenNonEmpty::new1(E::pure(e0));
-    //                 es_.extend(it);
-    //                 Fail(succ.fail(es_))
-    //             } else {
-    //                 Succ(succ)
-    //             }
-    //         }
-    //         Fail(mut err) => {
-    //             err.extend_errors(es);
-    //             Fail(err)
-    //         }
-    //     }
-    // }
+    /// Push errors to a deferred Result.
+    ///
+    /// If Result is Ok, the result will be converted to an error.
+    ///
+    /// This must be deferred because the value type will be the same
+    /// if the Result needs to flip from Ok to Error.
+    pub(crate) fn extend_deferred_errors(self, es: impl IntoIterator<Item = E>) -> Self
+    where
+        EC: Extend<E> + Default,
+    {
+        match self {
+            Succ(succ) => {
+                if let Some(es) = GenNonEmpty::collect(es) {
+                    Fail(succ.fail(es))
+                } else {
+                    Succ(succ)
+                }
+            }
+            Fail(mut err) => {
+                err.extend_errors(es);
+                Fail(err)
+            }
+        }
+    }
 
     /// Push fungible error to a deferred Result based on its value.
     ///
@@ -1493,6 +1502,28 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
         match self {
             Succ(x) => f(x.value),
             Fail(x) => Fail(x.nowarn_into_warn()),
+        }
+    }
+}
+
+// nowarn/deferred
+impl<V, E, EC> NowarnResult<V, V, E, EC> {
+    pub(crate) fn nowarn_into_fungible<X>(self, flag: X) -> FungibleResult<V, V, X, E, EC>
+    where
+        X: ErrorFlag,
+        EC: FungibleError<Inner = E> + Default,
+        EC::Warn: Default,
+    {
+        match self {
+            Succ(x) => FungibleResult::new_fungible_ok(x.value, flag),
+            Fail(x) => {
+                if flag.is_error() {
+                    Fail(Failure::new_from_many(x.errors, x.value))
+                } else {
+                    let ws = EC::errors_to_warnings(x.errors);
+                    Succ(Success::new(x.value, flag, ws))
+                }
+            }
         }
     }
 }
@@ -1841,16 +1872,16 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
         Self::new_ok(V::default())
     }
 
-    pub(crate) fn new_non_fungible(value: V, default: P, error: E, is_error: bool) -> Self
+    pub(crate) fn new_log_if(is_ok: bool, value: V, default: P, error: E) -> Self
     where
         LWC: Default,
         RWC: Default,
         EC: Default,
     {
-        if is_error {
-            Fail(Failure::new_from_one(error, default))
-        } else {
+        if is_ok {
             Succ(Success::new_non_fungible(value))
+        } else {
+            Fail(Failure::new_from_one(error, default))
         }
     }
 }
@@ -2017,7 +2048,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     }
 
     /// Aggregate non-fungible errors into one error.
-    pub(crate) fn aggregate_non_fung_errors<Ef, F>(
+    pub(crate) fn aggregate_errors<Ef, F>(
         self,
         f: F,
     ) -> LogResult<V, P, LWC, RWC, X, Ef, Nothing<Ef>>
@@ -2048,7 +2079,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     where
         EC: IntoNewCardinality<Vec<E>>,
     {
-        self.aggregate_non_fung_errors(|es| {
+        self.aggregate_errors(|es| {
             let xs = GenNonEmpty::new(es.head, es.tail.into_new_cardinality());
             ErrorSummary::new(s, xs)
         })

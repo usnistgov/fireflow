@@ -6729,10 +6729,11 @@ impl VersionedOptical for InnerOptical2_0 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
+        let v = Self::Ver::fcs_version().into();
         self.scale
             .as_ref()
             .is_some_and(|s| *s == Scale::Linear)
-            .then_some(OpticalNonLinearError(i))
+            .then_some(OpticalNonLinearError::new(i, v))
     }
 
     fn optical_to_temporal_loss_errors(
@@ -6762,7 +6763,8 @@ impl VersionedOptical for InnerOptical3_0 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+        let v = Self::Ver::fcs_version().into();
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
     fn optical_to_temporal_loss_errors(
@@ -6797,7 +6799,8 @@ impl VersionedOptical for InnerOptical3_1 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+        let v = Self::Ver::fcs_version().into();
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
     fn optical_to_temporal_loss_errors(
@@ -6838,7 +6841,8 @@ impl VersionedOptical for InnerOptical3_2 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        (!self.scale.is_noop()).then_some(OpticalNonLinearError(i))
+        let v = Self::Ver::fcs_version().into();
+        (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
     fn optical_to_temporal_loss_errors(
@@ -8355,22 +8359,24 @@ impl fmt::Display for OpticalToTemporalSummary {
     }
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum OpticalToTemporalError {
-    NonLinear(OpticalNonLinearError),
-    Loss(AnyOpticalToTemporalKeyLossError),
+#[derive(Debug, Error, new)]
+pub struct OpticalNonLinearError {
+    index: MeasIndex,
+    version: Version,
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum SetTemporalIndexError {
-    Convert(OpticalToTemporalError),
-    Index(SetCenterError),
+impl fmt::Display for OpticalNonLinearError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = self.index;
+        let e = Scale::std(i);
+        if self.version < Version::FCS3_0 {
+            write!(f, "{e} must be '0,0'")
+        } else {
+            let g = Gain::std(i);
+            write!(f, "{e} must be '0,0' and {g} must be null or unity")
+        }
+    }
 }
-
-// TODO PnG not needed for 2.0
-#[derive(Debug, Error)]
-#[error("$P{0}E must be '0,0' and $P{0}G must be null or unity to convert to temporal")]
-pub struct OpticalNonLinearError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertError {

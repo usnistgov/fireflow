@@ -53,10 +53,10 @@ use crate::config::{
 };
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
-    FungibleErrorResult, FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError,
-    LogResult, ResultExt as _, WarningOrErrorResult, WarningsAndErrorsResult,
+    CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
+    DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, FungibleErrorResult,
+    FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError, LogResult,
+    ResultExt as _, WarningOrErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -65,7 +65,6 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 
-use crate::text::optional::Nothing;
 use crate::text::{
     byteord::{
         BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
@@ -587,7 +586,7 @@ pub trait LayoutOps<'a, T>: Sized {
                 // vague about what should happen to ASCII values (presumably
                 // since nobody cares) so here we just treat them like we treat
                 // floating point types to keep the logic simple.
-                let is_ok = !(datatype != AlphaNumType::Integer && !scale.is_noop());
+                let is_ok = datatype == AlphaNumType::Integer || scale.is_noop();
                 let e = ScaleMismatchTransformError { datatype, scale };
                 LogResult::new_log_if(is_ok, (), (), ColumnError::new(i, e))
             })
@@ -682,7 +681,9 @@ where
             |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
                     .into_io_log()
-                    .and_then_nowarn(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
+                    .and_then_nowarn_with_warn(|_| {
+                        self.h_read_df_inner(h, &mut buf, tot, seg, conf)
+                    })
             },
         )
     }
@@ -2337,7 +2338,8 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         flag: DisallowRangeTrunc,
     ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
-            .into_uint(flag)
+            .into_uint()
+            .nowarn_into_fungible(flag)
             .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.insert(index.into(), r))
             .set_err_value(())
@@ -2350,7 +2352,8 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         flag: DisallowRangeTrunc,
     ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
-            .into_uint(flag)
+            .into_uint()
+            .nowarn_into_fungible(flag)
             .map_fungible_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.push(r))
             .set_err_value(())
@@ -3024,14 +3027,15 @@ where
     ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
-            .into_uint(flag)
-            .map_fungible_errors(BitmaskError::from)
-            .repack()
-            .and_then_fungible(|x| {
-                Self::try_from_native(x, flag)
-                    .map_fungible_errors(BitmaskError::from)
-                    .repack()
+            .into_uint()
+            .map_errors(BitmaskError::from)
+            .repack_errors::<Vec<_>>()
+            .and_then_nowarn(|x| {
+                Self::try_from_native(x)
+                    .map_errors(BitmaskError::from)
+                    .repack_errors::<Vec<_>>()
             })
+            .nowarn_into_fungible(flag)
     }
 }
 
@@ -3045,7 +3049,11 @@ where
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
-        range.into_float(flag).map_def_value(Self::new).repack()
+        range
+            .into_float()
+            .map_def_value(Self::new)
+            .nowarn_into_fungible(flag)
+            .repack()
     }
 }
 
@@ -3061,8 +3069,9 @@ impl FromRange for AsciiRange {
         flag: DisallowRangeTrunc,
     ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         range
-            .into_uint::<u64>(flag)
+            .into_uint::<u64>()
             .map_def_value(Self::from)
+            .nowarn_into_fungible(flag)
             .repack()
     }
 }
@@ -3080,8 +3089,9 @@ impl FromRange for AnyNullBitmask {
     ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
-            .into_uint(flag)
+            .into_uint()
             .map_def_value(|x: u64| Self::from(x))
+            .nowarn_into_fungible(flag)
             .repack()
     }
 }
@@ -3371,7 +3381,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .enumerate()
                 .map(|(i, c)| {
                     c.range
-                        .into_uint::<u64>(flag)
+                        .into_uint::<u64>()
+                        .nowarn_into_fungible(flag)
                         .fungible_into_commutative()
                         .map_commutative_warnings(|e| ColumnError::new(i, e))
                         .map_errors(NewAsciiRangeError::from)

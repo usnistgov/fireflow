@@ -1318,10 +1318,7 @@ pub enum GatingError {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(
-        self,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<T, DisallowRangeTrunc, IntRangeError<()>>
+    pub(crate) fn into_uint<T>(self) -> DeferredError<T, IntRangeError<()>>
     where
         T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
     {
@@ -1333,13 +1330,10 @@ impl Range {
             },
             |x| (x, None),
         );
-        LogResult::new_deferred_fungible_maybe(b, err, flag)
+        LogResult::new_deferred_maybe(b, err)
     }
 
-    pub(crate) fn into_float<T>(
-        self,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<FloatDecimal<T>, DisallowRangeTrunc, DecimalToFloatError>
+    pub(crate) fn into_float<T>(self) -> DeferredError<FloatDecimal<T>, DecimalToFloatError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
@@ -1355,7 +1349,7 @@ impl Range {
             },
             |x| (x, None),
         );
-        LogResult::new_deferred_fungible_maybe(x, err, flag)
+        LogResult::new_deferred_maybe(x, err)
     }
 }
 

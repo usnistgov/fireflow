@@ -2,7 +2,8 @@
 
 use crate::config::DisallowRangeTrunc;
 use crate::logging::{
-    CmtResultIter as _, DeferredFungibleError, ErrorsResult, LogResult, ResultExt as _,
+    CmtResultIter as _, DeferredError, DeferredFungibleError, ErrorsResult, LogResult,
+    ResultExt as _,
 };
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};
@@ -83,10 +84,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         (e, b.min(value))
     }
 
-    pub(crate) fn try_from_native(
-        value: T,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleError<Self, DisallowRangeTrunc, BitmaskTruncationError>
+    pub(crate) fn try_from_native(value: T) -> DeferredError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
@@ -96,9 +94,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
             bytes: Self::bits(),
             value: u64::from(value),
         });
-        error.map_or(LogResult::new_fungible_ok(bitmask, flag), |e| {
-            LogResult::new_deferred_fungible(bitmask, e, flag)
-        })
+        LogResult::new_deferred_maybe(bitmask, error)
     }
 
     // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>

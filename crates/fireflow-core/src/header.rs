@@ -374,7 +374,7 @@ where
             };
             let res0 = readbuf(&mut buf0);
             let res1 = readbuf(&mut buf1);
-            res0.zip_cmt(res1).and_then_nowarn(|_| {
+            res0.zip_cmt(res1).and_then_nowarn_with_warn(|_| {
                 // If any regions are entirely blank, just ignore them
                 if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                     LogResult::new_ok(None)

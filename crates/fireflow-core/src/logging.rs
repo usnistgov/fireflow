@@ -12,7 +12,6 @@ use std::fmt;
 use std::io;
 use std::iter;
 use std::marker::PhantomData;
-use std::mem;
 use std::vec;
 use thiserror::Error;
 
@@ -739,20 +738,6 @@ impl<X, C> GenNonEmpty<X, C> {
     {
         GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
     }
-
-    fn prepend<I>(&mut self, other: I)
-    where
-        I: IntoIterator<Item = X>,
-        C: Extend<X> + Default + IntoIterator<Item = X>,
-    {
-        let mut it = other.into_iter();
-        if let Some(x0) = it.by_ref().next() {
-            let mut new = Self::new1(x0);
-            new.extend(it);
-            let oldself = mem::replace(self, new);
-            self.extend(oldself);
-        }
-    }
 }
 
 impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
@@ -1320,6 +1305,18 @@ impl<VP, LWC, RWC, X, E, EC> LogResult<VP, VP, LWC, RWC, X, E, EC> {
 
 // deferred/commutative
 impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
+    pub(crate) fn new_deferred_maybe(value: V, error: Option<E>) -> Self
+    where
+        WC: Default,
+        EC: Default,
+    {
+        if let Some(e) = error {
+            Fail(Failure::new_from_one(e, value))
+        } else {
+            Succ(Success::new_non_fungible(value))
+        }
+    }
+
     pub(crate) fn new_deferred_if(is_ok: bool, value: V, error: E) -> Self
     where
         WC: Default,
@@ -1379,20 +1376,20 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_errors(self, es: impl IntoIterator<Item = E>) -> Self
+    pub(crate) fn extend_deferred_errors(self, errors: impl IntoIterator<Item = E>) -> Self
     where
         EC: Extend<E> + Default,
     {
         match self {
             Succ(succ) => {
-                if let Some(es) = GenNonEmpty::collect(es) {
+                if let Some(es) = GenNonEmpty::collect(errors) {
                     Fail(succ.fail(es))
                 } else {
                     Succ(succ)
                 }
             }
             Fail(mut err) => {
-                err.extend_errors(es);
+                err.extend_errors(errors);
                 Fail(err)
             }
         }
@@ -1483,7 +1480,7 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
 
     /// Monad-ically (kinda) chain a LogResult with no warnings.
     ///
-    /// This is more generally than the commutative case because there we can't
+    /// This is more general than the commutative case because there we can't
     /// assume that the warnings on either side are empty. If the function
     /// returns Fail and the input is Succ, then the warnings from the input
     /// need to be appended to those in the Fail type, which means their types
@@ -1491,7 +1488,7 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     ///
     /// If we know there are no warnings, then the function can return a
     /// non-commutative result type.
-    pub(crate) fn and_then_nowarn<F, Vf, LWC, RWC, X>(
+    pub(crate) fn and_then_nowarn_with_warn<F, Vf, LWC, RWC, X>(
         self,
         f: F,
     ) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
@@ -1523,6 +1520,27 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
                     let ws = EC::errors_to_warnings(x.errors);
                     Succ(Success::new(x.value, flag, ws))
                 }
+            }
+        }
+    }
+
+    /// Monadically chain nowarn results
+    pub(crate) fn and_then_nowarn<F, Vf>(self, f: F) -> NowarnResult<Vf, Vf, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        match self {
+            Succ(x) => f(x.value),
+            Fail(mut x) => {
+                let ret = match f(x.value) {
+                    Succ(y) => Failure::new(Nothing::default(), x.errors, y.value),
+                    Fail(y) => {
+                        x.errors.extend(y.errors);
+                        Failure::new(Nothing::default(), x.errors, y.value)
+                    }
+                };
+                Fail(ret)
             }
         }
     }
@@ -1786,38 +1804,6 @@ where
                 }
                 Fail(fail)
             }
-        }
-    }
-
-    pub(crate) fn and_then_fungible<F, Vf>(self, f: F) -> DeferredFungible<Vf, X, E, EC>
-    where
-        F: FnOnce(V) -> DeferredFungible<Vf, X, E, EC>,
-        EC: Extend<E> + Default + FungibleError + IntoIterator<Item = E>,
-        EC::Warn: Extend<E> + IntoIterator<Item = E>,
-        X: ErrorFlag,
-    {
-        // TODO clean this up
-        match self {
-            Succ(mut x) => match f(x.value) {
-                Succ(y) => {
-                    x.warnings.extend(y.warnings);
-                    Succ(Success::new(y.value, x.flag, x.warnings))
-                }
-                Fail(mut y) => {
-                    y.errors.prepend(x.warnings);
-                    Fail(Failure::new_from_many(y.errors, y.value))
-                }
-            },
-            Fail(mut x) => match f(x.value) {
-                Succ(y) => {
-                    x.errors.extend(y.warnings);
-                    Fail(Failure::new_from_many(x.errors, y.value))
-                }
-                Fail(y) => {
-                    x.errors.extend(y.errors);
-                    Fail(Failure::new_from_many(x.errors, y.value))
-                }
-            },
         }
     }
 }

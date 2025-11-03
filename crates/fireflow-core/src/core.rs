@@ -103,7 +103,7 @@ use std::fmt;
 use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
-use std::iter::once;
+use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::path::PathBuf;
@@ -6713,7 +6713,7 @@ impl VersionedOptical for InnerOptical2_0 {
         &self,
         _: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, String)> {
-        [].into_iter()
+        empty()
     }
 
     fn opt_suffixes_inner(
@@ -6868,11 +6868,11 @@ impl VersionedTemporal for InnerTemporal2_0 {
     type Error = Infallible;
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [].into_iter()
+        empty()
     }
 
     fn req_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        [].into_iter()
+        empty()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -8613,13 +8613,6 @@ def_failure!(
     "could not set scale transforms for optical measurements"
 );
 
-def_failure!(
-    ReplaceTemporalFailure,
-    "could not replace temporal measurement"
-);
-
-def_failure!(UnsetTemporalFailure, "could not unset temporal measurement");
-
 def_failure!(InsertTemporalFailure, "could not push temporal measurement");
 
 def_failure!(PushOpticalFailure, "could not push optical measurement");
@@ -8644,8 +8637,6 @@ def_failure!(
 );
 
 def_failure!(SetUnstainedFailure, "could not set $UNSTAINEDCENTERS");
-
-// def_failure!(WriteTEXTFailure, "could not write HEADER and TEXT segments");
 
 def_failure!(WriteDatasetFailure, "could not write FCS file");
 

@@ -14,7 +14,7 @@ use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::StdKeywords;
+use crate::validated::keys::{IndexedKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -28,7 +28,7 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::parser::LookupKeysWarning;
+use super::parser::{LinkedIndexError, LookupKeysWarning};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -384,6 +384,13 @@ impl AppliedGates3_0 {
         self.scheme.indices_difference(indices)
     }
 
+    pub(crate) fn indices_are_valid(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = LinkedIndexError> {
+        self.scheme.indices_are_valid(indices)
+    }
+
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
@@ -674,6 +681,24 @@ impl<I> GatingScheme<I> {
         I: LinkedMeasIndex,
     {
         self.meas_indices().filter(|i| !indices.contains(i))
+    }
+
+    // TODO drop keywords based on these here and not in the caller
+    pub(crate) fn indices_are_valid(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = LinkedIndexError>
+    where
+        I: LinkedMeasIndex,
+    {
+        self.regions.iter().filter_map(|(ri, v)| {
+            let bad_indices = v.meas_indices().filter(|x| !indices.contains(&x));
+            NonEmpty::collect(bad_indices).map(|js| {
+                let i = IndexFromOne::from(*ri);
+                let k = RegionGateIndex::<I>::std(i);
+                LinkedIndexError::new(k, js)
+            })
+        })
     }
 
     fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>

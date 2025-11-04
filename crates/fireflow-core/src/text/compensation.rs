@@ -1,16 +1,17 @@
 use crate::config::StdTextReadConfig;
 use crate::logging::{FungibleResult, LogResult, ResultExt as _};
-use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
+use crate::validated::keys::{BiIndexedKey as _, Key as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
 use super::parser::{
-    FromStrDelim, FromStrStateful, LookupKeysWarning, LookupOptional, OptKeyError,
+    FromStrDelim, FromStrStateful, LinkedIndexError, LookupKeysWarning, LookupOptional, OptKeyError,
 };
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
@@ -93,6 +94,42 @@ impl Compensation2_0 {
                 }
             })
             .collect()
+    }
+
+    pub(crate) fn indices_are_valid(&self, par: Par) -> Option<Comp2_0LinkError> {
+        let n = self.0.matrix.nrows();
+        let p = par.0;
+        let go = |(i, x): (usize, &f32)| {
+            if *x == 0.0 {
+                None
+            } else {
+                let row = i / n;
+                let col = i % n;
+                if row >= p || col >= p {
+                    Some([row, col])
+                } else {
+                    None
+                }
+            }
+        };
+        let xs = self
+            .0
+            .matrix
+            .iter()
+            .enumerate()
+            .filter_map(go)
+            .flatten()
+            .unique()
+            .sorted()
+            .map(MeasIndex::from);
+        NonEmpty::collect(xs).map(Comp2_0LinkError)
+    }
+}
+
+impl Compensation3_0 {
+    pub(crate) fn indices_are_valid(&self, par: Par) -> Option<LinkedIndexError> {
+        let js = (par.0..self.0.matrix.nrows()).map(MeasIndex::from);
+        NonEmpty::collect(js).map(|xs| LinkedIndexError::new(Self::std(), xs))
     }
 }
 
@@ -183,6 +220,10 @@ impl FromStrDelim for Compensation3_0 {
         }
     }
 }
+
+#[derive(Debug, Error)]
+#[error("$DCFmTOn keywords refer to invalid indices: {}", _0.iter().join(", "))]
+pub struct Comp2_0LinkError(NonEmpty<MeasIndex>);
 
 #[derive(Debug, Error)]
 pub enum ParseCompError {

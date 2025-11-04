@@ -18,9 +18,9 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
-    LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
-    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LinkedNameError,
+    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
+    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -1569,6 +1569,11 @@ impl UnstainedCenters {
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.0.keys().filter(|n| !names.contains(n))
+    }
+
+    pub(crate) fn indices_are_valid(&self, names: &HashSet<&Shortname>) -> Option<LinkedNameError> {
+        let xs = self.names_difference(names).cloned();
+        NonEmpty::collect(xs).map(|ys| LinkedNameError::new(UnstainedCenters::std(), ys))
     }
 }
 

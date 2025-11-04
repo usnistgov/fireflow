@@ -1,6 +1,7 @@
 use crate::config::{
-    AllowLoss, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
-    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    AllowLoss, AllowOptionalDropping, DisallowRangeTrunc, ErrorFlag, ReadLayoutConfig, ReadState,
+    ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
+    WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -14,10 +15,10 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
-    ErrorSummary, ErrorsResult, FungibleErrorResult, FungibleErrorsResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
-    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    CmtResultIter as _, DeferredError, DeferredFungibleError, DeferredFungibleErrors,
+    DeferredIter as _, ErrorResult, ErrorSummary, ErrorsResult, FungibleErrorResult,
+    FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
+    SummaryResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult, WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
@@ -27,6 +28,8 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
+use crate::text::compensation::Comp2_0LinkError;
+use crate::text::parser::{LinkedIndexError, LinkedNameError, Optional};
 use crate::type_families::ApplyOnce as _;
 
 use crate::text::optional::Nothing;
@@ -1400,6 +1403,16 @@ pub trait VersionedMetaroot: Sized {
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave<Shortname>;
 
+    /// Check that all links point to a valid name or index.
+    ///
+    /// If this is not the case, either drop invalid keywords or return error.
+    fn ensure_links(
+        &mut self,
+        par: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = NewCoreLinkError>;
+
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -2013,6 +2026,27 @@ where
         self.meas_has_existing_named_links_with(&ns)?;
         self.specific
             .meas_has_existing_index_links_with_inner(&js)?;
+        Ok(())
+    }
+
+    fn ensure_links(
+        &mut self,
+        par: Par,
+        indexed_names: &[(MeasIndex, &Shortname)],
+        drop_flag: AllowOptionalDropping,
+    ) -> Result<(), ()> {
+        let ns: HashSet<_> = indexed_names.iter().map(|(_, n)| *n).collect();
+        let js: HashSet<_> = indexed_names.iter().map(|(i, _)| i).copied().collect();
+        let tr_err = self.tr.as_ref().and_then(|tr| {
+            let m = &tr.measurement;
+            if !ns.contains(m) {
+                let k = Trigger::std();
+                let e = LinkedNameError::new(k, NonEmpty::new(m.clone()));
+                return Some(NewCoreLinkError::from(e));
+            }
+            None
+        });
+        let specific_res = self.specific.ensure_links(par, &ns, &js).chain(tr_err);
         Ok(())
     }
 }
@@ -4424,6 +4458,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
             .into_log()
+            // TODO check that links in metaroot to measuremnts are valid, and
+            // optionall drop keywords that are not valid
             .and_then_cmt(|ms| {
                 let ns: Vec<_> = ms.indexed_names().collect();
                 // TODO this will throw an error if any measurement links
@@ -4432,6 +4468,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .meas_has_existing_links_with(&ns[..])
                     .into_nowarn()
                     .map_errors(NewCoreError::from);
+                // check that measurement and layout vectors are same length
+                // and that transforms are valid for given datatype(s)
                 let layout_res = layout
                     .check_measurement_vector(&ms)
                     .map_errors(NewCoreError::from);
@@ -7459,6 +7497,23 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
 
+    fn ensure_links(
+        &mut self,
+        par: Par,
+        _: &HashSet<&Shortname>,
+        _: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = NewCoreLinkError> {
+        self.comp
+            .as_ref()
+            .and_then(|c| c.indices_are_valid(par))
+            .map(NewCoreLinkError::from)
+            .map(|e| {
+                self.comp = None;
+                e
+            })
+            .into_iter()
+    }
+
     fn meas_has_existing_named_links_with_inner(
         &self,
         _: &HashSet<&Shortname>,
@@ -7518,6 +7573,27 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Optical = InnerOptical3_0;
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
+
+    fn ensure_links(
+        &mut self,
+        par: Par,
+        _: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = NewCoreLinkError> {
+        let comp_err = self
+            .comp
+            .as_ref()
+            .and_then(|c| c.indices_are_valid(par))
+            .map(NewCoreLinkError::from)
+            .map(|e| {
+                self.comp = None;
+                e
+            });
+        self.applied_gates
+            .indices_are_valid(indices)
+            .map(NewCoreLinkError::from)
+            .chain(comp_err)
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -7583,6 +7659,23 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Optical = InnerOptical3_1;
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
+
+    fn ensure_links(
+        &mut self,
+        _: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = NewCoreLinkError> {
+        let spill_err = self
+            .spillover
+            .as_ref()
+            .and_then(|s| s.indices_are_valid(names))
+            .map(NewCoreLinkError::from);
+        self.applied_gates
+            .indices_are_valid(indices)
+            .map(NewCoreLinkError::from)
+            .chain(spill_err)
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -7661,6 +7754,30 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Optical = InnerOptical3_2;
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
+
+    fn ensure_links(
+        &mut self,
+        _: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = NewCoreLinkError> {
+        let spill_err = self
+            .spillover
+            .as_ref()
+            .and_then(|s| s.indices_are_valid(names))
+            .map(NewCoreLinkError::from);
+        let uc_err = self
+            .unstained
+            .unstainedcenters
+            .indices_are_valid(names)
+            .map(NewCoreLinkError::from);
+        self.applied_gates
+            .0
+            .indices_are_valid(indices)
+            .map(NewCoreLinkError::from)
+            .chain(spill_err)
+            .chain(uc_err)
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -8053,6 +8170,13 @@ pub enum StdWriterWarning {
 pub enum ExistingLinkError {
     Named(ExistingNamedLinkError),
     Index(ExistingIndexLinkError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum NewCoreLinkError {
+    Comp2_0(Comp2_0LinkError),
+    Name(LinkedNameError),
+    Index(LinkedIndexError),
 }
 
 #[derive(Debug, Error)]

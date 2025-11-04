@@ -514,6 +514,13 @@ pub struct LinkedNameError {
     pub names: NonEmpty<Shortname>,
 }
 
+#[derive(Debug, Error, new)]
+#[error("{key} references non-existent measurement indices: {bad}", bad = .indices.iter().join(", "))]
+pub struct LinkedIndexError {
+    pub key: StdKey,
+    pub indices: NonEmpty<MeasIndex>,
+}
+
 pub(crate) fn lookup_temporal_scale_3_0(
     kws: &mut StdKeywords,
     i: MeasIndex,

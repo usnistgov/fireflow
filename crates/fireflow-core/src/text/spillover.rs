@@ -1,4 +1,5 @@
 use crate::config::StdTextReadConfig;
+use crate::validated::keys::Key;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
@@ -71,6 +72,11 @@ impl Spillover {
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.measurements.iter().filter(|n| !names.contains(n))
+    }
+
+    pub(crate) fn indices_are_valid(&self, names: &HashSet<&Shortname>) -> Option<LinkedNameError> {
+        let xs = self.names_difference(names).cloned();
+        NonEmpty::collect(xs).map(|ys| LinkedNameError::new(Spillover::std(), ys))
     }
 }
 

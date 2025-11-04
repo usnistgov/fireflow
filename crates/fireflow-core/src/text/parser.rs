@@ -303,6 +303,13 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         })
     }
 
+    fn metaroot_pair_std(&self) -> (StdKey, String)
+    where
+        Self: fmt::Display,
+    {
+        (Self::std(), self.to_string())
+    }
+
     fn metaroot_pair(&self) -> (String, String)
     where
         Self: fmt::Display,
@@ -372,6 +379,13 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
             parse_opt_tnt_st(k, v, is_deprecated, data, conf)
         })
+    }
+
+    fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)
+    where
+        Self: fmt::Display,
+    {
+        (Self::std(i), self.to_string())
     }
 
     fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)

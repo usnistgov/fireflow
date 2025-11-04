@@ -1,4 +1,5 @@
 use crate::config::StdTextReadConfig;
+use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
 use crate::logging::{FungibleResult, LogResult, ResultExt as _};
 use crate::validated::keys::{BiIndexedKey as _, Key as _, StdKey, StdKeywords};
 
@@ -13,6 +14,7 @@ use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use std::fmt;
+use std::mem::take;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 use thiserror::Error;
@@ -96,40 +98,66 @@ impl Compensation2_0 {
             .collect()
     }
 
-    pub(crate) fn indices_are_valid(&self, par: Par) -> Option<Comp2_0LinkError> {
-        let n = self.0.matrix.nrows();
-        let p = par.0;
-        let go = |(i, x): (usize, &f32)| {
-            if *x == 0.0 {
+    pub(crate) fn remove_invalid_link(src: &mut Option<Self>, par: Par) -> Option<RemovedLink> {
+        let c = src.as_mut()?;
+        let n = c.0.matrix.nrows();
+        // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
+        // since the entire matrix must be removed.
+        let bad_matrix = n < par.0 || par.0 < 2;
+        let cutoff = if bad_matrix { 0 } else { par.0 };
+        // Scan through matrix and pull out all cells in rows/columns greater
+        // or equal to cutoff and whose value is not zero. These are the keywords
+        // to return.
+        let es = c.0.matrix.iter().enumerate().filter_map(|(i, &x)| {
+            if x == 0.0 {
                 None
             } else {
                 let row = i / n;
                 let col = i % n;
-                if row >= p || col >= p {
-                    Some([row, col])
-                } else {
-                    None
-                }
+                let which = match (row >= cutoff, col >= cutoff) {
+                    (true, true) => Some(Comp2_0Missing::Both),
+                    (true, false) => Some(Comp2_0Missing::Row),
+                    (false, true) => Some(Comp2_0Missing::Col),
+                    (false, false) => None,
+                };
+                which.map(|b| RemovedComp2_0Cell::new(row.into(), col.into(), x, b))
             }
-        };
-        let xs = self
-            .0
-            .matrix
-            .iter()
-            .enumerate()
-            .filter_map(go)
-            .flatten()
-            .unique()
-            .sorted()
-            .map(MeasIndex::from);
-        NonEmpty::collect(xs).map(Comp2_0LinkError)
+        });
+        let ret = NonEmpty::collect(es).map(RemovedLink::Comp2_0);
+        // If resulting matrix is less than 2x2, replace with None. Otherwise
+        // truncate the matrix down to $PAR by $PAR
+        if bad_matrix {
+            *src = None;
+        } else {
+            c.0.matrix = c.0.matrix.view((0, 0), (par.0, par.0)).into();
+        }
+        ret
     }
 }
 
 impl Compensation3_0 {
-    pub(crate) fn indices_are_valid(&self, par: Par) -> Option<LinkedIndexError> {
-        let js = (par.0..self.0.matrix.nrows()).map(MeasIndex::from);
-        NonEmpty::collect(js).map(|xs| LinkedIndexError::new(Self::std(), xs))
+    // pub(crate) fn invalid_links(&self, par: Par) -> Option<LinkTransfer> {
+    //     let js = (par.0..self.0.matrix.nrows()).map(MeasIndex::from);
+    //     NonEmpty::collect(js).map(|xs| {
+    //         let k = Self::std();
+    //         let v = self.to_string();
+    //         LinkTransfer::new(k, v, BadLink::Index(xs))
+    //     })
+    // }
+
+    pub(crate) fn remove_invalid_link(
+        src: &mut Option<Self>,
+        par: Par,
+    ) -> Option<RemovedIndexLink<Self>> {
+        let js = src
+            .into_iter()
+            .flat_map(|c| (par.0..c.0.matrix.nrows()).map(MeasIndex::from));
+        NonEmpty::collect(js).map(|xs| {
+            // ASSUME this won't fail because it should be some if we were able
+            // to get indices out
+            let v = take(src).unwrap();
+            RemovedIndexLink::new(v, xs)
+        })
     }
 }
 

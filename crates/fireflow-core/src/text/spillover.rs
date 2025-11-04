@@ -1,10 +1,11 @@
 use crate::config::StdTextReadConfig;
+use crate::core::RemovedNamedLink;
 use crate::validated::keys::Key;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
+use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey, OptMetarootKey};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -14,6 +15,7 @@ use nonempty::NonEmpty;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
+use std::mem::take;
 use std::num::ParseIntError;
 use std::str::FromStr;
 use thiserror::Error;
@@ -74,9 +76,14 @@ impl Spillover {
         self.measurements.iter().filter(|n| !names.contains(n))
     }
 
-    pub(crate) fn indices_are_valid(&self, names: &HashSet<&Shortname>) -> Option<LinkedNameError> {
-        let xs = self.names_difference(names).cloned();
-        NonEmpty::collect(xs).map(|ys| LinkedNameError::new(Spillover::std(), ys))
+    pub(crate) fn remove_invalid_link(
+        src: &mut Option<Self>,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let s = src.as_ref()?;
+        let ns = s.names_difference(names).cloned();
+        // ASSUME this won't fail since we filter out None above with ?
+        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(src).unwrap(), xs))
     }
 }
 

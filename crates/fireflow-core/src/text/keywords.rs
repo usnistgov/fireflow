@@ -1,4 +1,5 @@
 use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
+use crate::core::RemovedNamedLink;
 use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -41,6 +42,7 @@ use thiserror::Error;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::mem::take;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
@@ -1575,6 +1577,14 @@ impl UnstainedCenters {
         let xs = self.names_difference(names).cloned();
         NonEmpty::collect(xs).map(|ys| LinkedNameError::new(UnstainedCenters::std(), ys))
     }
+
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let ns = self.names_difference(names).cloned();
+        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))
+    }
 }
 
 impl FromStrStateful for UnstainedCenters {
@@ -1988,6 +1998,24 @@ impl Key for Trigger {
 impl Optional for Trigger {
     type Outer = Option<Self>;
 }
+
+impl Trigger {
+    pub(crate) fn remove_invalid_links(
+        src: &mut Option<Self>,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let tr = src.as_ref()?;
+        if names.contains(&tr.measurement) {
+            None
+        } else {
+            // ASSUME this won't fail since we filter out None above with ?
+            let m = tr.measurement.clone();
+            Some(RemovedNamedLink::new(take(src).unwrap(), NonEmpty::new(m)))
+        }
+    }
+}
+
+impl OptMetarootKey for Trigger {}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {

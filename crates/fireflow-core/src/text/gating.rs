@@ -1,4 +1,5 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, StdTextReadConfig};
+use crate::core::{RemovedGateLink, RemovedLink};
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
 };
@@ -14,7 +15,7 @@ use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{IndexedKey, StdKeywords};
+use crate::validated::keys::{IndexedKey, Key, StdKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -22,6 +23,7 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -391,6 +393,13 @@ impl AppliedGates3_0 {
         self.scheme.indices_are_valid(indices)
     }
 
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink> {
+        self.scheme.remove_invalid_links(indices)
+    }
+
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
@@ -683,7 +692,6 @@ impl<I> GatingScheme<I> {
         self.meas_indices().filter(|i| !indices.contains(i))
     }
 
-    // TODO drop keywords based on these here and not in the caller
     pub(crate) fn indices_are_valid(
         &self,
         indices: &HashSet<MeasIndex>,
@@ -699,6 +707,45 @@ impl<I> GatingScheme<I> {
                 LinkedIndexError::new(k, js)
             })
         })
+    }
+
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink>
+    where
+        I: LinkedMeasIndex,
+        RemovedLink: From<RemovedGateLink<I>>,
+    {
+        // Check the $GATING keyword to see if it has any links to $RnI/$RnW
+        // which in turn reference measurement indices that don't exist. If it
+        // has any, rip it out and return it.
+        let gating = if let Some(g) = self.gating.as_ref() {
+            let gating_has_link = g.region_indices().iter().any(|rni| {
+                self.regions
+                    .get(&rni)
+                    .into_iter()
+                    .any(|rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
+            });
+            if gating_has_link {
+                take(&mut self.gating)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        // Then remove any $RnI/$RnW keywords which reference measurements that
+        // don't exist.
+        self.regions
+            .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
+            .map(|(rni, rnw)| {
+                let bad_indices = rnw.meas_indices().filter(|x| !indices.contains(&x));
+                // ASSUME this won't fail because we pre-filtered above
+                let js = NonEmpty::collect(bad_indices).unwrap();
+                RemovedLink::from(RemovedGateLink::new(rni, rnw, js))
+            })
+            .chain(gating.map(RemovedLink::Gating))
     }
 
     fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>
@@ -818,12 +865,19 @@ impl<I> Region<I> {
         })
     }
 
-    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
+    pub(crate) fn opt_keywords_std(&self, i: RegionIndex) -> impl Iterator<Item = (StdKey, String)>
     where
         I: Copy + FromStr + fmt::Display,
     {
         let (ri, rw) = self.split();
-        [ri.meas_pair(i), rw.meas_pair(i)].into_iter()
+        [ri.meas_pair_std(i), rw.meas_pair_std(i)].into_iter()
+    }
+
+    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
+    where
+        I: Copy + FromStr + fmt::Display,
+    {
+        self.opt_keywords_std(i).map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)

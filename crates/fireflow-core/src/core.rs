@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, DisallowRangeTrunc, ErrorFlag, ReadLayoutConfig, ReadState,
+    AllowLoss, AllowOptionalDropping, ConfigFlag, DisallowRangeTrunc, ReadLayoutConfig, ReadState,
     ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
     WriteConfig,
 };
@@ -29,10 +29,15 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 use crate::text::compensation::Comp2_0LinkError;
-use crate::text::parser::{LinkedIndexError, LinkedNameError, Optional};
+use crate::text::gating::Region;
+use crate::text::index::RegionIndex;
+use crate::text::keywords::{
+    Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex, RegionWindow,
+};
+use crate::text::parser::{LinkedIndexError, LinkedNameError, OptMetarootKey, Optional};
 use crate::type_families::ApplyOnce as _;
 
-use crate::text::optional::Nothing;
+use crate::text::optional::{DisplayMaybe as _, Nothing};
 use crate::text::{
     byteord::OrderedToEndianError,
     compensation::{Compensation, Compensation2_0, Compensation3_0},
@@ -78,6 +83,7 @@ use crate::text::{
 };
 
 use crate::type_families::Applicative;
+use crate::validated::keys::{BiIndexedKey, StdKey};
 use crate::validated::{
     ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8},
     dataframe as df,
@@ -1406,12 +1412,12 @@ pub trait VersionedMetaroot: Sized {
     /// Check that all links point to a valid name or index.
     ///
     /// If this is not the case, either drop invalid keywords or return error.
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         par: Par,
         names: &HashSet<&Shortname>,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = NewCoreLinkError>;
+    ) -> impl Iterator<Item = RemovedLink>;
 
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
@@ -2029,25 +2035,27 @@ where
         Ok(())
     }
 
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         par: Par,
         indexed_names: &[(MeasIndex, &Shortname)],
         drop_flag: AllowOptionalDropping,
-    ) -> Result<(), ()> {
+    ) -> FungibleErrorsResult<(), (), AllowOptionalDropping, AnyLinkError> {
         let ns: HashSet<_> = indexed_names.iter().map(|(_, n)| *n).collect();
         let js: HashSet<_> = indexed_names.iter().map(|(i, _)| i).copied().collect();
-        let tr_err = self.tr.as_ref().and_then(|tr| {
-            let m = &tr.measurement;
-            if !ns.contains(m) {
-                let k = Trigger::std();
-                let e = LinkedNameError::new(k, NonEmpty::new(m.clone()));
-                return Some(NewCoreLinkError::from(e));
+        let tr = Trigger::remove_invalid_links(&mut self.tr, &ns);
+        let mut es = vec![];
+        for x in self
+            .specific
+            .remove_invalid_links(par, &ns, &js)
+            .chain(tr.map(RemovedLink::from))
+        {
+            if drop_flag.is_set() {
+                x.insert_keyvals(&mut self.nonstandard_keywords);
             }
-            None
-        });
-        let specific_res = self.specific.ensure_links(par, &ns, &js).chain(tr_err);
-        Ok(())
+            x.push_errors(&mut es);
+        }
+        LogResult::new_fungible_iter((), (), es, drop_flag)
     }
 }
 
@@ -7497,21 +7505,13 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
 
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         par: Par,
         _: &HashSet<&Shortname>,
         _: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = NewCoreLinkError> {
-        self.comp
-            .as_ref()
-            .and_then(|c| c.indices_are_valid(par))
-            .map(NewCoreLinkError::from)
-            .map(|e| {
-                self.comp = None;
-                e
-            })
-            .into_iter()
+    ) -> impl Iterator<Item = RemovedLink> {
+        Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -7574,25 +7574,15 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
 
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         par: Par,
         _: &HashSet<&Shortname>,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = NewCoreLinkError> {
-        let comp_err = self
-            .comp
-            .as_ref()
-            .and_then(|c| c.indices_are_valid(par))
-            .map(NewCoreLinkError::from)
-            .map(|e| {
-                self.comp = None;
-                e
-            });
-        self.applied_gates
-            .indices_are_valid(indices)
-            .map(NewCoreLinkError::from)
-            .chain(comp_err)
+    ) -> impl Iterator<Item = RemovedLink> {
+        let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
+        let ag = self.applied_gates.remove_invalid_links(indices);
+        comp.into_iter().chain(ag)
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -7660,21 +7650,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
 
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         _: Par,
         names: &HashSet<&Shortname>,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = NewCoreLinkError> {
-        let spill_err = self
-            .spillover
-            .as_ref()
-            .and_then(|s| s.indices_are_valid(names))
-            .map(NewCoreLinkError::from);
+    ) -> impl Iterator<Item = RemovedLink> {
+        let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
         self.applied_gates
-            .indices_are_valid(indices)
-            .map(NewCoreLinkError::from)
-            .chain(spill_err)
+            .remove_invalid_links(indices)
+            .chain(spill.map(RemovedLink::from))
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -7755,28 +7740,19 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
 
-    fn ensure_links(
+    fn remove_invalid_links(
         &mut self,
         _: Par,
         names: &HashSet<&Shortname>,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = NewCoreLinkError> {
-        let spill_err = self
-            .spillover
-            .as_ref()
-            .and_then(|s| s.indices_are_valid(names))
-            .map(NewCoreLinkError::from);
-        let uc_err = self
-            .unstained
-            .unstainedcenters
-            .indices_are_valid(names)
-            .map(NewCoreLinkError::from);
+    ) -> impl Iterator<Item = RemovedLink> {
+        let uc = self.unstained.unstainedcenters.remove_invalid_links(names);
+        let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
         self.applied_gates
             .0
-            .indices_are_valid(indices)
-            .map(NewCoreLinkError::from)
-            .chain(spill_err)
-            .chain(uc_err)
+            .remove_invalid_links(indices)
+            .chain(spill.map(RemovedLink::from))
+            .chain(uc.map(RemovedLink::from))
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -8177,6 +8153,181 @@ pub enum NewCoreLinkError {
     Comp2_0(Comp2_0LinkError),
     Name(LinkedNameError),
     Index(LinkedIndexError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum AnyLinkError {
+    Name(LinkedNameError),
+    Index(LinkedIndexError),
+}
+
+#[derive(From)]
+pub(crate) enum RemovedLink {
+    GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
+    GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
+    Gating(Gating),
+    Comp2_0(NonEmpty<RemovedComp2_0Cell>),
+    Comp3_0(RemovedIndexLink<Compensation3_0>),
+    Spillover(RemovedNamedLink<Spillover>),
+    UnstainedCenters(RemovedNamedLink<UnstainedCenters>),
+    Trigger(RemovedNamedLink<Trigger>),
+}
+
+impl RemovedLink {
+    fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
+        macro_rules! go_key {
+            ($kws:expr, $x:expr) => {{
+                let (k, v) = $x.key.metaroot_pair_std();
+                $kws.insert_demoted(k, v);
+            }};
+        }
+        macro_rules! go_gate {
+            ($kws:expr, $x:expr) => {{
+                for (k, v) in $x.region.opt_keywords_std($x.region_index) {
+                    $kws.insert_demoted(k, v);
+                }
+            }};
+        }
+        match self {
+            Self::GatingRegion3_0(x) => go_gate!(kws, x),
+            Self::GatingRegion3_2(x) => go_gate!(kws, x),
+            Self::Gating(x) => {
+                let (k, v) = x.metaroot_pair_std();
+                kws.insert_demoted(k, v);
+            }
+            Self::Comp2_0(xs) => {
+                for x in xs {
+                    let (k, v) = x.as_keyval();
+                    kws.insert_demoted(k, v);
+                }
+            }
+            Self::Comp3_0(x) => go_key!(kws, x),
+            Self::Spillover(x) => go_key!(kws, x),
+            Self::UnstainedCenters(x) => {
+                if let Some(v) = x.key.display_maybe() {
+                    let k = UnstainedCenters::std();
+                    kws.insert_demoted(k, v);
+                }
+            }
+            Self::Trigger(x) => go_key!(kws, x),
+        }
+    }
+
+    fn push_errors(self, es: &mut Vec<AnyLinkError>) {
+        macro_rules! go_named {
+            ($es:expr, $x:expr) => {{
+                $es.push($x.into_error().into());
+            }};
+        }
+        macro_rules! go_gate {
+            ($es:expr, $x:expr) => {{
+                for e in $x.into_errors() {
+                    $es.push(e.into());
+                }
+            }};
+        }
+        match self {
+            Self::GatingRegion3_0(x) => go_gate!(es, x),
+            Self::GatingRegion3_2(x) => go_gate!(es, x),
+            // TODO throw error here saying this keyword was dropped, but
+            // because its dependency was also dropped
+            Self::Gating(x) => (),
+            Self::Comp2_0(xs) => {
+                for x in xs {
+                    es.push(x.as_error().into());
+                }
+            }
+            Self::Comp3_0(x) => go_named!(es, x),
+            Self::Spillover(x) => go_named!(es, x),
+            Self::UnstainedCenters(x) => go_named!(es, x),
+            Self::Trigger(x) => go_named!(es, x),
+        }
+    }
+}
+
+#[derive(new)]
+pub(crate) struct RemovedComp2_0Cell {
+    row: MeasIndex,
+    col: MeasIndex,
+    value: f32,
+    missing: Comp2_0Missing,
+}
+
+impl RemovedComp2_0Cell {
+    fn as_keyval(&self) -> (StdKey, String) {
+        // NOTE col is first
+        let k = Dfc::std(self.col, self.row);
+        (k, self.value.to_string())
+    }
+
+    fn as_error(&self) -> LinkedIndexError {
+        let xs = match self.missing {
+            Comp2_0Missing::Row => NonEmpty::new(self.row),
+            Comp2_0Missing::Col => NonEmpty::new(self.col),
+            Comp2_0Missing::Both => {
+                let mut xs = NonEmpty::new(self.col);
+                xs.push(self.row);
+                xs
+            }
+        };
+        let k = Dfc::std(self.col, self.row);
+        LinkedIndexError::new(k, xs)
+    }
+}
+
+pub(crate) enum Comp2_0Missing {
+    Row,
+    Col,
+    Both,
+}
+
+#[derive(new)]
+pub(crate) struct RemovedNamedLink<T> {
+    key: T,
+    names: NonEmpty<Shortname>,
+}
+
+impl<T: Key + fmt::Display> RemovedNamedLink<T> {
+    fn as_keyval(&self) -> (StdKey, String) {
+        (T::std(), self.key.to_string())
+    }
+}
+
+impl<T: Key> RemovedNamedLink<T> {
+    fn into_error(self) -> LinkedNameError {
+        LinkedNameError::new(T::std(), self.names)
+    }
+}
+
+#[derive(new)]
+pub(crate) struct RemovedIndexLink<T> {
+    key: T,
+    indices: NonEmpty<MeasIndex>,
+}
+
+impl<T: Key> RemovedIndexLink<T> {
+    fn into_error(self) -> LinkedIndexError {
+        LinkedIndexError::new(T::std(), self.indices)
+    }
+}
+
+#[derive(new)]
+pub(crate) struct RemovedGateLink<I> {
+    pub(crate) region_index: RegionIndex,
+    pub(crate) region: Region<I>,
+    // TODO this will always either be 1 or 2
+    pub(crate) meas_indices: NonEmpty<MeasIndex>,
+}
+
+impl<I> RemovedGateLink<I> {
+    fn into_errors(self) -> impl Iterator<Item = LinkedIndexError> {
+        let i = self.region_index;
+        let e0 = LinkedIndexError::new(RegionWindow::std(i), self.meas_indices.clone());
+        // TODO this key is dropped indirectly, it doesn't actually contain
+        // the reference and therefore doesn't need to show the indices
+        let e1 = LinkedIndexError::new(RegionGateIndex::<I>::std(i), self.meas_indices);
+        [e0, e1].into_iter()
+    }
 }
 
 #[derive(Debug, Error)]

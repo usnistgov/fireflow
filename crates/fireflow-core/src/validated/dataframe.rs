@@ -190,12 +190,6 @@ pub struct ColumnLengthError {
     col_len: usize,
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum InsertColumnError {
-    Index(BoundaryIndexError),
-    Column(ColumnLengthError),
-}
-
 impl FCSDataFrame {
     pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
         if let Some(nrows) = columns.first().map(AnyFCSColumn::len) {

@@ -8684,7 +8684,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::MeasLayoutMismatchError;
+    use crate::data::{AnyRangeError, MeasLayoutMismatchError};
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err, impl_pyreflow_err,
@@ -8743,21 +8743,53 @@ mod python {
         }
     }
 
+    // - new dataframe error
+    // - columns differ b/t df and meas
     impl_pyreflow_err!(ColumnsToDataframeError);
+
     impl_pyreflow_err!(NewCoreTEXTError);
+
+    // - MeasLayoutMismatchError (see below)
+    // - NonLinearTemporalScaleError
     impl_pyreflow_err!(SetScalesError);
+
+    // - MeasLayoutMismatchError (see below)
+    // - NonLinearTemporalTransformError
     impl_pyreflow_err!(SetTransformsError);
+
+    // - NewNamedVecError
+    // - ExistingLinkError (this is wrong)
+    // - MeasLayoutMismatchError (see below)
     impl_pyreflow_err!(SetMeasurementsError);
+
     impl_pyreflow_err!(MeasLayoutMismatchError);
+
+    // lots of stuff, maybe not worth breaking down
     impl_pyreflow_err!(StdTEXTFromKeywordsError);
-    impl_pyreflow_err!(InsertTemporalError);
-    impl_pyreflow_err!(PushOpticalError);
-    impl_pyreflow_err!(InsertOpticalError);
+
+    // - NewDataLayoutError
+    // - ColumnError<AnyLossError>
+    // - Uint8DigitOverflow
     impl_pyreflow_err!(StdWriterError);
+
+    // - InsertTemporalError (see above)
+    // - ColumnLengthError
     impl_pyreflow_err!(PushTemporalToDatasetError);
+
+    // - InsertTemporalError (see above)
+    // - ColumnLengthError
     impl_pyreflow_err!(InsertTemporalToDatasetError);
+
+    // - PushOpticalError (see above)
+    // - ColumnLengthError
     impl_pyreflow_err!(PushOpticalToDatasetError);
+
+    // - InsertOpticalError (see above)
+    // - ColumnLengthError
     impl_pyreflow_err!(InsertOpticalInDatasetError);
+
+    // - SetMeasurementsError (see above)
+    // - MeasDataMismatchError (see below)
     impl_pyreflow_err!(SetMeasurementsAndDataError);
 
     impl<E: Display> From<ConvertError<E>> for PyErr {
@@ -8765,6 +8797,8 @@ mod python {
             PyreflowException::new_err(value.to_string())
         }
     }
+
+    impl_pyreflow1_err!(MeasurementException, AnyRangeError);
 
     impl_pyreflow1_err!(MeasurementException, MeasDataMismatchError);
 
@@ -8782,4 +8816,7 @@ mod python {
     impl_from_pyerr!(RemoveMeasByNameError, Link, Name);
     impl_from_pyerr!(SetTemporalByIndexError, Inner, Set);
     impl_from_pyerr!(SetTemporalByNameError, Inner, Name);
+    impl_from_pyerr!(InsertOpticalError, Insert, Layout);
+    impl_from_pyerr!(PushOpticalError, Unique, Layout);
+    impl_from_pyerr!(InsertTemporalError, Center, Layout);
 }

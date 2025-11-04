@@ -17,6 +17,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    InvalidKeywordValueError,
+    PyreflowException,
+    "Exception caused by an individual, invalid keyword assignment"
+);
+
+create_exception!(
+    _pyreflow,
     ConversionException,
     PyreflowException,
     "Exception caused by converting FCS data between versions"

@@ -831,7 +831,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let p = Pair::new(key, value);
         let (newself, ret) = match mem::take(self) {
             Self::Unsplit(u) => (Self::new_split(u.members, p, vec![]), Ok(())),
-            s @ Self::Split(_) => (s, Err(InsertCenterError::Present)),
+            s @ Self::Split(_) => (s, Err(CenterPresentError.into())),
         };
         *self = newself;
         ret
@@ -865,7 +865,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let right: Vec<_> = it.collect();
                 (Self::new_split(left, p, right), Ok(()))
             }
-            s @ Self::Split(_) => (s, Err(InsertCenterError::Present)),
+            s @ Self::Split(_) => (s, Err(CenterPresentError.into())),
         };
         *self = newself;
         ret
@@ -1893,11 +1893,9 @@ pub enum RenameError {
     NonUnique(NonUniqueKeyError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display, From)]
 pub enum InsertCenterError {
-    #[error("Center already exists")]
-    Present,
-    #[error("{0}")]
+    Present(CenterPresentError),
     Insert(InsertError),
 }
 
@@ -1932,6 +1930,10 @@ pub enum SetElementsError {
     Length(InputLengthError),
     Mismatch(ColumnError<OpticalMismatchError>),
 }
+
+#[derive(Debug, Error)]
+#[error("Center already exists")]
+pub struct CenterPresentError;
 
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
@@ -2015,10 +2017,12 @@ impl fmt::Display for OpticalMismatchError {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        Element, ElementIndexError, InputLengthError, KeyNotFoundError, MissingCenterError,
-        NoNameError, NonCenterElement, NonUniqueKeysError, SetCenterError, SetElementsError,
-        SetKeysError, SetNamesError,
+        CenterPresentError, Element, ElementIndexError, InputLengthError, InsertCenterError,
+        InsertError, KeyNotFoundError, MissingCenterError, NoNameError, NonCenterElement,
+        NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError, SetCenterError,
+        SetElementsError, SetKeysError, SetNamesError,
     };
+    use crate::data::ColumnError;
     use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow1_err};
     use pyo3::exceptions::PyKeyError;
     use pyo3::prelude::*;
@@ -2047,12 +2051,18 @@ mod python {
     }
 
     impl_pyreflow1_err!(MeasurementException, NonUniqueKeysError);
+    impl_pyreflow1_err!(MeasurementException, NonUniqueKeyError);
     impl_pyreflow1_err!(MeasurementException, InputLengthError);
     impl_pyreflow1_err!(MeasurementException, MissingCenterError);
     impl_pyreflow1_err!(MeasurementException, NoNameError);
-    impl_pyreflow1_err!(MeasurementException, SetElementsError);
+    impl_pyreflow1_err!(MeasurementException, CenterPresentError);
+
+    impl_pyreflow1_err!(MeasurementException, ColumnError<OpticalMismatchError>);
 
     impl_from_pyerr!(SetNamesError, Length, NonUnique);
     impl_from_pyerr!(SetKeysError, Names, MissingCenter);
     impl_from_pyerr!(SetCenterError, Index, NoName);
+    impl_from_pyerr!(SetElementsError, Length, Mismatch);
+    impl_from_pyerr!(InsertError, Index, NonUnique);
+    impl_from_pyerr!(InsertCenterError, Present, Insert);
 }

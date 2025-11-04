@@ -2273,6 +2273,7 @@ mod python {
     use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
 
     use pyo3::prelude::*;
+    use pyo3::{exceptions::PyBaseExceptionGroup, PyErrArguments};
     use std::convert::Infallible;
     use std::ffi::CString;
     use std::fmt::Display;
@@ -2287,13 +2288,34 @@ mod python {
         }
     }
 
+    // impl<E, S> From<ErrorSummary<E, S>> for PyErr
+    // where
+    //     E: Display,
+    //     S: Display,
+    // {
+    //     fn from(value: ErrorSummary<E, S>) -> Self {
+    //         PyreflowException::new_err(value.to_string())
+    //     }
+    // }
+
     impl<E, S> From<ErrorSummary<E, S>> for PyErr
     where
-        E: Display,
+        E: Into<Self>,
         S: Display,
     {
+        // TODO check if we are on python <3.11 and do something different if so
         fn from(value: ErrorSummary<E, S>) -> Self {
-            PyreflowException::new_err(value.to_string())
+            let s = value.summary.to_string();
+            let es: Vec<_> = value.errors.into_iter().map(Into::into).collect();
+            // NOTE this is not written in the docs or enforced; exception
+            // groups take two args, the first being a string with the error
+            // summary and the second being a "sequence" (ie a list/iterator
+            // thing). The 'new_err' method only takes one arg, so these two
+            // args need to be wrapped in a tuple. If this is incorrect then
+            // python will simply produce a 'fail to normalize' exception will
+            // trying to make the real exception.
+            PyBaseExceptionGroup::new_err((s, es))
+            // PyreflowException::new_err(value.to_string())
         }
     }
 

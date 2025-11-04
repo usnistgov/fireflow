@@ -1327,3 +1327,20 @@ mod tests {
         assert!(ws.is_empty(), "warnings: {ws:?}");
     }
 }
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::{
+        core::{LookupAndReadDataAnalysisError, StdDatasetFromRawError},
+        python::macros::impl_pyreflow_err,
+    };
+
+    use super::{HeaderOrRawError, RawDatasetError, StdDatasetError, StdTEXTError};
+
+    impl_pyreflow_err!(HeaderOrRawError);
+    impl_pyreflow_err!(StdTEXTError);
+    impl_pyreflow_err!(RawDatasetError);
+    impl_pyreflow_err!(StdDatasetError);
+    impl_pyreflow_err!(LookupAndReadDataAnalysisError);
+    impl_pyreflow_err!(StdDatasetFromRawError);
+}

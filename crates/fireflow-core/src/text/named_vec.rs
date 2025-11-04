@@ -2016,8 +2016,8 @@ impl fmt::Display for OpticalMismatchError {
 mod python {
     use super::{
         Element, ElementIndexError, InputLengthError, KeyNotFoundError, MissingCenterError,
-        NoNameError, NonCenterElement, NonUniqueKeysError, SetCenterError, SetKeysError,
-        SetNamesError,
+        NoNameError, NonCenterElement, NonUniqueKeysError, SetCenterError, SetElementsError,
+        SetKeysError, SetNamesError,
     };
     use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow1_err};
     use pyo3::exceptions::PyKeyError;
@@ -2050,6 +2050,7 @@ mod python {
     impl_pyreflow1_err!(MeasurementException, InputLengthError);
     impl_pyreflow1_err!(MeasurementException, MissingCenterError);
     impl_pyreflow1_err!(MeasurementException, NoNameError);
+    impl_pyreflow1_err!(MeasurementException, SetElementsError);
 
     impl_from_pyerr!(SetNamesError, Length, NonUnique);
     impl_from_pyerr!(SetKeysError, Names, MissingCenter);

@@ -1445,7 +1445,7 @@ pub trait VersionedMetaroot: Sized {
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         (Temporal<Self::Temporal>, Optical<Self::Optical>),
         AllowLoss,
-        SwapOpticalTemporalSummary,
+        SwapOpticalTemporalError,
     > {
         let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
@@ -1466,7 +1466,7 @@ pub trait VersionedMetaroot: Sized {
 
         let o_to_t_errs = o_to_t_specific_errors.chain(o_to_t_common_errs);
 
-        let e = SwapOpticalTemporalSummary::try_new(
+        let e = SwapOpticalTemporalError::try_new(
             opt_index,
             tmp_index,
             scale_error,
@@ -1546,16 +1546,13 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         data: Self::TData,
         flag: AllowLoss,
-    ) -> FungibleErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalSummary> {
+    ) -> FungibleErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalError> {
         let opt_common_errs = opt.key_loss_errors(i);
         let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
         let scale_err = opt.specific.nonlinear_scale_error(i);
 
-        let e = OpticalToTemporalSummary::try_new(
-            i,
-            scale_err,
-            opt_common_errs.chain(opt_specific_errs),
-        );
+        let e =
+            OpticalToTemporalError::try_new(i, scale_err, opt_common_errs.chain(opt_specific_errs));
 
         FungibleErrorResult::new_deferred_fungible_maybe((opt, data), e, flag)
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
@@ -2216,7 +2213,7 @@ where
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalSummary, SetTemporalByNameError>
+    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
@@ -2225,13 +2222,13 @@ where
             n,
             |old, new| {
                 M::swap_optical_temporal(old, new, flag)
-                    .map_fungible_errors(SetTemporalSummary::from)
+                    .map_fungible_errors(SetTemporalError::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
                 M::Temporal::from_optical(old_o, i, timestep, flag)
-                    .map_fungible_errors(SetTemporalSummary::from)
+                    .map_fungible_errors(SetTemporalError::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
@@ -2244,7 +2241,7 @@ where
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         allow_loss: bool,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalSummary, SetTemporalByIndexError>
+    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
@@ -2253,13 +2250,13 @@ where
             index,
             |old, new| {
                 M::swap_optical_temporal(old, new, flag)
-                    .map_fungible_errors(SetTemporalSummary::from)
+                    .map_fungible_errors(SetTemporalError::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
                 M::Temporal::from_optical(old_o, i, timestep, flag)
-                    .map_fungible_errors(SetTemporalSummary::from)
+                    .map_fungible_errors(SetTemporalError::from)
                     .fungible_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
@@ -8257,24 +8254,24 @@ pub enum ReplaceTemporalError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum SetTemporalByNameError {
-    Inner(SetTemporalSummary),
+    Inner(SetTemporalError),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum SetTemporalByIndexError {
-    Inner(SetTemporalSummary),
+    Inner(SetTemporalError),
     Set(SetCenterError),
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum SetTemporalSummary {
-    Swap(SwapOpticalTemporalSummary),
-    ToOptical(OpticalToTemporalSummary),
+pub enum SetTemporalError {
+    Swap(SwapOpticalTemporalError),
+    ToOptical(OpticalToTemporalError),
 }
 
 #[derive(From, Debug, Error, new)]
-pub struct SwapOpticalTemporalSummary {
+pub struct SwapOpticalTemporalError {
     opt_index: MeasIndex,
     tmp_index: MeasIndex,
     nonlinear: Option<OpticalNonLinearError>,
@@ -8282,7 +8279,7 @@ pub struct SwapOpticalTemporalSummary {
     opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
 }
 
-impl SwapOpticalTemporalSummary {
+impl SwapOpticalTemporalError {
     fn try_new(
         opt_index: MeasIndex,
         tmp_index: MeasIndex,
@@ -8301,7 +8298,7 @@ impl SwapOpticalTemporalSummary {
     }
 }
 
-impl fmt::Display for SwapOpticalTemporalSummary {
+impl fmt::Display for SwapOpticalTemporalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let nl = self.nonlinear.as_ref().map(ToString::to_string);
         let tl = self
@@ -8320,13 +8317,13 @@ impl fmt::Display for SwapOpticalTemporalSummary {
 }
 
 #[derive(From, Debug, Error, new)]
-pub struct OpticalToTemporalSummary {
+pub struct OpticalToTemporalError {
     opt_index: MeasIndex,
     nonlinear: Option<OpticalNonLinearError>,
     opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
 }
 
-impl OpticalToTemporalSummary {
+impl OpticalToTemporalError {
     fn try_new(
         opt_index: MeasIndex,
         nonlinear: Option<OpticalNonLinearError>,
@@ -8341,7 +8338,7 @@ impl OpticalToTemporalSummary {
     }
 }
 
-impl fmt::Display for OpticalToTemporalSummary {
+impl fmt::Display for OpticalToTemporalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let nl = self.nonlinear.as_ref().map(ToString::to_string);
         let os = self.opt_loss.iter().join(", ");
@@ -8687,6 +8684,8 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::data::MeasLayoutMismatchError;
+    use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err, impl_pyreflow_err,
     };
@@ -8694,15 +8693,20 @@ mod python {
 
     use super::{
         Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
-        CompParMismatchError, ExistingLinkError, GatingMeasLinkError, MeasDataMismatchError,
-        NewCoreTEXTError, Other, Others, RemoveMeasByIndexError, RemoveMeasByNameError,
-        ReplaceTemporalError, ScaleTransform, SetTemporalByIndexError, SetTemporalByNameError,
-        SetTemporalSummary, SpilloverLinkError, TriggerLinkError,
+        CompParMismatchError, ConvertError, ExistingLinkError, GatingMeasLinkError,
+        InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
+        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreTEXTError, Other, Others,
+        PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
+        RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
+        SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
+        SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
+        StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
     };
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::IntoPyObjectExt as _;
+    use std::fmt::Display;
 
     impl_from_py_transparent!(Analysis);
     impl_from_py_transparent!(Other);
@@ -8740,13 +8744,32 @@ mod python {
     }
 
     impl_pyreflow_err!(ColumnsToDataframeError);
-
     impl_pyreflow_err!(NewCoreTEXTError);
+    impl_pyreflow_err!(SetScalesError);
+    impl_pyreflow_err!(SetTransformsError);
+    impl_pyreflow_err!(SetMeasurementsError);
+    impl_pyreflow_err!(MeasLayoutMismatchError);
+    impl_pyreflow_err!(StdTEXTFromKeywordsError);
+    impl_pyreflow_err!(InsertTemporalError);
+    impl_pyreflow_err!(PushOpticalError);
+    impl_pyreflow_err!(InsertOpticalError);
+    impl_pyreflow_err!(StdWriterError);
+    impl_pyreflow_err!(PushTemporalToDatasetError);
+    impl_pyreflow_err!(InsertTemporalToDatasetError);
+    impl_pyreflow_err!(PushOpticalToDatasetError);
+    impl_pyreflow_err!(InsertOpticalInDatasetError);
+    impl_pyreflow_err!(SetMeasurementsAndDataError);
+
+    impl<E: Display> From<ConvertError<E>> for PyErr {
+        fn from(value: ConvertError<E>) -> Self {
+            PyreflowException::new_err(value.to_string())
+        }
+    }
 
     impl_pyreflow1_err!(MeasurementException, MeasDataMismatchError);
 
     impl_pyreflow1_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
-    impl_pyreflow1_err!(ConversionException, SetTemporalSummary);
+    impl_pyreflow1_err!(ConversionException, SetTemporalError);
 
     impl_pyreflow1_err!(RelationalException, ExistingLinkError);
     impl_pyreflow1_err!(RelationalException, SpilloverLinkError);

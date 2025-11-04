@@ -121,7 +121,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             xs.0.iter()
                 .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
         if !all_unique_names(names) {
-            return Err(NewNamedVecError::NonUnique);
+            return Err(NonUniqueKeysError.into());
         }
         let mut left = vec![];
         let mut center = None;
@@ -138,10 +138,9 @@ impl<K, U, V> NamedVec<K, U, V> {
                 }
                 Element::Center(y) => {
                     if center.is_none() {
-                        let cp = Pair::new(y.0, y.1);
-                        center = Some(cp);
+                        center = Some(Pair::new(y.0, y.1));
                     } else {
-                        return Err(NewNamedVecError::MultiCenter);
+                        return Err(CenterPresentError.into());
                     }
                 }
             }
@@ -1917,12 +1916,10 @@ pub enum SetCenterError {
     NoName(NoNameError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Display, From)]
 pub enum NewNamedVecError {
-    #[error("names must be unique")]
-    NonUnique,
-    #[error("only zero or one center values allowed")]
-    MultiCenter,
+    NonUnique(NonUniqueKeysError),
+    MultiCenter(CenterPresentError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -1932,7 +1929,7 @@ pub enum SetElementsError {
 }
 
 #[derive(Debug, Error)]
-#[error("Center already exists")]
+#[error("center value specified multiple times")]
 pub struct CenterPresentError;
 
 #[derive(Debug, Error)]
@@ -2018,9 +2015,9 @@ impl fmt::Display for OpticalMismatchError {
 mod python {
     use super::{
         CenterPresentError, Element, ElementIndexError, InputLengthError, InsertCenterError,
-        InsertError, KeyNotFoundError, MissingCenterError, NoNameError, NonCenterElement,
-        NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError, SetCenterError,
-        SetElementsError, SetKeysError, SetNamesError,
+        InsertError, KeyNotFoundError, MissingCenterError, NewNamedVecError, NoNameError,
+        NonCenterElement, NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError,
+        SetCenterError, SetElementsError, SetKeysError, SetNamesError,
     };
     use crate::data::ColumnError;
     use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow1_err};
@@ -2065,4 +2062,5 @@ mod python {
     impl_from_pyerr!(SetElementsError, Length, Mismatch);
     impl_from_pyerr!(InsertError, Index, NonUnique);
     impl_from_pyerr!(InsertCenterError, Present, Insert);
+    impl_from_pyerr!(NewNamedVecError, NonUnique, MultiCenter);
 }

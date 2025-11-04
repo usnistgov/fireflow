@@ -388,31 +388,11 @@ where
     Self: Key + Optional + FromStr + Sized,
     Option<Self>: From<Self::Outer>,
 {
-    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        NonEmpty::collect(self.names().difference(names).copied().cloned())
-            .map(|common_names| LinkedNameError::new(Self::std(), common_names))
+    fn check_link(&self, all_names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
+        NonEmpty::collect(self.names().difference(all_names).copied().cloned())
+            .map(|unshared_names| LinkedNameError::new(Self::std(), unshared_names))
             .map_or(Ok(()), Err)
     }
-
-    // fn lookup_opt_linked<E>(
-    //     kws: &mut StdKeywords,
-    //     names: &HashSet<&Shortname>,
-    // ) -> LookupOptional<Self, E>
-    // where
-    //     ParseOptKeyWarning: From<<Self as FromStr>::Err>,
-    // {
-    //     process_opt(Self::remove_opt(kws, Self::std())).and_tentatively(|maybe| {
-    //         if let Some(x) = maybe.0 {
-    //             Self::check_link(&x, names).map_or_else(
-    //                 |w| Tentative::new(None, vec![w.into()], vec![]),
-    //                 |_| Tentative::new1(Some(x)),
-    //             )
-    //         } else {
-    //             Tentative::new1(None)
-    //         }
-    //         .map(Into::into)
-    //     })
-    // }
 
     fn lookup_opt_linked_st<P>(
         kws: &mut StdKeywords,

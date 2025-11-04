@@ -132,6 +132,7 @@ impl Compensation {
     }
 }
 
+// TODO check that nrows/columns = PAR
 impl FromStrStateful for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();

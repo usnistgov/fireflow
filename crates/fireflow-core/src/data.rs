@@ -4433,11 +4433,17 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::macros::impl_from_pyerr;
+    use crate::python::macros::impl_pyreflow1_err;
     use crate::text::float_decimal::FloatDecimal;
     use crate::text::float_decimal::HasFloatBounds;
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
 
+    use super::ColumnError;
+    use super::MeasLayoutLengthsError;
+    use super::MeasLayoutMismatchError;
+    use super::ScaleMismatchTransformError;
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
     use bigdecimal::BigDecimal;
@@ -4508,4 +4514,12 @@ mod python {
             }
         }
     }
+
+    impl_pyreflow1_err!(MeasurementException, MeasLayoutLengthsError);
+    impl_pyreflow1_err!(
+        MeasurementException,
+        ColumnError<ScaleMismatchTransformError>
+    );
+
+    impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
 }

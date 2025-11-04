@@ -1401,13 +1401,13 @@ pub trait VersionedMetaroot: Sized {
     type Name: MightHave<Shortname>;
 
     /// Return error if any data in this struct links to given list of names.
-    fn check_meas_named_links_inner(
+    fn meas_has_existing_named_links_with_inner(
         &self,
         names: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError>;
 
     /// Return error if any data in struct has index links.
-    fn check_meas_index_links_inner(
+    fn meas_has_existing_index_links_with_inner(
         &self,
         indices: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError>;
@@ -1989,7 +1989,7 @@ where
         self.specific.rename_meas_links_inner(mapping);
     }
 
-    fn check_meas_named_links(
+    fn meas_has_existing_named_links_with(
         &self,
         names: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError> {
@@ -2000,17 +2000,19 @@ where
         {
             return Err(ExistingNamedLinkError::Trigger);
         }
-        self.specific.check_meas_named_links_inner(names)
+        self.specific
+            .meas_has_existing_named_links_with_inner(names)
     }
 
-    fn check_meas_links(
+    fn meas_has_existing_links_with(
         &self,
         indexed_names: &[(MeasIndex, &Shortname)],
     ) -> Result<(), ExistingLinkError> {
         let ns = indexed_names.iter().map(|(_, n)| *n).collect();
         let js = indexed_names.iter().map(|(i, _)| i).copied().collect();
-        self.check_meas_named_links(&ns)?;
-        self.specific.check_meas_index_links_inner(&js)?;
+        self.meas_has_existing_named_links_with(&ns)?;
+        self.specific
+            .meas_has_existing_index_links_with_inner(&js)?;
         Ok(())
     }
 }
@@ -3136,7 +3138,8 @@ where
     > {
         let xs = self.measurement_named_indices();
         if let Some(index) = xs.get(name) {
-            self.metaroot.check_meas_links(&[(*index, name)])?;
+            self.metaroot
+                .meas_has_existing_links_with(&[(*index, name)])?;
         }
         let ret = self.measurements.remove_name(name)?;
         self.layout.remove_nocheck(ret.0);
@@ -3153,7 +3156,8 @@ where
     > {
         let xs = self.measurement_indexed_names();
         if let Some(name) = xs.get(&index) {
-            self.metaroot.check_meas_links(&[(index, name)])?;
+            self.metaroot
+                .meas_has_existing_links_with(&[(index, name)])?;
         }
         let ret = self.measurements.remove_index(index)?;
         self.layout.remove_nocheck(index);
@@ -3314,7 +3318,7 @@ where
         M::Optical: AsScaleTransform,
     {
         let check_res = self
-            .check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
+            .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
         let vec_res = NamedVec::try_new(measurements)
@@ -3344,7 +3348,7 @@ where
         M::Optical: AsScaleTransform,
     {
         let check_res = self
-            .check_new_meas_links(&measurements, allow_shared_names, skip_index_check)
+            .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
         let vec_res = NamedVec::try_new(measurements)
@@ -3365,7 +3369,7 @@ where
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         let xs: Vec<_> = self.measurement_indexed_names().into_iter().collect();
-        self.metaroot.check_meas_links(&xs)?;
+        self.metaroot.meas_has_existing_links_with(&xs)?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -3631,16 +3635,16 @@ where
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
 
-    fn check_meas_any_named_links(&self) -> Result<(), ExistingNamedLinkError> {
+    fn meas_has_any_existing_named_links(&self) -> Result<(), ExistingNamedLinkError> {
         self.metaroot
-            .check_meas_named_links(&self.measurement_names())
+            .meas_has_existing_named_links_with(&self.measurement_names())
     }
 
-    fn check_meas_any_index_links(&self) -> Result<(), ExistingIndexLinkError> {
+    fn meas_has_any_existing_index_links(&self) -> Result<(), ExistingIndexLinkError> {
         let indices: HashSet<_> = (0..self.par().0).map(MeasIndex::from).collect();
         self.metaroot
             .specific
-            .check_meas_index_links_inner(&indices)
+            .meas_has_existing_index_links_with_inner(&indices)
     }
 
     /// Check that links will not be broken when setting new measurement names.
@@ -3663,7 +3667,7 @@ where
     ///
     /// The number of measurements is assumed to be correct; this should be
     /// checked elsewhere.
-    fn check_new_meas_links<X, Y>(
+    fn new_meas_has_existing_links<X, Y>(
         &self,
         measurements: &Eithers<M::Name, X, Y>,
         allow_shared_names: bool,
@@ -3671,12 +3675,12 @@ where
     ) -> Result<(), ExistingLinkError> {
         if allow_shared_names {
             let ns = measurements.non_center_names().collect();
-            self.metaroot.check_meas_named_links(&ns)?;
+            self.metaroot.meas_has_existing_named_links_with(&ns)?;
         } else {
-            self.check_meas_any_named_links()?;
+            self.meas_has_any_existing_named_links()?;
         }
         if !skip_index_check {
-            self.check_meas_any_index_links()?;
+            self.meas_has_any_existing_index_links()?;
         }
         Ok(())
     }
@@ -4425,7 +4429,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 // TODO this will throw an error if any measurement links
                 // exist, which is the opposite of what we want
                 let link_res = metaroot
-                    .check_meas_links(&ns[..])
+                    .meas_has_existing_links_with(&ns[..])
                     .into_nowarn()
                     .map_errors(NewCoreError::from);
                 let layout_res = layout
@@ -7455,14 +7459,14 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
 
-    fn check_meas_named_links_inner(
+    fn meas_has_existing_named_links_with_inner(
         &self,
         _: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError> {
         Ok(())
     }
 
-    fn check_meas_index_links_inner(
+    fn meas_has_existing_index_links_with_inner(
         &self,
         _: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError> {
@@ -7515,14 +7519,14 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
 
-    fn check_meas_named_links_inner(
+    fn meas_has_existing_named_links_with_inner(
         &self,
         _: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError> {
         Ok(())
     }
 
-    fn check_meas_index_links_inner(
+    fn meas_has_existing_index_links_with_inner(
         &self,
         indices: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError> {
@@ -7580,7 +7584,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
 
-    fn check_meas_named_links_inner(
+    fn meas_has_existing_named_links_with_inner(
         &self,
         names: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError> {
@@ -7595,7 +7599,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         }
     }
 
-    fn check_meas_index_links_inner(
+    fn meas_has_existing_index_links_with_inner(
         &self,
         indices: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError> {
@@ -7658,7 +7662,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
 
-    fn check_meas_named_links_inner(
+    fn meas_has_existing_named_links_with_inner(
         &self,
         names: &HashSet<&Shortname>,
     ) -> Result<(), ExistingNamedLinkError> {
@@ -7681,7 +7685,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         }
     }
 
-    fn check_meas_index_links_inner(
+    fn meas_has_existing_index_links_with_inner(
         &self,
         indices: &HashSet<MeasIndex>,
     ) -> Result<(), ExistingIndexLinkError> {
@@ -8695,7 +8699,8 @@ mod python {
         Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
         CompParMismatchError, ConvertError, ExistingLinkError, GatingMeasLinkError,
         InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreTEXTError, Other, Others,
+        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreTEXTError,
+        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
         PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
         RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
         SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
@@ -8743,26 +8748,8 @@ mod python {
         }
     }
 
-    // - new dataframe error
-    // - columns differ b/t df and meas
-    impl_pyreflow_err!(ColumnsToDataframeError);
-
+    // TODO this is probably screwed up
     impl_pyreflow_err!(NewCoreTEXTError);
-
-    // - MeasLayoutMismatchError (see below)
-    // - NonLinearTemporalScaleError
-    impl_pyreflow_err!(SetScalesError);
-
-    // - MeasLayoutMismatchError (see below)
-    // - NonLinearTemporalTransformError
-    impl_pyreflow_err!(SetTransformsError);
-
-    // - NewNamedVecError
-    // - ExistingLinkError (this is wrong)
-    // - MeasLayoutMismatchError (see below)
-    impl_pyreflow_err!(SetMeasurementsError);
-
-    impl_pyreflow_err!(MeasLayoutMismatchError);
 
     // lots of stuff, maybe not worth breaking down
     impl_pyreflow_err!(StdTEXTFromKeywordsError);
@@ -8772,34 +8759,15 @@ mod python {
     // - Uint8DigitOverflow
     impl_pyreflow_err!(StdWriterError);
 
-    // - InsertTemporalError (see above)
-    // - ColumnLengthError
-    impl_pyreflow_err!(PushTemporalToDatasetError);
-
-    // - InsertTemporalError (see above)
-    // - ColumnLengthError
-    impl_pyreflow_err!(InsertTemporalToDatasetError);
-
-    // - PushOpticalError (see above)
-    // - ColumnLengthError
-    impl_pyreflow_err!(PushOpticalToDatasetError);
-
-    // - InsertOpticalError (see above)
-    // - ColumnLengthError
-    impl_pyreflow_err!(InsertOpticalInDatasetError);
-
-    // - SetMeasurementsError (see above)
-    // - MeasDataMismatchError (see below)
-    impl_pyreflow_err!(SetMeasurementsAndDataError);
-
     impl<E: Display> From<ConvertError<E>> for PyErr {
         fn from(value: ConvertError<E>) -> Self {
             PyreflowException::new_err(value.to_string())
         }
     }
 
+    impl_pyreflow1_err!(MeasurementException, NonLinearTemporalScaleError);
+    impl_pyreflow1_err!(MeasurementException, NonLinearTemporalTransformError);
     impl_pyreflow1_err!(MeasurementException, AnyRangeError);
-
     impl_pyreflow1_err!(MeasurementException, MeasDataMismatchError);
 
     impl_pyreflow1_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
@@ -8819,4 +8787,13 @@ mod python {
     impl_from_pyerr!(InsertOpticalError, Insert, Layout);
     impl_from_pyerr!(PushOpticalError, Unique, Layout);
     impl_from_pyerr!(InsertTemporalError, Center, Layout);
+    impl_from_pyerr!(SetMeasurementsError, New, Link, Layout);
+    impl_from_pyerr!(PushTemporalToDatasetError, Measurement, Column);
+    impl_from_pyerr!(InsertTemporalToDatasetError, Measurement, Column);
+    impl_from_pyerr!(PushOpticalToDatasetError, Measurement, Column);
+    impl_from_pyerr!(InsertOpticalInDatasetError, Measurement, Column);
+    impl_from_pyerr!(SetMeasurementsAndDataError, Meas, Mismatch);
+    impl_from_pyerr!(SetScalesError, Layout, Temporal);
+    impl_from_pyerr!(SetTransformsError, Layout, Temporal);
+    impl_from_pyerr!(ColumnsToDataframeError, New, Mismatch);
 }

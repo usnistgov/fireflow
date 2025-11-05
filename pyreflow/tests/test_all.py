@@ -1944,5 +1944,5 @@ class TestReadWrite:
         # as an integer
         with pytest.RaisesGroup(pf.PyreflowException):
             core.write_dataset(p)
-        # TODO shouldn't this emit a warning?
-        core.write_dataset(p, skip_conversion_check=True)
+        with pytest.warns(pf.PyreflowWarning):
+            core.write_dataset(p, skip_conversion_check=True)

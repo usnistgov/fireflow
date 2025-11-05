@@ -4,7 +4,8 @@ use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::keys::NonStdKeywordsExt as _;
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
@@ -20,8 +21,8 @@ use super::optional::{
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LinkedNameError,
-    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptMetarootKey, Optional,
-    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    LookupKeysWarning, LookupOptional, LookupResult, LookupTentative, OptIndexedKey,
+    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -63,6 +64,33 @@ pub struct Nextdata(pub UintZeroPad20);
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Gain(pub PositiveFloat);
+
+impl Gain {
+    pub(crate) fn lookup_temporal_3_0(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupOptional<Self> {
+        if conf.ignore_time_gain {
+            nonstd.transfer_demoted(kws, Self::std(i));
+            LogResult::new_ok(None)
+        } else {
+            Self::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
+                let is_ok = gain.is_none_or(|g| g.0.is_one());
+                let flag = conf.allow_optional_dropping;
+                let e = TemporalGainError(i).into();
+                LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag)
+                    .fungible_into_commutative()
+            })
+        }
+    }
+}
+
+/// Error triggered when time measurement has $PnG
+#[derive(Debug, Error)]
+#[error("$P{0}G must be 1.0 or not set for temporal measurement")]
+pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into, Debug)]
@@ -410,6 +438,22 @@ impl FromStr for TemporalScaleInner {
 /// The value of the $PnE key for temporal measurements (3.0+)
 #[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
+
+impl TemporalScale3_0 {
+    pub(crate) fn lookup(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<()> {
+        if conf.force_time_linear {
+            nonstd.transfer_demoted(kws, TemporalScale::std(i));
+            LogResult::new_ok(())
+        } else {
+            TemporalScale3_0::lookup_req(kws, i).set_ok_value(())
+        }
+    }
+}
 
 impl DisplayMaybe for TemporalScale3_0 {
     fn display_maybe(&self) -> Option<String> {

@@ -3,10 +3,7 @@ use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
-use crate::validated::keys::{
-    BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
-    StdKeywords,
-};
+use crate::validated::keys::{BiIndexedKey as _, IndexedKey, Key, MeasHeader, StdKey, StdKeywords};
 use crate::validated::nonempty_string::NonEmptyStringError;
 use crate::validated::shortname::{Shortname, ShortnameError};
 
@@ -22,11 +19,9 @@ use super::keywords::{
     GatePairError, GatingError, LastModifiedError, Longname, MeasOrGateIndexError, Mode3_2Error,
     ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, OriginalityError,
     ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError, Range,
-    RegionGateIndexError, RegionIndexError, Tag, TemporalScale, TemporalScale3_0,
-    TemporalScaleError, TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError,
-    WavelengthsError,
+    RegionGateIndexError, RegionIndexError, Tag, TemporalGainError, TemporalScaleError,
+    TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError, WavelengthsError,
 };
-use super::named_vec::{NameMapping, NewNamedVecError};
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
@@ -40,10 +35,9 @@ use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use num_traits::identities::One as _;
 use thiserror::Error;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -387,13 +381,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         (Self::std(i), self.to_string())
     }
-
-    fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
-    where
-        Self: fmt::Display,
-    {
-        (Self::std(i).to_string(), self.to_string())
-    }
 }
 
 pub(crate) fn parse_opt<T: FromStr>(k: StdKey, v: String) -> Result<T, OptKeyError<T::Err>> {
@@ -502,39 +489,6 @@ pub struct DependentKeyError {
     pub deps: NonEmpty<StdKey>,
 }
 
-pub(crate) fn lookup_temporal_scale_3_0(
-    kws: &mut StdKeywords,
-    i: MeasIndex,
-    nonstd: &mut NonStdKeywords,
-    conf: &StdTextReadConfig,
-) -> LookupResult<()> {
-    if conf.force_time_linear {
-        nonstd.transfer_demoted(kws, TemporalScale::std(i));
-        LogResult::new_ok(())
-    } else {
-        TemporalScale3_0::lookup_req(kws, i).set_ok_value(())
-    }
-}
-
-pub(crate) fn lookup_temporal_gain_3_0(
-    kws: &mut StdKeywords,
-    i: MeasIndex,
-    nonstd: &mut NonStdKeywords,
-    conf: &StdTextReadConfig,
-) -> LookupOptional<Gain> {
-    if conf.ignore_time_gain {
-        nonstd.transfer_demoted(kws, Gain::std(i));
-        LogResult::new_ok(None)
-    } else {
-        Gain::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
-            let is_ok = gain.is_none_or(|g| g.0.is_one());
-            let flag = conf.allow_optional_dropping;
-            let e = TemporalGainError(i).into();
-            LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag).fungible_into_commutative()
-        })
-    }
-}
-
 pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
@@ -557,7 +511,6 @@ pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysError {
     Parse(ReqKeyError<ParseReqKeyError>),
-    NamedVec(NewNamedVecError),
     InvalidScale(ScaleTransformError),
     WarnAsError(LookupKeysWarning),
 }
@@ -581,7 +534,6 @@ pub enum LookupKeysWarning {
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(gating::NewGatingSchemeError),
     Spillover(SpilloverIndexError),
-    LinkedName(LinkedNameError),
     LinkedIndex(RegionIndexError),
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
@@ -654,11 +606,6 @@ pub enum ParseOptKeyError {
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching {0}")]
 pub struct MissingTime(pub TimeMeasNamePattern);
-
-/// Error triggered when time measurement has $PnG
-#[derive(Debug, Error)]
-#[error("$P{0}G must be 1.0 or not set for temporal measurement")]
-pub struct TemporalGainError(MeasIndex);
 
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]

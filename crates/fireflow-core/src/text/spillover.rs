@@ -204,14 +204,13 @@ impl fmt::Display for Spillover {
 
 impl FromStrStateful for Spillover {
     type Err = ParseSpilloverError;
-    type Payload<'a> = (&'a HashSet<&'a Shortname>, &'a [&'a Shortname]);
+    type Payload<'a> = &'a [&'a Shortname];
 
     fn from_str_st(
         s: &str,
-        data: Self::Payload<'_>,
+        ordered_names: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> Result<Self, Self::Err> {
-        let (names, ordered_names) = data;
         if conf.parse_indexed_spillover {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
             let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
@@ -222,7 +221,7 @@ impl FromStrStateful for Spillover {
             Ok(m.try_into_named(ordered_names)?)
         } else {
             let m = s.parse::<Self>()?;
-            m.check_link(names)?;
+            // m.check_link(names)?;
             Ok(m)
         }
     }

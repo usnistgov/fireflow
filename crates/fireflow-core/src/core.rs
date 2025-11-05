@@ -1365,9 +1365,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals<Self>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1926,16 +1924,13 @@ where
 
     fn lookup_metaroot(
         std: &mut StdKeywords,
-        ms: &Measurements<M::Name, M::Temporal, M::Optical>,
+        ms: &TemporalsAndOpticals<M>,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         M: LookupMetaroot,
     {
-        let par = Par(ms.len());
-        let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let abrt_res = Abrt::lookup_metaroot_opt(std, false, conf);
         let com_res = Com::lookup_metaroot_opt(std, false, conf);
         let cells_res = Cells::lookup_metaroot_opt(std, false, conf);
@@ -1948,8 +1943,8 @@ where
         let smno_res = Smno::lookup_metaroot_opt(std, false, conf);
         let src_res = Src::lookup_metaroot_opt(std, false, conf);
         let sys_res = Sys::lookup_metaroot_opt(std, false, conf);
-        let tr_res = Trigger::lookup_opt_linked_st(std, &names, (), conf);
-        let spec_res = M::lookup_specific(std, par, &names, &ordered_names, conf);
+        let tr_res = Trigger::lookup_metaroot_opt(std, false, conf);
+        let spec_res = M::lookup_specific(std, &ms, conf);
         abrt_res
             .zip5_cmt(com_res, cells_res, exp_res, fil_res)
             .zip5_cmt(inst_res, lost_res, op_res, proj_res)
@@ -2089,6 +2084,17 @@ where
         )
     }
 }
+
+pub(crate) type TemporalsAndOpticals<M> = Eithers<
+    <M as VersionedMetaroot>::Name,
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals2_0 = TemporalsAndOpticals<InnerMetaroot2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = TemporalsAndOpticals<InnerMetaroot3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = TemporalsAndOpticals<InnerMetaroot3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = TemporalsAndOpticals<InnerMetaroot3_2>;
 
 pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
@@ -3315,7 +3321,7 @@ where
     /// layout length.
     pub fn set_measurements(
         &mut self,
-        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> SummaryResult<(), SetMeasurementsError, SetMeasurementsFailure>
@@ -3358,7 +3364,7 @@ where
     /// different lengths.
     pub fn set_measurements_and_layout(
         &mut self,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -3389,7 +3395,7 @@ where
 
     pub fn set_measurements_inner(
         &mut self,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> ErrorsResult<(), (), SetMeasurementsError>
@@ -3578,12 +3584,7 @@ where
         par: Par,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> WarningsAndErrorsResult<
-        Measurements<M::Name, M::Temporal, M::Optical>,
-        (),
-        LookupMeasWarning,
-        LookupKeysError,
-    >
+    ) -> WarningsAndErrorsResult<TemporalsAndOpticals<M>, (), LookupMeasWarning, LookupKeysError>
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
@@ -3656,15 +3657,7 @@ where
                     })
                 })
                 .mappend_cmt()
-                // Finally, attempt to put our proto-measurement binary soup
-                // into a named vector, which will have a special element for
-                // the time measurement if it exists, and will scream if we have
-                // more than one time measurement.
-                .and_then_cmt(|xs| {
-                    NamedVec::try_new(xs.into())
-                        .map_err(LookupKeysError::from)
-                        .into_log()
-                })
+                .map_ok_value(Eithers)
                 .map_commutative_warnings(LookupMeasWarning::from)
         })
     }
@@ -3754,7 +3747,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
@@ -3791,7 +3784,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
@@ -3813,7 +3806,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig>,
@@ -3846,9 +3839,14 @@ where
 
             let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
                 Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                    .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from)
+                    .and_then_cmt(|metaroot| {
+                        let flag = std_conf.allow_optional_dropping;
+                        Self::try_new(metaroot, ms, layout, flag)
+                            .map_commutative_warnings(StdTEXTFromRawWarning::from)
+                            .map_errors(StdTEXTFromRawError::from)
+                    })
             });
 
             // Check that the time measurement is present if we want
@@ -4065,7 +4063,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
@@ -4107,7 +4105,7 @@ where
         R: Read + Seek,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
@@ -4440,7 +4438,7 @@ where
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_measurements_and_data(
         &mut self,
-        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: TemporalsAndOpticals<M>,
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -4464,7 +4462,28 @@ where
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub(crate) fn try_new(
         mut metaroot: Metaroot<M>,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+        flag: AllowOptionalDropping,
+    ) -> WarningsAndErrorsResult<Self, (), NewCoreRelationalError, NewCoreError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        Measurements::try_new(measurements)
+            .map_err(NewCoreError::from)
+            .into_log()
+            .and_then_cmt(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, &layout, flag.is_set())
+                    .nowarn_into_fungible(flag)
+                    .fungible_into_commutative()
+                    .map_errors(NewCoreError::from)
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+            })
+    }
+
+    pub(crate) fn try_new_nodrop(
+        mut metaroot: Metaroot<M>,
+        measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
@@ -4474,21 +4493,34 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .map_err(NewCoreError::from)
             .into_log()
             .and_then_cmt(|ms| {
-                let ns: Vec<_> = ms.indexed_names().collect();
-                // Check for any invalid links; throw error if any are found
-                let par = Par(ms.len());
-                let link_errs = metaroot.remove_invalid_links(par, &ns, false);
-                let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
-                // Check that measurement and layout vectors are same length
-                // and that transforms are valid for given datatype(s)
-                let layout_res = layout
-                    .check_measurement_vector(&ms)
-                    .map_errors(NewCoreError::from);
-                link_res
+                Self::check_relationships(&mut metaroot, &ms, &layout, false)
                     .map_errors(NewCoreError::from)
-                    .zip_cmt(layout_res)
-                    .map_ok_value(|((), ())| Self::new(metaroot, ms, layout, (), (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
             })
+    }
+
+    fn check_relationships(
+        metaroot: &mut Metaroot<M>,
+        measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
+        layout: &<M::Ver as Versioned>::Layout,
+        allow_dropping: bool,
+    ) -> ErrorsResult<(), (), NewCoreRelationalError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let ns: Vec<_> = measurements.indexed_names().collect();
+        // Check for any invalid links; throw error if any are found
+        let par = Par(measurements.len());
+        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_dropping);
+        let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
+        // Check that measurement and layout vectors are same length
+        // and that transforms are valid for given datatype(s)
+        let layout_res = layout
+            .check_measurement_vector(&measurements)
+            .map_errors(NewCoreRelationalError::from);
+        link_res
+            .map_errors(NewCoreRelationalError::from)
+            .lift_f2_once(layout_res, |(), ()| ())
     }
 
     fn new_unchecked(
@@ -4594,11 +4626,7 @@ where
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_2_0(
-        measurements: Eithers<
-            Option<Shortname>,
-            Temporal<InnerTemporal2_0>,
-            Optical<InnerOptical2_0>,
-        >,
+        measurements: TemporalsAndOpticals2_0,
         layout: DataLayout2_0,
         mode: Mode,
         cyt: Cyt,
@@ -4645,7 +4673,7 @@ impl CoreTEXT2_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4653,11 +4681,7 @@ impl CoreTEXT2_0 {
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_0(
-        measurements: Eithers<
-            Option<Shortname>,
-            Temporal<InnerTemporal3_0>,
-            Optical<InnerOptical3_0>,
-        >,
+        measurements: TemporalsAndOpticals3_0,
         layout: DataLayout3_0,
         mode: Mode,
         cyt: Cyt,
@@ -4718,7 +4742,7 @@ impl CoreTEXT3_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4726,11 +4750,7 @@ impl CoreTEXT3_0 {
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_1(
-        measurements: Eithers<
-            Identity<Shortname>,
-            Temporal<InnerTemporal3_1>,
-            Optical<InnerOptical3_1>,
-        >,
+        measurements: TemporalsAndOpticals3_1,
         layout: DataLayout3_1,
         mode: Mode,
         cyt: Cyt,
@@ -4799,7 +4819,7 @@ impl CoreTEXT3_1 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4807,11 +4827,7 @@ impl CoreTEXT3_1 {
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_2(
-        measurements: Eithers<
-            Identity<Shortname>,
-            Temporal<InnerTemporal3_2>,
-            Optical<InnerOptical3_2>,
-        >,
+        measurements: TemporalsAndOpticals3_2,
         layout: DataLayout3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
@@ -4890,18 +4906,14 @@ impl CoreTEXT3_2 {
                 specific,
                 nonstandard_keywords,
             );
-            Self::try_new(metaroot, measurements, layout).errors_into()
+            Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
         })
     }
 }
 
 impl UnstainedData {
-    fn lookup(
-        kws: &mut StdKeywords,
-        names: &HashSet<&Shortname>,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
+    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
+        let c = UnstainedCenters::lookup_metatroot_opt_st(kws, false, (), conf);
         let i = UnstainedInfo::lookup_metaroot_opt(kws, false, conf);
         c.lift_f2_once(i, Self::new)
     }
@@ -7357,11 +7369,10 @@ impl LookupMetaroot for InnerMetaroot2_0 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        _: &HashSet<&Shortname>,
-        _: &[&Shortname],
+        ms: &TemporalsAndOpticals2_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
         let comp = Compensation2_0::lookup(kws, par, conf);
         let cytn = Cyt::lookup_metaroot_opt(kws, false, conf);
         let ts = Timestamps::lookup(kws, false, conf);
@@ -7387,11 +7398,10 @@ impl LookupMetaroot for InnerMetaroot3_0 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        _: &HashSet<&Shortname>,
-        _: &[&Shortname],
+        ms: &TemporalsAndOpticals3_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
         let comp = Compensation3_0::lookup_metaroot_opt(kws, false, conf);
         let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
@@ -7419,9 +7429,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals3_1,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let process_mode = |mode| {
@@ -7439,8 +7447,13 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map_errors(LookupKeysError::from)
         };
 
+        let par = Par(ms.0.len());
+        let ordered_names: Vec<_> =
+            ms.0.iter()
+                .map(|e| e.as_ref().both(|t| &t.0, |o| &(&o.0).0))
+                .collect();
         let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
@@ -7471,21 +7484,24 @@ impl LookupMetaroot for InnerMetaroot3_2 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals3_2,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
+        let ordered_names: Vec<_> =
+            ms.0.iter()
+                .map(|e| e.as_ref().both(|t| &t.0, |o| &(&o.0).0))
+                .collect();
         let carrier = CarrierData::lookup(kws, conf);
         let dt = Datetimes::lookup(kws, conf);
         let flow = Flowrate::lookup_metaroot_opt(kws, false, conf);
         let modif = ModificationData::lookup(kws, conf);
         let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let plate = PlateData::lookup(kws, true, conf);
         let ts = Timestamps::lookup(kws, true, conf);
-        let us = UnstainedData::lookup(kws, names, conf);
+        let us = UnstainedData::lookup(kws, conf);
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_2::lookup(kws, par, conf);
         carrier
@@ -8501,6 +8517,7 @@ pub enum StdTEXTFromKeywordsError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawError {
+    New(NewCoreError),
     Metaroot(LookupKeysError),
     Layout(Box<LookupLayoutError>),
     Offsets(LookupTEXTOffsetsError),
@@ -8510,6 +8527,7 @@ pub enum StdTEXTFromRawError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawWarning {
+    Relational(NewCoreRelationalError),
     Metaroot(LookupKeysWarning),
     Meas(LookupMeasWarning),
     Layout(LookupLayoutWarning),
@@ -8825,6 +8843,11 @@ pub enum LookupTEXTOffsetsError {
 #[derive(From, Display, Debug, Error)]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
+    Relational(NewCoreRelationalError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum NewCoreRelationalError {
     Link(AnyLinkError),
     Layout(MeasLayoutMismatchError),
 }

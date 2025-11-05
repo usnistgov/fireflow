@@ -1990,14 +1990,15 @@ kw_opt_meta_string!(Proj, "PROJ");
 kw_opt_meta_string!(Smno, "SMNO");
 kw_opt_meta_string!(Src, "SRC");
 kw_opt_meta_string!(Sys, "SYS");
+kw_opt_meta!(Trigger, "TR", Option<Self>);
 
-impl Key for Trigger {
-    const C: &'static str = "TR";
-}
+// impl Key for Trigger {
+//     const C: &'static str = "TR";
+// }
 
-impl Optional for Trigger {
-    type Outer = Option<Self>;
-}
+// impl Optional for Trigger {
+//     type Outer = Option<Self>;
+// }
 
 impl Trigger {
     pub(crate) fn remove_invalid_links(
@@ -2015,7 +2016,7 @@ impl Trigger {
     }
 }
 
-impl OptMetarootKey for Trigger {}
+// impl OptMetarootKey for Trigger {}
 
 impl OptLinkedKey for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
@@ -2069,14 +2070,15 @@ kw_opt_meta_string!(Locationid, "LOCATIONID");
 
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
 kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
+kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS", Self);
 
-impl Key for UnstainedCenters {
-    const C: &'static str = "UNSTAINEDCENTERS";
-}
+// impl Key for UnstainedCenters {
+//     const C: &'static str = "UNSTAINEDCENTERS";
+// }
 
-impl Optional for UnstainedCenters {
-    type Outer = Self;
-}
+// impl Optional for UnstainedCenters {
+//     type Outer = Self;
+// }
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 

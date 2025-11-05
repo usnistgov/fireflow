@@ -428,6 +428,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 }
 
 impl AnyCoreTEXT {
+    #[allow(clippy::type_complexity)]
     pub(crate) fn parse_raw<C>(
         version: Version,
         kws: ValidKeywords,
@@ -3728,6 +3729,7 @@ where
     M: VersionedMetaroot,
     M::Name: Clone,
 {
+    #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
         data: HeaderDataSegment,
@@ -4620,6 +4622,7 @@ where
 
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn try_new_2_0(
         measurements: TemporalsAndOpticals2_0,
         layout: DataLayout2_0,
@@ -4675,6 +4678,7 @@ impl CoreTEXT2_0 {
 
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn try_new_3_0(
         measurements: TemporalsAndOpticals3_0,
         layout: DataLayout3_0,
@@ -4744,6 +4748,7 @@ impl CoreTEXT3_0 {
 
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn try_new_3_1(
         measurements: TemporalsAndOpticals3_1,
         layout: DataLayout3_1,
@@ -4821,6 +4826,7 @@ impl CoreTEXT3_1 {
 
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     pub fn try_new_3_2(
         measurements: TemporalsAndOpticals3_2,
         layout: DataLayout3_2,
@@ -8997,7 +9003,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::{AnyRangeError, MeasLayoutMismatchError};
+    use crate::data::AnyRangeError;
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
@@ -9005,12 +9011,12 @@ mod python {
     use crate::text::ranged_float::PositiveFloat;
 
     use super::{
-        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
-        CompParMismatchError, ConvertError, ExistingLinkError, GatingMeasLinkError,
-        InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreTEXTError,
-        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
-        PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
+        Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
+        ColumnsToDataframeError, CompParMismatchError, ConvertError, ExistingLinkError,
+        GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
+        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreError, NewCoreRelationalError,
+        NewCoreTEXTError, NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other,
+        Others, PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
         RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
         SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
         SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
@@ -9057,9 +9063,6 @@ mod python {
         }
     }
 
-    // TODO this is probably screwed up
-    impl_pyreflow_err!(NewCoreTEXTError);
-
     // lots of stuff, maybe not worth breaking down
     impl_pyreflow_err!(StdTEXTFromKeywordsError);
 
@@ -9087,6 +9090,7 @@ mod python {
     impl_pyreflow1_err!(RelationalException, TriggerLinkError);
     impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow1_err!(RelationalException, CompParMismatchError);
+    impl_pyreflow1_err!(RelationalException, AnyLinkError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
@@ -9105,4 +9109,7 @@ mod python {
     impl_from_pyerr!(SetScalesError, Layout, Temporal);
     impl_from_pyerr!(SetTransformsError, Layout, Temporal);
     impl_from_pyerr!(ColumnsToDataframeError, New, Mismatch);
+    impl_from_pyerr!(NewCoreError, Meas, Relational);
+    impl_from_pyerr!(NewCoreRelationalError, Link, Layout);
+    impl_from_pyerr!(NewCoreTEXTError, Core, Timestamps, Datetimes);
 }

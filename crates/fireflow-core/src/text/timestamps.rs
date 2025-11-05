@@ -391,16 +391,16 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use super::{FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Xtim};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err, impl_pyreflow1_err};
 
     use pyo3::prelude::*;
-
-    impl_pyreflow_err!(ReversedTimestampsError);
 
     impl_from_py_transparent!(FCSDate);
     impl_from_py_transparent!(FCSTime);
     impl_from_py_transparent!(FCSTime60);
     impl_from_py_transparent!(FCSTime100);
+
+    impl_pyreflow1_err!(RelationalException, ReversedTimestampsError);
 
     impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
     where

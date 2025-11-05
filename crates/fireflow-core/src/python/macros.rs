@@ -11,6 +11,18 @@ macro_rules! impl_value_err {
 
 pub(crate) use impl_value_err;
 
+macro_rules! impl_overflow_err {
+    ($t:ident) => {
+        impl From<$t> for pyo3::prelude::PyErr {
+            fn from(value: $t) -> Self {
+                pyo3::exceptions::PyOverflowError::new_err(value.to_string())
+            }
+        }
+    };
+}
+
+pub(crate) use impl_overflow_err;
+
 macro_rules! impl_index_err {
     ($t:ident) => {
         impl From<$t> for pyo3::prelude::PyErr {

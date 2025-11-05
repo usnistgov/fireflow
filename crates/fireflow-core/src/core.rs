@@ -2037,12 +2037,15 @@ where
         Ok(())
     }
 
+    // Return a vector of errors here to let the caller decide how to package
+    // them. This allows the caller to hardcode the drop flag which allows for
+    // a simpler result type.
     fn remove_invalid_links(
         &mut self,
         par: Par,
         indexed_names: &[(MeasIndex, &Shortname)],
-        drop_flag: AllowOptionalDropping,
-    ) -> FungibleErrorsResult<(), (), AllowOptionalDropping, AnyLinkError> {
+        allow_dropping: bool,
+    ) -> Vec<AnyLinkError> {
         let ns: HashSet<_> = indexed_names.iter().map(|(_, n)| *n).collect();
         let js: HashSet<_> = indexed_names.iter().map(|(i, _)| i).copied().collect();
         let tr = Trigger::remove_invalid_links(&mut self.tr, &ns);
@@ -2052,12 +2055,12 @@ where
             .remove_invalid_links(par, &ns, &js)
             .chain(tr.map(RemovedLink::from))
         {
-            if drop_flag.is_set() {
+            if allow_dropping {
                 x.insert_keyvals(&mut self.nonstandard_keywords);
             }
             x.push_errors(&mut es);
         }
-        LogResult::new_fungible_iter((), (), es, drop_flag)
+        es
     }
 }
 
@@ -2105,6 +2108,13 @@ pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
 pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
 
 pub(crate) type VersionedConvertError<N, ToN> = ConvertError<<ToN as TryFrom<N>>::Error>;
+
+impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
+    /// Return $PAR, which is simply the number of measurements in this struct
+    pub fn par(&self) -> Par {
+        Par(self.measurements.len())
+    }
+}
 
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
@@ -3023,11 +3033,6 @@ where
                     .unwrap();
             })
             .summarize_errors()
-    }
-
-    /// Return $PAR, which is simply the number of measurements in this struct
-    pub fn par(&self) -> Par {
-        Par(self.measurements.len())
     }
 
     /// Set gating keywords (3.0/3.1)
@@ -4458,7 +4463,7 @@ where
 
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub(crate) fn try_new(
-        metaroot: Metaroot<M>,
+        mut metaroot: Metaroot<M>,
         measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
@@ -4468,22 +4473,19 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
             .into_log()
-            // TODO check that links in metaroot to measuremnts are valid, and
-            // optionall drop keywords that are not valid
             .and_then_cmt(|ms| {
                 let ns: Vec<_> = ms.indexed_names().collect();
-                // TODO this will throw an error if any measurement links
-                // exist, which is the opposite of what we want
-                let link_res = metaroot
-                    .meas_has_existing_links_with(&ns[..])
-                    .into_nowarn()
-                    .map_errors(NewCoreError::from);
-                // check that measurement and layout vectors are same length
+                // Check for any invalid links; throw error if any are found
+                let par = Par(ms.len());
+                let link_errs = metaroot.remove_invalid_links(par, &ns, false);
+                let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
+                // Check that measurement and layout vectors are same length
                 // and that transforms are valid for given datatype(s)
                 let layout_res = layout
                     .check_measurement_vector(&ms)
                     .map_errors(NewCoreError::from);
                 link_res
+                    .map_errors(NewCoreError::from)
                     .zip_cmt(layout_res)
                     .map_ok_value(|((), ())| Self::new(metaroot, ms, layout, (), (), ()))
             })
@@ -8823,7 +8825,7 @@ pub enum LookupTEXTOffsetsError {
 #[derive(From, Display, Debug, Error)]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
-    Link(ExistingLinkError),
+    Link(AnyLinkError),
     Layout(MeasLayoutMismatchError),
 }
 

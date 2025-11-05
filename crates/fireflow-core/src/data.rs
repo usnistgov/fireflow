@@ -96,7 +96,7 @@ use crate::validated::{
     keys::{IndexedKey as _, MeasHeader, StdKeywords},
 };
 
-use ambassador::{delegatable_trait, Delegate};
+use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -546,7 +546,7 @@ pub trait LayoutOps<'a, T>: Sized {
         T: TotDefinition;
 
     fn check_writer(&self, df: &'a FCSDataFrame)
-        -> ErrorsResult<(), (), ColumnError<AnyLossError>>;
+    -> ErrorsResult<(), (), ColumnError<AnyLossError>>;
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -1032,7 +1032,9 @@ macro_rules! match_any_uint {
         match_many_to_one!(
             $value,
             $root,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            [
+                Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
+            ],
             $inner,
             $action
         )

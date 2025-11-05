@@ -390,7 +390,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Xtim};
+    use super::{FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Xtim};
     use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
     use pyo3::prelude::*;

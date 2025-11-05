@@ -2281,7 +2281,7 @@ mod python {
     use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
 
     use pyo3::prelude::*;
-    use pyo3::{exceptions::PyBaseExceptionGroup, PyErrArguments};
+    use pyo3::{PyErrArguments, exceptions::PyBaseExceptionGroup};
     use std::convert::Infallible;
     use std::ffi::CString;
     use std::fmt::Display;

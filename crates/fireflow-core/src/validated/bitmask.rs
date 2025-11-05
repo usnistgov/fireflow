@@ -10,8 +10,8 @@ use crate::text::keywords::{IntRangeError, Range};
 
 use bigdecimal::BigDecimal;
 use derive_more::{Display, From};
-use num_traits::identities::One as _;
 use num_traits::PrimInt;
+use num_traits::identities::One as _;
 use std::mem::size_of;
 use thiserror::Error;
 

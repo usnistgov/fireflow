@@ -26,16 +26,16 @@ use super::parser::{
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
-use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
+use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
+use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::One as _;
-use num_traits::PrimInt;
 use std::iter::once;
 use thiserror::Error;
 

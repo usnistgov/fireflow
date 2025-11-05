@@ -86,7 +86,7 @@ impl<X> FCSNonEmpty<X> {
 #[cfg(feature = "serde")]
 mod serialize {
     use super::FCSNonEmpty;
-    use serde::{ser::SerializeSeq as _, Serialize};
+    use serde::{Serialize, ser::SerializeSeq as _};
 
     impl<I: Serialize> Serialize for FCSNonEmpty<I> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

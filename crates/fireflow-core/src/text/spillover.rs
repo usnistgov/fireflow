@@ -231,9 +231,7 @@ impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        {
-            Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
-        }
+        { Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m))) }
     }
 }
 
@@ -316,9 +314,11 @@ mod tests {
 
     #[test]
     fn str_compensation_name_length() {
-        assert!("2,moody,padfoot,prongs,0,0,0,0"
-            .parse::<Spillover>()
-            .is_err());
+        assert!(
+            "2,moody,padfoot,prongs,0,0,0,0"
+                .parse::<Spillover>()
+                .is_err()
+        );
     }
 }
 

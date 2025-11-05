@@ -166,9 +166,9 @@ mod python {
     use super::{LogRangeError, Scale};
     use crate::python::macros::impl_value_err;
 
+    use pyo3::IntoPyObjectExt as _;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-    use pyo3::IntoPyObjectExt as _;
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
     impl<'py> FromPyObject<'py> for Scale {

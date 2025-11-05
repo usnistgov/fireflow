@@ -31,7 +31,7 @@ use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
 use super::spillover::{ParseSpilloverError, SpilloverIndexError};
 use super::timestamps::{
-    FCSDateError, FCSFixedTimeError, FCSTime100Error, FCSTime60Error, FCSTimeError,
+    FCSDateError, FCSFixedTimeError, FCSTime60Error, FCSTime100Error, FCSTimeError,
     ReversedTimestampsError,
 };
 
@@ -73,7 +73,7 @@ pub trait FromStrStateful: Sized {
     type Payload<'a>;
 
     fn from_str_st(_: &str, _: Self::Payload<'_>, _: &StdTextReadConfig)
-        -> Result<Self, Self::Err>;
+    -> Result<Self, Self::Err>;
 }
 
 /// Any required key

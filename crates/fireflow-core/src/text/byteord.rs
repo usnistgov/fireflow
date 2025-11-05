@@ -352,11 +352,7 @@ impl ByteOrd2_0 {
 
 impl From<bool> for Endian {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Big
-        } else {
-            Self::Little
-        }
+        if value { Self::Big } else { Self::Little }
     }
 }
 
@@ -671,7 +667,7 @@ mod python {
     use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
     use crate::python::macros::impl_value_err;
 
-    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt as _};
+    use pyo3::{IntoPyObjectExt as _, exceptions::PyValueError, prelude::*, types::PyString};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
 

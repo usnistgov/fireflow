@@ -69,17 +69,17 @@ use crate::text::{
     },
     optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave},
     parser::{
-        lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
-        ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
-        MissingTime, OptIndexedKey as _, OptKeyError, OptLinkedKey as _, OptMetarootKey as _,
-        PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
-        UnusedStandardError,
+        DepValueWarning, DeprecatedError, ExtraStdKeywords, LookupKeysError, LookupKeysWarning,
+        LookupResult, LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError,
+        OptLinkedKey as _, OptMetarootKey as _, PseudostandardError, RawKeywords,
+        ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+        lookup_temporal_gain_3_0, lookup_temporal_scale_3_0,
     },
     ranged_float::PositiveFloat,
     scale::{LogScale, Scale},
     spillover::{NewSpilloverError, Spillover},
     timestamps::{
-        Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Timestamps,
+        Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Timestamps,
         Xtim,
     },
 };
@@ -87,7 +87,7 @@ use crate::text::{
 use crate::type_families::Applicative;
 use crate::validated::keys::{BiIndexedKey, StdKey};
 use crate::validated::{
-    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8},
+    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20},
     dataframe as df,
     dataframe::{AnyFCSColumn, FCSDataFrame},
     keys::{
@@ -2358,9 +2358,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         // TODO ditto above
         self.measurements.unset_center(|i, old_t| {
@@ -2452,9 +2452,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
@@ -2500,9 +2500,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
@@ -8970,7 +8970,7 @@ def_failure!(
 #[cfg(feature = "serde")]
 mod serialize {
     use crate::core::AnyCore;
-    use serde::{ser::SerializeStruct as _, Serialize};
+    use serde::{Serialize, ser::SerializeStruct as _};
 
     impl<A, D, O> Serialize for AnyCore<A, D, O>
     where
@@ -9011,7 +9011,7 @@ mod python {
     use crate::data::{AnyRangeError, MeasLayoutMismatchError};
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err, impl_pyreflow_err,
+        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
     use crate::text::ranged_float::PositiveFloat;
 
@@ -9028,9 +9028,9 @@ mod python {
         StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
     };
 
+    use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use pyo3::IntoPyObjectExt as _;
     use std::fmt::Display;
 
     impl_from_py_transparent!(Analysis);

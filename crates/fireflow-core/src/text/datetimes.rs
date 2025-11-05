@@ -1,6 +1,5 @@
-use crate::config::{AllowLoss, StdTextReadConfig};
+use crate::config::StdTextReadConfig;
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::StdKeywords;
 
@@ -206,7 +205,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err, impl_pyreflow1_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow1_err};
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);

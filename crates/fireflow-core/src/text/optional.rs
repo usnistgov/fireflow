@@ -1,6 +1,4 @@
-use crate::config::AllowLoss;
 use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::logging::{ErrorResult, FungibleErrorResult, LogResult, WarningAndErrorResult};
 use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 

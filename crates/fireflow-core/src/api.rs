@@ -71,6 +71,7 @@ pub fn fcs_read_header(
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file.
+#[must_use]
 pub fn fcs_read_raw_text(
     p: &PathBuf,
     conf: &ReadRawTEXTConfig,
@@ -83,6 +84,7 @@ pub fn fcs_read_raw_text(
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
+#[must_use]
 pub fn fcs_read_std_text(
     p: &PathBuf,
     conf: &ReadStdTEXTConfig,
@@ -106,6 +108,7 @@ pub fn fcs_read_std_text(
 }
 
 /// Read dataset from FCS file using standardized TEXT.
+#[must_use]
 pub fn fcs_read_raw_dataset(
     p: &PathBuf,
     conf: &ReadRawDatasetConfig,
@@ -139,6 +142,7 @@ pub fn fcs_read_raw_dataset(
 }
 
 /// Read dataset from FCS file using raw key/value pairs from TEXT.
+#[must_use]
 pub fn fcs_read_std_dataset(
     p: &PathBuf,
     conf: &ReadStdDatasetConfig,
@@ -163,6 +167,7 @@ pub fn fcs_read_std_dataset(
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
+#[must_use]
 pub fn fcs_read_raw_dataset_with_keywords(
     p: &PathBuf,
     version: Version,
@@ -199,6 +204,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
+#[must_use]
 pub fn fcs_read_std_dataset_with_keywords(
     p: &PathBuf,
     version: Version,
@@ -1129,7 +1135,7 @@ where
                 Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
                     FungibleErrorsResult::new_deferred_fungible(None, e0, flag)
-                        .extend_deferred_fungible_errors(e1)
+                        .extend_deferred_fungible_errors(e1.map(|x| *x))
                         .fungible_into_commutative()
                         .map_errors(STextSegmentError::from)
                         .map_commutative_warnings(STextSegmentWarning::from)
@@ -1142,7 +1148,7 @@ where
                 Ok(seg) => LogResult::new_ok(seg),
                 Err((e0, e1)) => {
                     let mut res = DeferredWarningsAndErrors::new_ok(None);
-                    res.extend_commutative_warnings(once(e0).chain(e1));
+                    res.extend_commutative_warnings(once(e0).chain(e1.map(|x| *x)));
                     res.map_commutative_warnings(STextSegmentWarning::from)
                 }
             }

@@ -1,5 +1,4 @@
 use crate::config::StdTextReadConfig;
-use crate::logging::ResultExt as _;
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{Key, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
@@ -391,7 +390,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use super::{FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Xtim};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err, impl_pyreflow1_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow1_err};
 
     use pyo3::prelude::*;
 

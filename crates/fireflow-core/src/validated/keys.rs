@@ -1,8 +1,5 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
-use crate::logging::{
-    DeferredFungibleError, DeferredFungibleErrors, DeferredIter as _, FungibleErrorResult,
-    FungibleErrorsResult, LogResult, WarningAndErrorResult, WarningOrErrorResult,
-};
+use crate::logging::{FungibleErrorResult, FungibleErrorsResult, LogResult, WarningOrErrorResult};
 use crate::text::index::IndexFromOne;
 
 use derive_more::{AsRef, Display, From};
@@ -163,10 +160,12 @@ pub(crate) struct KeyMatcher<'a, T> {
 pub trait Key {
     const C: &'static str;
 
+    #[must_use]
     fn std() -> StdKey {
         StdKey::new(Self::C.into())
     }
 
+    #[must_use]
     fn len() -> u64 {
         u64::try_from(Self::C.len() + 1).unwrap()
     }
@@ -189,6 +188,7 @@ pub trait IndexedKey {
         StdKey::new(s)
     }
 
+    #[must_use]
     fn std_blank() -> MeasHeader {
         // reserve enough space for '$', prefix, suffix, and 'n'
         let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
@@ -202,6 +202,7 @@ pub trait IndexedKey {
     }
 
     /// Build regexp matching "<PREFIX>n<SUFFIX>"
+    #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);

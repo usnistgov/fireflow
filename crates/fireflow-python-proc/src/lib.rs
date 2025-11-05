@@ -7448,7 +7448,7 @@ impl<T: IsArgType> fmt::Display for DocArg<T> {
             .default
             .as_ref()
             .map(|d| d.as_value(pt).0)
-            .map_or(self.desc.to_string(), |def| {
+            .map_or(self.desc.clone(), |def| {
                 format!("{} Defaults to ``{def}``.", self.desc)
             });
         let tn = T::TYPENAME;

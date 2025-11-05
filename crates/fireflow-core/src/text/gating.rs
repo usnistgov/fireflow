@@ -4,18 +4,21 @@ use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
 };
 use crate::nonempty::FCSNonEmpty;
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
-use crate::text::keywords::{
+use crate::type_families::ApplyOnce as _;
+use crate::validated::keys::{StdKey, StdKeywords};
+
+use super::optional::KeywordPairMaybe as _;
+use super::parser::{
+    LookupKeysWarning, LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey,
+    ParseOptKeyError,
+};
+
+use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use super::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::optional::KeywordPairMaybe as _;
-use crate::text::parser::{
-    LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
-};
-use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{IndexedKey, StdKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -29,8 +32,6 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::parser::{LinkedIndexError, LookupKeysWarning};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -386,13 +387,6 @@ impl AppliedGates3_0 {
         self.scheme.indices_difference(indices)
     }
 
-    pub(crate) fn indices_are_valid(
-        &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = LinkedIndexError> {
-        self.scheme.indices_are_valid(indices)
-    }
-
     pub(crate) fn remove_invalid_links(
         &mut self,
         indices: &HashSet<MeasIndex>,
@@ -692,23 +686,6 @@ impl<I> GatingScheme<I> {
         self.meas_indices().filter(|i| !indices.contains(i))
     }
 
-    pub(crate) fn indices_are_valid(
-        &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = LinkedIndexError>
-    where
-        I: LinkedMeasIndex,
-    {
-        self.regions.iter().filter_map(|(ri, v)| {
-            let bad_indices = v.meas_indices().filter(|x| !indices.contains(&x));
-            NonEmpty::collect(bad_indices).map(|js| {
-                let i = IndexFromOne::from(*ri);
-                let k = RegionGateIndex::<I>::std(i);
-                LinkedIndexError::new(k, js)
-            })
-        })
-    }
-
     pub(crate) fn remove_invalid_links(
         &mut self,
         indices: &HashSet<MeasIndex>,
@@ -742,7 +719,7 @@ impl<I> GatingScheme<I> {
         self.regions
             .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
             .map(|(rni, rnw)| {
-                let bad_indices = rnw.meas_indices().filter(|x| !indices.contains(&x));
+                let bad_indices = rnw.meas_indices().filter(|x| !indices.contains(x));
                 // ASSUME this won't fail because we pre-filtered above
                 let js = NonEmpty::collect(bad_indices).unwrap();
                 RemovedLink::from(RemovedGateLink::new(rni, rnw, js))

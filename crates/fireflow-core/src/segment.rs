@@ -223,12 +223,13 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn with_req_pair<C>(
         pair: ReqPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
         Segment<Self, SegmentFromTEXT, UintZeroPad20>,
-        (ReqSegmentError, Option<ReqSegmentError>),
+        (ReqSegmentError, Option<Box<ReqSegmentError>>),
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
@@ -240,9 +241,8 @@ where
                     .map_err(ReqSegmentError::from)
                     .map_err(|e| (e, None))
             }
-            (Err(e), Ok(_)) => Err((e.into(), None)),
-            (Ok(_), Err(e)) => Err((e.into(), None)),
-            (Err(e0), Err(e1)) => Err((e0.into(), Some(e1.into()))),
+            (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err((e.into(), None)),
+            (Err(e0), Err(e1)) => Err((e0.into(), Some(Box::new(e1.into())))),
         }
     }
 
@@ -272,7 +272,7 @@ where
             }
             Err((e0, e1)) => {
                 let mut res = FungibleErrorsResult::new_fungible((), (), e0, *missing_flag)
-                    .extend_deferred_fungible_errors(e1)
+                    .extend_deferred_fungible_errors(e1.map(|x| *x))
                     .fungible_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
                     .map_errors(ReqSegmentWithDefaultError::from)
@@ -344,12 +344,13 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn with_opt_pair<C>(
         pair: OptPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
         Option<Segment<Self, SegmentFromTEXT, UintZeroPad20>>,
-        (OptSegmentError, Option<OptSegmentError>),
+        (OptSegmentError, Option<Box<OptSegmentError>>),
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
@@ -363,9 +364,8 @@ where
                     .map_err(OptSegmentError::from)
                     .map_err(|e| (e, None))
             }
-            (Err(e), Ok(_)) => Err((e.into(), None)),
-            (Ok(_), Err(e)) => Err((e.into(), None)),
-            (Err(e0), Err(e1)) => Err((e0.into(), Some(e1.into()))),
+            (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err((e.into(), None)),
+            (Err(e0), Err(e1)) => Err((e0.into(), Some(Box::new(e1.into())))),
         }
     }
 
@@ -395,7 +395,7 @@ where
                 }
             },
             Err((e0, e1)) => FungibleErrorsResult::new_deferred_fungible(header_seg, e0, drop_flag)
-                .extend_deferred_fungible_errors(e1)
+                .extend_deferred_fungible_errors(e1.map(|x| *x))
                 .map_fungible_errors(OptSegmentError::from)
                 .map_fungible_errors(OptSegmentWithDefaultWarning::from)
                 .fungible_into_commutative(),

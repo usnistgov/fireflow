@@ -1,6 +1,6 @@
-use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
+use crate::config::StdTextReadConfig;
 use crate::core::RemovedNamedLink;
-use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
+use crate::logging::{DeferredError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -20,9 +20,9 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LinkedNameError,
-    LookupKeysWarning, LookupOptional, LookupResult, LookupTentative, OptIndexedKey,
-    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
+    LookupOptional, LookupResult, LookupTentative, OptIndexedKey, OptMetarootKey, Optional,
+    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -37,7 +37,6 @@ use nonempty::NonEmpty;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::One as _;
-use std::iter::once;
 use thiserror::Error;
 
 use std::any::type_name;
@@ -450,7 +449,7 @@ impl TemporalScale3_0 {
             nonstd.transfer_demoted(kws, TemporalScale::std(i));
             LogResult::new_ok(())
         } else {
-            TemporalScale3_0::lookup_req(kws, i).set_ok_value(())
+            Self::lookup_req(kws, i).set_ok_value(())
         }
     }
 }

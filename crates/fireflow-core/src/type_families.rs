@@ -29,14 +29,17 @@ pub trait IsKind3 {
 }
 
 pub trait Semigroup {
+    #[must_use]
     fn sappend(self, other: Self) -> Self;
 }
 
 pub trait Monoid: Semigroup + Default {
+    #[must_use]
     fn mappend(self, other: Self) -> Self {
         self.sappend(other)
     }
 
+    #[must_use]
     fn mempty() -> Self {
         Self::default()
     }
@@ -54,56 +57,6 @@ pub trait Functor<A>: Sized + IsKind1 {
 pub trait FunctorOnce<X>: Sized + IsKind1 {
     fn fmap_once<F: FnOnce(X) -> Y, Y>(self, f: F) -> Sibling1<Self, Y>;
 }
-
-pub trait BifunctorOnce<A, B>: Sized + IsKind2 {
-    fn bimap_once<F, G, C, D>(self, f: F, g: G) -> Sibling2<Self, C, D>
-    where
-        F: FnOnce(A) -> C,
-        G: FnOnce(B) -> D;
-
-    fn first_once<F, C>(self, f: F) -> Sibling2<Self, C, B>
-    where
-        F: FnOnce(A) -> C,
-    {
-        self.bimap_once(f, |x| x)
-    }
-
-    fn second_once<F, C>(self, f: F) -> Sibling2<Self, A, C>
-    where
-        F: FnOnce(B) -> C,
-    {
-        self.bimap_once(|x| x, f)
-    }
-}
-
-// pub trait Trifunctor<A, B, C>: Sized + IsKind3 {
-//     fn trimap<F0, F1, F2, D, E, F>(self, f0: F0, f1: F1, f2: F2) -> Sibling3<Self, D, E, F>
-//     where
-//         F0: Fn(A) -> D,
-//         F1: Fn(B) -> E,
-//         F2: Fn(C) -> F;
-
-//     fn first<F, D>(self, f: F) -> Sibling3<Self, D, B, C>
-//     where
-//         F: Fn(A) -> D,
-//     {
-//         self.trimap(f, |x| x, |x| x)
-//     }
-
-//     fn second<F, D>(self, f: F) -> Sibling3<Self, A, D, C>
-//     where
-//         F: Fn(B) -> D,
-//     {
-//         self.trimap(|x| x, f, |x| x)
-//     }
-
-//     fn third<F, D>(self, f: F) -> Sibling3<Self, A, B, D>
-//     where
-//         F: Fn(C) -> D,
-//     {
-//         self.trimap(|x| x, |x| x, f)
-//     }
-// }
 
 macro_rules! trait_apply {
     (
@@ -280,18 +233,6 @@ trait_apply!(
     zip_f6_once
 );
 
-// pub trait BiapplyOnce<A, B>: BifunctorOnce<A, B> {
-//     fn bilift_f2_once<F0, F1, C, D, E, F>(
-//         self,
-//         other: Sibling2<Self, C, D>,
-//         f0: F0,
-//         f1: F1,
-//     ) -> Sibling2<Self, E, F>
-//     where
-//         F0: FnOnce(A, C) -> E,
-//         F1: FnOnce(B, D) -> F;
-// }
-
 pub trait Applicative<A>: Apply<A> {
     fn pure(a: A) -> Self;
 
@@ -302,28 +243,6 @@ pub trait Applicative<A>: Apply<A> {
         self.lift_f2(other, f)
     }
 }
-
-// pub trait Biapplicative<A, B>: BifunctorOnce<A, B> {
-//     fn bipure(a: A, b: B) -> Self;
-
-//     fn bilift_a2<F0, F1, C, D, E, F>(
-//         self,
-//         other: <Self::Family as Kind2>::Type<C, D>,
-//         f0: F0,
-//         f1: F1,
-//     ) -> <Self::Family as Kind2>::Type<E, F>
-//     where
-//         F0: Fn(A, C) -> E,
-//         F1: Fn(B, D) -> F;
-// }
-
-// pub trait Comonad<X>: Functor<X> {
-//     fn cm_extract(self) -> X;
-
-//     fn cm_extract_ref(&self) -> &X;
-
-//     // TODO add cm_extend
-// }
 
 macro_rules! impl_kind1 {
     ($f:ident, $t:ident) => {
@@ -338,20 +257,6 @@ macro_rules! impl_kind1 {
 }
 
 pub(crate) use impl_kind1;
-
-macro_rules! impl_kind2 {
-    ($f:ident, $t:ident) => {
-        impl Kind2 for $f {
-            type Type<A, B> = $t<A, B>;
-        }
-
-        impl<A, B> IsKind2 for $t<A, B> {
-            type Family = $f;
-        }
-    };
-}
-
-pub(crate) use impl_kind2;
 
 pub struct OptFamily;
 

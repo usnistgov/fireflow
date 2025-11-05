@@ -1660,7 +1660,7 @@ impl<K, U, V> Eithers<K, U, V> {
     {
         self.0
             .iter()
-            .filter_map(|x| x.as_ref().non_center().and_then(|v| v.0.as_opt()))
+            .filter_map(|x| x.as_ref().non_center()?.0.as_opt())
     }
 
     #[must_use]

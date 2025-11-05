@@ -1471,14 +1471,6 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     }
 
     /// Set warnings in both Succ and Error sides of Result
-    pub(crate) fn set_non_commutative_warnings<WC>(self, ws: WC) -> NonCmtResult<V, P, WC, E, EC> {
-        match self {
-            Succ(s) => Succ(s.set_warnings(ws)),
-            Fail(e) => Fail(e),
-        }
-    }
-
-    /// Set warnings in both Succ and Error sides of Result
     pub(crate) fn set_commutative_warnings<WC>(self, ws: WC) -> CmtResult<V, P, WC, E, EC> {
         match self {
             Succ(s) => Succ(s.set_warnings(ws)),
@@ -1651,19 +1643,6 @@ impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
 where
     EC: FungibleError,
 {
-    /// Convert errors in commutative/fungible Results
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn fungible_errors_into<Ef>(
-        self,
-    ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
-    where
-        E: Into<Ef>,
-        EC: FungibleError<Inner = E> + Functor<E>,
-        <EC as FungibleError>::Warn: Functor<E>,
-    {
-        self.map_fungible_errors(Into::into)
-    }
-
     /// Convert errors in non-commutative/fungible Results
     #[allow(clippy::type_complexity)]
     pub(crate) fn map_fungible_errors<F, Ef>(
@@ -2273,15 +2252,12 @@ where
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::{
-        python::exceptions::{PyreflowException, PyreflowWarning},
-        text::optional::Nothing,
-    };
+    use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
     use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
 
+    use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
-    use pyo3::{PyErrArguments, exceptions::PyBaseExceptionGroup};
     use std::convert::Infallible;
     use std::ffi::CString;
     use std::fmt::Display;
@@ -2295,16 +2271,6 @@ mod python {
             }
         }
     }
-
-    // impl<E, S> From<ErrorSummary<E, S>> for PyErr
-    // where
-    //     E: Display,
-    //     S: Display,
-    // {
-    //     fn from(value: ErrorSummary<E, S>) -> Self {
-    //         PyreflowException::new_err(value.to_string())
-    //     }
-    // }
 
     impl<E, S> From<ErrorSummary<E, S>> for PyErr
     where

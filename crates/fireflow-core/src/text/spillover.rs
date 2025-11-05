@@ -1,11 +1,10 @@
 use crate::config::StdTextReadConfig;
 use crate::core::RemovedNamedLink;
-use crate::validated::keys::Key;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, LinkedNameError, OptMetarootKey};
+use super::parser::{FromStrStateful, LinkedNameError};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

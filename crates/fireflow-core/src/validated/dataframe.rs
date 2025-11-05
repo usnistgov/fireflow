@@ -1,5 +1,4 @@
 use crate::macros::match_many_to_one;
-use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};

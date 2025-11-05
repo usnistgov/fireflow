@@ -1,10 +1,6 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
-use crate::config::DisallowRangeTrunc;
-use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredFungibleError, ErrorsResult, LogResult,
-    ResultExt as _,
-};
+use crate::logging::{CmtResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{IntRangeError, Range};
 

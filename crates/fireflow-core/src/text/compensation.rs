@@ -1,12 +1,12 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::logging::{FungibleResult, LogResult, ResultExt as _};
-use crate::validated::keys::{BiIndexedKey as _, Key as _, StdKey, StdKeywords};
+use crate::logging::{LogResult, ResultExt as _};
+use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
 use super::parser::{
-    FromStrDelim, FromStrStateful, LinkedIndexError, LookupKeysWarning, LookupOptional, OptKeyError,
+    FromStrDelim, FromStrStateful, LookupKeysWarning, LookupOptional, OptKeyError,
 };
 
 use derive_more::{AsRef, Display, From, Into};
@@ -136,22 +136,12 @@ impl Compensation2_0 {
 }
 
 impl Compensation3_0 {
-    // pub(crate) fn invalid_links(&self, par: Par) -> Option<LinkTransfer> {
-    //     let js = (par.0..self.0.matrix.nrows()).map(MeasIndex::from);
-    //     NonEmpty::collect(js).map(|xs| {
-    //         let k = Self::std();
-    //         let v = self.to_string();
-    //         LinkTransfer::new(k, v, BadLink::Index(xs))
-    //     })
-    // }
-
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
         par: Par,
     ) -> Option<RemovedIndexLink<Self>> {
-        let js = src
-            .into_iter()
-            .flat_map(|c| (par.0..c.0.matrix.nrows()).map(MeasIndex::from));
+        let c = src.as_ref()?;
+        let js = (par.0..c.0.matrix.nrows()).map(MeasIndex::from);
         NonEmpty::collect(js).map(|xs| {
             // ASSUME this won't fail because it should be some if we were able
             // to get indices out

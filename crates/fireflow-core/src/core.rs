@@ -9004,7 +9004,7 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::data::AnyRangeError;
-    use crate::python::exceptions::PyreflowException;
+    use crate::python::exceptions::ConversionException;
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
@@ -9073,7 +9073,7 @@ mod python {
 
     impl<E: Display> From<ConvertError<E>> for PyErr {
         fn from(value: ConvertError<E>) -> Self {
-            PyreflowException::new_err(value.to_string())
+            ConversionException::new_err(value.to_string())
         }
     }
 

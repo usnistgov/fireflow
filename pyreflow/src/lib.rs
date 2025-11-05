@@ -1,4 +1,7 @@
-use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
+use fireflow_core::python::exceptions::{
+    ConversionException, InvalidKeywordValueError, MeasurementException, PyreflowException,
+    PyreflowWarning, RelationalException,
+};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
@@ -9,6 +12,17 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
+    m.add(
+        "MeasurementException",
+        py.get_type::<MeasurementException>(),
+    )?;
+
+    m.add(
+        "InvalidKeywordValueError",
+        py.get_type::<InvalidKeywordValueError>(),
+    )?;
+    m.add("ConversionException", py.get_type::<ConversionException>())?;
+    m.add("RelationalException", py.get_type::<RelationalException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
 
     m.add_class::<ff::PyCoreTEXT2_0>()?;

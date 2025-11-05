@@ -909,7 +909,7 @@ class TestCore:
         assert len(core.measurements) == 1
         assert core.remove_measurement_by_name(LINK_NAME1) is not None
         assert len(core.measurements) == 0
-        with pytest.raises(IndexError):
+        with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
     @all_core
@@ -1270,10 +1270,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE are missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             core.to_version_3_0()
         # and should still fail when forced since $PnE is missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             core.to_version_3_0(True)
         core.all_scales = [(), ()]
         new = core.to_version_3_0()
@@ -1293,10 +1293,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE are missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             core.to_version_3_1(True)
         core.all_scales = [(), ()]
         new = core.to_version_3_1()
@@ -1316,10 +1316,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE and $CYT are missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException, pf.ConversionException):
             core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException, pf.ConversionException):
             core.to_version_3_2(True)
         core.cyt = "T cell incinerator"
         core.all_scales = [(), ()]
@@ -1373,10 +1373,10 @@ class TestCore:
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
         # should fail if $CYT is missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException):
             core.to_version_3_2()
         # and should still fail if forced since $CYT is missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException):
             core.to_version_3_2(True)
         core.cyt = "the dark eternal void from which cells will never escape"
         new = core.to_version_3_2()
@@ -1428,10 +1428,10 @@ class TestCore:
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
         # should fail if $CYT is missing
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException):
             core.to_version_3_2()
         # should still fail when forced
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.ConversionException):
             core.to_version_3_2(True)
         core.cyt = "Cygnus X-1"
         new = core.to_version_3_2()
@@ -1942,7 +1942,7 @@ class TestReadWrite:
         core.data = pl.DataFrame([ser])
         # this should fail because we are trying to write a non-integer float
         # as an integer
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             core.write_dataset(p)
         # TODO shouldn't this emit a warning?
         core.write_dataset(p, skip_conversion_check=True)

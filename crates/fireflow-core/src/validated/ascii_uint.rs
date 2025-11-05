@@ -304,7 +304,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20};
+    use super::{Uint8DigitOverflow, UintSpacePad8, UintSpacePad20, UintZeroPad20};
     use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
 
     impl_from_py_transparent!(UintZeroPad20);

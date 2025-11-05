@@ -8,7 +8,7 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
@@ -16,10 +16,10 @@ use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::string::ToString;
 use syn::{
+    GenericArgument, Ident, LitBool, LitInt, Path, PathArguments, Type,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     token::Comma,
-    GenericArgument, Ident, LitBool, LitInt, Path, PathArguments, Type,
 };
 
 #[proc_macro]
@@ -1005,12 +1005,13 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         "all_meas_nonstandard_keywords",
         true,
         |_, _| {
-            quote!(self
-                .0
-                .get_meas_nonstandard()
-                .into_iter()
-                .map(|x| x.clone())
-                .collect())
+            quote!(
+                self.0
+                    .get_meas_nonstandard()
+                    .into_iter()
+                    .map(|x| x.clone())
+                    .collect()
+            )
         },
         |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
     )
@@ -4343,11 +4344,7 @@ impl<T> DocArg<T> {
     }
 
     fn def_auto_if(self, test: bool) -> Self {
-        if test {
-            self.def_auto()
-        } else {
-            self
-        }
+        if test { self.def_auto() } else { self }
     }
 }
 

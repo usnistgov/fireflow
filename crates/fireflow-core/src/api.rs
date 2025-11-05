@@ -29,7 +29,7 @@ use crate::segment::{
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::parser::{
-    get_opt, get_req, truncate_string, ExtraStdKeywords, OptKeyError, ReqKeyError,
+    ExtraStdKeywords, OptKeyError, ReqKeyError, get_opt, get_req, truncate_string,
 };
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::UintSpacePad20;

@@ -1,6 +1,7 @@
 use crate::config::{
-    AllowLoss, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
-    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowRangeTrunc, ReadLayoutConfig,
+    ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig, StdTextReadConfig,
+    TemporalOpticalKey, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -27,26 +28,27 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
-use crate::type_families::ApplyOnce as _;
+use crate::type_families::{Applicative, ApplyOnce as _};
 
-use crate::text::optional::Nothing;
 use crate::text::{
     byteord::OrderedToEndianError,
-    compensation::{Compensation, Compensation2_0, Compensation3_0},
+    compensation::{Comp2_0LinkError, Compensation, Compensation2_0, Compensation3_0},
     datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError},
     gating::{
         AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
         AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error,
-        GateToMeasIndexError, MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
+        GateToMeasIndexError, MeasToGateIndexError, Region, RegionToGateIndexError,
+        RegionToMeasIndexError,
     },
-    index::{IndexFromOne, MeasIndex},
+    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
     keywords::{
         Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
         Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
-        DetectorVoltage, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Inst,
-        IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, Mode, Mode3_2,
-        ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin,
-        PeakIndex, PercentEmitted, Plateid, Platename, Power, Proj, Range, Smno, Src, Sys, Tag,
+        DetectorVoltage, Dfc, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Gating,
+        Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost,
+        MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType,
+        Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+        PrefixedMeasIndex, Proj, Range, RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag,
         TemporalScale, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
         Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
         WavelengthsLossError, Wellid,
@@ -57,31 +59,32 @@ use crate::text::{
         NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
         SetElementsError, SetKeysError, SetNamesError,
     },
-    optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave},
+    optional::{
+        CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
+    },
     parser::{
-        lookup_temporal_gain_3_0, lookup_temporal_scale_3_0, DepValueWarning, DeprecatedError,
-        ExtraStdKeywords, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
-        MissingTime, OptIndexedKey as _, OptKeyError, OptLinkedKey as _, OptMetarootKey as _,
-        PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
-        UnusedStandardError,
+        DepValueWarning, DependentKeyError, DeprecatedError, ExtraStdKeywords, LinkedIndexError,
+        LinkedNameError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
+        MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
+        RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
     },
     ranged_float::PositiveFloat,
     scale::{LogScale, Scale},
     spillover::{NewSpilloverError, Spillover},
     timestamps::{
-        Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Timestamps,
+        Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Timestamps,
         Xtim,
     },
 };
 
-use crate::type_families::Applicative;
+use crate::validated::keys::StdKey;
 use crate::validated::{
-    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8},
+    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20},
     dataframe as df,
     dataframe::{AnyFCSColumn, FCSDataFrame},
     keys::{
-        IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
-        NonStdMeasRegexError, StdKeywords, ValidKeywords,
+        BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords,
+        NonStdKeywordsExt as _, NonStdMeasRegexError, StdKeywords, ValidKeywords,
     },
     shortname::Shortname,
     textdelim::TEXTDelim,
@@ -1354,9 +1357,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals<Self>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1399,6 +1400,16 @@ pub trait VersionedMetaroot: Sized {
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave<Shortname>;
+
+    /// Check that all links point to a valid name or index.
+    ///
+    /// If this is not the case, either drop invalid keywords or return error.
+    fn remove_invalid_links(
+        &mut self,
+        par: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink>;
 
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
@@ -1905,16 +1916,13 @@ where
 
     fn lookup_metaroot(
         std: &mut StdKeywords,
-        ms: &Measurements<M::Name, M::Temporal, M::Optical>,
+        ms: &TemporalsAndOpticals<M>,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         M: LookupMetaroot,
     {
-        let par = Par(ms.len());
-        let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
-        let ordered_names: Vec<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let abrt_res = Abrt::lookup_metaroot_opt(std, false, conf);
         let com_res = Com::lookup_metaroot_opt(std, false, conf);
         let cells_res = Cells::lookup_metaroot_opt(std, false, conf);
@@ -1927,8 +1935,8 @@ where
         let smno_res = Smno::lookup_metaroot_opt(std, false, conf);
         let src_res = Src::lookup_metaroot_opt(std, false, conf);
         let sys_res = Sys::lookup_metaroot_opt(std, false, conf);
-        let tr_res = Trigger::lookup_opt_linked_st(std, &names, (), conf);
-        let spec_res = M::lookup_specific(std, par, &names, &ordered_names, conf);
+        let tr_res = Trigger::lookup_metaroot_opt(std, false, conf);
+        let spec_res = M::lookup_specific(std, ms, conf);
         abrt_res
             .zip5_cmt(com_res, cells_res, exp_res, fil_res)
             .zip5_cmt(inst_res, lost_res, op_res, proj_res)
@@ -2015,6 +2023,32 @@ where
             .meas_has_existing_index_links_with_inner(&js)?;
         Ok(())
     }
+
+    // Return a vector of errors here to let the caller decide how to package
+    // them. This allows the caller to hardcode the drop flag which allows for
+    // a simpler result type.
+    fn remove_invalid_links(
+        &mut self,
+        par: Par,
+        indexed_names: &[(MeasIndex, &Shortname)],
+        allow_dropping: bool,
+    ) -> Vec<AnyLinkError> {
+        let ns: HashSet<_> = indexed_names.iter().map(|(_, n)| *n).collect();
+        let js: HashSet<_> = indexed_names.iter().map(|(i, _)| i).copied().collect();
+        let tr = Trigger::remove_invalid_links(&mut self.tr, &ns);
+        let mut es = vec![];
+        for x in self
+            .specific
+            .remove_invalid_links(par, &ns, &js)
+            .chain(tr.map(RemovedLink::from))
+        {
+            if allow_dropping {
+                x.insert_keyvals(&mut self.nonstandard_keywords);
+            }
+            x.push_errors(&mut es);
+        }
+        es
+    }
 }
 
 impl<M, T> From<Optical<M>> for Temporal<T>
@@ -2043,6 +2077,17 @@ where
     }
 }
 
+pub(crate) type TemporalsAndOpticals<M> = Eithers<
+    <M as VersionedMetaroot>::Name,
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals2_0 = TemporalsAndOpticals<InnerMetaroot2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = TemporalsAndOpticals<InnerMetaroot3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = TemporalsAndOpticals<InnerMetaroot3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = TemporalsAndOpticals<InnerMetaroot3_2>;
+
 pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
 pub(crate) type VersionedCore<A, D, O, M> = Core<
@@ -2061,6 +2106,13 @@ pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
 pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
 
 pub(crate) type VersionedConvertError<N, ToN> = ConvertError<<ToN as TryFrom<N>>::Error>;
+
+impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
+    /// Return $PAR, which is simply the number of measurements in this struct
+    pub fn par(&self) -> Par {
+        Par(self.measurements.len())
+    }
+}
 
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
@@ -2298,9 +2350,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         // TODO ditto above
         self.measurements.unset_center(|i, old_t| {
@@ -2392,9 +2444,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
@@ -2440,9 +2492,9 @@ where
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
         M::Temporal: VersionedTemporal<
-            Warning = Option<AnyTemporalToOpticalKeyLossError>,
-            Error = AnyTemporalToOpticalKeyLossError,
-        >,
+                Warning = Option<AnyTemporalToOpticalKeyLossError>,
+                Error = AnyTemporalToOpticalKeyLossError,
+            >,
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
@@ -2871,9 +2923,12 @@ where
         M: HasUnstainedCenters,
     {
         let ms = self.measurement_names();
-        let ns = us.names();
-        let it = ns.difference(&ms).copied().cloned().map(KeyNotFoundError);
-        ErrorsResult::new_err_from_iter(it, ())
+        let es =
+            us.0.keys()
+                .filter(|k| !ms.contains(k))
+                .cloned()
+                .map(KeyNotFoundError);
+        ErrorsResult::new_err_from_iter(es, ())
             .when_ok(|| {
                 *self
                     .metaroot
@@ -2979,11 +3034,6 @@ where
                     .unwrap();
             })
             .summarize_errors()
-    }
-
-    /// Return $PAR, which is simply the number of measurements in this struct
-    pub fn par(&self) -> Par {
-        Par(self.measurements.len())
     }
 
     /// Set gating keywords (3.0/3.1)
@@ -3266,7 +3316,7 @@ where
     /// layout length.
     pub fn set_measurements(
         &mut self,
-        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> SummaryResult<(), SetMeasurementsError, SetMeasurementsFailure>
@@ -3309,7 +3359,7 @@ where
     /// different lengths.
     pub fn set_measurements_and_layout(
         &mut self,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -3340,7 +3390,7 @@ where
 
     pub fn set_measurements_inner(
         &mut self,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        measurements: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> ErrorsResult<(), (), SetMeasurementsError>
@@ -3529,12 +3579,7 @@ where
         par: Par,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> WarningsAndErrorsResult<
-        Measurements<M::Name, M::Temporal, M::Optical>,
-        (),
-        LookupMeasWarning,
-        LookupKeysError,
-    >
+    ) -> WarningsAndErrorsResult<TemporalsAndOpticals<M>, (), LookupMeasWarning, LookupKeysError>
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
@@ -3607,15 +3652,7 @@ where
                     })
                 })
                 .mappend_cmt()
-                // Finally, attempt to put our proto-measurement binary soup
-                // into a named vector, which will have a special element for
-                // the time measurement if it exists, and will scream if we have
-                // more than one time measurement.
-                .and_then_cmt(|xs| {
-                    NamedVec::try_new(xs.into())
-                        .map_err(LookupKeysError::from)
-                        .into_log()
-                })
+                .map_ok_value(Eithers)
                 .map_commutative_warnings(LookupMeasWarning::from)
         })
     }
@@ -3705,7 +3742,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
@@ -3742,7 +3779,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
@@ -3764,7 +3801,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig>,
@@ -3797,9 +3834,14 @@ where
 
             let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
                 Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                    .map_ok_value(|metaroot| Self::new_unchecked(metaroot, ms, layout))
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from)
+                    .and_then_cmt(|metaroot| {
+                        let flag = std_conf.allow_optional_dropping;
+                        Self::try_new(metaroot, ms, layout, flag)
+                            .map_commutative_warnings(StdTEXTFromRawWarning::from)
+                            .map_errors(StdTEXTFromRawError::from)
+                    })
             });
 
             // Check that the time measurement is present if we want
@@ -4016,7 +4058,7 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
@@ -4058,7 +4100,7 @@ where
         R: Read + Seek,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
+        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
@@ -4391,7 +4433,7 @@ where
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_measurements_and_data(
         &mut self,
-        xs: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        xs: TemporalsAndOpticals<M>,
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -4414,8 +4456,29 @@ where
 
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub(crate) fn try_new(
-        metaroot: Metaroot<M>,
-        measurements: Eithers<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        mut metaroot: Metaroot<M>,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+        flag: AllowOptionalDropping,
+    ) -> WarningsAndErrorsResult<Self, (), NewCoreRelationalError, NewCoreError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        Measurements::try_new(measurements)
+            .map_err(NewCoreError::from)
+            .into_log()
+            .and_then_cmt(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, &layout, flag.is_set())
+                    .nowarn_into_fungible(flag)
+                    .fungible_into_commutative()
+                    .map_errors(NewCoreError::from)
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+            })
+    }
+
+    pub(crate) fn try_new_nodrop(
+        mut metaroot: Metaroot<M>,
+        measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
@@ -4425,20 +4488,34 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .map_err(NewCoreError::from)
             .into_log()
             .and_then_cmt(|ms| {
-                let ns: Vec<_> = ms.indexed_names().collect();
-                // TODO this will throw an error if any measurement links
-                // exist, which is the opposite of what we want
-                let link_res = metaroot
-                    .meas_has_existing_links_with(&ns[..])
-                    .into_nowarn()
-                    .map_errors(NewCoreError::from);
-                let layout_res = layout
-                    .check_measurement_vector(&ms)
-                    .map_errors(NewCoreError::from);
-                link_res
-                    .zip_cmt(layout_res)
-                    .map_ok_value(|((), ())| Self::new(metaroot, ms, layout, (), (), ()))
+                Self::check_relationships(&mut metaroot, &ms, &layout, false)
+                    .map_errors(NewCoreError::from)
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
             })
+    }
+
+    fn check_relationships(
+        metaroot: &mut Metaroot<M>,
+        measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
+        layout: &<M::Ver as Versioned>::Layout,
+        allow_dropping: bool,
+    ) -> ErrorsResult<(), (), NewCoreRelationalError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let ns: Vec<_> = measurements.indexed_names().collect();
+        // Check for any invalid links; throw error if any are found
+        let par = Par(measurements.len());
+        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_dropping);
+        let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
+        // Check that measurement and layout vectors are same length
+        // and that transforms are valid for given datatype(s)
+        let layout_res = layout
+            .check_measurement_vector(measurements)
+            .map_errors(NewCoreRelationalError::from);
+        link_res
+            .map_errors(NewCoreRelationalError::from)
+            .lift_f2_once(layout_res, |(), ()| ())
     }
 
     fn new_unchecked(
@@ -4544,11 +4621,7 @@ where
 impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_2_0(
-        measurements: Eithers<
-            Option<Shortname>,
-            Temporal<InnerTemporal2_0>,
-            Optical<InnerOptical2_0>,
-        >,
+        measurements: TemporalsAndOpticals2_0,
         layout: DataLayout2_0,
         mode: Mode,
         cyt: Cyt,
@@ -4595,7 +4668,7 @@ impl CoreTEXT2_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4603,11 +4676,7 @@ impl CoreTEXT2_0 {
 impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_0(
-        measurements: Eithers<
-            Option<Shortname>,
-            Temporal<InnerTemporal3_0>,
-            Optical<InnerOptical3_0>,
-        >,
+        measurements: TemporalsAndOpticals3_0,
         layout: DataLayout3_0,
         mode: Mode,
         cyt: Cyt,
@@ -4668,7 +4737,7 @@ impl CoreTEXT3_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4676,11 +4745,7 @@ impl CoreTEXT3_0 {
 impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_1(
-        measurements: Eithers<
-            Identity<Shortname>,
-            Temporal<InnerTemporal3_1>,
-            Optical<InnerOptical3_1>,
-        >,
+        measurements: TemporalsAndOpticals3_1,
         layout: DataLayout3_1,
         mode: Mode,
         cyt: Cyt,
@@ -4749,7 +4814,7 @@ impl CoreTEXT3_1 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
             })
     }
 }
@@ -4757,11 +4822,7 @@ impl CoreTEXT3_1 {
 impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_3_2(
-        measurements: Eithers<
-            Identity<Shortname>,
-            Temporal<InnerTemporal3_2>,
-            Optical<InnerOptical3_2>,
-        >,
+        measurements: TemporalsAndOpticals3_2,
         layout: DataLayout3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
@@ -4840,18 +4901,14 @@ impl CoreTEXT3_2 {
                 specific,
                 nonstandard_keywords,
             );
-            Self::try_new(metaroot, measurements, layout).errors_into()
+            Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
         })
     }
 }
 
 impl UnstainedData {
-    fn lookup(
-        kws: &mut StdKeywords,
-        names: &HashSet<&Shortname>,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let c = UnstainedCenters::lookup_opt_linked_st(kws, names, (), conf);
+    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
+        let c = UnstainedCenters::lookup_metatroot_opt_st(kws, false, (), conf);
         let i = UnstainedInfo::lookup_metaroot_opt(kws, false, conf);
         c.lift_f2_once(i, Self::new)
     }
@@ -6645,13 +6702,13 @@ impl LookupTemporal for InnerTemporal3_0 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
+        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
         let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip_cmt(peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, p)| {
-                let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
                 let timestep = Timestep::lookup_req(std);
                 scale
                     .zip_cmt(timestep)
@@ -6667,14 +6724,14 @@ impl LookupTemporal for InnerTemporal3_1 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
+        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
         let dpy = Display::lookup_meas_opt(std, i, false, conf);
         let peak = PeakData::lookup(std, i, true, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3_cmt(dpy, peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, d, p)| {
-                let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
                 let timestep = Timestep::lookup_req(std);
                 scale
                     .zip_cmt(timestep)
@@ -6690,14 +6747,14 @@ impl LookupTemporal for InnerTemporal3_2 {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = lookup_temporal_gain_3_0(std, i, nonstd, conf);
+        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
         let dpy = Display::lookup_meas_opt(std, i, false, conf);
         let meas = TemporalType::lookup_meas_opt(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3_cmt(dpy, meas)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, d, m)| {
-                let scale = lookup_temporal_scale_3_0(std, i, nonstd, conf);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
                 let timestep = Timestep::lookup_req(std);
                 scale
                     .zip_cmt(timestep)
@@ -7307,11 +7364,10 @@ impl LookupMetaroot for InnerMetaroot2_0 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        _: &HashSet<&Shortname>,
-        _: &[&Shortname],
+        ms: &TemporalsAndOpticals2_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
         let comp = Compensation2_0::lookup(kws, par, conf);
         let cytn = Cyt::lookup_metaroot_opt(kws, false, conf);
         let ts = Timestamps::lookup(kws, false, conf);
@@ -7337,11 +7393,10 @@ impl LookupMetaroot for InnerMetaroot3_0 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        _: &HashSet<&Shortname>,
-        _: &[&Shortname],
+        ms: &TemporalsAndOpticals3_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
         let comp = Compensation3_0::lookup_metaroot_opt(kws, false, conf);
         let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
@@ -7369,9 +7424,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals3_1,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let process_mode = |mode| {
@@ -7389,8 +7442,13 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map_errors(LookupKeysError::from)
         };
 
+        let par = Par(ms.0.len());
+        let ordered_names: Vec<_> =
+            ms.0.iter()
+                .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
+                .collect();
         let cyt = Cyt::lookup_metaroot_opt(kws, false, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
@@ -7421,21 +7479,24 @@ impl LookupMetaroot for InnerMetaroot3_2 {
 
     fn lookup_specific(
         kws: &mut StdKeywords,
-        par: Par,
-        names: &HashSet<&Shortname>,
-        ordered_names: &[&Shortname],
+        ms: &TemporalsAndOpticals3_2,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        let par = Par(ms.0.len());
+        let ordered_names: Vec<_> =
+            ms.0.iter()
+                .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
+                .collect();
         let carrier = CarrierData::lookup(kws, conf);
         let dt = Datetimes::lookup(kws, conf);
         let flow = Flowrate::lookup_metaroot_opt(kws, false, conf);
         let modif = ModificationData::lookup(kws, conf);
         let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, (names, ordered_names), conf);
+        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt(kws, false, conf);
         let plate = PlateData::lookup(kws, true, conf);
         let ts = Timestamps::lookup(kws, true, conf);
-        let us = UnstainedData::lookup(kws, names, conf);
+        let us = UnstainedData::lookup(kws, conf);
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_2::lookup(kws, par, conf);
         carrier
@@ -7458,6 +7519,15 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Optical = InnerOptical2_0;
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
+
+    fn remove_invalid_links(
+        &mut self,
+        par: Par,
+        _: &HashSet<&Shortname>,
+        _: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink> {
+        Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -7518,6 +7588,17 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Optical = InnerOptical3_0;
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
+
+    fn remove_invalid_links(
+        &mut self,
+        par: Par,
+        _: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink> {
+        let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
+        let ag = self.applied_gates.remove_invalid_links(indices);
+        comp.into_iter().chain(ag)
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -7583,6 +7664,18 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Optical = InnerOptical3_1;
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
+
+    fn remove_invalid_links(
+        &mut self,
+        _: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink> {
+        let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
+        self.applied_gates
+            .remove_invalid_links(indices)
+            .chain(spill.map(RemovedLink::from))
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -7661,6 +7754,21 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Optical = InnerOptical3_2;
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
+
+    fn remove_invalid_links(
+        &mut self,
+        _: Par,
+        names: &HashSet<&Shortname>,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = RemovedLink> {
+        let uc = self.unstained.unstainedcenters.remove_invalid_links(names);
+        let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
+        self.applied_gates
+            .0
+            .remove_invalid_links(indices)
+            .chain(spill.map(RemovedLink::from))
+            .chain(uc.map(RemovedLink::from))
+    }
 
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -8055,6 +8163,200 @@ pub enum ExistingLinkError {
     Index(ExistingIndexLinkError),
 }
 
+#[derive(From, Display, Debug, Error)]
+pub enum NewCoreLinkError {
+    Comp2_0(Comp2_0LinkError),
+    Name(LinkedNameError),
+    Index(LinkedIndexError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum AnyLinkError {
+    Name(LinkedNameError),
+    Index(LinkedIndexError),
+    Dependent(DependentKeyError),
+}
+
+#[derive(From)]
+pub enum RemovedLink {
+    GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
+    GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
+    Gating(RemovedGating),
+    Comp2_0(NonEmpty<RemovedComp2_0Cell>),
+    Comp3_0(RemovedIndexLink<Compensation3_0>),
+    Spillover(RemovedNamedLink<Spillover>),
+    UnstainedCenters(RemovedNamedLink<UnstainedCenters>),
+    Trigger(RemovedNamedLink<Trigger>),
+}
+
+#[derive(new)]
+pub struct RemovedComp2_0Cell {
+    row: MeasIndex,
+    col: MeasIndex,
+    value: f32,
+    missing: Comp2_0Missing,
+}
+
+pub(crate) enum Comp2_0Missing {
+    Row,
+    Col,
+    Both,
+}
+
+#[derive(new)]
+pub struct RemovedNamedLink<T> {
+    key: T,
+    names: NonEmpty<Shortname>,
+}
+
+#[derive(new)]
+pub struct RemovedIndexLink<T> {
+    key: T,
+    indices: NonEmpty<MeasIndex>,
+}
+
+#[derive(new)]
+pub struct RemovedGateLink<I> {
+    pub(crate) region_index: RegionIndex,
+    pub(crate) region: Region<I>,
+    // TODO this will always either be 1 or 2
+    pub(crate) meas_indices: NonEmpty<MeasIndex>,
+}
+
+#[derive(new)]
+pub struct RemovedGating {
+    pub(crate) region_indices: NonEmpty<RegionIndex>,
+    pub(crate) gating: Gating,
+}
+
+impl RemovedLink {
+    fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
+        macro_rules! go_key {
+            ($kws:expr, $x:expr) => {{
+                let (k, v) = $x.key.metaroot_pair_std();
+                $kws.insert_demoted(k, v);
+            }};
+        }
+        macro_rules! go_gate {
+            ($kws:expr, $x:expr) => {{
+                for (k, v) in $x.region.opt_keywords_std($x.region_index) {
+                    $kws.insert_demoted(k, v);
+                }
+            }};
+        }
+        match self {
+            Self::GatingRegion3_0(x) => go_gate!(kws, x),
+            Self::GatingRegion3_2(x) => go_gate!(kws, x),
+            Self::Gating(x) => {
+                let (k, v) = x.gating.metaroot_pair_std();
+                kws.insert_demoted(k, v);
+            }
+            Self::Comp2_0(xs) => {
+                for x in xs {
+                    let (k, v) = x.as_keyval();
+                    kws.insert_demoted(k, v);
+                }
+            }
+            Self::Comp3_0(x) => go_key!(kws, x),
+            Self::Spillover(x) => go_key!(kws, x),
+            Self::UnstainedCenters(x) => {
+                if let Some(v) = x.key.display_maybe() {
+                    let k = UnstainedCenters::std();
+                    kws.insert_demoted(k, v);
+                }
+            }
+            Self::Trigger(x) => go_key!(kws, x),
+        }
+    }
+
+    fn push_errors(self, es: &mut Vec<AnyLinkError>) {
+        macro_rules! go_named {
+            ($es:expr, $x:expr) => {{
+                $es.push($x.into_error().into());
+            }};
+        }
+        macro_rules! go_gate {
+            ($es:expr, $x:expr) => {{
+                for e in $x.into_errors() {
+                    $es.push(e);
+                }
+            }};
+        }
+        match self {
+            Self::GatingRegion3_0(x) => go_gate!(es, x),
+            Self::GatingRegion3_2(x) => go_gate!(es, x),
+            Self::Gating(x) => {
+                let ks = x
+                    .region_indices
+                    .map(|ri| {
+                        // GateIndex is a dummy here, each index type should
+                        // produce the same std key
+                        let k0 = RegionGateIndex::<GateIndex>::std(ri);
+                        let k1 = RegionWindow::std(ri);
+                        (k0, vec![k1])
+                    })
+                    .map(NonEmpty::from);
+                let e = DependentKeyError::new(Gating::std(), NonEmpty::flatten(ks));
+                es.push(e.into());
+            }
+            Self::Comp2_0(xs) => {
+                for x in xs {
+                    es.push(x.as_error().into());
+                }
+            }
+            Self::Comp3_0(x) => go_named!(es, x),
+            Self::Spillover(x) => go_named!(es, x),
+            Self::UnstainedCenters(x) => go_named!(es, x),
+            Self::Trigger(x) => go_named!(es, x),
+        }
+    }
+}
+
+impl RemovedComp2_0Cell {
+    fn as_keyval(&self) -> (StdKey, String) {
+        // NOTE col is first
+        let k = Dfc::std(self.col, self.row);
+        (k, self.value.to_string())
+    }
+
+    fn as_error(&self) -> LinkedIndexError {
+        let xs = match self.missing {
+            Comp2_0Missing::Row => NonEmpty::new(self.row),
+            Comp2_0Missing::Col => NonEmpty::new(self.col),
+            Comp2_0Missing::Both => {
+                let mut xs = NonEmpty::new(self.col);
+                xs.push(self.row);
+                xs
+            }
+        };
+        let k = Dfc::std(self.col, self.row);
+        LinkedIndexError::new(k, xs)
+    }
+}
+
+impl<T: Key> RemovedNamedLink<T> {
+    fn into_error(self) -> LinkedNameError {
+        LinkedNameError::new(T::std(), self.names)
+    }
+}
+
+impl<T: Key> RemovedIndexLink<T> {
+    fn into_error(self) -> LinkedIndexError {
+        LinkedIndexError::new(T::std(), self.indices)
+    }
+}
+
+impl<I> RemovedGateLink<I> {
+    fn into_errors(self) -> impl Iterator<Item = AnyLinkError> {
+        let i = self.region_index;
+        let window_key = RegionWindow::std(i);
+        let index_key = RegionGateIndex::<I>::std(i);
+        let e0 = LinkedIndexError::new(window_key.clone(), self.meas_indices);
+        let e1 = DependentKeyError::new(index_key, NonEmpty::new(window_key));
+        [e0.into(), e1.into()].into_iter()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ExistingNamedLinkError {
     #[error("$TR depends on existing $PnN")]
@@ -8204,6 +8506,7 @@ pub enum StdTEXTFromKeywordsError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawError {
+    New(NewCoreError),
     Metaroot(LookupKeysError),
     Layout(Box<LookupLayoutError>),
     Offsets(LookupTEXTOffsetsError),
@@ -8213,6 +8516,7 @@ pub enum StdTEXTFromRawError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawWarning {
+    Relational(NewCoreRelationalError),
     Metaroot(LookupKeysWarning),
     Meas(LookupMeasWarning),
     Layout(LookupLayoutWarning),
@@ -8528,7 +8832,12 @@ pub enum LookupTEXTOffsetsError {
 #[derive(From, Display, Debug, Error)]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
-    Link(ExistingLinkError),
+    Relational(NewCoreRelationalError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum NewCoreRelationalError {
+    Link(AnyLinkError),
     Layout(MeasLayoutMismatchError),
 }
 
@@ -8650,7 +8959,7 @@ def_failure!(
 #[cfg(feature = "serde")]
 mod serialize {
     use crate::core::AnyCore;
-    use serde::{ser::SerializeStruct as _, Serialize};
+    use serde::{Serialize, ser::SerializeStruct as _};
 
     impl<A, D, O> Serialize for AnyCore<A, D, O>
     where
@@ -8691,7 +9000,7 @@ mod python {
     use crate::data::{AnyRangeError, MeasLayoutMismatchError};
     use crate::python::exceptions::PyreflowException;
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err, impl_pyreflow_err,
+        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
     use crate::text::ranged_float::PositiveFloat;
 
@@ -8708,9 +9017,9 @@ mod python {
         StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
     };
 
+    use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use pyo3::IntoPyObjectExt as _;
     use std::fmt::Display;
 
     impl_from_py_transparent!(Analysis);

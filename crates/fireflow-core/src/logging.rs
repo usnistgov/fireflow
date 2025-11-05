@@ -1471,6 +1471,14 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     }
 
     /// Set warnings in both Succ and Error sides of Result
+    pub(crate) fn set_non_commutative_warnings<WC>(self, ws: WC) -> NonCmtResult<V, P, WC, E, EC> {
+        match self {
+            Succ(s) => Succ(s.set_warnings(ws)),
+            Fail(e) => Fail(e),
+        }
+    }
+
+    /// Set warnings in both Succ and Error sides of Result
     pub(crate) fn set_commutative_warnings<WC>(self, ws: WC) -> CmtResult<V, P, WC, E, EC> {
         match self {
             Succ(s) => Succ(s.set_warnings(ws)),
@@ -1818,12 +1826,12 @@ impl<V, LWC, RWC, X, E, EC> LogResult<V, (), LWC, RWC, X, E, EC> {
     }
 
     // TODO generic input?
-    pub(crate) fn new_err(error: GenNonEmpty<E, EC>) -> Self
+    pub(crate) fn new_err(error: E, others: EC) -> Self
     where
         RWC: Default,
         EC: Default,
     {
-        Fail(Failure::new_from_many(error, ()))
+        Fail(Failure::new_from_many(GenNonEmpty::new(error, others), ()))
     }
 }
 
@@ -1837,7 +1845,7 @@ impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, (), E, EC> {
     {
         match GenNonEmpty::collect(errors) {
             None => Self::new_ok(default),
-            Some(e) => Self::new_err(e),
+            Some(e) => Self::new_err(e.head, e.tail),
         }
     }
 }
@@ -2273,7 +2281,7 @@ mod python {
     use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
 
     use pyo3::prelude::*;
-    use pyo3::{exceptions::PyBaseExceptionGroup, PyErrArguments};
+    use pyo3::{PyErrArguments, exceptions::PyBaseExceptionGroup};
     use std::convert::Infallible;
     use std::ffi::CString;
     use std::fmt::Display;

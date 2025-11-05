@@ -1,9 +1,11 @@
 use crate::config::{AllowLoss, DisallowRangeTrunc, StdTextReadConfig};
+use crate::core::RemovedNamedLink;
 use crate::logging::{DeferredError, DeferredFungibleError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, StdKeywords};
+use crate::validated::keys::NonStdKeywordsExt as _;
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
@@ -18,29 +20,30 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
-    LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey, Optional,
-    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LinkedNameError,
+    LookupKeysWarning, LookupOptional, LookupResult, LookupTentative, OptIndexedKey,
+    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
-use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime100, FCSTime60, Xtim};
+use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
+use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::One as _;
-use num_traits::PrimInt;
 use std::iter::once;
 use thiserror::Error;
 
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::mem::take;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
@@ -61,6 +64,33 @@ pub struct Nextdata(pub UintZeroPad20);
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Gain(pub PositiveFloat);
+
+impl Gain {
+    pub(crate) fn lookup_temporal_3_0(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupOptional<Self> {
+        if conf.ignore_time_gain {
+            nonstd.transfer_demoted(kws, Self::std(i));
+            LogResult::new_ok(None)
+        } else {
+            Self::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
+                let is_ok = gain.is_none_or(|g| g.0.is_one());
+                let flag = conf.allow_optional_dropping;
+                let e = TemporalGainError(i).into();
+                LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag)
+                    .fungible_into_commutative()
+            })
+        }
+    }
+}
+
+/// Error triggered when time measurement has $PnG
+#[derive(Debug, Error)]
+#[error("$P{0}G must be 1.0 or not set for temporal measurement")]
+pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into, Debug)]
@@ -108,6 +138,28 @@ pub struct Trigger {
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+impl Trigger {
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        if let Some(new) = mapping.get(&self.measurement) {
+            self.measurement = (*new).clone();
+        }
+    }
+
+    pub(crate) fn remove_invalid_links(
+        src: &mut Option<Self>,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let tr = src.as_ref()?;
+        if names.contains(&tr.measurement) {
+            None
+        } else {
+            // ASSUME this won't fail since we filter out None above with ?
+            let m = tr.measurement.clone();
+            Some(RemovedNamedLink::new(take(src).unwrap(), NonEmpty::new(m)))
+        }
+    }
 }
 
 impl FromStrStateful for Trigger {
@@ -386,6 +438,22 @@ impl FromStr for TemporalScaleInner {
 /// The value of the $PnE key for temporal measurements (3.0+)
 #[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
+
+impl TemporalScale3_0 {
+    pub(crate) fn lookup(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<()> {
+        if conf.force_time_linear {
+            nonstd.transfer_demoted(kws, TemporalScale::std(i));
+            LogResult::new_ok(())
+        } else {
+            TemporalScale3_0::lookup_req(kws, i).set_ok_value(())
+        }
+    }
+}
 
 impl DisplayMaybe for TemporalScale3_0 {
     fn display_maybe(&self) -> Option<String> {
@@ -1564,11 +1632,35 @@ pub enum ParseUnstainedCenterError {
 }
 
 impl UnstainedCenters {
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        self.0 = new;
+    }
+
     pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.0.keys().filter(|n| !names.contains(n))
+    }
+
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let ns = self.names_difference(names).cloned();
+        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))
     }
 }
 
@@ -1647,28 +1739,6 @@ impl KeywordPairMaybe for UnstainedCenters {
 
 impl CheckMaybe for UnstainedCenters {
     type Inner = Self;
-}
-
-impl OptLinkedKey for UnstainedCenters {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.0.keys().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        // keys can't be mutated in place so need to rebuild the hashmap with
-        // new keys from the mapping
-        let new: HashMap<_, _> = self
-            .0
-            .iter()
-            .map(|(k, v)| {
-                (
-                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
-                    *v,
-                )
-            })
-            .collect();
-        self.0 = new;
-    }
 }
 
 macro_rules! newtype_string {
@@ -1975,26 +2045,7 @@ kw_opt_meta_string!(Proj, "PROJ");
 kw_opt_meta_string!(Smno, "SMNO");
 kw_opt_meta_string!(Src, "SRC");
 kw_opt_meta_string!(Sys, "SYS");
-
-impl Key for Trigger {
-    const C: &'static str = "TR";
-}
-
-impl Optional for Trigger {
-    type Outer = Option<Self>;
-}
-
-impl OptLinkedKey for Trigger {
-    fn names(&self) -> HashSet<&Shortname> {
-        once(&self.measurement).collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        if let Some(new) = mapping.get(&self.measurement) {
-            self.measurement = (*new).clone();
-        }
-    }
-}
+kw_opt_meta!(Trigger, "TR", Option<Self>);
 
 // time for 2.0
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
@@ -2036,14 +2087,15 @@ kw_opt_meta_string!(Locationid, "LOCATIONID");
 
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
 kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
+kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS", Self);
 
-impl Key for UnstainedCenters {
-    const C: &'static str = "UNSTAINEDCENTERS";
-}
+// impl Key for UnstainedCenters {
+//     const C: &'static str = "UNSTAINEDCENTERS";
+// }
 
-impl Optional for UnstainedCenters {
-    type Outer = Self;
-}
+// impl Optional for UnstainedCenters {
+//     type Outer = Self;
+// }
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 

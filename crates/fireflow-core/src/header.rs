@@ -15,7 +15,7 @@ use crate::text::keywords::{
 use crate::text::parser::ReqMetarootKey as _;
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
+    HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;

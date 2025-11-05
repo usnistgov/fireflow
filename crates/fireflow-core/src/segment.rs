@@ -10,7 +10,7 @@ use crate::logging::{
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
 use crate::validated::ascii_uint::{
-    HeaderString, ParseFixedUintError, UintSpacePad20, UintSpacePad8, UintZeroPad20,
+    HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::{Key, StdKeywords};
 

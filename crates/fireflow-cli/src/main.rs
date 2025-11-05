@@ -17,7 +17,7 @@ use regex::Regex;
 
 use ansi_term::{ANSIString, Style};
 use clap::{
-    builder::IntoResettable, builder::StyledStr, value_parser, Arg, ArgAction, ArgMatches, Command,
+    Arg, ArgAction, ArgMatches, Command, builder::IntoResettable, builder::StyledStr, value_parser,
 };
 use itertools::Itertools as _;
 use serde::ser::Serialize;

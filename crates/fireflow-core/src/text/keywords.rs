@@ -20,8 +20,8 @@ use super::optional::{
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LinkedNameError,
-    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptLinkedKey, OptMetarootKey,
-    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey, OptMetarootKey, Optional,
+    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -110,6 +110,28 @@ pub struct Trigger {
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+impl Trigger {
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        if let Some(new) = mapping.get(&self.measurement) {
+            self.measurement = (*new).clone();
+        }
+    }
+
+    pub(crate) fn remove_invalid_links(
+        src: &mut Option<Self>,
+        names: &HashSet<&Shortname>,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let tr = src.as_ref()?;
+        if names.contains(&tr.measurement) {
+            None
+        } else {
+            // ASSUME this won't fail since we filter out None above with ?
+            let m = tr.measurement.clone();
+            Some(RemovedNamedLink::new(take(src).unwrap(), NonEmpty::new(m)))
+        }
+    }
 }
 
 impl FromStrStateful for Trigger {
@@ -1566,16 +1588,27 @@ pub enum ParseUnstainedCenterError {
 }
 
 impl UnstainedCenters {
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        self.0 = new;
+    }
+
     pub(crate) fn names_difference(
         &self,
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.0.keys().filter(|n| !names.contains(n))
-    }
-
-    pub(crate) fn indices_are_valid(&self, names: &HashSet<&Shortname>) -> Option<LinkedNameError> {
-        let xs = self.names_difference(names).cloned();
-        NonEmpty::collect(xs).map(|ys| LinkedNameError::new(UnstainedCenters::std(), ys))
     }
 
     pub(crate) fn remove_invalid_links(
@@ -1662,28 +1695,6 @@ impl KeywordPairMaybe for UnstainedCenters {
 
 impl CheckMaybe for UnstainedCenters {
     type Inner = Self;
-}
-
-impl OptLinkedKey for UnstainedCenters {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.0.keys().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        // keys can't be mutated in place so need to rebuild the hashmap with
-        // new keys from the mapping
-        let new: HashMap<_, _> = self
-            .0
-            .iter()
-            .map(|(k, v)| {
-                (
-                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
-                    *v,
-                )
-            })
-            .collect();
-        self.0 = new;
-    }
 }
 
 macro_rules! newtype_string {
@@ -1991,44 +2002,6 @@ kw_opt_meta_string!(Smno, "SMNO");
 kw_opt_meta_string!(Src, "SRC");
 kw_opt_meta_string!(Sys, "SYS");
 kw_opt_meta!(Trigger, "TR", Option<Self>);
-
-// impl Key for Trigger {
-//     const C: &'static str = "TR";
-// }
-
-// impl Optional for Trigger {
-//     type Outer = Option<Self>;
-// }
-
-impl Trigger {
-    pub(crate) fn remove_invalid_links(
-        src: &mut Option<Self>,
-        names: &HashSet<&Shortname>,
-    ) -> Option<RemovedNamedLink<Self>> {
-        let tr = src.as_ref()?;
-        if names.contains(&tr.measurement) {
-            None
-        } else {
-            // ASSUME this won't fail since we filter out None above with ?
-            let m = tr.measurement.clone();
-            Some(RemovedNamedLink::new(take(src).unwrap(), NonEmpty::new(m)))
-        }
-    }
-}
-
-// impl OptMetarootKey for Trigger {}
-
-impl OptLinkedKey for Trigger {
-    fn names(&self) -> HashSet<&Shortname> {
-        once(&self.measurement).collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        if let Some(new) = mapping.get(&self.measurement) {
-            self.measurement = (*new).clone();
-        }
-    }
-}
 
 // time for 2.0
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");

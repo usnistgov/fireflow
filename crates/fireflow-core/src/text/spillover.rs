@@ -5,7 +5,7 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey, OptMetarootKey};
+use super::parser::{FromStrStateful, LinkedNameError, OptMetarootKey};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -41,33 +41,14 @@ pub struct GenericSpillover<T> {
 }
 
 impl Spillover {
-    // pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
-    //     if let Some(i) = self.measurements.iter().position(|m| m == n) {
-    //         if self.measurements.len() < 3 {
-    //             ClearMaybe::clear(true)
-    //         } else {
-    //             // TODO this looks expensive; it copies almost everything 3x;
-    //             // good thing these matrices aren't that big (usually). The
-    //             // alternative is to iterate over the matrix and populate a new
-    //             // one while skipping certain elements.
-    //             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-    //             ClearMaybe::new(true)
-    //         }
-    //     } else {
-    //         ClearMaybe::new(false)
-    //     }
-    // }
-
-    // pub(crate) fn table(&self, delim: &str) -> Vec<String> {
-    //     let header0 = vec!["[-]"];
-    //     let header = header0
-    //         .into_iter()
-    //         .chain(self.measurements.iter().map(|m| m.as_ref()))
-    //         .join(delim);
-    //     let lines = vec![header];
-    //     let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
-    //     lines.into_iter().chain(rows).collect()
-    // }
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        // ASSUME mapping is such that new names will be unique
+        for n in &mut self.measurements {
+            if let Some(new) = mapping.get(n) {
+                *n = (*new).clone();
+            }
+        }
+    }
 
     pub(crate) fn names_difference(
         &self,
@@ -231,7 +212,7 @@ impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        { Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m))) }
+        Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
     }
 }
 
@@ -274,21 +255,6 @@ pub struct MalformedIndexError(ParseIntError);
 #[derive(Debug, Error)]
 #[error("$SPILLOVER indices out of bounds: {}", .0.iter().join(","))]
 pub struct SpilloverIndexError(NonEmpty<MeasIndex>);
-
-impl OptLinkedKey for Spillover {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.measurements.iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        // ASSUME mapping is such that new names will be unique
-        for n in &mut self.measurements {
-            if let Some(new) = mapping.get(n) {
-                *n = (*new).clone();
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -396,46 +396,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 }
 
-/// Any key which references $PnN in its value
-pub(crate) trait OptLinkedKey
-where
-    Self: Key + Optional + FromStr + Sized,
-    Option<Self>: From<Self::Outer>,
-{
-    fn check_link(&self, all_names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        NonEmpty::collect(self.names().difference(all_names).copied().cloned())
-            .map(|unshared_names| LinkedNameError::new(Self::std(), unshared_names))
-            .map_or(Ok(()), Err)
-    }
-
-    fn lookup_opt_linked_st<P>(
-        kws: &mut StdKeywords,
-        names: &HashSet<&Shortname>,
-        data: P,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        for<'a> Self: FromStrStateful<Payload<'a> = P>,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
-    {
-        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            parse_opt_tnt_st(k, v, false, data, conf).and_then_def(|maybe| {
-                maybe.map_or(LogResult::new_ok(None), |x| {
-                    Self::check_link(&x, names)
-                        .map(|()| x)
-                        .into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-                        .fungible_errors_into()
-                        .fungible_into_commutative()
-                })
-            })
-        })
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping);
-
-    fn names(&self) -> HashSet<&Shortname>;
-}
-
 pub(crate) fn parse_opt<T: FromStr>(k: StdKey, v: String) -> Result<T, OptKeyError<T::Err>> {
     v.parse().map_err(|e| OptKeyError::new(e, k, v))
 }

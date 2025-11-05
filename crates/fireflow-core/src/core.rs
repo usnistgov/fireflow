@@ -71,9 +71,9 @@ use crate::text::{
     parser::{
         DepValueWarning, DeprecatedError, ExtraStdKeywords, LookupKeysError, LookupKeysWarning,
         LookupResult, LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError,
-        OptLinkedKey as _, OptMetarootKey as _, PseudostandardError, RawKeywords,
-        ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
-        lookup_temporal_gain_3_0, lookup_temporal_scale_3_0,
+        OptMetarootKey as _, PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError,
+        ReqMetarootKey as _, UnusedStandardError, lookup_temporal_gain_3_0,
+        lookup_temporal_scale_3_0,
     },
     ranged_float::PositiveFloat,
     scale::{LogScale, Scale},
@@ -2931,9 +2931,12 @@ where
         M: HasUnstainedCenters,
     {
         let ms = self.measurement_names();
-        let ns = us.names();
-        let it = ns.difference(&ms).copied().cloned().map(KeyNotFoundError);
-        ErrorsResult::new_err_from_iter(it, ())
+        let es =
+            us.0.keys()
+                .filter(|k| !ms.contains(k))
+                .cloned()
+                .map(KeyNotFoundError);
+        ErrorsResult::new_err_from_iter(es, ())
             .when_ok(|| {
                 *self
                     .metaroot

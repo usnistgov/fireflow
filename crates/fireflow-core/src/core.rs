@@ -30,11 +30,13 @@ use crate::segment::{
 };
 use crate::text::compensation::Comp2_0LinkError;
 use crate::text::gating::Region;
-use crate::text::index::RegionIndex;
+use crate::text::index::{GateIndex, RegionIndex};
 use crate::text::keywords::{
     Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex, RegionWindow,
 };
-use crate::text::parser::{LinkedIndexError, LinkedNameError, OptMetarootKey, Optional};
+use crate::text::parser::{
+    DependentKeyError, LinkedIndexError, LinkedNameError, OptMetarootKey, Optional,
+};
 use crate::type_families::ApplyOnce as _;
 
 use crate::text::optional::{DisplayMaybe as _, Nothing};
@@ -8159,13 +8161,14 @@ pub enum NewCoreLinkError {
 pub enum AnyLinkError {
     Name(LinkedNameError),
     Index(LinkedIndexError),
+    Dependent(DependentKeyError),
 }
 
 #[derive(From)]
 pub(crate) enum RemovedLink {
     GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
     GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
-    Gating(Gating),
+    Gating(RemovedGating),
     Comp2_0(NonEmpty<RemovedComp2_0Cell>),
     Comp3_0(RemovedIndexLink<Compensation3_0>),
     Spillover(RemovedNamedLink<Spillover>),
@@ -8192,7 +8195,7 @@ impl RemovedLink {
             Self::GatingRegion3_0(x) => go_gate!(kws, x),
             Self::GatingRegion3_2(x) => go_gate!(kws, x),
             Self::Gating(x) => {
-                let (k, v) = x.metaroot_pair_std();
+                let (k, v) = x.gating.metaroot_pair_std();
                 kws.insert_demoted(k, v);
             }
             Self::Comp2_0(xs) => {
@@ -8222,16 +8225,27 @@ impl RemovedLink {
         macro_rules! go_gate {
             ($es:expr, $x:expr) => {{
                 for e in $x.into_errors() {
-                    $es.push(e.into());
+                    $es.push(e);
                 }
             }};
         }
         match self {
             Self::GatingRegion3_0(x) => go_gate!(es, x),
             Self::GatingRegion3_2(x) => go_gate!(es, x),
-            // TODO throw error here saying this keyword was dropped, but
-            // because its dependency was also dropped
-            Self::Gating(x) => (),
+            Self::Gating(x) => {
+                let ks = x
+                    .region_indices
+                    .map(|ri| {
+                        // GateIndex is a dummy here, each index type should
+                        // produce the same std key
+                        let k0 = RegionGateIndex::<GateIndex>::std(ri);
+                        let k1 = RegionWindow::std(ri);
+                        (k0, vec![k1])
+                    })
+                    .map(NonEmpty::from);
+                let e = DependentKeyError::new(Gating::std(), NonEmpty::flatten(ks));
+                es.push(e.into())
+            }
             Self::Comp2_0(xs) => {
                 for x in xs {
                     es.push(x.as_error().into());
@@ -8319,14 +8333,20 @@ pub(crate) struct RemovedGateLink<I> {
     pub(crate) meas_indices: NonEmpty<MeasIndex>,
 }
 
+#[derive(new)]
+pub(crate) struct RemovedGating {
+    pub(crate) region_indices: NonEmpty<RegionIndex>,
+    pub(crate) gating: Gating,
+}
+
 impl<I> RemovedGateLink<I> {
-    fn into_errors(self) -> impl Iterator<Item = LinkedIndexError> {
+    fn into_errors(self) -> impl Iterator<Item = AnyLinkError> {
         let i = self.region_index;
-        let e0 = LinkedIndexError::new(RegionWindow::std(i), self.meas_indices.clone());
-        // TODO this key is dropped indirectly, it doesn't actually contain
-        // the reference and therefore doesn't need to show the indices
-        let e1 = LinkedIndexError::new(RegionGateIndex::<I>::std(i), self.meas_indices);
-        [e0, e1].into_iter()
+        let window_key = RegionWindow::std(i);
+        let index_key = RegionGateIndex::<I>::std(i);
+        let e0 = LinkedIndexError::new(window_key.clone(), self.meas_indices);
+        let e1 = DependentKeyError::new(index_key, NonEmpty::new(window_key));
+        [e0.into(), e1.into()].into_iter()
     }
 }
 

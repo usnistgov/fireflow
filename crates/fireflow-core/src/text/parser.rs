@@ -535,6 +535,13 @@ pub struct LinkedIndexError {
     pub indices: NonEmpty<MeasIndex>,
 }
 
+#[derive(Debug, Error, new)]
+#[error("{key} depends on other keys which are invalid: {bad}", bad = .deps.iter().join(", "))]
+pub struct DependentKeyError {
+    pub key: StdKey,
+    pub deps: NonEmpty<StdKey>,
+}
+
 pub(crate) fn lookup_temporal_scale_3_0(
     kws: &mut StdKeywords,
     i: MeasIndex,

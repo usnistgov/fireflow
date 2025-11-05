@@ -1,5 +1,5 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, StdTextReadConfig};
-use crate::core::{RemovedGateLink, RemovedLink};
+use crate::core::{RemovedGateLink, RemovedGating, RemovedLink};
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
 };
@@ -15,7 +15,7 @@ use crate::text::parser::{
     LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
 };
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{IndexedKey, Key, StdKey, StdKeywords};
+use crate::validated::keys::{IndexedKey, StdKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -721,17 +721,19 @@ impl<I> GatingScheme<I> {
         // which in turn reference measurement indices that don't exist. If it
         // has any, rip it out and return it.
         let gating = if let Some(g) = self.gating.as_ref() {
-            let gating_has_link = g.region_indices().iter().any(|rni| {
+            let xs = g.region_indices();
+            let ys = xs.iter().copied().filter(|&rni| {
                 self.regions
                     .get(&rni)
                     .into_iter()
                     .any(|rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
             });
-            if gating_has_link {
-                take(&mut self.gating)
-            } else {
-                None
-            }
+            NonEmpty::collect(ys).map(|zs| {
+                // ASSUME this won't fail because we are inside an if let Some
+                // block
+                let ret = take(&mut self.gating).unwrap();
+                RemovedGating::new(zs, ret)
+            })
         } else {
             None
         };

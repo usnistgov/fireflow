@@ -101,6 +101,7 @@ pub type FungibleResult<V, P, X, E, EC> =
 
 pub type DeferredFungible<V, X, E, EC> = FungibleResult<V, V, X, E, EC>;
 
+#[derive(Debug, PartialEq)]
 pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
     Succ(Success<V, X, LWC>),
     Fail(Failure<P, RWC, E, EC>),
@@ -108,7 +109,7 @@ pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
 
 use LogResult::{Fail, Succ};
 
-#[derive(new)]
+#[derive(Debug, PartialEq, new)]
 #[new(visibility = "")]
 pub struct Success<V, X, WC> {
     value: V,
@@ -116,7 +117,7 @@ pub struct Success<V, X, WC> {
     warnings: WC,
 }
 
-#[derive(new)]
+#[derive(Debug, PartialEq, new)]
 pub struct Failure<P, WC, E, EC> {
     warnings: WC,
     errors: GenNonEmpty<E, EC>,
@@ -129,7 +130,7 @@ pub struct ErrorSummary<E, S> {
     pub errors: GenNonEmpty<E, Vec<E>>,
 }
 
-#[derive(new)]
+#[derive(Debug, PartialEq, new)]
 pub struct GenNonEmpty<X, C> {
     head: X,
     tail: C,
@@ -2069,6 +2070,26 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     {
         if let Succ(s) = self {
             s.eval_warning(f);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn deconstruct<W>(self) -> (Option<V>, Vec<W>, Vec<E>)
+    where
+        LWC: IntoIterator<Item = W>,
+        RWC: IntoIterator<Item = W>,
+        EC: IntoIterator<Item = E>,
+    {
+        match self {
+            Succ(x) => {
+                let ws = x.warnings.into_iter().collect();
+                (Some(x.value), ws, vec![])
+            }
+            Fail(x) => {
+                let ws = x.warnings.into_iter().collect();
+                let es = x.errors.into_iter().collect();
+                (None, ws, es)
+            }
         }
     }
 }

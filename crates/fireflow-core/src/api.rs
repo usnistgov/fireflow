@@ -1313,21 +1313,19 @@ mod tests {
 
     #[test]
     fn split_text_escape() {
-        let kws = ParsedKeywords::default();
+        let mut kws = ParsedKeywords::default();
         let conf = ReadHeaderAndTEXTConfig::default();
         // NOTE should not start with delim
         let bytes = b"$P4F/700//75 BP/";
         let delim = 47;
-        let out = split_raw_text_escaped_delim(kws, delim, bytes, TEXTKind::Primary, &conf);
-        let v = out
-            .value()
+        let out = split_raw_text_escaped_delim(&mut kws, delim, bytes, TEXTKind::Primary, &conf);
+        let (_, ws, es) = out.deconstruct();
+        let v = kws
             .std
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), v.clone()))
             .next()
             .unwrap();
-        let es = out.errors();
-        let ws = out.warnings();
         assert_eq!(("$P4F".into(), "700/75 BP".into()), v);
         assert!(es.is_empty(), "errors: {es:?}");
         assert!(ws.is_empty(), "warnings: {ws:?}");

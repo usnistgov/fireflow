@@ -18,7 +18,7 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 /// A value that always exists.
-#[derive(Clone, PartialEq, AsRef)]
+#[derive(Clone, PartialEq, AsRef, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Identity<T>(pub T);
@@ -32,7 +32,7 @@ impl<T> IntoIterator for Identity<T> {
 }
 
 /// A value that never exists.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Nothing<T>(pub PhantomData<T>);
 

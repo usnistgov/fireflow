@@ -865,7 +865,7 @@ mod tests {
             b"of_the_night_sky",
             &ReadHeaderAndTEXTConfig::default(),
         );
-        assert_eq!(Ok(()), res);
+        assert_eq!(LogResult::new_ok(()), res);
         assert_eq!(
             s.to_owned(),
             p.std.into_iter().next().unwrap().0.to_string()
@@ -918,7 +918,7 @@ mod tests {
             b"the cake is a lie",
             &ReadHeaderAndTEXTConfig::default(),
         );
-        assert_eq!(Ok(()), res);
+        assert_eq!(LogResult::new_ok(()), res);
         assert_eq!(
             s.to_owned(),
             p.nonstd.into_iter().next().unwrap().0.to_string()

@@ -1987,7 +1987,7 @@ pub struct InputLengthError {
 }
 
 #[derive(Debug, Error, new)]
-#[error("error for element {index}: {error}")]
+#[error("error at index {index}: {error}")]
 pub struct IndexedElementError<E> {
     error: E,
     index: MeasIndex,

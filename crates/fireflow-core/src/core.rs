@@ -3106,26 +3106,29 @@ where
         let root_res = self
             .metaroot
             .try_convert(flag)
-            .map_errors(ConvertErrorInner::Meta);
+            .map_errors(ConvertError::Meta);
         let meas_res = self
             .measurements
             .map_center_value(|v| v.value.convert(v.index, flag).fungible_into_commutative())
             .set_err_value(())
-            .map_errors(ConvertErrorInner::Temporal)
+            .map_errors(ConvertError::Temporal)
             .map_commutative_warnings(MetarootConvertWarning::from)
             .and_then_cmt(|meas| {
                 meas.map_non_center_values(|i, v| v.try_convert(i, flag))
-                    .map_errors(ConvertErrorInner::Optical)
+                    .map_errors(ConvertError::Optical)
                     .map_commutative_warnings(MetarootConvertWarning::from)
             })
             .and_then_cmt(|meas| {
                 meas.try_rewrapped()
-                    .map_errors(ConvertErrorInner::Rewrap)
+                    .map_errors(ConvertError::Rewrap)
                     .nowarn_into_warn()
             });
         let layout_res = ConvertFromLayout::convert_from_layout(self.layout)
-            .map_errors(ConvertErrorInner::Layout)
+            .map_errors(ConvertError::Layout)
             .nowarn_into_warn();
+        let v0 = M::Ver::fcs_version().into();
+        let v1 = ToM::Ver::fcs_version().into();
+        let summary = ConvertFailure::new(v0, v1);
         root_res
             .zip3_cmt(meas_res, layout_res)
             .map_ok_value(|(metaroot, measurements, layout)| {
@@ -3138,10 +3141,7 @@ where
                     self.others,
                 )
             })
-            .map_errors(|error| {
-                ConvertError::new(M::Ver::fcs_version(), ToM::Ver::fcs_version(), error)
-            })
-            .summarize_errors()
+            .summarize_errors_with(summary)
     }
 
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
@@ -8121,18 +8121,8 @@ impl OthersReader<'_> {
     }
 }
 
-#[derive(Debug, Error, new)]
-#[error("could not convert from {from} to {to}: {inner}")]
-pub struct ConvertError<E> {
-    #[new(into)]
-    from: Version,
-    #[new(into)]
-    to: Version,
-    inner: ConvertErrorInner<E>,
-}
-
 #[derive(Debug, Display, Error)]
-pub enum ConvertErrorInner<E> {
+pub enum ConvertError<E> {
     Rewrap(IndexedElementError<E>),
     Meta(MetarootConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
@@ -8909,7 +8899,14 @@ def_failure!(NewCoreTEXTFailure, "could not make new CoreTEXT");
 #[cfg(feature = "python")]
 def_failure!(NewCoreDatasetFailure, "could not make new CoreDataset");
 
-def_failure!(ConvertFailure, "could not change FCS version");
+// def_failure!(ConvertFailure, "could not change FCS version");
+
+#[derive(Display, new)]
+#[display("could not convert version from {from} to {to}")]
+pub struct ConvertFailure {
+    from: Version,
+    to: Version,
+}
 
 def_failure!(SetLayoutFailure, "could not set data layout");
 

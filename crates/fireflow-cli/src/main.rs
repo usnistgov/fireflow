@@ -671,7 +671,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
             fcs_read_header(filepath, &conf.into())
-                .resolve_nowarn(print_errors)
+                .map_err(print_errors)
                 .map(|h| print_json(&h))
         }
 

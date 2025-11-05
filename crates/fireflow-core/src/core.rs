@@ -16,10 +16,10 @@ use crate::header::{
 };
 use crate::logging::{
     CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
-    ErrorSummary, ErrorsResult, FungibleErrorResult, FungibleErrorsResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
-    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult, WarningsAndSummaryResult,
+    ErrorsResult, FungibleErrorResult, FungibleErrorsResult, IOWarningsAndErrorsResult,
+    ImpureError, LogResult, ResultExt as _, SummaryResult, WarningOrErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
+    WarningsAndSummaryResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -2667,6 +2667,7 @@ where
             .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
             .map_ok_value(|_| ())
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Get field which is on both optical and temporal measurement types
@@ -2715,6 +2716,7 @@ where
             )
             .set_ok_value(())
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -2937,6 +2939,7 @@ where
                     .unstainedcenters_mut(private::NoTouchy) = us;
             })
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Return $PnE (2.0)
@@ -3001,6 +3004,7 @@ where
                     .unwrap();
             })
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Set $PnE/$PnG (3.0+)
@@ -3035,6 +3039,7 @@ where
                     .unwrap();
             })
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Set gating keywords (3.0/3.1)
@@ -3326,6 +3331,7 @@ where
     {
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     // TODO add replace measurements function which doesn't touch PnN but
@@ -3351,6 +3357,7 @@ where
             .check_measurement_vector(&self.measurements)
             .when_ok(|| self.layout = layout)
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Set measurements and layout
@@ -3387,6 +3394,7 @@ where
                     })
             })
             .summarize_errors()
+            .resolve_nowarn()
     }
 
     pub fn set_measurements_inner(
@@ -4439,7 +4447,7 @@ where
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> ErrorResult<(), (), ErrorSummary<SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>>
+    ) -> SummaryResult<(), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
     where
         M::Optical: AsScaleTransform,
     {
@@ -4453,6 +4461,7 @@ where
                     .when_ok(|| self.data = df)
             })
             .summarize_errors()
+            .resolve_nowarn()
     }
 }
 

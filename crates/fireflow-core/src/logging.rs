@@ -20,7 +20,7 @@ pub type WarningsAndIOSummaryResult<V, W, E, S> = WarningsAndSummaryResult<V, W,
 pub type WarningsAndSummaryResult<V, W, E, S> =
     WarningsAndErrorResult<V, (), W, ErrorSummary<E, S>>;
 
-pub type SummaryResult<V, E, S> = ErrorResult<V, (), ErrorSummary<E, S>>;
+pub type SummaryResult<V, E, S> = Result<V, ErrorSummary<E, S>>;
 
 pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
 
@@ -1556,13 +1556,10 @@ impl<V, P, EC> NowarnResult<V, P, Infallible, EC> {
 
 impl<V, E> NowarnResult<V, (), E, Nothing<E>> {
     /// Resolve Result with no warnings into regular Result type.
-    pub fn resolve_nowarn<F, FailRes>(self, f: F) -> Result<V, FailRes>
-    where
-        F: FnOnce(E) -> FailRes,
-    {
+    pub fn resolve_nowarn(self) -> Result<V, E> {
         match self {
             Succ(s) => Ok(s.value),
-            Fail(x) => Err(f(x.errors.head)),
+            Fail(x) => Err(x.errors.head),
         }
     }
 }
@@ -2275,7 +2272,7 @@ where
 mod python {
     use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
-    use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult, NowarnResult};
+    use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult};
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
@@ -2337,15 +2334,6 @@ mod python {
             let (res, warn) = self.resolve_non_cmt(emit_warnings, Into::into)?;
             warn?;
             Ok(res)
-        }
-    }
-
-    impl<V, E> NowarnResult<V, (), E, Nothing<E>> {
-        pub fn py_resolve_nowarn(self) -> PyResult<V>
-        where
-            E: Into<PyErr>,
-        {
-            self.resolve_nowarn(Into::into)
         }
     }
 

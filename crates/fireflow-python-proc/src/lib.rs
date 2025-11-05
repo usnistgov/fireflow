@@ -45,7 +45,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
-            Ok(#fun_path(&path, &conf).py_resolve_nowarn()?.into())
+            Ok(#fun_path(&path, &conf)?.into())
         }
     }
     .into()
@@ -941,7 +941,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> PyResult<Self> {
                 let ret = #fun(#coretext_inner_args)
                     .summarize_errors_with(fireflow_core::core::NewCoreTEXTFailure)
-                    .py_resolve_nowarn()?;
+                    .resolve_nowarn()?;
                 Ok(ret.into())
             }
         }
@@ -953,7 +953,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 // TODO hide this in core.rs
                 let x = #fun(#coretext_inner_args)
                     .summarize_errors_with(fireflow_core::core::NewCoreDatasetFailure)
-                    .py_resolve_nowarn()?;
+                    .resolve_nowarn()?;
                 Ok(x.into_coredataset(data.0.try_into()?, analysis, others)?.into())
             }
         }
@@ -1496,7 +1496,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "all_scales",
             true,
             |_, _| quote!(self.0.scales().collect()),
-            |n, _| quote!(self.0.set_scales(#n).py_resolve_nowarn()),
+            |n, _| quote!(Ok(self.0.set_scales(#n)?)),
         )
     } else {
         let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
@@ -1517,7 +1517,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             "all_scale_transforms",
             true,
             |_, _| quote!(self.0.transforms().collect()),
-            |n, _| quote!(self.0.set_transforms(#n).py_resolve_nowarn()),
+            |n, _| quote!(Ok(self.0.set_transforms(#n)?)),
         )
     }
     .into()
@@ -1654,13 +1654,13 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn set_measurements(&mut self, #fun_args) -> PyResult<()> {
-                self.0
+                let ret = self.0
                     .set_measurements(
                         measurements.0.inner_into(),
                         allow_shared_names,
                         skip_index_check,
-                    )
-                    .py_resolve_nowarn()
+                    )?;
+                Ok(ret)
             }
         }
     }
@@ -2279,14 +2279,14 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         impl #i {
             #doc
             fn set_measurements_and_layout(&mut self, #fun_args) -> PyResult<()> {
-                self.0
+                let ret = self.0
                     .set_measurements_and_layout(
                         measurements.0.inner_into(),
                         layout.into(),
                         allow_shared_names,
                         skip_index_check,
-                    )
-                    .py_resolve_nowarn()
+                    )?;
+                Ok(ret)
             }
         }
     }
@@ -2315,14 +2315,14 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
         impl #i {
             #doc
             fn set_measurements_and_data(&mut self, #fun_args) -> PyResult<()> {
-                self.0
+                let ret = self.0
                     .set_measurements_and_data(
                         measurements.0.inner_into(),
                         data,
                         allow_shared_names,
                         skip_index_check,
-                    )
-                    .py_resolve_nowarn()
+                    )?;
+                Ok(ret)
             }
         }
     }
@@ -2734,7 +2734,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
                     .collect()
             }
         },
-        |n, _| quote!(self.0.set_temporal_optical2(#n).py_resolve_nowarn()),
+        |n, _| quote!(Ok(self.0.set_temporal_optical2(#n)?)),
     )
     .into()
 }
@@ -2849,7 +2849,7 @@ where
         },
         |n, _| {
             if optical_only {
-                quote!(self.0.set_optical(#n).py_resolve_nowarn())
+                quote!(Ok(self.0.set_optical(#n)?))
             } else {
                 quote!(Ok(self.0.set_meas(#n)?))
             }
@@ -5739,7 +5739,7 @@ impl DocArgRWIvar {
             layout_desc,
             true,
             |_, _| quote!(self.0.layout().clone().into()),
-            |_, _| quote!(self.0.set_layout(layout.into()).py_resolve_nowarn()),
+            |_, _| quote!(Ok(self.0.set_layout(layout.into())?)),
         )
     }
 
@@ -5909,7 +5909,7 @@ impl DocArgRWIvar {
             "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
-            |n, _| quote!(self.0.set_unstained_centers(#n).py_resolve_nowarn()),
+            |n, _| quote!(Ok(self.0.set_unstained_centers(#n)?)),
         )
         .def_auto()
     }

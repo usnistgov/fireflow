@@ -68,6 +68,7 @@ pub fn fcs_read_header(
             Header::h_read(&mut reader, &st)
         })
         .summarize_errors()
+        .resolve_nowarn()
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file.

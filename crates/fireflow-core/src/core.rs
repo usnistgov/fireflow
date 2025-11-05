@@ -18,8 +18,7 @@ use crate::logging::{
     CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
     ErrorsResult, FungibleErrorResult, FungibleErrorsResult, IOWarningsAndErrorsResult,
     ImpureError, LogResult, ResultExt as _, SummaryResult, WarningOrErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
-    WarningsAndSummaryResult,
+    WarningsAndErrorsResult, WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -28,7 +27,7 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
-use crate::type_families::{Applicative, ApplyOnce as _};
+use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
 
 use crate::text::{
     byteord::OrderedToEndianError,
@@ -4269,7 +4268,7 @@ where
     pub fn truncate_data(
         &mut self,
         skip_conv_check: bool,
-    ) -> WarningsAndErrorResult<(), (), ColumnError<AnyLossError>, Infallible> {
+    ) -> WarningsResult<(), ColumnError<AnyLossError>> {
         // TODO this function is hilariously not-optimized; each column will be
         // cast into a totally new vector even if they are they exact same
         // type with no possible truncation. This also means that the new
@@ -4279,8 +4278,7 @@ where
         // otherwise do something else.
         self.layout
             .truncate_df(&self.data, skip_conv_check)
-            .map_ok_value(|data| self.data = data)
-            .map_err_value(|_| ())
+            .fmap_once(|data| self.data = data)
     }
 
     // TODO add function to append event(s)?

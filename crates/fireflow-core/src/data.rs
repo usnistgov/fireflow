@@ -56,7 +56,7 @@ use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
     DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, FungibleErrorResult,
     FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError, LogResult,
-    ResultExt as _, WarningOrErrorResult, WarningsAndErrorsResult,
+    ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult, WarningsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -594,12 +594,11 @@ pub trait LayoutOps<'a, T>: Sized {
             .map_def_value(|_| ())
     }
 
-    // TODO return type seems wonky, doesn't this just return warnings?
     fn truncate_df(
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible>;
+    ) -> WarningsResult<FCSDataFrame, ColumnError<AnyLossError>>;
 }
 
 #[delegatable_trait]
@@ -2299,7 +2298,7 @@ where
         &self,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible> {
+    ) -> WarningsResult<FCSDataFrame, ColumnError<AnyLossError>> {
         let nrows = df.nrows();
         let (columns, warnings): (Vec<_>, Vec<_>) = df
             .iter_columns()
@@ -2320,7 +2319,8 @@ where
             })
             .unzip();
         let ws: Vec<_> = warnings.into_iter().flatten().collect();
-        LogResult::new_ok(FCSDataFrame::try_new(columns).unwrap()).set_commutative_warnings(ws)
+        let ret = FCSDataFrame::try_new(columns).unwrap();
+        Success::new_non_fungible(ret).set_warnings(ws)
     }
 }
 
@@ -2658,7 +2658,7 @@ where
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<FCSDataFrame, ColumnError<AnyLossError>, Infallible> {
+    ) -> WarningsResult<FCSDataFrame, ColumnError<AnyLossError>> {
         // ASSUME df has same number of columns as layout
         let (new_columns, warnings): (Vec<_>, Vec<_>) = self
             .columns
@@ -2676,7 +2676,8 @@ where
             .enumerate()
             .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)))
             .collect();
-        LogResult::new_ok(FCSDataFrame::try_new(new_columns).unwrap()).set_commutative_warnings(ws)
+        let ret = FCSDataFrame::try_new(new_columns).unwrap();
+        Success::new_non_fungible(ret).set_warnings(ws)
     }
 }
 

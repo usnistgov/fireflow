@@ -2240,7 +2240,7 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
-                self.0.truncate_data(#inner_arg).py_resolve_infallible()
+                self.0.truncate_data(#inner_arg).py_resolve_warnings()
             }
         }
     }

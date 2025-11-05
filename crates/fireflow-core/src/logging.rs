@@ -25,6 +25,12 @@ pub type SummaryResult<V, E, S> = Result<V, ErrorSummary<E, S>>;
 pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
 
 //
+// Results with only warnings
+//
+
+pub type WarningsResult<V, W> = Success<V, (), Vec<W>>;
+
+//
 // Results without warnings
 //
 
@@ -518,7 +524,7 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    fn resolve<F, Wres>(self, f: F) -> (V, Wres)
+    pub fn resolve<F, Wres>(self, f: F) -> (V, Wres)
     where
         F: FnOnce(WC) -> Wres,
     {
@@ -2091,24 +2097,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     }
 }
 
-impl<V, P, LWC, X, RWC, EC> LogResult<V, P, LWC, RWC, X, Infallible, EC> {
-    // pub(crate) fn infallible_into<Pf, RWCf, Ef, ECf>(
-    //     self,
-    // ) -> LogResult<V, Pf, LWC, RWCf, X, Ef, ECf> {
-    //     let Succ(ret) = self;
-    //     Succ(ret)
-    // }
-
-    #[cfg(feature = "python")]
-    pub(crate) fn infallible_with_warn_into<F, Wres>(self, f: F) -> (V, Wres)
-    where
-        F: FnOnce(LWC) -> Wres,
-    {
-        let Succ(ret) = self;
-        (ret.value, f(ret.warnings))
-    }
-}
-
 /// Monoid-ically combine commutative results.
 ///
 /// Ok values will be collected and returned as a single vector upon success.
@@ -2272,11 +2260,10 @@ where
 mod python {
     use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
-    use super::{CmtResult, ErrorSummary, ImpureError, LogResult, NonCmtResult};
+    use super::{CmtResult, ErrorSummary, ImpureError, NonCmtResult, Success};
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
-    use std::convert::Infallible;
     use std::ffi::CString;
     use std::fmt::Display;
 
@@ -2337,13 +2324,13 @@ mod python {
         }
     }
 
-    impl<V, LWC, RWC> LogResult<V, (), LWC, RWC, (), Infallible, Nothing<Infallible>> {
-        pub fn py_resolve_infallible<W>(self) -> PyResult<V>
+    impl<V, WC> Success<V, (), WC> {
+        pub fn py_resolve_warnings<W>(self) -> PyResult<V>
         where
-            LWC: IntoIterator<Item = W>,
+            WC: IntoIterator<Item = W>,
             W: Display,
         {
-            let (value, warn) = self.infallible_with_warn_into(emit_warnings);
+            let (value, warn) = self.resolve(emit_warnings);
             warn?;
             Ok(value)
         }

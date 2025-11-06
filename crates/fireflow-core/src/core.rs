@@ -7177,13 +7177,12 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let data_res = KeyedReqSegment::remove_req_or(kws, data, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
-            KeyedOptSegment::remove_opt_or(kws, analysis, st)
-                .set_err_value(())
-                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-                .map_errors(LookupTEXTOffsetsError::from)
-                .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
-        })
+        let analysis_res = KeyedOptSegment::remove_opt_or(kws, analysis, st)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
+        tot_res
+            .zip3_cmt(data_res, analysis_res)
+            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
     fn lookup_ro<C>(
@@ -7201,14 +7200,12 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let data_res = KeyedReqSegment::get_req_or(kws, data, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        tot_res.zip_cmt(data_res).and_then_cmt(|(tot, d)| {
-            // TODO flip order of required and optional
-            KeyedOptSegment::get_opt_or(kws, analysis, st)
-                .set_err_value(())
-                .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
-                .map_errors(LookupTEXTOffsetsError::from)
-                .map_ok_value(|a| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
-        })
+        let analysis_res = KeyedOptSegment::get_opt_or(kws, analysis, st)
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from);
+        tot_res
+            .zip3_cmt(data_res, analysis_res)
+            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
     fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {

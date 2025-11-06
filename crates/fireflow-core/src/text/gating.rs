@@ -1085,7 +1085,8 @@ pub struct MismatchedIndexAndWindowError;
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
+        impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow1_err, impl_to_py_via_display,
+        impl_value_err,
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
@@ -1099,7 +1100,8 @@ mod python {
 
     impl_value_err!(GatingError);
     impl_value_err!(MeasOrGateIndexError);
-    impl_pyreflow_err!(GateMeasurementLinkError);
 
-    impl_pyreflow_err!(NewAppliedGatesWithSchemeError);
+    impl_pyreflow1_err!(RelationalException, GateMeasurementLinkError);
+
+    impl_from_pyerr!(NewAppliedGatesWithSchemeError, Link, Scheme);
 }

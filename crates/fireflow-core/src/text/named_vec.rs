@@ -1080,7 +1080,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_v: F,
     ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, U, LWC, RWC, (), E, EC>,
         E: From<KeyNotFoundError>,
         EC: Default,
         LWC: Default,
@@ -1126,7 +1126,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_v: F,
     ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, U, LWC, RWC, (), E, EC>,
         E: From<SetCenterError>,
         LWC: Default,
         RWC: Default,
@@ -1190,7 +1190,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_v: F,
     ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<V, Box<U>, LWC, RWC, (), E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<V, U, LWC, RWC, (), E, EC>,
         LWC: Default,
         K: MightHave<Shortname>,
     {
@@ -1203,7 +1203,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         (sp, Element::NonCenter(old_left_val))
                     })
                     .map_err_value(|(center_val, (stable, old_left_val))| {
-                        Self::recover_split_from_left(old_left_val, *center_val, stable)
+                        Self::recover_split_from_left(old_left_val, center_val, stable)
                     }),
 
                 PartialSplit::Center(x) => {
@@ -1219,7 +1219,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         (sp, Element::NonCenter(old_right_val))
                     })
                     .map_err_value(|(center_val, (stable, old_right_val))| {
-                        Self::recover_split_from_right(old_right_val, *center_val, stable)
+                        Self::recover_split_from_right(old_right_val, center_val, stable)
                     }),
             },
 
@@ -1377,7 +1377,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         to_v: F,
     ) -> LogResult<Option<X>, (), LWC, RWC, (), E, EC>
     where
-        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), Box<U>, LWC, RWC, (), E, EC>,
+        F: FnOnce(MeasIndex, U) -> LogResult<(V, X), U, LWC, RWC, (), E, EC>,
         LWC: Default,
         K: Applicative<Shortname>,
     {
@@ -1392,7 +1392,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         (Self::new_unsplit(members), Some(ret))
                     })
                     .map_err_value(|(value, (left, center_key, right))| {
-                        let center = Pair::new(center_key, *value);
+                        let center = Pair::new(center_key, value);
                         Self::new_split(left, center, right)
                     })
             }

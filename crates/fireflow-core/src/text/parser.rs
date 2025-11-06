@@ -695,6 +695,7 @@ pub struct UnusedStandardError(pub StdKey);
 pub struct ParseKeyError<E> {
     #[new(into)]
     pub error: E,
+    // TODO replace this with a generic type to prevent storing/cloning a string
     pub key: StdKey,
     pub value: String,
 }

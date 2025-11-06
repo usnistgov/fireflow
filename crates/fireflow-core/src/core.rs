@@ -1591,7 +1591,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
         flag: Self::LossFlag,
     ) -> LogResult<
         (Optical<Self>, Self::TData),
-        Box<Temporal<T>>,
+        Temporal<T>,
         T::Warning,
         Nothing<()>,
         Self::LossFlag,
@@ -3841,7 +3841,6 @@ where
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf, par)
                 .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(Box::new)
                 .map_errors(StdTEXTFromRawError::from);
 
             let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
@@ -4121,7 +4120,6 @@ where
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
-            .map_errors(Box::new)
             .map_commutative_warnings(StdDatasetFromRawWarning::from)
             .map_errors(StdDatasetFromRawError::from)
             .map_errors(ImpureError::Pure)
@@ -7232,8 +7230,7 @@ impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
         tmp: Temporal<InnerTemporal2_0>,
         i: MeasIndex,
         (): Self::LossFlag,
-    ) -> ErrorResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal2_0>>, Infallible>
-    {
+    ) -> ErrorResult<(Optical<Self>, Self::TData), Temporal<InnerTemporal2_0>, Infallible> {
         let () = tmp.specific.can_convert_to_optical(i).unwrap_infallible();
         LogResult::new_ok(Self::from_temporal_unchecked(tmp))
     }
@@ -7253,8 +7250,7 @@ impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
         tmp: Temporal<InnerTemporal3_0>,
         i: MeasIndex,
         (): Self::LossFlag,
-    ) -> ErrorResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_0>>, Infallible>
-    {
+    ) -> ErrorResult<(Optical<Self>, Self::TData), Temporal<InnerTemporal3_0>, Infallible> {
         let () = tmp.specific.can_convert_to_optical(i).unwrap_infallible();
         LogResult::new_ok(Self::from_temporal_unchecked(tmp))
     }
@@ -7274,8 +7270,7 @@ impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
         tmp: Temporal<InnerTemporal3_1>,
         i: MeasIndex,
         (): Self::LossFlag,
-    ) -> ErrorResult<(Optical<Self>, Self::TData), Box<Temporal<InnerTemporal3_1>>, Infallible>
-    {
+    ) -> ErrorResult<(Optical<Self>, Self::TData), Temporal<InnerTemporal3_1>, Infallible> {
         let () = tmp.specific.can_convert_to_optical(i).unwrap_infallible();
         LogResult::new_ok(Self::from_temporal_unchecked(tmp))
     }
@@ -7303,7 +7298,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         flag: AllowLoss,
     ) -> FungibleErrorResult<
         (Optical<Self>, Self::TData),
-        Box<Temporal<InnerTemporal3_2>>,
+        Temporal<InnerTemporal3_2>,
         AllowLoss,
         AnyTemporalToOpticalKeyLossError,
     > {
@@ -7312,7 +7307,6 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             .into_deferred_fungible::<_, Nothing<_>>(flag)
             .set_def_value(tmp)
             .map_ok_value(Self::from_temporal_unchecked)
-            .map_err_value(Box::new)
     }
 
     fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {
@@ -8499,7 +8493,7 @@ pub enum StdTEXTFromKeywordsError {
 pub enum StdTEXTFromRawError {
     New(NewCoreError),
     Metaroot(LookupKeysError),
-    Layout(Box<LookupLayoutError>),
+    Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
     Pseudostandard(PseudostandardError),
     Unused(UnusedStandardError),
@@ -8518,7 +8512,7 @@ pub enum StdTEXTFromRawWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdDatasetFromRawError {
-    TEXT(Box<StdTEXTFromRawError>),
+    TEXT(StdTEXTFromRawError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromRawWarning),

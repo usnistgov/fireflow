@@ -28,7 +28,6 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::num::ParseIntError;
-use std::str;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -58,13 +57,35 @@ pub struct Segment<I, S, T> {
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Debug, Display, new)]
 #[display("segment for {region} from {src} with coords ({begin}, {end})")]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
     pub(crate) end: u64,
-    pub(crate) region: &'static str,
-    pub(crate) src: &'static str,
+    pub(crate) region: AnyRegion,
+    pub(crate) src: AnySrc,
+}
+
+#[derive(Clone, Debug, Display)]
+pub enum AnySrc {
+    #[display("HEADER")]
+    Header,
+    #[display("TEXT")]
+    Text,
+}
+
+#[derive(Clone, Debug, Display)]
+pub enum AnyRegion {
+    #[display("ANALYSIS")]
+    Analysis,
+    #[display("DATA")]
+    Data,
+    #[display("TEXT")]
+    Text,
+    #[display("STEXT")]
+    Stext,
+    #[display("OTHER")]
+    Other,
 }
 
 /// Denotes a segment came from HEADER
@@ -427,12 +448,12 @@ type OptPair<B, E> = (
 
 /// Denotes that a type comes from a specific part of the FCS file
 pub(crate) trait HasSource {
-    const SRC: &'static str;
+    const SRC: AnySrc;
 }
 
 /// Denotes that a type pertains to a region of the FCS file
 pub(crate) trait HasRegion {
-    const REGION: &'static str;
+    const REGION: AnyRegion;
 }
 
 impl KeyedSegment for AnalysisSegmentId {
@@ -471,31 +492,31 @@ impl KeyedOptSegment for SupplementalTextSegmentId {
 }
 
 impl HasSource for SegmentFromHeader {
-    const SRC: &'static str = "HEADER";
+    const SRC: AnySrc = AnySrc::Header;
 }
 
 impl HasSource for SegmentFromTEXT {
-    const SRC: &'static str = "TEXT";
+    const SRC: AnySrc = AnySrc::Text;
 }
 
 impl HasRegion for AnalysisSegmentId {
-    const REGION: &'static str = "ANALYSIS";
+    const REGION: AnyRegion = AnyRegion::Analysis;
 }
 
 impl HasRegion for DataSegmentId {
-    const REGION: &'static str = "DATA";
+    const REGION: AnyRegion = AnyRegion::Data;
 }
 
 impl HasRegion for SupplementalTextSegmentId {
-    const REGION: &'static str = "STEXT";
+    const REGION: AnyRegion = AnyRegion::Stext;
 }
 
 impl HasRegion for PrimaryTextSegmentId {
-    const REGION: &'static str = "TEXT";
+    const REGION: AnyRegion = AnyRegion::Text;
 }
 
 impl HasRegion for OtherSegmentId {
-    const REGION: &'static str = "OTHER";
+    const REGION: AnyRegion = AnyRegion::Other;
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -642,12 +663,7 @@ impl<I, S, T> Segment<I, S, T> {
     {
         self.inner.try_as_nonempty().map(|x| {
             let (begin, end) = x.as_u64().coords();
-            GenericSegment {
-                begin,
-                end,
-                src: S::SRC,
-                region: I::REGION,
-            }
+            GenericSegment::new(begin, end, I::REGION, S::SRC)
         })
     }
 
@@ -1014,8 +1030,8 @@ pub struct SegmentError<T> {
     corr_begin: i32,
     corr_end: i32,
     kind: SegmentErrorKind,
-    location: &'static str,
-    src: &'static str,
+    location: AnyRegion,
+    src: AnySrc,
 }
 
 #[derive(Debug, Error)]
@@ -1037,7 +1053,7 @@ pub enum SegmentErrorKind {
 pub struct ParseOffsetError {
     pub(crate) error: ParseFixedUintError,
     pub(crate) is_begin: bool,
-    pub(crate) location: &'static str,
+    pub(crate) location: AnyRegion,
     pub(crate) source: Vec<u8>,
 }
 

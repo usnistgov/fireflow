@@ -261,7 +261,6 @@ impl Header {
                 .and_then_cmt(|hdr| {
                     hdr.segments
                         .validate()
-                        .map_errors(Box::new)
                         .map_errors(HeaderError::Validation)
                         .map_errors(ImpureError::Pure)
                         .map_ok_value(|()| hdr)
@@ -467,7 +466,7 @@ pub enum HeaderError {
     #[error("{0}")]
     Version(VersionError),
     #[error("{0}")]
-    Validation(Box<HeaderValidationError>),
+    Validation(HeaderValidationError),
     #[error("version must be followed by 4 spaces")]
     Space,
 }

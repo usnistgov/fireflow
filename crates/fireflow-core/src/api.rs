@@ -440,7 +440,7 @@ pub enum ParseRawTEXTError {
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
     Nonstandard(NonstandardError),
-    Header(Box<HeaderValidationError>),
+    Header(HeaderValidationError),
 }
 
 #[derive(From, Display)]
@@ -1230,11 +1230,14 @@ impl RawTEXTParseData {
             let x = self
                 .header_segments
                 .contains_text_segment(&s)
-                .map_err(Into::into)
+                .map_err(HeaderValidationError::from)
                 .into_log();
-            let y = self.header_segments.overlaps_with(&s).errors_into();
+            let y = self
+                .header_segments
+                .overlaps_with(&s)
+                .map_errors(HeaderValidationError::from);
             x.lift_f2_once(y, |(), ()| ())
-                .map_errors(|e| ParseRawTEXTError::from(Box::new(e)))
+                .map_errors(ParseRawTEXTError::from)
         } else {
             LogResult::new_ok(())
         }

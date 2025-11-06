@@ -8510,7 +8510,6 @@ pub enum StdDatasetFromRawError {
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromRawWarning),
-    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8518,7 +8517,6 @@ pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
-    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8882,8 +8880,6 @@ def_failure!(NewCoreTEXTFailure, "could not make new CoreTEXT");
 #[cfg(feature = "python")]
 def_failure!(NewCoreDatasetFailure, "could not make new CoreDataset");
 
-// def_failure!(ConvertFailure, "could not change FCS version");
-
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
 pub struct ConvertFailure {
@@ -9003,9 +8999,9 @@ mod python {
         NewCoreTEXTError, NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other,
         Others, PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
         RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
-        SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
-        SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
-        StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
+        ScaleTransformError, SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError,
+        SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError, SetTransformsError,
+        SpilloverLinkError, StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
@@ -9124,6 +9120,7 @@ mod python {
     impl_pyreflow1_err!(RelationalException, TriggerLinkError);
     impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow1_err!(RelationalException, CompParMismatchError);
+    impl_pyreflow1_err!(RelationalException, ScaleTransformError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);

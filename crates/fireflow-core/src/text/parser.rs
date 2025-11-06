@@ -11,16 +11,17 @@ use super::byteord::{NewEndianError, ParseByteOrdError, Width};
 use super::compensation::{NewCompError, ParseCompError};
 use super::datetimes::{FCSDateTimeError, ReversedDatetimesError};
 use super::gating;
-use super::index::{IndexFromOne, MeasIndex};
+use super::index::{GateIndex, IndexFromOne, MeasIndex};
 use super::keywords::{
     AlphaNumTypeError, Analyte, Beginanalysis, Begindata, Calibration3_1, Calibration3_2,
     CalibrationError, CalibrationFormat3_1, CalibrationFormat3_2, DetectorName, DetectorType,
     DetectorVoltage, Dfc, Display, DisplayError, Endanalysis, Enddata, Feature, FeatureError, Gain,
-    GatePairError, Gating, GatingError, LastModifiedError, Longname, MeasOrGateIndexError,
-    Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-    OriginalityError, ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError,
-    Range, RegionGateIndexError, RegionIndexError, Tag, TemporalGainError, TemporalScaleError,
-    TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError, WavelengthsError,
+    GatePairError, Gating, GatingError, LastModifiedError, Longname, MeasOrGateIndex,
+    MeasOrGateIndexError, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType,
+    OpticalTypeError, OriginalityError, ParseUnstainedCenterError, PercentEmitted, Power,
+    PrefixedMeasIndex, PrefixedMeasIndexError, Range, RegionGateIndexError, RegionLinkError, Tag,
+    TemporalGainError, TemporalScaleError, TemporalTypeError, Timestep, Tot, TriggerError,
+    UnicodeError, WavelengthsError,
 };
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
@@ -592,7 +593,9 @@ pub enum LookupKeysWarning {
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(DependentKeyError<Gating>),
     Spillover(KeyToIndexLinkError<Spillover>),
-    LinkedIndex(RegionIndexError),
+    RegionIndex2_0(RegionLinkError<GateIndex>),
+    RegionIndex3_0(RegionLinkError<MeasOrGateIndex>),
+    RegionIndex3_2(RegionLinkError<PrefixedMeasIndex>),
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
     Dep(DeprecatedError),

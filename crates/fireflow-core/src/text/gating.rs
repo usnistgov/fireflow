@@ -17,7 +17,7 @@ use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
+    PrefixedMeasIndex, RegionGateIndex, RegionLinkError, RegionWindow, UniGate, Vertex,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -813,6 +813,7 @@ impl<I> Region<I> {
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
         ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
+        LookupKeysWarning: From<RegionLinkError<I>>,
     {
         Self::lookup_inner(
             kws,

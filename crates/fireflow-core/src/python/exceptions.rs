@@ -17,6 +17,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    KeywordParseError,
+    PyreflowException,
+    "Exception caused by parsing an invalid standard keyword"
+);
+
+create_exception!(
+    _pyreflow,
     InvalidKeywordValueError,
     PyreflowException,
     "Exception caused by an individual, invalid keyword assignment"

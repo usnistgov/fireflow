@@ -20,8 +20,8 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, LookupKeysWarning,
-    LookupOptional, LookupResult, LookupTentative, OptIndexedKey, OptMetarootKey, Optional,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, IndexedKeyToIndexLinkError,
+    LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey, OptMetarootKey, Optional,
     ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
@@ -88,7 +88,7 @@ impl Gain {
 
 /// Error triggered when time measurement has $PnG
 #[derive(Debug, Error)]
-#[error("$P{0}G must be 1.0 or not set for temporal measurement")]
+#[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
@@ -889,37 +889,27 @@ impl<I> RegionGateIndex<I> {
         par: Par,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Option<Self>>
+    ) -> LookupOptional<Self>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
         ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
+        LookupKeysWarning: From<RegionLinkError<I>>,
     {
         let flag = conf.allow_optional_dropping;
-        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf).and_then_def_result(
-            flag,
-            |maybe| {
-                maybe
-                    .map(|x| {
-                        Self::check_link(&x, par)
-                            .map_err(LookupKeysWarning::from)
-                            .map(|()| x)
-                    })
-                    .transpose()
-            },
-        )
+        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf)
+            .eval_warning_or_error(flag, |maybe| maybe.as_ref()?.link_error(i, par))
     }
 
-    fn check_link(&self, par: Par) -> Result<(), RegionIndexError>
+    fn link_error(&self, ri: RegionIndex, par: Par) -> Option<RegionLinkError<I>>
     where
         I: gating::LinkedMeasIndex,
     {
-        NonEmpty::collect(
-            self.meas_indices()
-                .into_iter()
-                .filter(|&i| i >= par.0.into()),
-        )
-        .map_or(Ok(()), |ne| Err(RegionIndexError(ne)))
+        let xs = self
+            .meas_indices()
+            .into_iter()
+            .filter(|&mi| mi >= par.0.into());
+        NonEmpty::collect(xs).map(|ne| IndexedKeyToIndexLinkError::new(ne, ri.into()))
     }
 
     fn meas_indices(&self) -> Vec<MeasIndex>
@@ -935,6 +925,8 @@ impl<I> RegionGateIndex<I> {
         }
     }
 }
+
+pub(crate) type RegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
 impl<I: FromStr> FromStrStateful for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
@@ -983,13 +975,6 @@ pub enum RegionGateIndexError<E> {
     #[error("must be either a single value 'x' or a pair 'x,y'")]
     Format,
 }
-
-#[derive(Debug, Error)]
-#[error(
-    "region index refers to non-existent measurement index: {}",
-    .0.iter().join(",")
-)]
-pub struct RegionIndexError(NonEmpty<MeasIndex>);
 
 #[derive(Clone, Copy, From, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

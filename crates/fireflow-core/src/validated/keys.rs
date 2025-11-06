@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::str;
 use std::str::FromStr;
 use std::string::ToString;
@@ -270,6 +271,55 @@ pub(crate) trait BiIndexedKey {
     //     s.push_str(Self::SUFFIX);
     //     s
     // }
+}
+
+#[derive(Clone, Copy, Debug, new)]
+pub struct SpecificKey<T, I> {
+    index: I,
+    _key: PhantomData<T>,
+}
+
+impl<T> Default for SpecificKey<T, ()> {
+    fn default() -> Self {
+        Self::new(())
+    }
+}
+
+impl<T> SpecificKey<T, IndexFromOne> {
+    pub(crate) fn new_i1(i: IndexFromOne) -> Self {
+        Self::new(i)
+    }
+}
+
+impl<T> SpecificKey<T, BiIndex> {
+    pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
+        Self::new(BiIndex::new(i, j))
+    }
+}
+
+#[derive(Debug, new)]
+pub struct BiIndex {
+    i0: IndexFromOne,
+    i1: IndexFromOne,
+}
+
+impl<T: Key> fmt::Display for SpecificKey<T, ()> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", T::std())
+    }
+}
+
+impl<T: IndexedKey> fmt::Display for SpecificKey<T, IndexFromOne> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", T::std(self.index))
+    }
+}
+
+impl<T: BiIndexedKey> fmt::Display for SpecificKey<T, BiIndex> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = &self.index;
+        write!(f, "{}", T::std(i.i0, i.i1))
+    }
 }
 
 pub type NonStdKeywords = HashMap<NonStdKey, String>;

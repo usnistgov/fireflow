@@ -85,7 +85,7 @@ impl GenericSpillover<MeasIndex> {
         }
         if let Some(i) = missing {
             let es = NonEmpty::from((i, it.collect::<Vec<_>>()));
-            return Err(KeyToIndexLinkError::new(es));
+            return Err(KeyToIndexLinkError::new_i0(es));
         }
         Ok(Spillover::new(ms, self.matrix))
     }

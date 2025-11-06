@@ -4,8 +4,8 @@ use crate::logging::{DeferredError, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::NonStdKeywordsExt as _;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{NonStdKeywordsExt as _, SpecificKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
@@ -909,7 +909,8 @@ impl<I> RegionGateIndex<I> {
             .meas_indices()
             .into_iter()
             .filter(|&mi| mi >= par.0.into());
-        NonEmpty::collect(xs).map(|ne| IndexedKeyToIndexLinkError::new(ne, ri.into()))
+        let k = SpecificKey::new(ri.into());
+        NonEmpty::collect(xs).map(|ne| IndexedKeyToIndexLinkError::new(ne, k))
     }
 
     fn meas_indices(&self) -> Vec<MeasIndex>

@@ -79,7 +79,7 @@ use crate::text::{
     },
 };
 
-use crate::validated::keys::StdKey;
+use crate::validated::keys::{SpecificKey, StdKey};
 use crate::validated::{
     ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20},
     dataframe as df,
@@ -8307,19 +8307,20 @@ impl RemovedComp2_0Cell {
                 xs
             }
         };
-        BiIndexedKeyToIndexLinkError::new(xs, self.col.into(), self.row.into())
+        let k = SpecificKey::new_i2(self.col.into(), self.row.into());
+        BiIndexedKeyToIndexLinkError::new(xs, k)
     }
 }
 
 impl<T: Key> RemovedNamedLink<T> {
     fn into_error(self) -> KeyToNameLinkError<T> {
-        KeyToNameLinkError::new(self.names)
+        KeyToNameLinkError::new_i0(self.names)
     }
 }
 
 impl<T: Key> RemovedIndexLink<T> {
     fn into_error(self) -> KeyToIndexLinkError<T> {
-        KeyToIndexLinkError::new(self.indices)
+        KeyToIndexLinkError::new_i0(self.indices)
     }
 }
 
@@ -8330,7 +8331,8 @@ impl<I> RemovedGateLink<I> {
     {
         let i = self.region_index;
         let window_key = RegionWindow::std(i);
-        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, i.into());
+        let k = SpecificKey::new_i1(i.into());
+        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
         let e1 = DependentIndexKeyError::new(NonEmpty::new(window_key), i.into());
         [e0.into(), e1.into()].into_iter()
     }

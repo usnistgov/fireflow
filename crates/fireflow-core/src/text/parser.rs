@@ -3,7 +3,9 @@ use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
-use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, MeasHeader, StdKey, StdKeywords};
+use crate::validated::keys::{
+    BiIndex, BiIndexedKey as _, IndexedKey, Key, MeasHeader, SpecificKey, StdKey, StdKeywords,
+};
 use crate::validated::nonempty_string::NonEmptyStringError;
 use crate::validated::shortname::{Shortname, ShortnameError};
 
@@ -471,54 +473,41 @@ where
 }
 
 #[derive(Debug, Display, Error, new)]
-#[display(bound(T: Key))]
 #[display(
     "{key} references non-existent $PnN: {bad}",
-    key = T::std(),
     bad = self.names.iter().join(", ")
 )]
-pub struct KeyToNameLinkError<T> {
+pub struct NameLinkError<T, I> {
     names: NonEmpty<Shortname>,
-    _key: PhantomData<T>,
+    key: SpecificKey<T, I>,
 }
 
 #[derive(Debug, Display, Error, new)]
-#[display(bound(T: Key))]
 #[display(
     "{key} references non-existent measurement indices: {bad}",
-    key = T::std(),
     bad = self.indices.iter().join(", ")
 )]
-pub struct KeyToIndexLinkError<T> {
+pub struct IndexLinkError<T, I> {
     indices: NonEmpty<MeasIndex>,
-    _key: PhantomData<T>,
+    key: SpecificKey<T, I>,
 }
 
-#[derive(Debug, Display, Error, new)]
-#[display(bound(T: IndexedKey))]
-#[display(
-    "{key} references non-existent measurement indices: {bad}",
-    key = T::std(self.key_index),
-    bad = self.indices.iter().join(", ")
-)]
-pub struct IndexedKeyToIndexLinkError<T> {
-    indices: NonEmpty<MeasIndex>,
-    key_index: IndexFromOne,
-    _key: PhantomData<T>,
+pub type KeyToNameLinkError<T> = NameLinkError<T, ()>;
+
+pub type KeyToIndexLinkError<T> = IndexLinkError<T, ()>;
+pub type IndexedKeyToIndexLinkError<T> = IndexLinkError<T, IndexFromOne>;
+pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
+
+impl<T> NameLinkError<T, ()> {
+    pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
+        Self::new(js, SpecificKey::default())
+    }
 }
 
-#[derive(Debug, Display, Error, new)]
-#[display(bound(T: BiIndexedKey))]
-#[display(
-    "{key} references non-existent measurement indices: {bad}",
-    key = T::std(*i0, *i1),
-    bad = self.indices.iter().join(", ")
-)]
-pub struct BiIndexedKeyToIndexLinkError<T> {
-    indices: NonEmpty<MeasIndex>,
-    i0: IndexFromOne,
-    i1: IndexFromOne,
-    _key: PhantomData<T>,
+impl<T> IndexLinkError<T, ()> {
+    pub(crate) fn new_i0(js: NonEmpty<MeasIndex>) -> Self {
+        Self::new(js, SpecificKey::default())
+    }
 }
 
 #[derive(Debug, Display, Error, new)]

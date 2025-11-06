@@ -232,7 +232,6 @@ pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
     IndexLink(SpilloverIndexError),
-    NamedLink(LinkedNameError),
 }
 
 #[derive(Debug, Error)]
@@ -251,6 +250,7 @@ pub enum ParseGenericSpilloverError {
 #[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);
 
+// TODO this is basically an index link error
 #[derive(Debug, Error)]
 #[error("$SPILLOVER indices out of bounds: {}", .0.iter().join(","))]
 pub struct SpilloverIndexError(NonEmpty<MeasIndex>);

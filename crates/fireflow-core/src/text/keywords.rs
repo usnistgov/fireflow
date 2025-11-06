@@ -844,15 +844,15 @@ impl FromStr for Feature {
 pub struct FeatureError;
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Display)]
+#[derive(Clone, Copy, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) enum RegionGateIndex<I> {
+pub enum RegionGateIndex<I> {
     Univariate(I),
     Bivariate(IndexPair<I>),
 }
 
 /// The two indices of a bivariate gate
-#[derive(Clone, Copy, PartialEq, Display)]
+#[derive(Clone, Copy, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{x},{y}")]
 pub struct IndexPair<I> {
@@ -991,7 +991,7 @@ pub enum RegionGateIndexError<E> {
 )]
 pub struct RegionIndexError(NonEmpty<MeasIndex>);
 
-#[derive(Clone, Copy, From, PartialEq, Display)]
+#[derive(Clone, Copy, From, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum MeasOrGateIndex {
     #[display("P{_0}")]
@@ -1192,7 +1192,7 @@ pub enum GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, PartialEq, Display)]
+#[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Gating {
     #[display("R{_0}")]

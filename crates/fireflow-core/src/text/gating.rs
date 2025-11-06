@@ -5,12 +5,12 @@ use crate::logging::{
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{StdKey, StdKeywords};
+use crate::validated::keys::{IndexedKey, StdKey, StdKeywords};
 
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
-    LookupKeysWarning, LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey,
-    ParseOptKeyError,
+    DependentKeyError, LookupKeysWarning, LookupOptional, LookupTentative, OptIndexedKey as _,
+    OptMetarootKey, ParseOptKeyError,
 };
 
 use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
@@ -512,7 +512,7 @@ impl AppliedGates3_2 {
     pub fn try_new(
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
-    ) -> Result<Self, NewGatingSchemeError> {
+    ) -> Result<Self, DependentKeyError<Gating>> {
         GatingScheme::try_new(gating, regions).map(Self)
     }
 
@@ -646,15 +646,18 @@ impl<I> GatingScheme<I> {
     pub fn try_new(
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<I>>,
-    ) -> Result<Self, NewGatingSchemeError> {
+    ) -> Result<Self, DependentKeyError<Gating>> {
+        // NOTE generic parameter in RegionGateIndex is a dummy, all should
+        // format to the same string
         if let Some(ris) = gating.as_ref().and_then(|g| {
             NonEmpty::collect(
                 g.region_indices()
                     .into_iter()
-                    .filter(|ri| !regions.contains_key(ri)),
+                    .filter(|ri| !regions.contains_key(ri))
+                    .map(RegionGateIndex::<GateIndex>::std),
             )
         }) {
-            Err(NewGatingSchemeError(ris))
+            Err(DependentKeyError::new(ris))
         } else {
             Ok(Self { gating, regions })
         }
@@ -1040,20 +1043,21 @@ pub struct GateToMeasIndexError(GateIndex);
 #[error("cannot convert measurement index ({0}) to gate index")]
 pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
+// TODO dependent link error
 #[derive(Debug, Error)]
-#[error("$GATING regions reference nonexistent gates: {}", .0.iter().join(","))]
+#[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 #[derive(From, Display, Debug, Error)]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
-    Scheme(NewGatingSchemeError),
+    Scheme(DependentKeyError<Gating>),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
-    Scheme(NewGatingSchemeError),
+    Scheme(DependentKeyError<Gating>),
     Link(GateMeasurementLinkError),
 }
 
@@ -1064,7 +1068,7 @@ pub enum AppliedGates3_0To3_2Error {
     #[error("$GATING references {0} $Gn* keywords")]
     HasGates(usize),
     #[error("{0}")]
-    Scheme(#[from] NewGatingSchemeError),
+    Scheme(#[from] DependentKeyError<Gating>),
 }
 
 #[derive(Debug, Error)]
@@ -1079,16 +1083,10 @@ pub struct AppliedGates3_2To2_0Error;
 #[error("values for $RnI and $RnW must both be univariate or bivariate")]
 pub struct MismatchedIndexAndWindowError;
 
-#[derive(Debug, Error)]
-#[error(
-    "cannot remove measurements since it is referenced by a gating region: {}",
-    .0.iter().join(",")
-)]
-pub struct RemoveGateMeasIndexError(NonEmpty<MeasIndex>);
-
-#[derive(Debug, Error)]
-#[error("could not make gating scheme, regions not found: {}", .0.iter().join(","))]
-pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
+// // TODO dependent link error
+// #[derive(Debug, Error)]
+// #[error("could not make gating scheme, regions not found: {}", .0.iter().join(","))]
+// pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
 
 #[cfg(feature = "python")]
 mod python {
@@ -1097,7 +1095,7 @@ mod python {
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
-    use super::{GateMeasurementLinkError, NewAppliedGatesWithSchemeError, NewGatingSchemeError};
+    use super::{GateMeasurementLinkError, NewAppliedGatesWithSchemeError};
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);
@@ -1108,6 +1106,6 @@ mod python {
     impl_value_err!(GatingError);
     impl_value_err!(MeasOrGateIndexError);
     impl_pyreflow_err!(GateMeasurementLinkError);
-    impl_pyreflow_err!(NewGatingSchemeError);
+
     impl_pyreflow_err!(NewAppliedGatesWithSchemeError);
 }

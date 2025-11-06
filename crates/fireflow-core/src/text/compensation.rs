@@ -239,6 +239,7 @@ impl FromStrDelim for Compensation3_0 {
     }
 }
 
+// TODO index link error
 #[derive(Debug, Error)]
 #[error("$DCFmTOn keywords refer to invalid indices: {}", _0.iter().join(", "))]
 pub struct Comp2_0LinkError(NonEmpty<MeasIndex>);
@@ -281,11 +282,7 @@ pub(crate) fn lookup_dfc(
 ) -> Result<Option<f32>, OptKeyError<ParseFloatError>> {
     kws.remove(&k).map_or(Ok(None), |v| {
         v.parse::<f32>()
-            .map_err(|e| OptKeyError {
-                error: e,
-                key: k,
-                value: v.clone(),
-            })
+            .map_err(|e| OptKeyError::new(e, k, v.clone()))
             .map(Some)
     })
 }

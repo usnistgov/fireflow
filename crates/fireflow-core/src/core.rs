@@ -27,6 +27,7 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
+use crate::text::parser::DependentIndexKeyError;
 use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
 
 use crate::text::{
@@ -8177,7 +8178,9 @@ pub enum NewCoreLinkError {
 pub enum AnyLinkError {
     Name(LinkedNameError),
     Index(LinkedIndexError),
-    Dependent(DependentKeyError),
+    Gating(DependentKeyError<Gating>),
+    Region3_0(DependentIndexKeyError<RegionGateIndex<MeasOrGateIndex>>),
+    Region3_2(DependentIndexKeyError<RegionGateIndex<PrefixedMeasIndex>>),
 }
 
 #[derive(From)]
@@ -8299,7 +8302,7 @@ impl RemovedLink {
                         (k0, vec![k1])
                     })
                     .map(NonEmpty::from);
-                let e = DependentKeyError::new(Gating::std(), NonEmpty::flatten(ks));
+                let e = DependentKeyError::<Gating>::new(NonEmpty::flatten(ks));
                 es.push(e.into());
             }
             Self::Comp2_0(xs) => {
@@ -8350,12 +8353,14 @@ impl<T: Key> RemovedIndexLink<T> {
 }
 
 impl<I> RemovedGateLink<I> {
-    fn into_errors(self) -> impl Iterator<Item = AnyLinkError> {
+    fn into_errors(self) -> impl Iterator<Item = AnyLinkError>
+    where
+        AnyLinkError: From<DependentIndexKeyError<RegionGateIndex<I>>>,
+    {
         let i = self.region_index;
         let window_key = RegionWindow::std(i);
-        let index_key = RegionGateIndex::<I>::std(i);
         let e0 = LinkedIndexError::new(window_key.clone(), self.meas_indices);
-        let e1 = DependentKeyError::new(index_key, NonEmpty::new(window_key));
+        let e1 = DependentIndexKeyError::new(NonEmpty::new(window_key), i.into());
         [e0.into(), e1.into()].into_iter()
     }
 }
@@ -9008,11 +9013,13 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::data::AnyRangeError;
-    use crate::python::exceptions::ConversionException;
+    use crate::python::exceptions::{ConversionException, RelationalException};
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
+    use crate::text::parser::{DependentIndexKeyError, DependentKeyError};
     use crate::text::ranged_float::PositiveFloat;
+    use crate::validated::keys::{IndexedKey, Key};
 
     use super::{
         Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
@@ -9078,6 +9085,18 @@ mod python {
     impl<E: Display> From<ConvertError<E>> for PyErr {
         fn from(value: ConvertError<E>) -> Self {
             ConversionException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: Key> From<DependentKeyError<T>> for PyErr {
+        fn from(value: DependentKeyError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: IndexedKey> From<DependentIndexKeyError<T>> for PyErr {
+        fn from(value: DependentIndexKeyError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
         }
     }
 

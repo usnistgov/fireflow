@@ -16,10 +16,10 @@ use super::keywords::{
     AlphaNumTypeError, Analyte, Beginanalysis, Begindata, Calibration3_1, Calibration3_2,
     CalibrationError, CalibrationFormat3_1, CalibrationFormat3_2, DetectorName, DetectorType,
     DetectorVoltage, Dfc, Display, DisplayError, Endanalysis, Enddata, Feature, FeatureError, Gain,
-    GatePairError, GatingError, LastModifiedError, Longname, MeasOrGateIndexError, Mode3_2Error,
-    ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, OriginalityError,
-    ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError, Range,
-    RegionGateIndexError, RegionIndexError, Tag, TemporalGainError, TemporalScaleError,
+    GatePairError, Gating, GatingError, LastModifiedError, Longname, MeasOrGateIndexError,
+    Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
+    OriginalityError, ParseUnstainedCenterError, PercentEmitted, Power, PrefixedMeasIndexError,
+    Range, RegionGateIndexError, RegionIndexError, Tag, TemporalGainError, TemporalScaleError,
     TemporalTypeError, Timestep, Tot, TriggerError, UnicodeError, WavelengthsError,
 };
 use super::ranged_float::RangedFloatError;
@@ -40,6 +40,7 @@ use thiserror::Error;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
+use std::marker::PhantomData;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
@@ -482,11 +483,31 @@ pub struct LinkedIndexError {
     pub indices: NonEmpty<MeasIndex>,
 }
 
-#[derive(Debug, Error, new)]
-#[error("{key} depends on other keys which are invalid: {bad}", bad = .deps.iter().join(", "))]
-pub struct DependentKeyError {
-    pub key: StdKey,
-    pub deps: NonEmpty<StdKey>,
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: Key))]
+#[display(
+    "{key} depends on other keys which do not exist: {bad}",
+    key = T::std(),
+    bad = self.deps.iter().join(", "),
+
+)]
+pub struct DependentKeyError<T> {
+    deps: NonEmpty<StdKey>,
+    _key: PhantomData<T>,
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: IndexedKey))]
+#[display(
+    "{key} depends on other keys which do not exist: {bad}",
+    key = T::std(self.key_index),
+    bad = self.deps.iter().join(", "),
+
+)]
+pub struct DependentIndexKeyError<T> {
+    deps: NonEmpty<StdKey>,
+    key_index: IndexFromOne,
+    _key: PhantomData<T>,
 }
 
 pub(crate) type RawKeywords = HashMap<String, String>;
@@ -532,7 +553,7 @@ pub enum LookupKeysWarning {
     CSVFlag(NewCSVFlagsError),
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),
-    GatingScheme(gating::NewGatingSchemeError),
+    GatingScheme(DependentKeyError<Gating>),
     Spillover(SpilloverIndexError),
     LinkedIndex(RegionIndexError),
     TemporalGain(TemporalGainError),

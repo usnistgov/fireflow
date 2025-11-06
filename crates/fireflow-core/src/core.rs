@@ -7100,9 +7100,6 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = KnownTot;
 
-    // TODO clean this up by adding generic newtype booleans to the config
-    // the can be pulled by reference based on the segment id; that way we
-    // can stop repeating the same code over and over
     fn lookup<C>(
         kws: &mut StdKeywords,
         data: HeaderDataSegment,

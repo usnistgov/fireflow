@@ -8236,12 +8236,6 @@ pub struct RemovedGating {
 
 impl RemovedLink {
     fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
-        macro_rules! go_key {
-            ($kws:expr, $x:expr) => {{
-                let (k, v) = $x.key.metaroot_pair_std();
-                $kws.insert_demoted(k, v);
-            }};
-        }
         macro_rules! go_gate {
             ($kws:expr, $x:expr) => {{
                 for (k, v) in $x.region.opt_keywords_std($x.region_index) {
@@ -8252,34 +8246,25 @@ impl RemovedLink {
         match self {
             Self::GatingRegion3_0(x) => go_gate!(kws, x),
             Self::GatingRegion3_2(x) => go_gate!(kws, x),
-            Self::Gating(x) => {
-                let (k, v) = x.gating.metaroot_pair_std();
-                kws.insert_demoted(k, v);
-            }
+            Self::Gating(x) => kws.insert_demoted_metaroot(&x.gating),
             Self::Comp2_0(xs) => {
                 for x in xs {
                     let (k, v) = x.as_keyval();
                     kws.insert_demoted(k, v);
                 }
             }
-            Self::Comp3_0(x) => go_key!(kws, x),
-            Self::Spillover(x) => go_key!(kws, x),
+            Self::Comp3_0(x) => kws.insert_demoted_metaroot(&x.key),
+            Self::Spillover(x) => kws.insert_demoted_metaroot(&x.key),
             Self::UnstainedCenters(x) => {
                 if let Some(v) = x.key.display_maybe() {
-                    let k = UnstainedCenters::std();
-                    kws.insert_demoted(k, v);
+                    kws.insert_demoted_as::<UnstainedCenters>(v);
                 }
             }
-            Self::Trigger(x) => go_key!(kws, x),
+            Self::Trigger(x) => kws.insert_demoted_metaroot(&x.key),
         }
     }
 
     fn push_errors(self, es: &mut Vec<AnyLinkError>) {
-        macro_rules! go_named {
-            ($es:expr, $x:expr) => {{
-                $es.push($x.into_error().into());
-            }};
-        }
         macro_rules! go_gate {
             ($es:expr, $x:expr) => {{
                 for e in $x.into_errors() {
@@ -8309,10 +8294,10 @@ impl RemovedLink {
                     es.push(x.as_error().into());
                 }
             }
-            Self::Comp3_0(x) => go_named!(es, x),
-            Self::Spillover(x) => go_named!(es, x),
-            Self::UnstainedCenters(x) => go_named!(es, x),
-            Self::Trigger(x) => go_named!(es, x),
+            Self::Comp3_0(x) => es.push(x.into_error().into()),
+            Self::Spillover(x) => es.push(x.into_error().into()),
+            Self::UnstainedCenters(x) => es.push(x.into_error().into()),
+            Self::Trigger(x) => es.push(x.into_error().into()),
         }
     }
 }
@@ -9015,9 +9000,12 @@ mod python {
     use crate::python::macros::{
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
-    use crate::text::parser::{DependentIndexKeyError, DependentKeyError};
+    use crate::text::parser::{
+        BiIndexedKeyToIndexLinkError, DependentIndexKeyError, DependentKeyError,
+        IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
+    };
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{IndexedKey, Key};
+    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
         Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
@@ -9098,6 +9086,43 @@ mod python {
         }
     }
 
+    impl<T: Key> From<KeyToNameLinkError<T>> for PyErr {
+        fn from(value: KeyToNameLinkError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: Key> From<KeyToIndexLinkError<T>> for PyErr {
+        fn from(value: KeyToIndexLinkError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: IndexedKey> From<IndexedKeyToIndexLinkError<T>> for PyErr {
+        fn from(value: IndexedKeyToIndexLinkError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: BiIndexedKey> From<BiIndexedKeyToIndexLinkError<T>> for PyErr {
+        fn from(value: BiIndexedKeyToIndexLinkError<T>) -> Self {
+            RelationalException::new_err(value.to_string())
+        }
+    }
+
+    impl_from_pyerr!(
+        AnyLinkError,
+        Spillover,
+        Trigger,
+        UnstainedCenters,
+        Comp2_0,
+        Comp3_0,
+        Gating,
+        Region3_0,
+        Region3_2,
+        Window
+    );
+
     impl_pyreflow1_err!(MeasurementException, NonLinearTemporalScaleError);
     impl_pyreflow1_err!(MeasurementException, NonLinearTemporalTransformError);
     impl_pyreflow1_err!(MeasurementException, AnyRangeError);
@@ -9111,7 +9136,6 @@ mod python {
     impl_pyreflow1_err!(RelationalException, TriggerLinkError);
     impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow1_err!(RelationalException, CompParMismatchError);
-    impl_pyreflow1_err!(RelationalException, AnyLinkError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);

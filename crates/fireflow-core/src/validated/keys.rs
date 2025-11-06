@@ -1,6 +1,7 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
 use crate::logging::{FungibleErrorResult, FungibleErrorsResult, LogResult, WarningOrErrorResult};
 use crate::text::index::IndexFromOne;
+use crate::text::parser::OptMetarootKey;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -275,6 +276,16 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
 pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted(&mut self, key: StdKey, value: String);
+
+    fn insert_demoted_as<T: Key>(&mut self, value: String) {
+        let k = T::std();
+        self.insert_demoted(k, value);
+    }
+
+    fn insert_demoted_metaroot<T: OptMetarootKey + fmt::Display>(&mut self, value: &T) {
+        let (k, v) = value.metaroot_pair_std();
+        self.insert_demoted(k, v);
+    }
 
     fn transfer_demoted(&mut self, kws: &mut StdKeywords, key: StdKey) {
         if let Some(v) = kws.remove(&key) {

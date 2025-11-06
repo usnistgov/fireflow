@@ -7061,8 +7061,8 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
         Tot::remove_metaroot_opt(kws)
-            .into_succ::<_, _, Vec<_>, _, _>()
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+            .map_err(LookupTEXTOffsetsWarning::from)
+            .into_succ()
             .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
@@ -7079,8 +7079,8 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
         Tot::get_metaroot_opt(kws)
-            .into_succ::<_, _, Vec<_>, _, _>()
-            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+            .map_err(LookupTEXTOffsetsWarning::from)
+            .into_succ()
             .map_ok_value(|tot| {
                 let s = DatasetSegments::new(data.into_any(), analysis.into_any());
                 TEXTOffsets::new(s, tot).into()

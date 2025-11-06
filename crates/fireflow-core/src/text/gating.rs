@@ -5,7 +5,7 @@ use crate::logging::{
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{IndexedKey, StdKey, StdKeywords};
+use crate::validated::keys::{IndexedKey as _, StdKey, StdKeywords};
 
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
@@ -1043,7 +1043,6 @@ pub struct GateToMeasIndexError(GateIndex);
 #[error("cannot convert measurement index ({0}) to gate index")]
 pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
-// TODO dependent link error
 #[derive(Debug, Error)]
 #[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
@@ -1082,11 +1081,6 @@ pub struct AppliedGates3_2To2_0Error;
 #[derive(Debug, Error)]
 #[error("values for $RnI and $RnW must both be univariate or bivariate")]
 pub struct MismatchedIndexAndWindowError;
-
-// // TODO dependent link error
-// #[derive(Debug, Error)]
-// #[error("could not make gating scheme, regions not found: {}", .0.iter().join(","))]
-// pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
 
 #[cfg(feature = "python")]
 mod python {

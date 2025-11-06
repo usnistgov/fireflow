@@ -128,7 +128,7 @@ impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, PartialEq, Display)]
+#[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{measurement},{threshold}")]
 pub struct Trigger {
@@ -1065,15 +1065,15 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-#[derive(Display)]
-pub(crate) enum RegionWindow {
+#[derive(Display, Debug)]
+pub enum RegionWindow {
     #[display("{_0}")]
     Univariate(UniGate),
     #[display("{}", _0.iter().join(";"))]
     Bivariate(NonEmpty<Vertex>),
 }
 
-#[derive(Clone, PartialEq, Display)]
+#[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{x},{y}")]
 pub struct Vertex {
@@ -1081,7 +1081,7 @@ pub struct Vertex {
     pub y: BigDecimal,
 }
 
-#[derive(Clone, PartialEq, Display)]
+#[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{lower},{upper}")]
 pub struct UniGate {
@@ -2157,6 +2157,7 @@ kw_opt_meas!(Calibration3_1, "CALIBRATION", Option<Self>); // 3.1 doesn't have o
 kw_opt_meas!(Calibration3_2, "CALIBRATION", Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
+#[derive(Debug)]
 pub struct Dfc;
 
 impl BiIndexedKey for Dfc {

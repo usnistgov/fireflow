@@ -4,7 +4,7 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, LinkedNameError};
+use super::parser::{FromStrStateful, KeyToIndexLinkError};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -71,7 +71,7 @@ impl GenericSpillover<MeasIndex> {
     pub(crate) fn try_into_named(
         self,
         names: &[&Shortname],
-    ) -> Result<Spillover, SpilloverIndexError> {
+    ) -> Result<Spillover, KeyToIndexLinkError<Spillover>> {
         let mut it = self.measurements.into_iter();
         let mut ms = vec![];
         let mut missing = None;
@@ -85,7 +85,7 @@ impl GenericSpillover<MeasIndex> {
         }
         if let Some(i) = missing {
             let es = NonEmpty::from((i, it.collect::<Vec<_>>()));
-            return Err(SpilloverIndexError(es));
+            return Err(KeyToIndexLinkError::new(es));
         }
         Ok(Spillover::new(ms, self.matrix))
     }
@@ -231,7 +231,7 @@ pub enum NewSpilloverError {
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
-    IndexLink(SpilloverIndexError),
+    IndexLink(KeyToIndexLinkError<Spillover>),
 }
 
 #[derive(Debug, Error)]
@@ -249,11 +249,6 @@ pub enum ParseGenericSpilloverError {
 #[derive(Debug, Error)]
 #[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);
-
-// TODO this is basically an index link error
-#[derive(Debug, Error)]
-#[error("$SPILLOVER indices out of bounds: {}", .0.iter().join(","))]
-pub struct SpilloverIndexError(NonEmpty<MeasIndex>);
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,7 @@ use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
-use crate::validated::keys::{BiIndexedKey as _, IndexedKey, Key, MeasHeader, StdKey, StdKeywords};
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, MeasHeader, StdKey, StdKeywords};
 use crate::validated::nonempty_string::NonEmptyStringError;
 use crate::validated::shortname::{Shortname, ShortnameError};
 
@@ -24,7 +24,7 @@ use super::keywords::{
 };
 use super::ranged_float::RangedFloatError;
 use super::scale::{Scale, ScaleError};
-use super::spillover::{ParseSpilloverError, SpilloverIndexError};
+use super::spillover::{ParseSpilloverError, Spillover};
 use super::timestamps::{
     FCSDateError, FCSFixedTimeError, FCSTime60Error, FCSTime100Error, FCSTimeError,
     ReversedTimestampsError,
@@ -469,18 +469,55 @@ where
         .transpose()
 }
 
-#[derive(Debug, Error, new)]
-#[error("{key} references non-existent $PnN: {bad}", bad = .names.iter().join(", "))]
-pub struct LinkedNameError {
-    pub key: StdKey,
-    pub names: NonEmpty<Shortname>,
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: Key))]
+#[display(
+    "{key} references non-existent $PnN: {bad}",
+    key = T::std(),
+    bad = self.names.iter().join(", ")
+)]
+pub struct KeyToNameLinkError<T> {
+    names: NonEmpty<Shortname>,
+    _key: PhantomData<T>,
 }
 
-#[derive(Debug, Error, new)]
-#[error("{key} references non-existent measurement indices: {bad}", bad = .indices.iter().join(", "))]
-pub struct LinkedIndexError {
-    pub key: StdKey,
-    pub indices: NonEmpty<MeasIndex>,
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: Key))]
+#[display(
+    "{key} references non-existent measurement indices: {bad}",
+    key = T::std(),
+    bad = self.indices.iter().join(", ")
+)]
+pub struct KeyToIndexLinkError<T> {
+    indices: NonEmpty<MeasIndex>,
+    _key: PhantomData<T>,
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: IndexedKey))]
+#[display(
+    "{key} references non-existent measurement indices: {bad}",
+    key = T::std(self.key_index),
+    bad = self.indices.iter().join(", ")
+)]
+pub struct IndexedKeyToIndexLinkError<T> {
+    indices: NonEmpty<MeasIndex>,
+    key_index: IndexFromOne,
+    _key: PhantomData<T>,
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display(bound(T: BiIndexedKey))]
+#[display(
+    "{key} references non-existent measurement indices: {bad}",
+    key = T::std(*i0, *i1),
+    bad = self.indices.iter().join(", ")
+)]
+pub struct BiIndexedKeyToIndexLinkError<T> {
+    indices: NonEmpty<MeasIndex>,
+    i0: IndexFromOne,
+    i1: IndexFromOne,
+    _key: PhantomData<T>,
 }
 
 #[derive(Debug, Display, Error, new)]
@@ -554,7 +591,7 @@ pub enum LookupKeysWarning {
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(DependentKeyError<Gating>),
-    Spillover(SpilloverIndexError),
+    Spillover(KeyToIndexLinkError<Spillover>),
     LinkedIndex(RegionIndexError),
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),

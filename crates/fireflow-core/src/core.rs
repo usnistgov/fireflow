@@ -27,12 +27,14 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
-use crate::text::parser::DependentIndexKeyError;
+use crate::text::parser::{
+    BiIndexedKeyToIndexLinkError, DependentIndexKeyError, IndexedKeyToIndexLinkError,
+};
 use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
 
 use crate::text::{
     byteord::OrderedToEndianError,
-    compensation::{Comp2_0LinkError, Compensation, Compensation2_0, Compensation3_0},
+    compensation::{Compensation, Compensation2_0, Compensation3_0},
     datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError},
     gating::{
         AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
@@ -63,8 +65,8 @@ use crate::text::{
         CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
     },
     parser::{
-        DepValueWarning, DependentKeyError, DeprecatedError, ExtraStdKeywords, LinkedIndexError,
-        LinkedNameError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
+        DepValueWarning, DependentKeyError, DeprecatedError, ExtraStdKeywords, KeyToIndexLinkError,
+        KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
         MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
         RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
     },
@@ -8168,19 +8170,16 @@ pub enum ExistingLinkError {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum NewCoreLinkError {
-    Comp2_0(Comp2_0LinkError),
-    Name(LinkedNameError),
-    Index(LinkedIndexError),
-}
-
-#[derive(From, Display, Debug, Error)]
 pub enum AnyLinkError {
-    Name(LinkedNameError),
-    Index(LinkedIndexError),
+    Spillover(KeyToNameLinkError<Spillover>),
+    Trigger(KeyToNameLinkError<Trigger>),
+    UnstainedCenters(KeyToNameLinkError<UnstainedCenters>),
+    Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
+    Comp3_0(KeyToIndexLinkError<Compensation3_0>),
     Gating(DependentKeyError<Gating>),
     Region3_0(DependentIndexKeyError<RegionGateIndex<MeasOrGateIndex>>),
     Region3_2(DependentIndexKeyError<RegionGateIndex<PrefixedMeasIndex>>),
+    Window(IndexedKeyToIndexLinkError<RegionWindow>),
 }
 
 #[derive(From)]
@@ -8325,7 +8324,7 @@ impl RemovedComp2_0Cell {
         (k, self.value.to_string())
     }
 
-    fn as_error(&self) -> LinkedIndexError {
+    fn as_error(&self) -> BiIndexedKeyToIndexLinkError<Dfc> {
         let xs = match self.missing {
             Comp2_0Missing::Row => NonEmpty::new(self.row),
             Comp2_0Missing::Col => NonEmpty::new(self.col),
@@ -8335,20 +8334,19 @@ impl RemovedComp2_0Cell {
                 xs
             }
         };
-        let k = Dfc::std(self.col, self.row);
-        LinkedIndexError::new(k, xs)
+        BiIndexedKeyToIndexLinkError::new(xs, self.col.into(), self.row.into())
     }
 }
 
 impl<T: Key> RemovedNamedLink<T> {
-    fn into_error(self) -> LinkedNameError {
-        LinkedNameError::new(T::std(), self.names)
+    fn into_error(self) -> KeyToNameLinkError<T> {
+        KeyToNameLinkError::new(self.names)
     }
 }
 
 impl<T: Key> RemovedIndexLink<T> {
-    fn into_error(self) -> LinkedIndexError {
-        LinkedIndexError::new(T::std(), self.indices)
+    fn into_error(self) -> KeyToIndexLinkError<T> {
+        KeyToIndexLinkError::new(self.indices)
     }
 }
 
@@ -8359,7 +8357,7 @@ impl<I> RemovedGateLink<I> {
     {
         let i = self.region_index;
         let window_key = RegionWindow::std(i);
-        let e0 = LinkedIndexError::new(window_key.clone(), self.meas_indices);
+        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, i.into());
         let e1 = DependentIndexKeyError::new(NonEmpty::new(window_key), i.into());
         [e0.into(), e1.into()].into_iter()
     }

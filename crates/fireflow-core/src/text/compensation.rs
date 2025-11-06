@@ -98,6 +98,10 @@ impl Compensation2_0 {
             .collect()
     }
 
+    // NOTE this shouldn't do anything for a freshly made comp matrix since
+    // the DFCmTOn lookups are bound by $PAR, so it impossible for the matrix
+    // to be greater than $PAR. This will fire whenever we assign an external
+    // matrix to the Core data struct.
     pub(crate) fn remove_invalid_link(src: &mut Option<Self>, par: Par) -> Option<RemovedLink> {
         let c = src.as_mut()?;
         let n = c.0.matrix.nrows();
@@ -238,11 +242,6 @@ impl FromStrDelim for Compensation3_0 {
         }
     }
 }
-
-// TODO index link error
-#[derive(Debug, Error)]
-#[error("$DCFmTOn keywords refer to invalid indices: {}", _0.iter().join(", "))]
-pub struct Comp2_0LinkError(NonEmpty<MeasIndex>);
 
 #[derive(Debug, Error)]
 pub enum ParseCompError {

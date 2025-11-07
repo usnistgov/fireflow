@@ -917,29 +917,36 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
 #[cfg(feature = "python")]
 mod python {
     use crate::{
-        python::macros::{impl_from_pyerr, impl_pyreflow1_err},
-        text::keywords::{Par, Tot},
+        data::RawParsedError,
+        python::macros::{impl_from_pyerr, impl_pyreflow_err},
+        text::keywords::{Nextdata, NumType, Par, Tot},
     };
 
     use super::{
-        DeprecatedError, LookupKeysError, LookupKeysWarning, MissingTime, OptKeyError,
-        ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError, UnusedStandardError,
+        DeprecatedError, LookupKeysError, LookupKeysWarning, MissingTime, OptIndexedKeyError,
+        OptKeyError, ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError,
+        UnusedStandardError,
     };
 
-    impl_pyreflow1_err!(InvalidKeywordValueError, PseudostandardError);
-    impl_pyreflow1_err!(InvalidKeywordValueError, UnusedStandardError);
-    impl_pyreflow1_err!(InvalidKeywordValueError, ParseReqKeyError);
-    impl_pyreflow1_err!(InvalidKeywordValueError, ParseOptKeyError);
+    impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
+    impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
+    impl_pyreflow_err!(InvalidKeywordValueError, ParseReqKeyError);
+    impl_pyreflow_err!(InvalidKeywordValueError, ParseOptKeyError);
 
     // These are file layout errors despite being keywords since they contain
     // data pertaining to the byte layout of the file
-    impl_pyreflow1_err!(FileLayoutError, ReqKeyError<Tot>);
-    impl_pyreflow1_err!(FileLayoutError, OptKeyError<Tot>);
-    impl_pyreflow1_err!(FileLayoutError, ReqKeyError<Par>);
+    //
+    //  TODO maybe...
+    impl_pyreflow_err!(FileLayoutError, ReqKeyError<Tot>);
+    impl_pyreflow_err!(FileLayoutError, OptKeyError<Tot>);
+    impl_pyreflow_err!(FileLayoutError, ReqKeyError<Par>);
+    impl_pyreflow_err!(FileLayoutError, OptKeyError<Nextdata>);
+    impl_pyreflow_err!(FileLayoutError, OptIndexedKeyError<NumType>);
+    impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
-    impl_pyreflow1_err!(RelationalException, MissingTime);
+    impl_pyreflow_err!(RelationalException, MissingTime);
 
-    impl_pyreflow1_err!(FCSDeprecatedError, DeprecatedError);
+    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedError);
 
     impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
     impl_from_pyerr!(

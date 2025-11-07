@@ -1205,7 +1205,7 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::FileLayoutError;
-    use crate::python::macros::impl_pyreflow1_err;
+    use crate::python::macros::impl_pyreflow_err;
 
     use super::{
         InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarning_, ReqSegmentWithDefaultError_,

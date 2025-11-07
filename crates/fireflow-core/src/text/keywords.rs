@@ -2402,7 +2402,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow1_err,
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow_err,
         impl_to_py_via_display, impl_value_err,
     };
     use crate::text::ranged_float::PositiveFloat;
@@ -2419,7 +2419,7 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
-    impl_pyreflow1_err!(RelationalException, TemporalGainError);
+    impl_pyreflow_err!(RelationalException, TemporalGainError);
 
     macro_rules! impl_str_py {
         ($type:ident, $err:ident) => {

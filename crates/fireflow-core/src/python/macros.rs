@@ -35,23 +35,11 @@ macro_rules! impl_index_err {
 
 pub(crate) use impl_index_err;
 
-macro_rules! impl_pyreflow1_err {
+macro_rules! impl_pyreflow_err {
     ($e:ident, $t:path) => {
         impl From<$t> for pyo3::PyErr {
             fn from(value: $t) -> Self {
                 crate::python::exceptions::$e::new_err(value.to_string())
-            }
-        }
-    };
-}
-
-pub(crate) use impl_pyreflow1_err;
-
-macro_rules! impl_pyreflow_err {
-    ($t:ident) => {
-        impl From<$t> for pyo3::PyErr {
-            fn from(value: $t) -> Self {
-                crate::python::exceptions::PyreflowException::new_err(value.to_string())
             }
         }
     };

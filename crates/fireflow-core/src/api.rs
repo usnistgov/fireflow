@@ -1340,16 +1340,40 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::{
-        core::{LookupAndReadDataAnalysisError, StdDatasetFromRawError},
-        python::macros::impl_pyreflow_err,
+        core::{LookupAndReadDataAnalysisWarning, StdDatasetFromRawError},
+        python::macros::{impl_from_pyerr, impl_pyreflow_err},
     };
 
-    use super::{HeaderOrRawError, RawDatasetError, StdDatasetError, StdTEXTError};
+    use super::{
+        DelimCharError, HeaderOrRawError, NonstandardError, ParseKeywordsIssue, ParseRawTEXTError,
+        ParseRawTEXTWarning, RawDatasetError, RawDatasetWarning, STextSegmentWarning,
+        StdDatasetError, StdDatasetWarning, StdTEXTError, StdTEXTWarning,
+    };
 
-    impl_pyreflow_err!(HeaderOrRawError);
-    impl_pyreflow_err!(StdTEXTError);
-    impl_pyreflow_err!(RawDatasetError);
-    impl_pyreflow_err!(StdDatasetError);
-    impl_pyreflow_err!(LookupAndReadDataAnalysisError);
-    impl_pyreflow_err!(StdDatasetFromRawError);
+    impl_pyreflow_err!(FileLayoutError, ParseRawTEXTError);
+    impl_pyreflow_err!(FileLayoutError, DelimCharError);
+    impl_pyreflow_err!(FileLayoutError, ParseKeywordsIssue);
+    impl_pyreflow_err!(FileLayoutError, STextSegmentWarning);
+
+    // TODO what should this really be?
+    impl_pyreflow_err!(FileLayoutError, NonstandardError);
+
+    impl_from_pyerr!(HeaderOrRawError, Header, RawTEXT, Warn);
+    impl_from_pyerr!(
+        ParseRawTEXTWarning,
+        Char,
+        Keywords,
+        SuppOffsets,
+        Nextdata,
+        Nonstandard
+    );
+
+    impl_from_pyerr!(StdTEXTError, Raw, Std, Warn);
+    impl_from_pyerr!(StdTEXTWarning, Raw, Std);
+    impl_from_pyerr!(RawDatasetError, Raw, Read, Warn);
+    impl_from_pyerr!(RawDatasetWarning, Raw, Read);
+    impl_from_pyerr!(LookupAndReadDataAnalysisWarning, Offsets, Layout, Data);
+    impl_from_pyerr!(StdDatasetError, Raw, Std, Warn);
+    impl_from_pyerr!(StdDatasetWarning, Raw, Std);
+    impl_from_pyerr!(StdDatasetFromRawError, TEXT, Dataframe, Offsets, Warn);
 }

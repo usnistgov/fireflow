@@ -8770,7 +8770,6 @@ pub enum LookupAndReadDataAnalysisError {
     Layout(RawToLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
-    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8778,7 +8777,6 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
     Data(ReadDataframeWarning),
-    // Mismatch(DataSegmentMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8972,30 +8970,30 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::{AnyRangeError, LookupLayoutError};
+    use crate::data::{AnyRangeError, LookupLayoutError, RawToLayoutError};
     use crate::python::exceptions::{ConversionException, RelationalException};
-    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
     use crate::text::parser::{
         BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
         IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
     };
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdMeasRegexError};
+    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
         Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
         ColumnsToDataframeError, CompParMismatchError, ConvertError, ExistingLinkError,
         GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, LookupMeasWarning, LookupTEXTOffsetsError,
-        LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCSVFlagsError, NewCoreError,
-        NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
+        InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupMeasWarning,
+        LookupTEXTOffsetsError, LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCSVFlagsError,
+        NewCoreError, NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
         NonLinearTemporalTransformError, Other, Others, PushOpticalError,
         PushOpticalToDatasetError, PushTemporalToDatasetError, RemoveMeasByIndexError,
         RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, ScaleTransformError,
         SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
         SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
-        StdTEXTFromKeywordsError, StdTEXTFromRawError, StdTEXTFromRawWarning, StdWriterError,
-        TriggerLinkError,
+        StdDatasetFromRawWarning, StdTEXTFromKeywordsError, StdTEXTFromRawError,
+        StdTEXTFromRawWarning, StdWriterError, TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
@@ -9093,21 +9091,21 @@ mod python {
         Window
     );
 
-    impl_pyreflow1_err!(MeasurementException, NonLinearTemporalScaleError);
-    impl_pyreflow1_err!(MeasurementException, NonLinearTemporalTransformError);
-    impl_pyreflow1_err!(MeasurementException, AnyRangeError);
-    impl_pyreflow1_err!(MeasurementException, MeasDataMismatchError);
+    impl_pyreflow_err!(MeasurementException, NonLinearTemporalScaleError);
+    impl_pyreflow_err!(MeasurementException, NonLinearTemporalTransformError);
+    impl_pyreflow_err!(MeasurementException, AnyRangeError);
+    impl_pyreflow_err!(MeasurementException, MeasDataMismatchError);
 
-    impl_pyreflow1_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
-    impl_pyreflow1_err!(ConversionException, SetTemporalError);
+    impl_pyreflow_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
+    impl_pyreflow_err!(ConversionException, SetTemporalError);
 
-    impl_pyreflow1_err!(RelationalException, ExistingLinkError);
-    impl_pyreflow1_err!(RelationalException, SpilloverLinkError);
-    impl_pyreflow1_err!(RelationalException, TriggerLinkError);
-    impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
-    impl_pyreflow1_err!(RelationalException, CompParMismatchError);
-    impl_pyreflow1_err!(RelationalException, ScaleTransformError);
-    impl_pyreflow1_err!(RelationalException, NewCSVFlagsError);
+    impl_pyreflow_err!(RelationalException, ExistingLinkError);
+    impl_pyreflow_err!(RelationalException, SpilloverLinkError);
+    impl_pyreflow_err!(RelationalException, TriggerLinkError);
+    impl_pyreflow_err!(RelationalException, GatingMeasLinkError);
+    impl_pyreflow_err!(RelationalException, CompParMismatchError);
+    impl_pyreflow_err!(RelationalException, ScaleTransformError);
+    impl_pyreflow_err!(RelationalException, NewCSVFlagsError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
@@ -9168,4 +9166,13 @@ mod python {
     impl_from_pyerr!(LookupMeasWarning, Parse, Pattern);
     impl_from_pyerr!(LookupLayoutError, New, Raw);
     impl_from_pyerr!(StdWriterError, Layout, Check, Overflow);
+    impl_from_pyerr!(StdDatasetFromRawWarning, TEXT, Offsets, Layout);
+    impl_from_pyerr!(
+        LookupAndReadDataAnalysisError,
+        Offsets,
+        Layout,
+        Dataframe,
+        Warn
+    );
+    impl_from_pyerr!(RawToLayoutError, New, Raw);
 }

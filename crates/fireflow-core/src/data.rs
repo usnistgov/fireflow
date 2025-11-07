@@ -4270,6 +4270,7 @@ pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
     TotMismatch(TotEventMismatch),
+    // TODO aren't these already in ASCII?
     Delim(ReadDelimWithRowsAsciiError),
     DelimNoRows(ReadDelimAsciiWithoutRowsError),
     AlphaNum(AsciiToUintError),
@@ -4437,20 +4438,33 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::impl_from_pyerr;
-    use crate::python::macros::impl_pyreflow1_err;
+    use crate::python::macros::impl_pyreflow_err;
     use crate::text::float_decimal::FloatDecimal;
     use crate::text::float_decimal::HasFloatBounds;
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
 
     use super::AnyLossError;
+    use super::AsciiToUintError;
     use super::ColumnError;
+    use super::EventWidthError;
     use super::LookupLayoutWarning;
     use super::MeasLayoutLengthsError;
     use super::MeasLayoutMismatchError;
     use super::NewDataLayoutError;
     use super::NewMixedTypeWarning;
+    use super::RawToLayoutWarning;
+    use super::ReadAsciiError;
+    use super::ReadDataframeError;
+    use super::ReadDataframeWarning;
+    use super::ReadDelimAsciiError;
+    use super::ReadDelimAsciiWithoutRowsError;
+    use super::ReadDelimWithRowsAsciiError;
+    use super::ReadFixedAsciiError;
     use super::ScaleMismatchTransformError;
+    use super::TotEventMismatch;
+    use super::UnevenEventWidth;
+    use super::ZeroEventWidth;
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
     use bigdecimal::BigDecimal;
@@ -4522,21 +4536,45 @@ mod python {
         }
     }
 
-    impl_pyreflow1_err!(MeasurementException, MeasLayoutLengthsError);
-    impl_pyreflow1_err!(
+    impl_pyreflow_err!(MeasurementException, MeasLayoutLengthsError);
+    impl_pyreflow_err!(
         MeasurementException,
         ColumnError<ScaleMismatchTransformError>
     );
 
     // These are relational because how Range is parsed depends on the value
     // of BYTEORD, DATATYPE, etc.
-    impl_pyreflow1_err!(RelationalException, ColumnError<NewMixedTypeWarning>);
+    impl_pyreflow_err!(RelationalException, ColumnError<NewMixedTypeWarning>);
 
     // TODO this feels sloppy
-    impl_pyreflow1_err!(FileLayoutError, NewDataLayoutError);
+    impl_pyreflow_err!(FileLayoutError, NewDataLayoutError);
 
-    impl_pyreflow1_err!(EventDataError, ColumnError<AnyLossError>);
+    impl_pyreflow_err!(EventDataError, ColumnError<AnyLossError>);
+
+    // TODO not sure what these should really be
+    impl_pyreflow_err!(FileLayoutError, UnevenEventWidth);
+    impl_pyreflow_err!(FileLayoutError, TotEventMismatch);
+    impl_pyreflow_err!(FileLayoutError, ZeroEventWidth);
+
+    impl_pyreflow_err!(EventDataError, AsciiToUintError);
+    impl_pyreflow_err!(EventDataError, ReadDelimWithRowsAsciiError);
+    impl_pyreflow_err!(EventDataError, ReadDelimAsciiWithoutRowsError);
 
     impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
     impl_from_pyerr!(LookupLayoutWarning, New, Raw);
+    impl_from_pyerr!(ReadDataframeWarning, Uneven, Tot);
+    impl_from_pyerr!(RawToLayoutWarning, New, Raw);
+    impl_from_pyerr!(
+        ReadDataframeError,
+        Ascii,
+        Width,
+        TotMismatch,
+        Delim,
+        DelimNoRows,
+        AlphaNum
+    );
+    impl_from_pyerr!(EventWidthError, Zero, Uneven);
+    impl_from_pyerr!(ReadAsciiError, Delim, Fixed);
+    impl_from_pyerr!(ReadDelimAsciiError, Rows, NoRows);
+    impl_from_pyerr!(ReadFixedAsciiError, Uneven, Tot, ToUint);
 }

@@ -783,7 +783,7 @@ mod tests {
 #[cfg(feature = "python")]
 pub(crate) mod python {
     use super::{AnyFCSColumn, ColumnLengthError, FCSColumn, FCSDataFrame, NewDataframeError};
-    use crate::python::macros::{impl_pyreflow1_err, impl_value_err};
+    use crate::python::macros::{impl_pyreflow_err, impl_value_err};
 
     use polars::prelude::*;
     use polars_arrow::array::PrimitiveArray;
@@ -900,6 +900,6 @@ pub(crate) mod python {
 
     impl_value_err!(SeriesToColumnError);
 
-    impl_pyreflow1_err!(MeasurementException, ColumnLengthError);
-    impl_pyreflow1_err!(MeasurementException, NewDataframeError);
+    impl_pyreflow_err!(MeasurementException, ColumnLengthError);
+    impl_pyreflow_err!(MeasurementException, NewDataframeError);
 }

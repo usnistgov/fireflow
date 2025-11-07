@@ -205,11 +205,11 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow1_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);
     impl_from_py_transparent!(EndDateTime);
 
-    impl_pyreflow1_err!(RelationalException, ReversedDatetimesError);
+    impl_pyreflow_err!(RelationalException, ReversedDatetimesError);
 }

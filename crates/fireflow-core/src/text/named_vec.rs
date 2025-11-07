@@ -2020,7 +2020,7 @@ mod python {
         SetCenterError, SetElementsError, SetKeysError, SetNamesError,
     };
     use crate::data::ColumnError;
-    use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow1_err};
+    use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow_err};
     use pyo3::exceptions::PyKeyError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
@@ -2047,14 +2047,14 @@ mod python {
         }
     }
 
-    impl_pyreflow1_err!(MeasurementException, NonUniqueKeysError);
-    impl_pyreflow1_err!(MeasurementException, NonUniqueKeyError);
-    impl_pyreflow1_err!(MeasurementException, InputLengthError);
-    impl_pyreflow1_err!(MeasurementException, MissingCenterError);
-    impl_pyreflow1_err!(MeasurementException, NoNameError);
-    impl_pyreflow1_err!(MeasurementException, CenterPresentError);
+    impl_pyreflow_err!(MeasurementException, NonUniqueKeysError);
+    impl_pyreflow_err!(MeasurementException, NonUniqueKeyError);
+    impl_pyreflow_err!(MeasurementException, InputLengthError);
+    impl_pyreflow_err!(MeasurementException, MissingCenterError);
+    impl_pyreflow_err!(MeasurementException, NoNameError);
+    impl_pyreflow_err!(MeasurementException, CenterPresentError);
 
-    impl_pyreflow1_err!(MeasurementException, ColumnError<OpticalMismatchError>);
+    impl_pyreflow_err!(MeasurementException, ColumnError<OpticalMismatchError>);
 
     impl_from_pyerr!(SetNamesError, Length, NonUnique);
     impl_from_pyerr!(SetKeysError, Names, MissingCenter);

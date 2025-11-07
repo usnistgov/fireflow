@@ -873,7 +873,7 @@ mod python {
     use super::{
         AsciiStringError, KeyOrStringPatternsError, KeyPatterns, KeyString, KeyStringPairs,
         KeyStringPairsError, NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError,
-        StdKey, StdKeyError,
+        NonStdMeasRegexError, StdKey, StdKeyError,
     };
     use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
 
@@ -896,6 +896,10 @@ mod python {
     impl_value_err!(AsciiStringError);
 
     impl_value_err!(KeyOrStringPatternsError);
+
+    // TODO this error is weird because it pertains to the downstream value
+    // of a regex given in the config
+    impl_value_err!(NonStdMeasRegexError);
 
     // pass keypatterns via config as a tuple like ([String], [String]) where the
     // first member is literal strings and the second is regex patterns

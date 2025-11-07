@@ -4444,8 +4444,11 @@ mod python {
     use crate::validated::ascii_range::AsciiRange;
 
     use super::ColumnError;
+    use super::LookupLayoutWarning;
     use super::MeasLayoutLengthsError;
     use super::MeasLayoutMismatchError;
+    use super::NewDataLayoutError;
+    use super::NewMixedTypeWarning;
     use super::ScaleMismatchTransformError;
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
@@ -4524,5 +4527,13 @@ mod python {
         ColumnError<ScaleMismatchTransformError>
     );
 
+    // These are relational because how Range is parsed depends on the value
+    // of BYTEORD, DATATYPE, etc.
+    impl_pyreflow1_err!(RelationalException, ColumnError<NewMixedTypeWarning>);
+
+    // TODO this feels sloppy
+    impl_pyreflow1_err!(FileLayoutError, NewDataLayoutError);
+
     impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
+    impl_from_pyerr!(LookupLayoutWarning, New, Raw);
 }

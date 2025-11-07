@@ -1204,10 +1204,17 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{InnerSegment, NonEmptySegment, Segment, Zero};
+    use crate::python::exceptions::FileLayoutError;
+    use crate::python::macros::impl_pyreflow1_err;
+
+    use super::{
+        InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarning_, ReqSegmentWithDefaultError_,
+        ReqSegmentWithDefaultWarning_, Segment, SegmentMismatchWarning, Zero,
+    };
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+    use std::fmt::Display;
 
     // segments will be returned as tuples like (u32, u32) reflecting their
     // exact representation in an FCS file
@@ -1246,6 +1253,42 @@ mod python {
                 .try_coords()
                 .unwrap_or((0, 0))
                 .into_pyobject(py)
+        }
+    }
+
+    impl<I, B, E> From<ReqSegmentWithDefaultError_<I, B, E>> for PyErr
+    where
+        ReqSegmentWithDefaultError_<I, B, E>: Display,
+    {
+        fn from(value: ReqSegmentWithDefaultError_<I, B, E>) -> Self {
+            FileLayoutError::new_err(value.to_string())
+        }
+    }
+
+    impl<I, B, E> From<ReqSegmentWithDefaultWarning_<I, B, E>> for PyErr
+    where
+        ReqSegmentWithDefaultWarning_<I, B, E>: Display,
+    {
+        fn from(value: ReqSegmentWithDefaultWarning_<I, B, E>) -> Self {
+            FileLayoutError::new_err(value.to_string())
+        }
+    }
+
+    impl<I, B, E> From<OptSegmentWithDefaultWarning_<I, B, E>> for PyErr
+    where
+        OptSegmentWithDefaultWarning_<I, B, E>: Display,
+    {
+        fn from(value: OptSegmentWithDefaultWarning_<I, B, E>) -> Self {
+            FileLayoutError::new_err(value.to_string())
+        }
+    }
+
+    impl<I> From<SegmentMismatchWarning<I>> for PyErr
+    where
+        SegmentMismatchWarning<I>: Display,
+    {
+        fn from(value: SegmentMismatchWarning<I>) -> Self {
+            FileLayoutError::new_err(value.to_string())
         }
     }
 }

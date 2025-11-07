@@ -17,9 +17,9 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
-    KeywordParseError,
+    FileLayoutError,
     PyreflowException,
-    "Exception caused by parsing an invalid standard keyword"
+    "Exception caused by a malformed FCS file"
 );
 
 create_exception!(
@@ -27,6 +27,13 @@ create_exception!(
     InvalidKeywordValueError,
     PyreflowException,
     "Exception caused by an individual, invalid keyword assignment"
+);
+
+create_exception!(
+    _pyreflow,
+    FCSDeprecatedError,
+    PyreflowException,
+    "Exception for FCS features/keywords which are deprecated"
 );
 
 create_exception!(

@@ -8972,29 +8972,33 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::AnyRangeError;
+    use crate::data::{AnyRangeError, LookupLayoutError};
     use crate::python::exceptions::{ConversionException, RelationalException};
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow_err,
+        impl_pyreflow1_err, impl_value_err,
     };
     use crate::text::parser::{
         BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
         IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
     };
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
+    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdMeasRegexError};
 
     use super::{
         Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
         ColumnsToDataframeError, CompParMismatchError, ConvertError, ExistingLinkError,
         GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, MeasDataMismatchError, NewCoreError, NewCoreRelationalError,
-        NewCoreTEXTError, NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other,
-        Others, PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
-        RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
-        ScaleTransformError, SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError,
-        SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError, SetTransformsError,
-        SpilloverLinkError, StdTEXTFromKeywordsError, StdWriterError, TriggerLinkError,
+        InsertTemporalToDatasetError, LookupMeasWarning, LookupTEXTOffsetsError,
+        LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCSVFlagsError, NewCoreError,
+        NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
+        NonLinearTemporalTransformError, Other, Others, PushOpticalError,
+        PushOpticalToDatasetError, PushTemporalToDatasetError, RemoveMeasByIndexError,
+        RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, ScaleTransformError,
+        SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
+        SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
+        StdTEXTFromKeywordsError, StdTEXTFromRawError, StdTEXTFromRawWarning, StdWriterError,
+        TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
@@ -9038,7 +9042,6 @@ mod python {
     }
 
     // lots of stuff, maybe not worth breaking down
-    impl_pyreflow_err!(StdTEXTFromKeywordsError);
 
     // - NewDataLayoutError
     // - ColumnError<AnyLossError>
@@ -9114,6 +9117,7 @@ mod python {
     impl_pyreflow1_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow1_err!(RelationalException, CompParMismatchError);
     impl_pyreflow1_err!(RelationalException, ScaleTransformError);
+    impl_pyreflow1_err!(RelationalException, NewCSVFlagsError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
@@ -9135,4 +9139,42 @@ mod python {
     impl_from_pyerr!(NewCoreError, Meas, Relational);
     impl_from_pyerr!(NewCoreRelationalError, Link, Layout);
     impl_from_pyerr!(NewCoreTEXTError, Core, Timestamps, Datetimes);
+    impl_from_pyerr!(StdTEXTFromKeywordsError, Error, Warn);
+    impl_from_pyerr!(
+        StdTEXTFromRawError,
+        New,
+        Metaroot,
+        Layout,
+        Offsets,
+        Pseudostandard,
+        Unused
+    );
+    impl_from_pyerr!(
+        StdTEXTFromRawWarning,
+        Relational,
+        Metaroot,
+        Meas,
+        Layout,
+        Offsets,
+        Pseudostandard,
+        Unused
+    );
+    impl_from_pyerr!(
+        LookupTEXTOffsetsError,
+        Tot,
+        ReqData,
+        ReqAnalysis,
+        MismatchData,
+        MismatchAnalysis,
+        MismatchAnalysisOpt
+    );
+    impl_from_pyerr!(
+        LookupTEXTOffsetsWarning,
+        Tot,
+        ReqData,
+        ReqAnalysis,
+        MismatchAnalysis
+    );
+    impl_from_pyerr!(LookupMeasWarning, Parse, Pattern);
+    impl_from_pyerr!(LookupLayoutError, New, Raw);
 }

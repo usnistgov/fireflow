@@ -2402,7 +2402,8 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err,
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow1_err,
+        impl_to_py_via_display, impl_value_err,
     };
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
@@ -2411,12 +2412,14 @@ mod python {
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
         FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
         Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, Range, Timestep, Trigger, UniGate, Unicode,
-        UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
+        OriginalityError, PrefixedMeasIndex, Range, TemporalGainError, Timestep, Trigger, UniGate,
+        Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+
+    impl_pyreflow1_err!(RelationalException, TemporalGainError);
 
     macro_rules! impl_str_py {
         ($type:ident, $err:ident) => {

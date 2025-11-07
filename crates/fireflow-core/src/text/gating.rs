@@ -1091,7 +1091,9 @@ mod python {
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
-    use super::{GateMeasurementLinkError, NewAppliedGatesWithSchemeError};
+    use super::{
+        GateMeasurementLinkError, MismatchedIndexAndWindowError, NewAppliedGatesWithSchemeError,
+    };
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);
@@ -1103,6 +1105,7 @@ mod python {
     impl_value_err!(MeasOrGateIndexError);
 
     impl_pyreflow1_err!(RelationalException, GateMeasurementLinkError);
+    impl_pyreflow1_err!(RelationalException, MismatchedIndexAndWindowError);
 
     impl_from_pyerr!(NewAppliedGatesWithSchemeError, Link, Scheme);
 }

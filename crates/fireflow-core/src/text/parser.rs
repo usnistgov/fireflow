@@ -152,11 +152,11 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
     fn lookup_req(kws: &mut StdKeywords) -> LookupResult<Self>
     where
         Self: FromStr,
-        ParseReqKeyError: From<<Self as FromStr>::Err>,
+        ParseReqKeyError: From<ReqKeyError<<Self as FromStr>::Err>>,
     {
         Self::remove_metaroot_req(kws)
-            .map_err(ReqKeyError::inner_into)
-            .map_err(Into::into)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
             .into_log()
     }
 
@@ -204,11 +204,11 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
     fn lookup_req(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> LookupResult<Self>
     where
         Self: FromStr,
-        ParseReqKeyError: From<<Self as FromStr>::Err>,
+        ParseReqKeyError: From<ReqKeyError<<Self as FromStr>::Err>>,
     {
         Self::remove_meas_req(kws, i)
-            .map_err(ReqKeyError::inner_into)
-            .map_err(Into::into)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
             .into_log()
     }
 
@@ -220,14 +220,14 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
     ) -> LookupResult<Self>
     where
         Self: FromStrStateful,
-        ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
+        ParseReqKeyError: From<ReqKeyError<<Self as FromStrStateful>::Err>>,
     {
         Self::remove_req(kws, Self::std(i), |k, v| {
             Self::from_str_st(v.as_str(), data, conf)
                 .map_err(|e| ParseKeyError::new(e, k, v).into())
         })
-        .map_err(ReqKeyError::inner_into)
-        .map_err(Into::into)
+        .map_err(ParseReqKeyError::from)
+        .map_err(LookupKeysError::from)
         .into_log()
     }
 
@@ -279,7 +279,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     ) -> LookupTentative<Self::Outer>
     where
         Self: FromStr,
-        ParseOptKeyError: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStr>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
             parse_opt_tnt(k, v, is_deprecated, conf)
@@ -307,7 +307,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     ) -> LookupTentative<Self::Outer>
     where
         Self: FromStrStateful,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStrStateful>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
             parse_opt_tnt_st(k, v, is_deprecated, data, conf)
@@ -369,7 +369,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     ) -> LookupTentative<Self::Outer>
     where
         Self: FromStr,
-        ParseOptKeyError: From<<Self as FromStr>::Err>,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStr>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
             parse_opt_tnt(k, v, is_deprecated, conf)
@@ -399,7 +399,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     ) -> LookupTentative<Self::Outer>
     where
         Self: FromStrStateful,
-        ParseOptKeyError: From<<Self as FromStrStateful>::Err>,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStrStateful>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
             parse_opt_tnt_st(k, v, is_deprecated, data, conf)
@@ -438,9 +438,11 @@ pub(crate) fn parse_opt_tnt<T: FromStr>(
     conf: &StdTextReadConfig,
 ) -> LookupTentative<Option<T>>
 where
-    ParseOptKeyError: From<T::Err>,
+    ParseOptKeyError: From<OptKeyError<T::Err>>,
 {
-    let res = parse_opt(k.clone(), v).map_err(|x| LookupKeysWarning::Parse(x.inner_into()));
+    let res = parse_opt(k.clone(), v)
+        .map_err(ParseOptKeyError::from)
+        .map_err(LookupKeysWarning::Parse);
     eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
@@ -461,10 +463,11 @@ pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
     conf: &StdTextReadConfig,
 ) -> LookupTentative<Option<T>>
 where
-    ParseOptKeyError: From<T::Err>,
+    ParseOptKeyError: From<OptKeyError<T::Err>>,
 {
     let res = parse_opt_st(k.clone(), v, data, conf)
-        .map_err(|x| LookupKeysWarning::Parse(x.inner_into()));
+        .map_err(ParseOptKeyError::from)
+        .map_err(LookupKeysWarning::Parse);
     eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
@@ -598,7 +601,7 @@ pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 /// if configuration permits.
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysError {
-    Parse(ReqKeyError<ParseReqKeyError>),
+    Parse(ParseReqKeyError),
     InvalidScale(ScaleTransformError),
     WarnAsError(LookupKeysWarning),
 }
@@ -613,7 +616,7 @@ pub enum LookupKeysError {
 /// dropped on failure and become fatal if dropping is forbidden.
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysWarning {
-    Parse(OptKeyError<ParseOptKeyError>),
+    Parse(ParseOptKeyError),
     Timestamp(ReversedTimestampsError),
     Datetime(ReversedDatetimesError),
     Comp(NewCompError),
@@ -639,55 +642,55 @@ pub enum DeprecatedError {
 /// Error encountered when parsing a required key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseReqKeyError {
-    Range(ParseBigDecimalError),
-    AlphaNumType(AlphaNumTypeError),
-    NonEmptyString(NonEmptyStringError),
-    Int(ParseIntError),
-    Scale(ScaleError),
-    TemporalScale(TemporalScaleError),
-    RangedFloat(RangedFloatError),
-    Mode(ModeError),
-    ByteOrd(ParseByteOrdError),
-    Endian(NewEndianError),
-    Shortname(ShortnameError),
+    Range(ReqKeyError<ParseBigDecimalError>),
+    AlphaNumType(ReqKeyError<AlphaNumTypeError>),
+    NonEmptyString(ReqKeyError<NonEmptyStringError>),
+    Int(ReqKeyError<ParseIntError>),
+    Scale(ReqKeyError<ScaleError>),
+    TemporalScale(ReqKeyError<TemporalScaleError>),
+    RangedFloat(ReqKeyError<RangedFloatError>),
+    Mode(ReqKeyError<ModeError>),
+    ByteOrd(ReqKeyError<ParseByteOrdError>),
+    Endian(ReqKeyError<NewEndianError>),
+    Shortname(ReqKeyError<ShortnameError>),
 }
 
 /// Error encountered when parsing an optional key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseOptKeyError {
-    NumType(NumTypeError),
-    Trigger(TriggerError),
-    Scale(ScaleError),
-    TemporalScale(TemporalScaleError),
-    Float(ParseFloatError),
-    RangedFloat(RangedFloatError),
-    Feature(FeatureError),
-    Wavelengths(WavelengthsError),
-    Calibration3_1(CalibrationError<CalibrationFormat3_1>),
-    Calibration3_2(CalibrationError<CalibrationFormat3_2>),
-    Int(ParseIntError),
-    FCSDate(FCSDateError),
-    FCSTime(FCSFixedTimeError<FCSTimeError>),
-    FCSTime60(FCSFixedTimeError<FCSTime60Error>),
-    FCSTime100(FCSFixedTimeError<FCSTime100Error>),
-    FCSDateTime(FCSDateTimeError),
-    ModifiedDateTime(LastModifiedError),
-    Originality(OriginalityError),
-    UnstainedCenter(ParseUnstainedCenterError),
-    Mode3_2(Mode3_2Error),
-    TemporalType(TemporalTypeError),
-    OpticalType(OpticalTypeError),
-    Shortname(ShortnameError),
-    Display(DisplayError),
-    Unicode(UnicodeError),
-    Spillover(ParseSpilloverError),
-    Compensation(ParseCompError),
-    GateRange(ParseBigDecimalError),
-    GateRegionIndex2_0(RegionGateIndexError<ParseIntError>),
-    GateRegionIndex3_0(RegionGateIndexError<MeasOrGateIndexError>),
-    GateRegionIndex3_2(RegionGateIndexError<PrefixedMeasIndexError>),
-    GateRegionWindow(GatePairError),
-    Gating(GatingError),
+    NumType(OptKeyError<NumTypeError>),
+    Trigger(OptKeyError<TriggerError>),
+    Scale(OptKeyError<ScaleError>),
+    TemporalScale(OptKeyError<TemporalScaleError>),
+    Float(OptKeyError<ParseFloatError>),
+    RangedFloat(OptKeyError<RangedFloatError>),
+    Feature(OptKeyError<FeatureError>),
+    Wavelengths(OptKeyError<WavelengthsError>),
+    Calibration3_1(OptKeyError<CalibrationError<CalibrationFormat3_1>>),
+    Calibration3_2(OptKeyError<CalibrationError<CalibrationFormat3_2>>),
+    Int(OptKeyError<ParseIntError>),
+    FCSDate(OptKeyError<FCSDateError>),
+    FCSTime(OptKeyError<FCSFixedTimeError<FCSTimeError>>),
+    FCSTime60(OptKeyError<FCSFixedTimeError<FCSTime60Error>>),
+    FCSTime100(OptKeyError<FCSFixedTimeError<FCSTime100Error>>),
+    FCSDateTime(OptKeyError<FCSDateTimeError>),
+    ModifiedDateTime(OptKeyError<LastModifiedError>),
+    Originality(OptKeyError<OriginalityError>),
+    UnstainedCenter(OptKeyError<ParseUnstainedCenterError>),
+    Mode3_2(OptKeyError<Mode3_2Error>),
+    TemporalType(OptKeyError<TemporalTypeError>),
+    OpticalType(OptKeyError<OpticalTypeError>),
+    Shortname(OptKeyError<ShortnameError>),
+    Display(OptKeyError<DisplayError>),
+    Unicode(OptKeyError<UnicodeError>),
+    Spillover(OptKeyError<ParseSpilloverError>),
+    Compensation(OptKeyError<ParseCompError>),
+    GateRange(OptKeyError<ParseBigDecimalError>),
+    GateRegionIndex2_0(OptKeyError<RegionGateIndexError<ParseIntError>>),
+    GateRegionIndex3_0(OptKeyError<RegionGateIndexError<MeasOrGateIndexError>>),
+    GateRegionIndex3_2(OptKeyError<RegionGateIndexError<PrefixedMeasIndexError>>),
+    GateRegionWindow(OptKeyError<GatePairError>),
+    Gating(OptKeyError<GatingError>),
 }
 
 /// Error triggered when time measurement is missing but required.
@@ -741,15 +744,6 @@ impl<E: fmt::Display> fmt::Display for ParseKeyError<E> {
     }
 }
 
-impl<E> ParseKeyError<E> {
-    pub fn inner_into<F>(self) -> ParseKeyError<F>
-    where
-        F: From<E>,
-    {
-        ParseKeyError::new(self.error, self.key, self.value)
-    }
-}
-
 #[derive(From, Debug, Error)]
 pub enum ReqKeyError<E> {
     #[error("{0}")]
@@ -759,18 +753,6 @@ pub enum ReqKeyError<E> {
 }
 
 pub type OptKeyError<E> = ParseKeyError<E>;
-
-impl<E> ReqKeyError<E> {
-    pub fn inner_into<F>(self) -> ReqKeyError<F>
-    where
-        F: From<E>,
-    {
-        match self {
-            Self::Parse(e) => ReqKeyError::Parse(e.inner_into()),
-            Self::Missing(e) => ReqKeyError::Missing(e),
-        }
-    }
-}
 
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]

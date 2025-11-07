@@ -5,7 +5,8 @@ use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    FromStrStateful, LookupKeysWarning, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError,
+    FromStrStateful, LookupKeysWarning, LookupTentative, OptKeyError, OptMetarootKey, Optional,
+    ParseOptKeyError,
 };
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -168,8 +169,8 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        ParseOptKeyError:
-            From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
+        ParseOptKeyError: From<OptKeyError<<Btim<X> as FromStrStateful>::Err>>
+            + From<OptKeyError<<Etim<X> as FromStrStateful>::Err>>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
         let b = Btim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);

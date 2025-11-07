@@ -10,7 +10,7 @@ use crate::validated::keys::{IndexedKey as _, StdKey, StdKeywords};
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
     DependentKeyError, LookupKeysWarning, LookupOptional, LookupTentative, OptIndexedKey as _,
-    OptMetarootKey, ParseOptKeyError,
+    OptKeyError, OptMetarootKey, ParseOptKeyError,
 };
 
 use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
@@ -812,7 +812,7 @@ impl<I> Region<I> {
     ) -> LookupOptional<Self>
     where
         I: FromStr + fmt::Display + LinkedMeasIndex,
-        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
+        ParseOptKeyError: From<OptKeyError<<RegionGateIndex<I> as FromStr>::Err>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
     {
         Self::lookup_inner(
@@ -835,7 +835,7 @@ impl<I> Region<I> {
         F0: FnOnce(&mut StdKeywords, RegionIndex) -> LookupOptional<RegionGateIndex<I>>,
         F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<RegionWindow>,
         I: FromStr + fmt::Display,
-        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
+        ParseOptKeyError: From<OptKeyError<<RegionGateIndex<I> as FromStr>::Err>>,
     {
         let n = lookup_index(kws, i);
         let w = lookup_window(kws, i.into());

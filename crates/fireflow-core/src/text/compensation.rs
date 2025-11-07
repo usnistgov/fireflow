@@ -62,7 +62,7 @@ impl Compensation2_0 {
                 let k = Dfc::std(c, r);
                 match lookup_dfc(kws, k) {
                     Ok(x) => (x, None),
-                    Err(w) => (None, Some(LookupKeysWarning::Parse(w.inner_into()))),
+                    Err(w) => (None, Some(LookupKeysWarning::Parse(w.into()))),
                 }
             })
             .unzip();

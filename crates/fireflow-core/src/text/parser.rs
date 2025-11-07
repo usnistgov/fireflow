@@ -569,30 +569,29 @@ impl<T> IndexLinkError<T, ()> {
 }
 
 #[derive(Debug, Display, Error, new)]
-#[display(bound(T: Key))]
 #[display(
     "{key} depends on other keys which do not exist: {bad}",
-    key = T::std(),
     bad = self.deps.iter().join(", "),
 
 )]
-pub struct DependentKeyError<T> {
+pub struct DependentKeyError_<T, I> {
     deps: NonEmpty<StdKey>,
-    _key: PhantomData<T>,
+    key: SpecificKey<T, I>,
 }
 
-#[derive(Debug, Display, Error, new)]
-#[display(bound(T: IndexedKey))]
-#[display(
-    "{key} depends on other keys which do not exist: {bad}",
-    key = T::std(self.key_index),
-    bad = self.deps.iter().join(", "),
+pub type DependentKeyError<T> = DependentKeyError_<T, ()>;
+pub type DependentIndexedKeyError<T> = DependentKeyError_<T, IndexFromOne>;
 
-)]
-pub struct DependentIndexKeyError<T> {
-    deps: NonEmpty<StdKey>,
-    key_index: IndexFromOne,
-    _key: PhantomData<T>,
+impl<T> DependentKeyError<T> {
+    pub(crate) fn new1(deps: NonEmpty<StdKey>) -> Self {
+        Self::new(deps, SpecificKey::default())
+    }
+}
+
+impl<T> DependentIndexedKeyError<T> {
+    pub(crate) fn new2(i: IndexFromOne, deps: NonEmpty<StdKey>) -> Self {
+        Self::new(deps, SpecificKey::new_i1(i))
+    }
 }
 
 pub(crate) type RawKeywords = HashMap<String, String>;

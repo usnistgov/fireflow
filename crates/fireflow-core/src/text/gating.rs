@@ -657,7 +657,7 @@ impl<I> GatingScheme<I> {
                     .map(RegionGateIndex::<GateIndex>::std),
             )
         }) {
-            Err(DependentKeyError::new(ris))
+            Err(DependentKeyError::new1(ris))
         } else {
             Ok(Self { gating, regions })
         }

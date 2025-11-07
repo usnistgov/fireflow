@@ -57,7 +57,7 @@ use crate::text::optional::{
     CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
 };
 use crate::text::parser::{
-    BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexKeyError, DependentKeyError,
+    BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexedKeyError, DependentKeyError,
     DeprecatedError, ExtraStdKeywords, IndexedKeyToIndexLinkError, KeyToIndexLinkError,
     KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
     MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
@@ -8156,8 +8156,8 @@ pub enum AnyLinkError {
     Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
     Comp3_0(KeyToIndexLinkError<Compensation3_0>),
     Gating(DependentKeyError<Gating>),
-    Region3_0(DependentIndexKeyError<RegionGateIndex<MeasOrGateIndex>>),
-    Region3_2(DependentIndexKeyError<RegionGateIndex<PrefixedMeasIndex>>),
+    Region3_0(DependentIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
+    Region3_2(DependentIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
     Window(IndexedKeyToIndexLinkError<RegionWindow>),
 }
 
@@ -8265,7 +8265,7 @@ impl RemovedLink {
                         (k0, vec![k1])
                     })
                     .map(NonEmpty::from);
-                let e = DependentKeyError::<Gating>::new(NonEmpty::flatten(ks));
+                let e = DependentKeyError::<Gating>::new1(NonEmpty::flatten(ks));
                 es.push(e.into());
             }
             Self::Comp2_0(xs) => {
@@ -8318,13 +8318,13 @@ impl<T: Key> RemovedIndexLink<T> {
 impl<I> RemovedGateLink<I> {
     fn into_errors(self) -> impl Iterator<Item = AnyLinkError>
     where
-        AnyLinkError: From<DependentIndexKeyError<RegionGateIndex<I>>>,
+        AnyLinkError: From<DependentIndexedKeyError<RegionGateIndex<I>>>,
     {
         let i = self.region_index;
         let window_key = RegionWindow::std(i);
         let k = SpecificKey::new_i1(i.into());
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
-        let e1 = DependentIndexKeyError::new(NonEmpty::new(window_key), i.into());
+        let e1 = DependentIndexedKeyError::new2(i.into(), NonEmpty::new(window_key));
         [e0.into(), e1.into()].into_iter()
     }
 }
@@ -8978,7 +8978,7 @@ mod python {
         impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err, impl_pyreflow1_err,
     };
     use crate::text::parser::{
-        BiIndexedKeyToIndexLinkError, DependentIndexKeyError, DependentKeyError,
+        BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
         IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
     };
     use crate::text::ranged_float::PositiveFloat;
@@ -9057,8 +9057,8 @@ mod python {
         }
     }
 
-    impl<T: IndexedKey> From<DependentIndexKeyError<T>> for PyErr {
-        fn from(value: DependentIndexKeyError<T>) -> Self {
+    impl<T: IndexedKey> From<DependentIndexedKeyError<T>> for PyErr {
+        fn from(value: DependentIndexedKeyError<T>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }

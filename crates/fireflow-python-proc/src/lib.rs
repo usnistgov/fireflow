@@ -704,7 +704,7 @@ pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
 
     let nextdata = DocArgROIvar::new_ivar_ro(
         "nextdata",
-        PyOpt::new(RsInt::U32),
+        PyOpt::new(RsInt::U64),
         "The value of *$NEXTDATA*.",
         |_, _| quote!(self.0.nextdata),
     );

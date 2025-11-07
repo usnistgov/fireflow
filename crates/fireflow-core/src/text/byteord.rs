@@ -33,7 +33,7 @@ pub enum ByteOrd2_0 {
     O8(SizedByteOrd<8>),
 }
 
-#[derive(Clone, Copy, From, Display, FromStr, Default)]
+#[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ByteOrd3_1(pub Endian);
 

@@ -21,8 +21,8 @@ use super::optional::{
 };
 use super::parser::{
     DepValueWarning, DeprecatedError, FromStrDelim, FromStrWith, IndexedKeyToIndexLinkError,
-    LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey, OptKeyError, OptMetarootKey,
-    Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey, OptIndexedKeyStError,
+    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -206,7 +206,7 @@ pub enum TriggerError {
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Default, Display)]
+#[derive(Clone, PartialEq, Eq, Default, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Mode {
     #[default]
@@ -236,7 +236,7 @@ impl FromStr for Mode {
 }
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
-#[derive(Clone, PartialEq, Display)]
+#[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("L")]
 pub struct Mode3_2;
@@ -321,7 +321,7 @@ pub enum DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum NumType {
     #[display("I")]
@@ -893,7 +893,7 @@ impl<I> RegionGateIndex<I> {
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
         for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
-        ParseOptKeyError: From<OptKeyError<<Self as FromStrWith>::Err>>,
+        ParseOptKeyError: From<OptIndexedKeyStError<Self>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
     {
         let flag = conf.allow_optional_dropping;
@@ -1364,7 +1364,7 @@ pub enum GatingError {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq)]
+#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
@@ -1502,13 +1502,13 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmN key
-#[derive(Clone, From, Display, FromStr, PartialEq)]
+#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
-#[derive(Clone, From, Display, FromStr, PartialEq)]
+#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[from(u64)]
@@ -1556,7 +1556,7 @@ impl_non_neg_float! {
 }
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, FromStr, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct GateScale(pub Scale);
@@ -1575,7 +1575,7 @@ impl FromStrWith for GateScale {
 ///
 /// This is not a normal string because it is required in 3.2 and thus cannot
 /// be empty.
-#[derive(Clone, Display, FromStr, PartialEq, Into)]
+#[derive(Clone, Display, FromStr, PartialEq, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Cyt3_2(pub NonEmptyString);
@@ -2212,11 +2212,12 @@ impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
 kw_req_meta!(Nextdata, "NEXTDATA");
+opt_meta!(Nextdata, Option<Self>);
 
 macro_rules! kw_offset {
     ($t:ident, $key:expr) => {
         /// Value for $$key (3.0-3.2)
-        #[derive(Display, From, Into, FromStr)]
+        #[derive(Display, From, Into, FromStr, Debug)]
         pub struct $t(pub UintZeroPad20);
 
         kw_req_meta!($t, $key);

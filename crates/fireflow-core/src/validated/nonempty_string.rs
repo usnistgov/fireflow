@@ -8,7 +8,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-#[derive(Clone, PartialEq, Eq, Default, Display, Into)]
+#[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonEmptyString(String);

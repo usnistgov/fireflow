@@ -65,22 +65,19 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 
-use crate::text::{
-    byteord::{
-        BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
-        Endian, HasByteOrd, NewEndianError, NoByteOrd, NoByteOrd3_1, OrderedToEndianError,
-        ParseByteOrdError, SizedByteOrd, Width, WidthToBytesError,
-    },
-    float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds},
-    index::{IndexFromOne, MeasIndex},
-    keywords::{
-        AlphaNumType, AlphaNumTypeError, IntRangeError, NumType, NumTypeError, Par, Range, Tot,
-    },
-    optional::KeywordPairMaybe as _,
-    parser::{
-        LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
-        OptKeyError, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
-    },
+use crate::text::byteord::{
+    BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
+    Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1, OrderedToEndianError, SizedByteOrd, Width,
+    WidthToBytesError,
+};
+use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
+use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, Tot};
+use crate::text::optional::KeywordPairMaybe as _;
+use crate::text::parser::{
+    LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
+    OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
+    ReqMetarootKey as _,
 };
 
 use crate::validated::{
@@ -97,7 +94,7 @@ use crate::validated::{
 };
 
 use ambassador::{Delegate, delegatable_trait};
-use bigdecimal::{BigDecimal, ParseBigDecimalError};
+use bigdecimal::BigDecimal;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -401,7 +398,7 @@ pub trait MeasDatatypeDef {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError>;
+    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>;
 
     fn lookup_all(
         kws: &mut StdKeywords,
@@ -418,7 +415,7 @@ pub trait MeasDatatypeDef {
     ) -> WarningsAndErrorsResult<
         Vec<ColumnLayoutValues<Self::MeasDatatype>>,
         (),
-        OptKeyError<NumTypeError>,
+        OptIndexedKeyError<NumType>,
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
@@ -431,6 +428,8 @@ pub trait MeasDatatypeDef {
             })
     }
 
+    // TODO why are width and range being put in lookup result which is
+    // used for a totally different type of lookup?
     fn lookup_one(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -452,7 +451,7 @@ pub trait MeasDatatypeDef {
     ) -> WarningsAndErrorsResult<
         ColumnLayoutValues<Self::MeasDatatype>,
         (),
-        OptKeyError<NumTypeError>,
+        OptIndexedKeyError<NumType>,
         RawParsedError,
     > {
         let w = Width::get_meas_req(kws, i)
@@ -1208,7 +1207,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError>
+    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
     {
         LogResult::new_ok(NullMeasDatatype)
     }
@@ -1229,7 +1228,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptKeyError<NumTypeError>, RawParsedError>
+    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
     {
         NumType::get_meas_opt(kws, i).into_succ()
     }
@@ -4151,7 +4150,8 @@ pub type DataReaderResult<T> =
 #[derive(From, Display, Debug, Error)]
 pub enum NewDataReaderError {
     TotMismatch(TotEventMismatch),
-    ParseTot(ReqKeyError<ParseIntError>),
+    // TODO why $TOT here?
+    ParseTot(ReqKeyError<Tot>),
     ParseSeg(ReqSegmentWithDefaultError<DataSegmentId>),
     Width(UnevenEventWidth),
     Mismatch(SegmentMismatchWarning<DataSegmentId>),
@@ -4160,7 +4160,7 @@ pub enum NewDataReaderError {
 #[derive(From, Display)]
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
-    ParseTot(OptKeyError<ParseIntError>),
+    ParseTot(OptKeyError<Tot>),
     Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -4253,16 +4253,18 @@ pub enum RawToLayoutError {
 #[derive(From, Display, Debug, Error)]
 pub enum RawToLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
-    Raw(OptKeyError<NumTypeError>),
+    Raw(OptIndexedKeyError<NumType>),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum RawParsedError {
-    AlphaNumType(ReqKeyError<AlphaNumTypeError>),
-    Endian(ReqKeyError<NewEndianError>),
-    ByteOrd(ReqKeyError<ParseByteOrdError>),
-    Int(ReqKeyError<ParseIntError>),
-    Range(ReqKeyError<ParseBigDecimalError>),
+    AlphaNumType(ReqKeyError<AlphaNumType>),
+    Endian(ReqKeyError<ByteOrd3_1>),
+    ByteOrd(ReqKeyError<ByteOrd2_0>),
+    // TODO why is this here?
+    Par(ReqKeyError<Par>),
+    Width(ReqIndexedKeyError<Width>),
+    Range(ReqIndexedKeyError<Range>),
 }
 
 #[derive(From, Display, Debug, Error)]

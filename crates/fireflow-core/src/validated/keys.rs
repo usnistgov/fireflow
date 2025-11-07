@@ -273,11 +273,42 @@ pub(crate) trait BiIndexedKey {
     // }
 }
 
-#[derive(Clone, Copy, Debug, new)]
+pub(crate) trait AnyKey {
+    fn as_std(&self) -> StdKey;
+}
+
+impl<T: Key> AnyKey for SpecificKey<T, ()> {
+    fn as_std(&self) -> StdKey {
+        T::std()
+    }
+}
+
+impl<T: IndexedKey> AnyKey for SpecificKey<T, IndexFromOne> {
+    fn as_std(&self) -> StdKey {
+        T::std(self.index)
+    }
+}
+
+impl<T: BiIndexedKey> AnyKey for SpecificKey<T, BiIndex> {
+    fn as_std(&self) -> StdKey {
+        let i = &self.index;
+        T::std(i.i0, i.i1)
+    }
+}
+
+#[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
     index: I,
     _key: PhantomData<T>,
 }
+
+impl<T, I: Clone> Clone for SpecificKey<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.index.clone())
+    }
+}
+
+impl<T, I: Copy> Copy for SpecificKey<T, I> {}
 
 impl<T> Default for SpecificKey<T, ()> {
     fn default() -> Self {

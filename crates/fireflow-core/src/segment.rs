@@ -8,7 +8,7 @@ use crate::logging::{
     LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::parser::{OptKeyError, OptMetarootKey, Optional, ReqKeyError, ReqMetarootKey};
+use crate::text::parser::{OptKeyError_, OptMetarootKey, Optional, ReqKeyError_, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
@@ -166,6 +166,15 @@ pub(crate) type OptSegTentative<T> = DeferredWarningsAndErrors<
     OptSegmentWithDefaultWarning<T>,
 >;
 
+pub type ReqSegmentWithDefaultWarning<T> =
+    ReqSegmentWithDefaultWarning_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
+
+pub type ReqSegmentWithDefaultError<T> =
+    ReqSegmentWithDefaultError_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
+
+pub type OptSegmentWithDefaultWarning<T> =
+    OptSegmentWithDefaultWarning_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum InnerSegment<T> {
     NonEmpty(NonEmptySegment<T>),
@@ -182,7 +191,7 @@ struct NonEmptySegment<T> {
 }
 
 /// Operations to obtain optional segment from TEXT keywords
-pub(crate) trait KeyedSegment: Sized + Copy {
+pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 
@@ -250,7 +259,10 @@ where
         st: &ReadState<C>,
     ) -> Result<
         Segment<Self, SegmentFromTEXT, UintZeroPad20>,
-        (ReqSegmentError, Option<Box<ReqSegmentError>>),
+        (
+            ReqSegmentError<Self::B, Self::E>,
+            Option<ReqSegmentError<Self::B, Self::E>>,
+        ),
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
@@ -259,11 +271,15 @@ where
             (Ok(x0), Ok(x1)) => {
                 let new_conf = Self::segment_conf(st);
                 Segment::try_new(x0, x1, &new_conf)
-                    .map_err(ReqSegmentError::from)
+                    .map_err(ReqSegmentError::Segment)
                     .map_err(|e| (e, None))
             }
-            (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err((e.into(), None)),
-            (Err(e0), Err(e1)) => Err((e0.into(), Some(Box::new(e1.into())))),
+            (Err(e), Ok(_)) => Err((ReqSegmentError::BeginKey(e), None)),
+            (Ok(_), Err(e)) => Err((ReqSegmentError::EndKey(e), None)),
+            (Err(e0), Err(e1)) => Err((
+                ReqSegmentError::BeginKey(e0),
+                Some(ReqSegmentError::EndKey(e1)),
+            )),
         }
     }
 
@@ -288,15 +304,15 @@ where
                 FungibleErrorsResult::new_fungible_maybe(seg, (), warn, *mismatch_flag)
                     .map_fungible_errors(SegmentMismatchWarning::from)
                     .fungible_into_commutative()
-                    .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
-                    .map_errors(ReqSegmentWithDefaultError::from)
+                    .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
+                    .map_errors(ReqSegmentWithDefaultError_::from)
             }
             Err((e0, e1)) => {
                 let mut res = FungibleErrorsResult::new_fungible((), (), e0, *missing_flag)
-                    .extend_deferred_fungible_errors(e1.map(|x| *x))
+                    .extend_deferred_fungible_errors(e1)
                     .fungible_into_commutative()
-                    .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
-                    .map_errors(ReqSegmentWithDefaultError::from)
+                    .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
+                    .map_errors(ReqSegmentWithDefaultError_::from)
                     .set_ok_value(header_seg);
                 let w = SegmentDefaultWarning::default().into();
                 res.eval_warning(|_| Some(w));
@@ -371,7 +387,10 @@ where
         st: &ReadState<C>,
     ) -> Result<
         Option<Segment<Self, SegmentFromTEXT, UintZeroPad20>>,
-        (OptSegmentError, Option<Box<OptSegmentError>>),
+        (
+            OptSegmentError<Self::B, Self::E>,
+            Option<OptSegmentError<Self::B, Self::E>>,
+        ),
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
@@ -382,11 +401,15 @@ where
                 x0.zip(x1)
                     .map(|(y0, y1)| Segment::try_new(y0, y1, &new_conf))
                     .transpose()
-                    .map_err(OptSegmentError::from)
+                    .map_err(OptSegmentError::Segment)
                     .map_err(|e| (e, None))
             }
-            (Err(e), Ok(_)) | (Ok(_), Err(e)) => Err((e.into(), None)),
-            (Err(e0), Err(e1)) => Err((e0.into(), Some(Box::new(e1.into())))),
+            (Err(e), Ok(_)) => Err((OptSegmentError::BeginKey(e), None)),
+            (Ok(_), Err(e)) => Err((OptSegmentError::EndKey(e), None)),
+            (Err(e0), Err(e1)) => Err((
+                OptSegmentError::BeginKey(e0),
+                Some(OptSegmentError::EndKey(e1)),
+            )),
         }
     }
 
@@ -411,14 +434,14 @@ where
                 Some(ts) => {
                     let (seg, warn) = default.unless(ts);
                     FungibleErrorsResult::new_deferred_fungible_maybe(seg, warn, *mismatch_flag)
-                        .map_fungible_errors(OptSegmentWithDefaultWarning::from)
+                        .map_fungible_errors(OptSegmentWithDefaultWarning_::from)
                         .fungible_into_commutative()
                 }
             },
             Err((e0, e1)) => FungibleErrorsResult::new_deferred_fungible(header_seg, e0, drop_flag)
-                .extend_deferred_fungible_errors(e1.map(|x| *x))
+                .extend_deferred_fungible_errors(e1)
                 .map_fungible_errors(OptSegmentError::from)
-                .map_fungible_errors(OptSegmentWithDefaultWarning::from)
+                .map_fungible_errors(OptSegmentWithDefaultWarning_::from)
                 .fungible_into_commutative(),
         }
     }
@@ -437,13 +460,13 @@ where
 }
 
 type ReqPair<B, E> = (
-    Result<B, ReqKeyError<ParseIntError>>,
-    Result<E, ReqKeyError<ParseIntError>>,
+    Result<B, ReqKeyError_<ParseIntError, B, ()>>,
+    Result<E, ReqKeyError_<ParseIntError, E, ()>>,
 );
 
 type OptPair<B, E> = (
-    Result<Option<B>, OptKeyError<ParseIntError>>,
-    Result<Option<E>, OptKeyError<ParseIntError>>,
+    Result<Option<B>, OptKeyError_<ParseIntError, B, ()>>,
+    Result<Option<E>, OptKeyError_<ParseIntError, E, ()>>,
 );
 
 /// Denotes that a type comes from a specific part of the FCS file
@@ -519,15 +542,17 @@ impl HasRegion for OtherSegmentId {
     const REGION: AnyRegion = AnyRegion::Other;
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum ReqSegmentError {
-    Key(ReqKeyError<ParseIntError>),
+#[derive(Display, Debug, Error)]
+pub enum ReqSegmentError<B, E> {
+    BeginKey(ReqKeyError_<ParseIntError, B, ()>),
+    EndKey(ReqKeyError_<ParseIntError, E, ()>),
     Segment(SegmentError<UintZeroPad20>),
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum OptSegmentError {
-    Key(OptKeyError<ParseIntError>),
+#[derive(Display, Debug, Error)]
+pub enum OptSegmentError<B, E> {
+    BeginKey(OptKeyError_<ParseIntError, B, ()>),
+    EndKey(OptKeyError_<ParseIntError, E, ()>),
     Segment(SegmentError<UintZeroPad20>),
 }
 
@@ -1128,26 +1153,26 @@ pub struct SegmentMismatchWarning<I> {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum ReqSegmentWithDefaultError<I> {
-    Req(ReqSegmentError),
+pub enum ReqSegmentWithDefaultError_<I, B, E> {
+    Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum ReqSegmentWithDefaultWarning<I> {
+pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
     Mismatch(SegmentMismatchWarning<I>),
     Lookup(SegmentDefaultWarning<I>),
-    Req(ReqSegmentError),
+    Req(ReqSegmentError<B, E>),
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum OptSegmentWithDefaultWarning<I> {
-    Opt(OptSegmentError),
+pub enum OptSegmentWithDefaultWarning_<I, B, E> {
+    Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
 }
 
 #[derive(Default, new)]
-pub(crate) struct NewSegmentConfig<T, I, S> {
+pub struct NewSegmentConfig<T, I, S> {
     pub(crate) corr: OffsetCorrection<I, S>,
     pub(crate) file_len: Option<T>,
     pub(crate) truncate_offsets: TruncateOffsets,

@@ -27,57 +27,49 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
+use crate::text::byteord::OrderedToEndianError;
+use crate::text::compensation::{Compensation, Compensation2_0, Compensation3_0};
+use crate::text::datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError};
+use crate::text::gating::{
+    AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
+    AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error, GateToMeasIndexError,
+    MeasToGateIndexError, Region, RegionToGateIndexError, RegionToMeasIndexError,
+};
+use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keywords::{
+    Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
+    Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
+    DetectorVoltage, Dfc, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Gating,
+    Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par,
+    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, Range,
+    RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag, TemporalScale, TemporalScale3_0,
+    TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+};
+use crate::text::named_vec::{
+    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
+    InputLengthError, InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec,
+    NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
+    SetElementsError, SetKeysError, SetNamesError,
+};
+use crate::text::optional::{
+    CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
+};
 use crate::text::parser::{
-    BiIndexedKeyToIndexLinkError, DependentIndexKeyError, IndexedKeyToIndexLinkError,
+    BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexKeyError, DependentKeyError,
+    DeprecatedError, ExtraStdKeywords, IndexedKeyToIndexLinkError, KeyToIndexLinkError,
+    KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
+    MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
+    RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+};
+use crate::text::ranged_float::PositiveFloat;
+use crate::text::scale::{LogScale, Scale};
+use crate::text::spillover::{NewSpilloverError, Spillover};
+use crate::text::timestamps::{
+    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Timestamps, Xtim,
 };
 use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
-
-use crate::text::{
-    byteord::OrderedToEndianError,
-    compensation::{Compensation, Compensation2_0, Compensation3_0},
-    datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError},
-    gating::{
-        AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
-        AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error,
-        GateToMeasIndexError, MeasToGateIndexError, Region, RegionToGateIndexError,
-        RegionToMeasIndexError,
-    },
-    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
-    keywords::{
-        Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-        Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
-        DetectorVoltage, Dfc, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Gating,
-        Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost,
-        MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType,
-        Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-        PrefixedMeasIndex, Proj, Range, RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag,
-        TemporalScale, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
-        Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-        WavelengthsLossError, Wellid,
-    },
-    named_vec::{
-        EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
-        InputLengthError, InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec,
-        NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
-        SetElementsError, SetKeysError, SetNamesError,
-    },
-    optional::{
-        CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
-    },
-    parser::{
-        DepValueWarning, DependentKeyError, DeprecatedError, ExtraStdKeywords, KeyToIndexLinkError,
-        KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
-        MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
-        RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
-    },
-    ranged_float::PositiveFloat,
-    scale::{LogScale, Scale},
-    spillover::{NewSpilloverError, Spillover},
-    timestamps::{
-        Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Timestamps,
-        Xtim,
-    },
-};
 
 use crate::validated::keys::{SpecificKey, StdKey};
 use crate::validated::{
@@ -110,7 +102,6 @@ use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::marker::PhantomData;
-use std::num::ParseIntError;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -1057,7 +1048,7 @@ pub struct SubsetData {
 }
 
 /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-#[derive(Clone, PartialEq, From, Default)]
+#[derive(Clone, PartialEq, From, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct CSVFlags(pub Vec<Option<CSVFlag>>);
@@ -8792,7 +8783,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
-    Tot(OptKeyError<ParseIntError>),
+    Tot(OptKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
@@ -8800,7 +8791,7 @@ pub enum LookupTEXTOffsetsWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsError {
-    Tot(ReqKeyError<ParseIntError>),
+    Tot(ReqKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
     MismatchData(SegmentMismatchWarning<DataSegmentId>),

@@ -29,7 +29,8 @@ use crate::segment::{
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::parser::{
-    ExtraStdKeywords, OptKeyError, ReqKeyError, get_opt, get_req, truncate_string,
+    ExtraStdKeywords, OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
+    truncate_string,
 };
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::UintSpacePad20;
@@ -49,7 +50,7 @@ use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
 use std::iter::once;
-use std::num::{NonZeroUsize, ParseIntError};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -326,7 +327,7 @@ pub struct RawTEXTParseData {
     ///
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
-    pub nextdata: Option<u32>,
+    pub nextdata: Option<u64>,
 
     /// Delimiter used to parse TEXT.
     ///
@@ -390,7 +391,7 @@ pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
     Keywords(ParseKeywordsIssue),
     SuppOffsets(STextSegmentWarning),
-    Nextdata(OptKeyError<ParseIntError>),
+    Nextdata(OptKeyError<Nextdata>),
     Nonstandard(NonstandardError),
 }
 
@@ -415,14 +416,14 @@ pub enum RawToReaderWarning {
 
 #[derive(From, Display)]
 pub enum STextSegmentError {
-    ReqSegment(ReqSegmentError),
+    ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     Dup(DuplicatedSuppTEXT),
 }
 
 #[derive(From, Display)]
 pub enum STextSegmentWarning {
-    ReqSegment(ReqSegmentError),
-    OptSegment(OptSegmentError),
+    ReqSegment(ReqSegmentError<Beginstext, Endstext>),
+    OptSegment(OptSegmentError<Beginstext, Endstext>),
     Dup(DuplicatedSuppTEXT),
 }
 
@@ -436,7 +437,7 @@ pub enum ParseRawTEXTError {
     Primary(ParsePrimaryTEXTError),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
-    Nextdata(ReqKeyError<ParseIntError>),
+    Nextdata(ReqKeyError<Nextdata>),
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
     Nonstandard(NonstandardError),
@@ -1136,7 +1137,7 @@ where
                 Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
                     FungibleErrorsResult::new_deferred_fungible(None, e0, flag)
-                        .extend_deferred_fungible_errors(e1.map(|x| *x))
+                        .extend_deferred_fungible_errors(e1)
                         .fungible_into_commutative()
                         .map_errors(STextSegmentError::from)
                         .map_commutative_warnings(STextSegmentWarning::from)
@@ -1149,7 +1150,7 @@ where
                 Ok(seg) => LogResult::new_ok(seg),
                 Err((e0, e1)) => {
                     let mut res = DeferredWarningsAndErrors::new_ok(None);
-                    res.extend_commutative_warnings(once(e0).chain(e1.map(|x| *x)));
+                    res.extend_commutative_warnings(once(e0).chain(e1));
                     res.map_commutative_warnings(STextSegmentWarning::from)
                 }
             }
@@ -1181,16 +1182,16 @@ where
 fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,
-) -> DeferredWarningAndError<Option<u32>, OptKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
-    let k = Nextdata::std();
-    if enforce {
-        get_req(kws, k)
+) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
+    let ret = if enforce {
+        Nextdata::get_metaroot_req(kws)
+            .map(Some)
             .into_log()
-            .map_ok_value(Some)
-            .map_err_value(|()| None)
+            .set_err_value(None)
     } else {
-        get_opt(kws, k).into_succ()
-    }
+        Nextdata::get_metaroot_opt(kws).into_succ()
+    };
+    ret.map_def_value(|x| x.map(|y| u64::from(y.0)))
 }
 
 impl RawTEXTParseData {

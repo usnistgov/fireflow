@@ -5,7 +5,7 @@ use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    FromStrWith, LookupKeysWarning, LookupTentative, OptKeyError, OptMetarootKey, Optional,
+    FromStrWith, LookupKeysWarning, LookupTentative, OptKeyStError, OptMetarootKey, Optional,
     ParseOptKeyError,
 };
 
@@ -55,7 +55,7 @@ impl<X> Default for Timestamps<X> {
 pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
-#[derive(Clone, Copy, Display, FromStr, From, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
@@ -77,7 +77,7 @@ where
 }
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{}", _0.format(FCS_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
@@ -169,8 +169,7 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        ParseOptKeyError: From<OptKeyError<<Btim<X> as FromStrWith>::Err>>
-            + From<OptKeyError<<Etim<X> as FromStrWith>::Err>>,
+        ParseOptKeyError: From<OptKeyStError<Btim<X>>> + From<OptKeyStError<Etim<X>>>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
         let b = Btim::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
@@ -245,7 +244,7 @@ impl FromStr for FCSDate {
 pub struct FCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
@@ -276,7 +275,7 @@ pub enum FCSFixedTimeError<E> {
 pub struct FCSTimeError;
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime60(pub NaiveTime);
 
@@ -317,7 +316,7 @@ impl fmt::Display for FCSTime60 {
 pub struct FCSTime60Error;
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FCSTime100(pub NaiveTime);
 

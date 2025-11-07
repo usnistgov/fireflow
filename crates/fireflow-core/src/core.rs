@@ -8974,10 +8974,7 @@ mod serialize {
 mod python {
     use crate::data::{AnyRangeError, LookupLayoutError};
     use crate::python::exceptions::{ConversionException, RelationalException};
-    use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow_err,
-        impl_pyreflow1_err, impl_value_err,
-    };
+    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow1_err};
     use crate::text::parser::{
         BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
         IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
@@ -9040,13 +9037,6 @@ mod python {
             }
         }
     }
-
-    // lots of stuff, maybe not worth breaking down
-
-    // - NewDataLayoutError
-    // - ColumnError<AnyLossError>
-    // - Uint8DigitOverflow
-    impl_pyreflow_err!(StdWriterError);
 
     impl<E: Display> From<ConvertError<E>> for PyErr {
         fn from(value: ConvertError<E>) -> Self {
@@ -9177,4 +9167,5 @@ mod python {
     );
     impl_from_pyerr!(LookupMeasWarning, Parse, Pattern);
     impl_from_pyerr!(LookupLayoutError, New, Raw);
+    impl_from_pyerr!(StdWriterError, Layout, Check, Overflow);
 }

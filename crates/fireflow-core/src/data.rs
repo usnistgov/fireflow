@@ -4443,6 +4443,7 @@ mod python {
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
 
+    use super::AnyLossError;
     use super::ColumnError;
     use super::LookupLayoutWarning;
     use super::MeasLayoutLengthsError;
@@ -4533,6 +4534,8 @@ mod python {
 
     // TODO this feels sloppy
     impl_pyreflow1_err!(FileLayoutError, NewDataLayoutError);
+
+    impl_pyreflow1_err!(EventDataError, ColumnError<AnyLossError>);
 
     impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
     impl_from_pyerr!(LookupLayoutWarning, New, Raw);

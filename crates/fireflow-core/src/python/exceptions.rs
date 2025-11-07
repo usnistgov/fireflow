@@ -52,6 +52,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    EventDataError,
+    PyreflowException,
+    "Exception caused by invalid values in DATA segment"
+);
+
+create_exception!(
+    _pyreflow,
     PyreflowWarning,
     PyWarning,
     "Warning created by internal pyreflow."

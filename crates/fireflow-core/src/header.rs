@@ -793,7 +793,7 @@ fn offsets_len() -> u64 {
 mod python {
     use super::{HeaderError, HeaderSegments, UintSpacePad20, Version, VersionError};
     use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
+        impl_from_py_via_fromstr, impl_pyreflow1_err, impl_to_py_via_display, impl_value_err,
     };
 
     use pyo3::prelude::*;
@@ -818,5 +818,5 @@ mod python {
     impl_from_py_via_fromstr!(Version);
     impl_value_err!(VersionError);
 
-    impl_pyreflow_err!(HeaderError);
+    impl_pyreflow1_err!(FileLayoutError, HeaderError);
 }

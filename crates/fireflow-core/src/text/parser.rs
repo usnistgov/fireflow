@@ -652,6 +652,7 @@ pub enum DeprecatedError {
     Value(DepValueWarning),
 }
 
+// TODO break these up to be more context-specific (layout vs metaroot etc)
 /// Error encountered when parsing a required key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseReqKeyError {

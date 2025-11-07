@@ -4150,7 +4150,6 @@ pub type DataReaderResult<T> =
 #[derive(From, Display, Debug, Error)]
 pub enum NewDataReaderError {
     TotMismatch(TotEventMismatch),
-    // TODO why $TOT here?
     ParseTot(ReqKeyError<Tot>),
     ParseSeg(ReqSegmentWithDefaultError<DataSegmentId>),
     Width(UnevenEventWidth),
@@ -4261,7 +4260,6 @@ pub enum RawParsedError {
     AlphaNumType(ReqKeyError<AlphaNumType>),
     Endian(ReqKeyError<ByteOrd3_1>),
     ByteOrd(ReqKeyError<ByteOrd2_0>),
-    // TODO why is this here?
     Par(ReqKeyError<Par>),
     Width(ReqIndexedKeyError<Width>),
     Range(ReqIndexedKeyError<Range>),

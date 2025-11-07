@@ -21,7 +21,7 @@ use super::keywords::{
     GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale, GateShortname, Gating,
     LastModified, Longname, Lost, MeasOrGateIndex, Mode, Mode3_2, NumType, OpticalType,
     Originality, Par, PeakBin, PeakIndex, PercentEmitted, Power, PrefixedMeasIndex, Range,
-    RegionGateIndex, RegionLinkError, RegionWindow, Tag, TemporalGainError, TemporalScale,
+    RegionGateIndex, RegionLinkError, RegionWindow, Tag, TemporalGainError, TemporalScale2_0,
     TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters, Vol,
     Wavelength, Wavelengths,
 };
@@ -40,7 +40,6 @@ use thiserror::Error;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
-use std::marker::PhantomData;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
@@ -663,7 +662,6 @@ pub enum ParseReqKeyError {
     ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
     ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
     Shortname(ReqIndexedKeyError<Shortname>),
-    // TODO why these here?
     Width(ReqIndexedKeyError<Width>),
     Range(ReqIndexedKeyError<Range>),
     Cyt3_2(ReqKeyError<Cyt3_2>),
@@ -677,7 +675,7 @@ pub enum ParseOptKeyError {
     NumType(OptIndexedKeyError<NumType>),
     Trigger(OptKeyStError<Trigger>),
     Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale>),
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
     Comp2_0(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
     Comp3_0(OptKeyError<Compensation3_0>),
     Gain(OptIndexedKeyError<Gain>),

@@ -2485,7 +2485,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         PyBool::default().rstype(p)
     });
 
-    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale", "has_scale", "E", |p| {
+    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale2_0", "has_scale", "E", |p| {
         PyBool::default().rstype(p)
     });
 

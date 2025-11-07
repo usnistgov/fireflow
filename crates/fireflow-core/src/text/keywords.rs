@@ -446,7 +446,7 @@ impl TemporalScale3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<()> {
         if conf.force_time_linear {
-            nonstd.transfer_demoted(kws, TemporalScale::std(i));
+            nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             LogResult::new_ok(())
         } else {
             Self::lookup_req(kws, i).set_ok_value(())
@@ -2060,7 +2060,6 @@ kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
 kw_opt_meta_string!(Wellid, "WELLID");
 
-// impl Optional for Spillover {}
 kw_opt_meta!(Spillover, "SPILLOVER", Option<Self>);
 
 kw_opt_meta!(Vol, "VOL", Option<Self>);
@@ -2073,14 +2072,6 @@ kw_opt_meta_string!(Locationid, "LOCATIONID");
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
 kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
 kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS", Self);
-
-// impl Key for UnstainedCenters {
-//     const C: &'static str = "UNSTAINEDCENTERS";
-// }
-
-// impl Optional for UnstainedCenters {
-//     type Outer = Self;
-// }
 
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 
@@ -2133,7 +2124,12 @@ req_meas!(Shortname); // required for 3.1+
 kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale, "E", TemporalScaleInner, TemporalScaleError); // optional for 2.0
+meas_opt_zst!(
+    TemporalScale2_0,
+    "E",
+    TemporalScaleInner,
+    TemporalScaleError
+); // optional for 2.0
 kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
 kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0

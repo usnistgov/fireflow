@@ -43,7 +43,7 @@ use crate::text::keywords::{
     Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, MeasOrGateIndex,
     Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par,
     PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, Range,
-    RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag, TemporalScale, TemporalScale3_0,
+    RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
     TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
     UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
@@ -732,10 +732,10 @@ pub struct InnerTemporal2_0 {
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
-    #[as_ref(TemporalScale)]
-    #[as_mut(TemporalScale)]
+    #[as_ref(TemporalScale2_0)]
+    #[as_mut(TemporalScale2_0)]
     #[new(into)]
-    pub scale: TemporalScale,
+    pub scale: TemporalScale2_0,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
@@ -5678,7 +5678,7 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Temporal,
     InnerTemporal2_0,
-    TemporalScale,
+    TemporalScale2_0,
     Option<PeakBin>,
     Option<PeakIndex>
 );
@@ -6686,10 +6686,10 @@ impl LookupTemporal for InnerTemporal2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let scale = if conf.force_time_linear {
-            nonstd.transfer_demoted(std, TemporalScale::std(i));
+            nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {
-            TemporalScale::lookup_meas_opt(std, i, false, conf)
+            TemporalScale2_0::lookup_meas_opt(std, i, false, conf)
         };
         let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);

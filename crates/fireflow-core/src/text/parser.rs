@@ -641,7 +641,6 @@ pub enum DeprecatedError {
 pub enum ParseReqKeyError {
     Range(ParseBigDecimalError),
     AlphaNumType(AlphaNumTypeError),
-    String(Infallible),
     NonEmptyString(NonEmptyStringError),
     Int(ParseIntError),
     Scale(ScaleError),

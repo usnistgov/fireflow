@@ -4,7 +4,7 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, KeyToIndexLinkError};
+use super::parser::{FromStrWith, KeyToIndexLinkError};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -182,11 +182,11 @@ impl fmt::Display for Spillover {
     }
 }
 
-impl FromStrStateful for Spillover {
+impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
 
-    fn from_str_st(
+    fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
         conf: &StdTextReadConfig,

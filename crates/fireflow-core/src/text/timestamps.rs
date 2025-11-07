@@ -5,7 +5,7 @@ use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    FromStrStateful, LookupKeysWarning, LookupTentative, OptKeyError, OptMetarootKey, Optional,
+    FromStrWith, LookupKeysWarning, LookupTentative, OptKeyError, OptMetarootKey, Optional,
     ParseOptKeyError,
 };
 
@@ -59,14 +59,14 @@ pub type Etim<T> = Xtim<true, T>;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
-impl<const IS_ETIM: bool, T> FromStrStateful for Xtim<IS_ETIM, T>
+impl<const IS_ETIM: bool, T> FromStrWith for Xtim<IS_ETIM, T>
 where
     T: FromStr + From<NaiveTime>,
 {
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
@@ -169,13 +169,13 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        ParseOptKeyError: From<OptKeyError<<Btim<X> as FromStrStateful>::Err>>
-            + From<OptKeyError<<Etim<X> as FromStrStateful>::Err>>,
+        ParseOptKeyError: From<OptKeyError<<Btim<X> as FromStrWith>::Err>>
+            + From<OptKeyError<<Etim<X> as FromStrWith>::Err>>,
         for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
     {
-        let b = Btim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        let e = Etim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
+        let b = Btim::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
+        let e = Etim::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
+        let d = FCSDate::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
         let flag = conf.allow_optional_dropping;
         b.zip_f3_once(e, d)
             .and_then_def_result(flag, |(btim, etim, date)| {
@@ -211,11 +211,11 @@ type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 // "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 
-impl FromStrStateful for FCSDate {
+impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {

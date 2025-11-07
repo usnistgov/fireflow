@@ -6,7 +6,7 @@ use crate::validated::keys::{BiIndexedKey as _, StdKey, StdKeywords};
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
 use super::parser::{
-    FromStrDelim, FromStrStateful, LookupKeysWarning, LookupOptional, OptKeyError,
+    FromStrDelim, FromStrWith, LookupKeysWarning, LookupOptional, OptKeyError,
 };
 
 use derive_more::{AsRef, Display, From, Into};
@@ -192,11 +192,11 @@ impl Compensation {
 }
 
 // TODO check that nrows/columns = PAR
-impl FromStrStateful for Compensation3_0 {
+impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }

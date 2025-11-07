@@ -66,12 +66,15 @@ pub trait FromStrDelim: Sized {
     }
 }
 
-pub trait FromStrStateful: Sized {
+pub trait FromStrWith: Sized {
     type Err;
     type Payload<'a>;
 
-    fn from_str_st(_: &str, _: Self::Payload<'_>, _: &StdTextReadConfig)
-    -> Result<Self, Self::Err>;
+    fn from_str_with(
+        _: &str,
+        _: Self::Payload<'_>,
+        _: &StdTextReadConfig,
+    ) -> Result<Self, Self::Err>;
 }
 
 /// Any required key
@@ -160,21 +163,6 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
             .into_log()
     }
 
-    // fn lookup_req_st(
-    //     kws: &mut StdKeywords,
-    //     data: Self::Payload<'_>,
-    //     conf: &StdTextReadConfig,
-    // ) -> LookupResult<Self>
-    // where
-    //     Self: FromStrStateful,
-    //     ParseReqKeyError: From<<Self as FromStrStateful>::Err>,
-    // {
-    //     Self::remove_req_st(kws, Self::std(), data, conf)
-    //         .map_err(|e| e.inner_into())
-    //         .map_err(Box::new)
-    //         .into_deferred()
-    // }
-
     fn pair(&self) -> (String, String)
     where
         Self: fmt::Display,
@@ -212,18 +200,18 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
             .into_log()
     }
 
-    fn lookup_req_st(
+    fn lookup_req_with(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
-        Self: FromStrStateful,
-        ParseReqKeyError: From<ReqKeyError<<Self as FromStrStateful>::Err>>,
+        Self: FromStrWith,
+        ParseReqKeyError: From<ReqKeyError<<Self as FromStrWith>::Err>>,
     {
         Self::remove_req(kws, Self::std(i), |k, v| {
-            Self::from_str_st(v.as_str(), data, conf)
+            Self::from_str_with(v.as_str(), data, conf)
                 .map_err(|e| ParseKeyError::new(e, k, v).into())
         })
         .map_err(ParseReqKeyError::from)
@@ -299,18 +287,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         })
     }
 
-    fn lookup_metatroot_opt_st(
+    fn lookup_metatroot_opt_with(
         kws: &mut StdKeywords,
         is_deprecated: bool,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
-        Self: FromStrStateful,
-        ParseOptKeyError: From<OptKeyError<<Self as FromStrStateful>::Err>>,
+        Self: FromStrWith,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStrWith>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(), |k, v| {
-            parse_opt_tnt_st(k, v, is_deprecated, data, conf)
+            parse_opt_tnt_with(k, v, is_deprecated, data, conf)
         })
     }
 
@@ -390,7 +378,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         })
     }
 
-    fn lookup_meas_opt_st(
+    fn lookup_meas_opt_with(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         is_deprecated: bool,
@@ -398,11 +386,11 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
-        Self: FromStrStateful,
-        ParseOptKeyError: From<OptKeyError<<Self as FromStrStateful>::Err>>,
+        Self: FromStrWith,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStrWith>::Err>>,
     {
         Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
-            parse_opt_tnt_st(k, v, is_deprecated, data, conf)
+            parse_opt_tnt_with(k, v, is_deprecated, data, conf)
         })
     }
 
@@ -446,16 +434,16 @@ where
     eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
-pub(crate) fn parse_opt_st<T: FromStrStateful>(
+pub(crate) fn parse_opt_with<T: FromStrWith>(
     k: StdKey,
     v: String,
     data: T::Payload<'_>,
     conf: &StdTextReadConfig,
 ) -> Result<T, OptKeyError<T::Err>> {
-    T::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
+    T::from_str_with(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
 }
 
-pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
+pub(crate) fn parse_opt_tnt_with<T: FromStrWith>(
     k: StdKey,
     v: String,
     is_deprecated: bool,
@@ -465,7 +453,7 @@ pub(crate) fn parse_opt_tnt_st<T: FromStrStateful>(
 where
     ParseOptKeyError: From<OptKeyError<T::Err>>,
 {
-    let res = parse_opt_st(k.clone(), v, data, conf)
+    let res = parse_opt_with(k.clone(), v, data, conf)
         .map_err(ParseOptKeyError::from)
         .map_err(LookupKeysWarning::Parse);
     eval_drop_and_deprecated(res, k, is_deprecated, conf)

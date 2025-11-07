@@ -20,7 +20,7 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrStateful, IndexedKeyToIndexLinkError,
+    DepValueWarning, DeprecatedError, FromStrDelim, FromStrWith, IndexedKeyToIndexLinkError,
     LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey, OptKeyError, OptMetarootKey,
     Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
@@ -161,11 +161,11 @@ impl Trigger {
     }
 }
 
-impl FromStrStateful for Trigger {
+impl FromStrWith for Trigger {
     type Err = TriggerError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -590,11 +590,11 @@ impl FromStr for Wavelengths {
     }
 }
 
-impl FromStrStateful for Wavelengths {
+impl FromStrWith for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -724,11 +724,11 @@ pub struct Unicode {
     pub kws: Vec<String>,
 }
 
-impl FromStrStateful for Unicode {
+impl FromStrWith for Unicode {
     type Err = UnicodeError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -892,12 +892,12 @@ impl<I> RegionGateIndex<I> {
     ) -> LookupOptional<Self>
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex,
-        for<'a> Self: fmt::Display + FromStrStateful<Payload<'a> = ()>,
-        ParseOptKeyError: From<OptKeyError<<Self as FromStrStateful>::Err>>,
+        for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
+        ParseOptKeyError: From<OptKeyError<<Self as FromStrWith>::Err>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
     {
         let flag = conf.allow_optional_dropping;
-        Self::lookup_meas_opt_st(kws, i, is_deprecated, (), conf)
+        Self::lookup_meas_opt_with(kws, i, is_deprecated, (), conf)
             .eval_warning_or_error(flag, |maybe| maybe.as_ref()?.link_error(i, par))
     }
 
@@ -929,11 +929,11 @@ impl<I> RegionGateIndex<I> {
 
 pub(crate) type RegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
-impl<I: FromStr> FromStrStateful for RegionGateIndex<I> {
+impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1075,11 +1075,11 @@ pub struct UniGate {
     pub upper: BigDecimal,
 }
 
-impl FromStrStateful for RegionWindow {
+impl FromStrWith for RegionWindow {
     type Err = GatePairError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1562,12 +1562,12 @@ impl_non_neg_float! {
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
-impl FromStrStateful for GateScale {
+impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
-        Scale::from_str_st(s, data, conf).map(Self)
+    fn from_str_with(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Scale::from_str_with(s, data, conf).map(Self)
     }
 }
 
@@ -1649,11 +1649,11 @@ impl UnstainedCenters {
     }
 }
 
-impl FromStrStateful for UnstainedCenters {
+impl FromStrWith for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }

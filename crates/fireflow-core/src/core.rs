@@ -4922,7 +4922,7 @@ impl CoreTEXT3_2 {
 
 impl UnstainedData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let c = UnstainedCenters::lookup_metatroot_opt_st(kws, false, (), conf);
+        let c = UnstainedCenters::lookup_metatroot_opt_with(kws, false, (), conf);
         let i = UnstainedInfo::lookup_metaroot_opt_nofail(kws, false, conf);
         c.lift_f2_once(i, Self::new)
     }
@@ -6227,7 +6227,7 @@ impl ScaleTransform {
             .errors_into()
             .set_err_value(())
             .and_then_cmt(|g| {
-                Scale::lookup_req_st(kws, i, (), conf).and_then_cmt(|s| {
+                Scale::lookup_req_with(kws, i, (), conf).and_then_cmt(|s| {
                     Self::try_from((s, g))
                         .map_err(LookupKeysError::from)
                         .into_log()
@@ -6618,7 +6618,7 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let scale = Scale::lookup_meas_opt_st(kws, i, false, (), conf);
+        let scale = Scale::lookup_meas_opt_with(kws, i, false, (), conf);
         let wave = Wavelength::lookup_meas_opt(kws, i, false, conf);
         let peak = PeakData::lookup(kws, i, false, conf);
         scale
@@ -6650,7 +6650,7 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_st(kws, i, false, (), conf);
+        let wave = Wavelengths::lookup_meas_opt_with(kws, i, false, (), conf);
         let cal = Calibration3_1::lookup_meas_opt(kws, i, false, conf);
         let dpy = Display::lookup_meas_opt(kws, i, false, conf);
         let peak = PeakData::lookup(kws, i, true, conf);
@@ -6669,7 +6669,7 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_st(kws, i, false, (), conf);
+        let wave = Wavelengths::lookup_meas_opt_with(kws, i, false, (), conf);
         let cal = Calibration3_2::lookup_meas_opt(kws, i, false, conf);
         let dpy = Display::lookup_meas_opt(kws, i, false, conf);
         let det_name = DetectorName::lookup_meas_opt_nofail(kws, i, false, conf);
@@ -7406,7 +7406,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
         let ts = Timestamps::lookup(kws, false, conf);
-        let uni = Unicode::lookup_metatroot_opt_st(kws, false, (), conf);
+        let uni = Unicode::lookup_metatroot_opt_with(kws, false, (), conf);
         let ag = AppliedGates3_0::lookup(kws, par, false, conf);
         comp.zip4_cmt(cyt, cytsn, subset)
             .zip4_cmt(ts, uni, ag)
@@ -7452,7 +7452,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
         let cyt = Cyt::lookup_metaroot_opt_nofail(kws, false, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
+        let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
@@ -7496,7 +7496,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let flow = Flowrate::lookup_metaroot_opt_nofail(kws, false, conf);
         let modif = ModificationData::lookup(kws, conf);
         let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
-        let spill = Spillover::lookup_metatroot_opt_st(kws, false, &ordered_names[..], conf);
+        let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
         let plate = PlateData::lookup(kws, true, conf);
         let ts = Timestamps::lookup(kws, true, conf);

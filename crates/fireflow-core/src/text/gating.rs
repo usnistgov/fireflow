@@ -569,7 +569,7 @@ impl GatedMeasurement {
         Self::lookup_inner(
             kws,
             i,
-            |k, j| GateScale::lookup_meas_opt_st(k, j, is_deprecated, (), conf),
+            |k, j| GateScale::lookup_meas_opt_with(k, j, is_deprecated, (), conf),
             |k, j| GateFilter::lookup_meas_opt_nofail(k, j, is_deprecated, conf),
             |k, j| GateShortname::lookup_meas_opt(k, j, is_deprecated, conf),
             |k, j| GatePercentEmitted::lookup_meas_opt(k, j, is_deprecated, conf),
@@ -819,7 +819,7 @@ impl<I> Region<I> {
             kws,
             i,
             |k, j| RegionGateIndex::lookup_region_opt(k, j, par, is_deprecated, conf),
-            |k, j| RegionWindow::lookup_meas_opt_st(k, j, is_deprecated, (), conf),
+            |k, j| RegionWindow::lookup_meas_opt_with(k, j, is_deprecated, (), conf),
             conf,
         )
     }

@@ -286,6 +286,19 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         })
     }
 
+    fn lookup_metaroot_opt_nofail(
+        kws: &mut StdKeywords,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self::Outer>
+    where
+        Self: FromStr<Err = Infallible>,
+    {
+        Self::remove_opt_tnt(kws, Self::std(), |k, v| {
+            parse_opt_nofail(k, v, is_deprecated, conf)
+        })
+    }
+
     fn lookup_metatroot_opt_st(
         kws: &mut StdKeywords,
         is_deprecated: bool,
@@ -363,6 +376,20 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         })
     }
 
+    fn lookup_meas_opt_nofail(
+        kws: &mut StdKeywords,
+        i: impl Into<IndexFromOne>,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self::Outer>
+    where
+        Self: FromStr<Err = Infallible>,
+    {
+        Self::remove_opt_tnt(kws, Self::std(i), |k, v| {
+            parse_opt_nofail(k, v, is_deprecated, conf)
+        })
+    }
+
     fn lookup_meas_opt_st(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne> + Copy,
@@ -389,6 +416,19 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
 pub(crate) fn parse_opt<T: FromStr>(k: StdKey, v: String) -> Result<T, OptKeyError<T::Err>> {
     v.parse().map_err(|e| OptKeyError::new(e, k, v))
+}
+
+pub(crate) fn parse_opt_nofail<T>(
+    k: StdKey,
+    v: String,
+    is_deprecated: bool,
+    conf: &StdTextReadConfig,
+) -> LookupTentative<Option<T>>
+where
+    T: FromStr<Err = Infallible>,
+{
+    let Ok(res) = parse_opt(k.clone(), v);
+    eval_drop_and_deprecated(Ok(res), k, is_deprecated, conf)
 }
 
 pub(crate) fn parse_opt_tnt<T: FromStr>(
@@ -627,7 +667,6 @@ pub enum ParseOptKeyError {
     Calibration3_1(CalibrationError<CalibrationFormat3_1>),
     Calibration3_2(CalibrationError<CalibrationFormat3_2>),
     Int(ParseIntError),
-    String(Infallible),
     FCSDate(FCSDateError),
     FCSTime(FCSFixedTimeError<FCSTimeError>),
     FCSTime60(FCSFixedTimeError<FCSTime60Error>),

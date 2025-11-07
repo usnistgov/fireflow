@@ -570,12 +570,12 @@ impl GatedMeasurement {
             kws,
             i,
             |k, j| GateScale::lookup_meas_opt_st(k, j, is_deprecated, (), conf),
-            |k, j| GateFilter::lookup_meas_opt(k, j, is_deprecated, conf),
+            |k, j| GateFilter::lookup_meas_opt_nofail(k, j, is_deprecated, conf),
             |k, j| GateShortname::lookup_meas_opt(k, j, is_deprecated, conf),
             |k, j| GatePercentEmitted::lookup_meas_opt(k, j, is_deprecated, conf),
             |k, j| GateRange::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateLongname::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateDetectorType::lookup_meas_opt(k, j, is_deprecated, conf),
+            |k, j| GateLongname::lookup_meas_opt_nofail(k, j, is_deprecated, conf),
+            |k, j| GateDetectorType::lookup_meas_opt_nofail(k, j, is_deprecated, conf),
             |k, j| GateDetectorVoltage::lookup_meas_opt(k, j, is_deprecated, conf),
         )
     }

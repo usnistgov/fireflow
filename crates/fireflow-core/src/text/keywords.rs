@@ -20,9 +20,9 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, DeprecatedError, FromStrDelim, FromStrWith, IndexedKeyToIndexLinkError,
-    LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey, OptIndexedKeyStError,
-    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    DepValueWarning, FromStrDelim, FromStrWith, IndexedKeyToIndexLinkError, LookupKeysWarning,
+    LookupOptional, LookupResult, OptIndexedKey, OptIndexedKeyStError, OptMetarootKey, Optional,
+    ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -372,8 +372,7 @@ impl AlphaNumType {
 }
 
 fn check_datatype_ascii(datatype: AlphaNumType) -> Option<LookupKeysWarning> {
-    (datatype == AlphaNumType::Ascii)
-        .then(|| DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
+    (datatype == AlphaNumType::Ascii).then(|| DepValueWarning::DatatypeASCII.into())
 }
 
 impl FromStr for AlphaNumType {

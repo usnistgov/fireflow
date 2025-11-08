@@ -58,10 +58,10 @@ use crate::text::optional::{
 };
 use crate::text::parser::{
     BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexedKeyError, DependentKeyError,
-    DeprecatedError, ExtraStdKeywords, IndexedKeyToIndexLinkError, KeyToIndexLinkError,
-    KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative,
-    MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError,
-    RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+    ExtraStdKeywords, IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
+    LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, MissingTime,
+    OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError, RawKeywords,
+    ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -1653,14 +1653,9 @@ pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
-    fn lookup(
-        std: &mut StdKeywords,
-        i: MeasIndex,
-        nonstd: NonStdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Longname::lookup_meas_opt_nofail(std, i, false, conf)
-            .map_def_value(|longname| Self::new(longname, nonstd))
+    fn lookup(std: &mut StdKeywords, i: MeasIndex, nonstd: NonStdKeywords) -> Self {
+        let longname = Longname::lookup_meas_opt_noerror(std, i);
+        Self::new(longname, nonstd)
     }
 }
 
@@ -1674,11 +1669,9 @@ impl<T> Temporal<T> {
     where
         T: LookupTemporal,
     {
-        T::lookup_specific(std, i, &mut nonstd, conf).and_then_cmt(|specific| {
-            CommonMeasurement::lookup(std, i, nonstd, conf)
-                .map_ok_value(|common| Self::new(common, specific))
-                .set_err_value(())
-                .errors_into()
+        T::lookup_specific(std, i, &mut nonstd, conf).map_ok_value(|specific| {
+            let common = CommonMeasurement::lookup(std, i, nonstd);
+            Self::new(common, specific)
         })
     }
 
@@ -1744,18 +1737,19 @@ impl<O> Optical<O> {
         Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
-        let filter = Filter::lookup_meas_opt_nofail(std, i, false, conf);
+        let filter = Filter::lookup_meas_opt_noerror(std, i);
         let power = Power::lookup_meas_opt(std, i, false, conf);
-        let det_type = DetectorType::lookup_meas_opt_nofail(std, i, false, conf);
+        let det_type = DetectorType::lookup_meas_opt_noerror(std, i);
         let pe_dep = Version::from(version) == Version::FCS3_2;
         let perc_emit = PercentEmitted::lookup_meas_opt(std, i, pe_dep, conf);
         let det_volt = DetectorVoltage::lookup_meas_opt(std, i, false, conf);
-        let common = CommonMeasurement::lookup(std, i, nonstd, conf);
-        filter
-            .zip6_cmt(power, det_type, perc_emit, det_volt, common)
+        let common = CommonMeasurement::lookup(std, i, nonstd);
+        power
+            .zip3_cmt(perc_emit, det_volt)
             .errors_into()
-            .and_then_cmt(|(f, p, d, e, v, c)| {
-                O::lookup_specific(std, i, conf).map_ok_value(|s| Self::new(c, f, p, d, e, v, s))
+            .and_then_cmt(|(p, e, v)| {
+                O::lookup_specific(std, i, conf)
+                    .map_ok_value(|s| Self::new(common, filter, p, det_type, e, v, s))
             })
     }
 
@@ -1918,36 +1912,29 @@ where
         M: LookupMetaroot,
     {
         let abrt_res = Abrt::lookup_metaroot_opt(std, false, conf);
-        let com_res = Com::lookup_metaroot_opt_nofail(std, false, conf);
-        let cells_res = Cells::lookup_metaroot_opt_nofail(std, false, conf);
-        let exp_res = Exp::lookup_metaroot_opt_nofail(std, false, conf);
-        let fil_res = Fil::lookup_metaroot_opt_nofail(std, false, conf);
-        let inst_res = Inst::lookup_metaroot_opt_nofail(std, false, conf);
+        let com = Com::lookup_metaroot_opt_noerror(std);
+        let cells = Cells::lookup_metaroot_opt_noerror(std);
+        let exp = Exp::lookup_metaroot_opt_noerror(std);
+        let fil = Fil::lookup_metaroot_opt_noerror(std);
+        let inst = Inst::lookup_metaroot_opt_noerror(std);
         let lost_res = Lost::lookup_metaroot_opt(std, false, conf);
-        let op_res = Op::lookup_metaroot_opt_nofail(std, false, conf);
-        let proj_res = Proj::lookup_metaroot_opt_nofail(std, false, conf);
-        let smno_res = Smno::lookup_metaroot_opt_nofail(std, false, conf);
-        let src_res = Src::lookup_metaroot_opt_nofail(std, false, conf);
-        let sys_res = Sys::lookup_metaroot_opt_nofail(std, false, conf);
+        let op = Op::lookup_metaroot_opt_noerror(std);
+        let proj = Proj::lookup_metaroot_opt_noerror(std);
+        let smno = Smno::lookup_metaroot_opt_noerror(std);
+        let src = Src::lookup_metaroot_opt_noerror(std);
+        let sys = Sys::lookup_metaroot_opt_noerror(std);
         let tr_res = Trigger::lookup_metaroot_opt(std, false, conf);
         let spec_res = M::lookup_specific(std, ms, conf);
         abrt_res
-            .zip5_cmt(com_res, cells_res, exp_res, fil_res)
-            .zip5_cmt(inst_res, lost_res, op_res, proj_res)
-            .zip5_cmt(smno_res, src_res, sys_res, tr_res)
+            .zip3_cmt(lost_res, tr_res)
             .map_errors(LookupKeysError::from)
             .zip_cmt(spec_res)
-            .map_ok_value(
-                |(
-                    (((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr),
-                    specific,
-                )| {
-                    Self::new(
-                        abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr,
-                        specific, nonstd,
-                    )
-                },
-            )
+            .map_ok_value(|((abrt, lost, tr), specific)| {
+                Self::new(
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
+                    nonstd,
+                )
+            })
     }
 
     fn all_req_keywords(&self, par: Par) -> impl Iterator<Item = (String, String)> {
@@ -4913,9 +4900,9 @@ impl CoreTEXT3_2 {
 
 impl UnstainedData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let c = UnstainedCenters::lookup_metatroot_opt_with(kws, false, (), conf);
-        let i = UnstainedInfo::lookup_metaroot_opt_nofail(kws, false, conf);
-        c.lift_f2_once(i, Self::new)
+        let i = UnstainedInfo::lookup_metaroot_opt_noerror(kws);
+        UnstainedCenters::lookup_metatroot_opt_with(kws, false, (), conf)
+            .map_def_value(|c| Self::new(c, i))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4997,10 +4984,10 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let last_mod = LastModifier::lookup_metaroot_opt_nofail(kws, false, conf);
+        let last_mod = LastModifier::lookup_metaroot_opt_noerror(kws);
         let last_mod_date = LastModified::lookup_metaroot_opt(kws, false, conf);
         let ori = Originality::lookup_metaroot_opt(kws, false, conf);
-        last_mod.lift_f3_once(last_mod_date, ori, Self::new)
+        last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5022,11 +5009,11 @@ impl ModificationData {
 }
 
 impl CarrierData {
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let l = Locationid::lookup_metaroot_opt_nofail(kws, false, conf);
-        let i = Carrierid::lookup_metaroot_opt_nofail(kws, false, conf);
-        let t = Carriertype::lookup_metaroot_opt_nofail(kws, false, conf);
-        l.lift_f3_once(i, t, |lx, cx, tx| Self::new(cx, tx, lx))
+    fn lookup(kws: &mut StdKeywords) -> Self {
+        let l = Locationid::lookup_metaroot_opt_noerror(kws);
+        let i = Carrierid::lookup_metaroot_opt_noerror(kws);
+        let t = Carriertype::lookup_metaroot_opt_noerror(kws);
+        Self::new(i, t, l)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5050,9 +5037,9 @@ impl PlateData {
         is_deprecated: bool,
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self> {
-        let w = Wellid::lookup_metaroot_opt_nofail(kws, is_deprecated, conf);
-        let n = Platename::lookup_metaroot_opt_nofail(kws, is_deprecated, conf);
-        let i = Plateid::lookup_metaroot_opt_nofail(kws, is_deprecated, conf);
+        let w = Wellid::lookup_metaroot_opt(kws, is_deprecated, conf);
+        let n = Platename::lookup_metaroot_opt(kws, is_deprecated, conf);
+        let i = Plateid::lookup_metaroot_opt(kws, is_deprecated, conf);
         w.lift_f3_once(n, i, |wx, nx, ix| Self::new(ix, nx, wx))
     }
 
@@ -6663,17 +6650,17 @@ impl LookupOptical for InnerOptical3_2 {
         let wave = Wavelengths::lookup_meas_opt_with(kws, i, false, (), conf);
         let cal = Calibration3_2::lookup_meas_opt(kws, i, false, conf);
         let dpy = Display::lookup_meas_opt(kws, i, false, conf);
-        let det_name = DetectorName::lookup_meas_opt_nofail(kws, i, false, conf);
-        let tag = Tag::lookup_meas_opt_nofail(kws, i, false, conf);
+        let det_name = DetectorName::lookup_meas_opt_noerror(kws, i);
+        let tag = Tag::lookup_meas_opt_noerror(kws, i);
         let meas = OpticalType::lookup_meas_opt(kws, i, false, conf);
         let feat = Feature::lookup_meas_opt(kws, i, false, conf);
-        let anal = Analyte::lookup_meas_opt_nofail(kws, i, false, conf);
-        wave.zip_f4_once(cal, dpy, det_name)
-            .zip5_cmt(tag, meas, feat, anal)
+        let anal = Analyte::lookup_meas_opt_noerror(kws, i);
+        wave.zip_f3_once(cal, dpy)
+            .zip3_cmt(meas, feat)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|((w, c, d, n), t, m, f, a)| {
+            .and_then_cmt(|((w, c, d), m, f)| {
                 ScaleTransform::lookup(kws, i, conf)
-                    .map_ok_value(|s| Self::new(s, w, c, d, a, f, m, t, n))
+                    .map_ok_value(|s| Self::new(s, w, c, d, anal, f, m, tag, det_name))
             })
     }
 }
@@ -7364,13 +7351,13 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     ) -> LookupResult<Self> {
         let par = Par(ms.0.len());
         let comp = Compensation2_0::lookup(kws, par, conf);
-        let cytn = Cyt::lookup_metaroot_opt_nofail(kws, false, conf);
+        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
         let ts = Timestamps::lookup(kws, false, conf);
         let ag = AppliedGates2_0::lookup(kws, par, conf);
-        comp.zip4_cmt(cytn, ts, ag)
+        comp.zip3_cmt(ts, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|(co, cy, t, g)| {
-                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cy, co, t, g))
+            .and_then_cmt(|(co, t, g)| {
+                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cyt, co, t, g))
             })
     }
 }
@@ -7393,17 +7380,16 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     ) -> LookupResult<Self> {
         let par = Par(ms.0.len());
         let comp = Compensation3_0::lookup_metaroot_opt(kws, false, conf);
-        let cyt = Cyt::lookup_metaroot_opt_nofail(kws, false, conf);
-        let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
+        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
         let subset = SubsetData::lookup(kws, conf);
         let ts = Timestamps::lookup(kws, false, conf);
         let uni = Unicode::lookup_metatroot_opt_with(kws, false, (), conf);
         let ag = AppliedGates3_0::lookup(kws, par, false, conf);
-        comp.zip4_cmt(cyt, cytsn, subset)
-            .zip4_cmt(ts, uni, ag)
+        comp.zip5_cmt(subset, ts, uni, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|((co, cy, sn, su), t, u, g)| {
-                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cy, co, t, sn, u, su, g))
+            .and_then_cmt(|(co, su, t, u, g)| {
+                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
             })
     }
 }
@@ -7429,8 +7415,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::List => None,
             };
             let flag = conf.disallow_deprecated;
-            let e = err.map(DeprecatedError::Value);
-            FungibleErrorsResult::new_fungible_iter(mode, (), e, flag)
+            FungibleErrorsResult::new_fungible_iter(mode, (), err, flag)
                 .fungible_into_commutative()
                 .map_commutative_warnings(LookupKeysWarning::from)
                 .map_errors(LookupKeysWarning::from)
@@ -7442,9 +7427,9 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let cyt = Cyt::lookup_metaroot_opt_nofail(kws, false, conf);
+        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
         let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
-        let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
         let plate = PlateData::lookup(kws, false, conf);
@@ -7452,13 +7437,14 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_0::lookup(kws, par, true, conf);
 
-        cyt.zip5_cmt(spill, cytsn, subset, modif)
+        spill
+            .zip3_cmt(subset, modif)
             .zip5_cmt(plate, ts, vol, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|((c, sp, sn, su, md), p, t, v, g)| {
+            .and_then_cmt(|((sp, su, md), p, t, v, g)| {
                 Mode::lookup_req(kws)
                     .and_then_cmt(process_mode)
-                    .map_ok_value(|mo| Self::new(mo, c, t, sn, sp, md, p, v, su, g))
+                    .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, p, v, su, g))
             })
     }
 }
@@ -7482,30 +7468,28 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let carrier = CarrierData::lookup(kws, conf);
+        let carrier = CarrierData::lookup(kws);
         let dt = Datetimes::lookup(kws, conf);
-        let flow = Flowrate::lookup_metaroot_opt_nofail(kws, false, conf);
+        let flow = Flowrate::lookup_metaroot_opt_noerror(kws);
         let modif = ModificationData::lookup(kws, conf);
         let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
         let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
-        let cytsn = Cytsn::lookup_metaroot_opt_nofail(kws, false, conf);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
         let plate = PlateData::lookup(kws, true, conf);
         let ts = Timestamps::lookup(kws, true, conf);
         let us = UnstainedData::lookup(kws, conf);
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_2::lookup(kws, par, conf);
-        carrier
-            .zip6_cmt(dt, flow, modif, mode, spill)
-            .zip6_cmt(cytsn, plate, ts, us, vol)
-            .zip_cmt(ag)
+        dt.zip4_cmt(modif, mode, spill)
+            .zip6_cmt(plate, ts, us, vol, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(
-                |(((ca_, d_, f_, md_, mo_, sp_), sn_, p_, t_, u_, v_), ag_)| {
-                    Cyt3_2::lookup_req(kws).map_ok_value(|c_| {
-                        Self::new(mo_, t_, d_, c_, sp_, sn_, md_, p_, v_, ca_, u_, f_, ag_)
-                    })
-                },
-            )
+            .and_then_cmt(|((d_, md_, mo_, sp_), p_, t_, u_, v_, ag_)| {
+                Cyt3_2::lookup_req(kws).map_ok_value(|c_| {
+                    Self::new(
+                        mo_, t_, d_, c_, sp_, cytsn, md_, p_, v_, carrier, u_, flow, ag_,
+                    )
+                })
+            })
     }
 }
 

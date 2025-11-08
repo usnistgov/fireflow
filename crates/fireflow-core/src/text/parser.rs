@@ -20,10 +20,10 @@ use super::keywords::{
     Display, Endanalysis, Enddata, Feature, Gain, Gate, GateDetectorType, GateDetectorVoltage,
     GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale, GateShortname, Gating,
     LastModified, Longname, Lost, MeasOrGateIndex, Mode, Mode3_2, NumType, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Power, PrefixedMeasIndex, Range,
-    RegionGateIndex, RegionLinkError, RegionWindow, Tag, TemporalGainError, TemporalScale2_0,
-    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters, Vol,
-    Wavelength, Wavelengths,
+    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    PrefixedMeasIndex, Range, RegionGateIndex, RegionLinkError, RegionWindow, Tag,
+    TemporalGainError, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger,
+    Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
 };
 use super::scale::Scale;
 use super::spillover::Spillover;
@@ -264,7 +264,16 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStr,
     {
-        Self::remove_opt(kws, SpecificKey::default(), parse_opt)
+        Self::remove_opt(kws, SpecificKey::default(), parse_opt).map_err(OptKeyError_::from)
+    }
+
+    fn lookup_metaroot_opt_noerror(kws: &mut StdKeywords) -> Self::Outer
+    where
+        Self: FromStr<Err = Infallible>,
+        SpecificKey<Self, ()>: Copy,
+    {
+        let Ok(res) = Self::remove_opt(kws, SpecificKey::default(), parse_opt);
+        res
     }
 
     // TODO it might be easier to move the deprecation flag to the type itself
@@ -281,20 +290,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         Self::remove_opt_tnt(kws, SpecificKey::default(), |k, v| {
             parse_opt_tnt(k, v, is_deprecated, conf)
-        })
-    }
-
-    fn lookup_metaroot_opt_nofail(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self: FromStr<Err = Infallible>,
-        SpecificKey<Self, ()>: Copy,
-    {
-        Self::remove_opt_tnt(kws, SpecificKey::default(), |k, v| {
-            parse_opt_nofail(k, v, is_deprecated, conf)
+                .map_errors(ParseOptKeyError::from)
+                .map_commutative_warnings(ParseOptKeyError::from)
+                .map_errors(LookupKeysWarning::from)
+                .map_commutative_warnings(LookupKeysWarning::from)
         })
     }
 
@@ -310,6 +309,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         Self::remove_opt_tnt(kws, SpecificKey::default(), |k, v| {
             parse_opt_tnt_with(k, v, is_deprecated, data, conf)
+                .map_errors(ParseOptKeyError::from)
+                .map_commutative_warnings(ParseOptKeyError::from)
+                .map_errors(LookupKeysWarning::from)
+                .map_commutative_warnings(LookupKeysWarning::from)
         })
     }
 
@@ -340,14 +343,14 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::get_opt(kws, SpecificKey::new_i1(i.into()))
     }
 
-    // fn remove_meas_opt(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> OptKwResult<Self>
-    // where
-    //     Self: FromStr,
-    // {
-    //     Self::remove_opt(kws, Self::std(i), |k, v| {
-    //         v.parse().map_err(|e| OptKeyError::new(e, k, v))
-    //     })
-    // }
+    fn lookup_meas_opt_noerror(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
+    where
+        Self: FromStr<Err = Infallible>,
+        SpecificKey<Self, ()>: Copy,
+    {
+        let Ok(res) = Self::remove_opt(kws, SpecificKey::new_i1(i.into()), parse_opt);
+        res
+    }
 
     // fn remove_meas_opt_st(
     //     kws: &mut StdKeywords,
@@ -375,21 +378,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         Self::remove_opt_tnt(kws, SpecificKey::new_i1(i.into()), |k, v| {
             parse_opt_tnt(k, v, is_deprecated, conf)
-        })
-    }
-
-    fn lookup_meas_opt_nofail(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self: FromStr<Err = Infallible>,
-        SpecificKey<Self, IndexFromOne>: Copy,
-    {
-        Self::remove_opt_tnt(kws, SpecificKey::new_i1(i.into()), |k, v| {
-            parse_opt_nofail(k, v, is_deprecated, conf)
+                .map_errors(ParseOptKeyError::from)
+                .map_commutative_warnings(ParseOptKeyError::from)
+                .map_errors(LookupKeysWarning::from)
+                .map_commutative_warnings(LookupKeysWarning::from)
         })
     }
 
@@ -406,6 +398,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         Self::remove_opt_tnt(kws, SpecificKey::new_i1(i.into()), |k, v| {
             parse_opt_tnt_with(k, v, is_deprecated, data, conf)
+                .map_errors(ParseOptKeyError::from)
+                .map_commutative_warnings(ParseOptKeyError::from)
+                .map_errors(LookupKeysWarning::from)
+                .map_commutative_warnings(LookupKeysWarning::from)
         })
     }
 
@@ -420,22 +416,8 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 pub(crate) fn parse_opt<T: FromStr, I>(
     k: SpecificKey<T, I>,
     v: String,
-) -> Result<T, OptKeyError_<T::Err, T, I>> {
-    v.parse().map_err(|e| OptKeyError_::new(e, k, v))
-}
-
-pub(crate) fn parse_opt_nofail<T, I>(
-    k: SpecificKey<T, I>,
-    v: String,
-    is_deprecated: bool,
-    conf: &StdTextReadConfig,
-) -> LookupTentative<Option<T>>
-where
-    SpecificKey<T, I>: Copy + AnyKey,
-    T: FromStr<Err = Infallible>,
-{
-    let Ok(res) = parse_opt(k, v);
-    eval_drop_and_deprecated(Ok(res), &k, is_deprecated, conf)
+) -> Result<T, ParseKeyError<T::Err, T, I>> {
+    v.parse().map_err(|e| ParseKeyError::new(e, k, v))
 }
 
 pub(crate) fn parse_opt_tnt<T: FromStr, I>(
@@ -443,15 +425,12 @@ pub(crate) fn parse_opt_tnt<T: FromStr, I>(
     v: String,
     is_deprecated: bool,
     conf: &StdTextReadConfig,
-) -> LookupTentative<Option<T>>
+) -> OptResult_<Option<T>, T::Err, T, I>
 where
-    ParseOptKeyError: From<OptKeyError_<T::Err, T, I>>,
     SpecificKey<T, I>: Copy + AnyKey,
 {
-    let res = parse_opt(k, v)
-        .map_err(ParseOptKeyError::from)
-        .map_err(LookupKeysWarning::Parse);
-    eval_drop_and_deprecated(res, &k, is_deprecated, conf)
+    let res = parse_opt(k, v).map_err(OptKeyError_::from);
+    eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
 pub(crate) fn parse_opt_with<T: FromStrWith, I>(
@@ -460,7 +439,9 @@ pub(crate) fn parse_opt_with<T: FromStrWith, I>(
     data: T::Payload<'_>,
     conf: &StdTextReadConfig,
 ) -> Result<T, OptKeyError_<T::Err, T, I>> {
-    T::from_str_with(v.as_str(), data, conf).map_err(|e| OptKeyError_::new(e, k, v))
+    T::from_str_with(v.as_str(), data, conf)
+        .map_err(|e| ParseKeyError::new(e, k, v))
+        .map_err(OptKeyError_::from)
 }
 
 pub(crate) fn parse_opt_tnt_with<T: FromStrWith, I>(
@@ -469,23 +450,20 @@ pub(crate) fn parse_opt_tnt_with<T: FromStrWith, I>(
     is_deprecated: bool,
     data: T::Payload<'_>,
     conf: &StdTextReadConfig,
-) -> LookupTentative<Option<T>>
+) -> OptResult_<Option<T>, T::Err, T, I>
 where
-    ParseOptKeyError: From<OptKeyError_<T::Err, T, I>>,
     SpecificKey<T, I>: Copy + AnyKey,
 {
-    let res = parse_opt_with(k, v, data, conf)
-        .map_err(ParseOptKeyError::from)
-        .map_err(LookupKeysWarning::Parse);
-    eval_drop_and_deprecated(res, &k, is_deprecated, conf)
+    let res = parse_opt_with(k, v, data, conf);
+    eval_drop_and_deprecated(res, k, is_deprecated, conf)
 }
 
-pub(crate) fn eval_drop_and_deprecated<T, I>(
-    res: Result<T, LookupKeysWarning>,
-    k: &SpecificKey<T, I>,
+pub(crate) fn eval_drop_and_deprecated<E, T, I>(
+    res: Result<T, OptKeyError_<E, T, I>>,
+    k: SpecificKey<T, I>,
     is_deprecated: bool,
     conf: &StdTextReadConfig,
-) -> LookupTentative<Option<T>>
+) -> OptResult_<Option<T>, E, T, I>
 where
     SpecificKey<T, I>: AnyKey,
 {
@@ -494,11 +472,14 @@ where
         .and_then_def(|value| {
             let is_ok = !(is_deprecated && value.is_some());
             let flag = conf.disallow_deprecated;
-            let error = LookupKeysWarning::from(DeprecatedError::Key(DepKeyWarning(k.as_std())));
+            let error = OptKeyError_::Deprecated(k);
             LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
                 .fungible_into_commutative()
         })
 }
+
+type OptResult_<R, E, T, I> =
+    DeferredWarningsAndErrors<R, OptKeyError_<E, T, I>, OptKeyError_<E, T, I>>;
 
 /// Find a required standard key in a hash table
 pub(crate) fn get_req<T, I>(kws: &StdKeywords, k: SpecificKey<T, I>) -> ReqResult<T, I>
@@ -524,7 +505,7 @@ where
     kws.get(&k.as_std())
         .map(|v| {
             v.parse()
-                .map_err(|error| OptKeyError_::new(error, k, v.clone()))
+                .map_err(|error| OptKeyError_::from(ParseKeyError::new(error, k, v.clone())))
         })
         .transpose()
 }
@@ -643,13 +624,7 @@ pub enum LookupKeysWarning {
     RegionIndex3_2(RegionLinkError<PrefixedMeasIndex>),
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
-    Dep(DeprecatedError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum DeprecatedError {
-    Key(DepKeyWarning),
-    Value(DepValueWarning),
+    Dep(DepValueWarning),
 }
 
 // TODO break these up to be more context-specific (layout vs metaroot etc)
@@ -730,6 +705,11 @@ pub enum ParseOptKeyError {
     PeakBin(OptIndexedKeyError<PeakBin>),
     PeakIndex(OptIndexedKeyError<PeakIndex>),
     Wavelength(OptIndexedKeyError<Wavelength>),
+    // TODO these actually can't fail, the only reason they are here is because
+    // they can be deprecated
+    Wellid(OptKeyError<Wellid>),
+    Platename(OptKeyError<Platename>),
+    Plateid(OptKeyError<Plateid>),
 }
 
 /// Error triggered when time measurement is missing but required.
@@ -794,7 +774,13 @@ pub enum ReqKeyError_<E, T, I> {
     Missing(SpecificKey<T, I>),
 }
 
-pub type OptKeyError_<E, T, I> = ParseKeyError<E, T, I>;
+#[derive(From, Debug, Error)]
+pub enum OptKeyError_<E, T, I> {
+    #[error("{0}")]
+    Parse(ParseKeyError<E, T, I>),
+    #[error("deprecated: {0}")]
+    Deprecated(SpecificKey<T, I>),
+}
 
 pub type ReqKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, ()>;
 pub type ReqIndexedKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
@@ -923,7 +909,7 @@ mod python {
     };
 
     use super::{
-        DeprecatedError, LookupKeysError, LookupKeysWarning, MissingTime, OptIndexedKeyError,
+        DepValueWarning, LookupKeysError, LookupKeysWarning, MissingTime, OptIndexedKeyError,
         OptKeyError, ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError,
         UnusedStandardError,
     };
@@ -946,7 +932,7 @@ mod python {
 
     impl_pyreflow_err!(RelationalException, MissingTime);
 
-    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedError);
+    impl_pyreflow_err!(FCSDeprecatedError, DepValueWarning);
 
     impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
     impl_from_pyerr!(

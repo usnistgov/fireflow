@@ -1,7 +1,7 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowRangeTrunc, ReadLayoutConfig,
-    ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig, StdTextReadConfig,
-    TemporalOpticalKey, WriteConfig,
+    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
+    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
+    StdTextReadConfig, TemporalOpticalKey, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -54,14 +54,16 @@ use crate::text::named_vec::{
     SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{
-    CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
+    CheckMaybe as _, DisplayMaybe as _, Identity, IsDefault as _, KeywordPairMaybe as _, MightHave,
+    Nothing,
 };
 use crate::text::parser::{
-    BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexedKeyError, DependentKeyError,
-    ExtraStdKeywords, IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
-    LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, MissingTime,
-    OptIndexedKey as _, OptKeyError, OptMetarootKey as _, PseudostandardError, RawKeywords,
-    ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+    BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
+    DependentIndexedKeyError, DependentKeyError, ExtraStdKeywords, IndexedKeyToIndexLinkError,
+    KeyToIndexLinkError, KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult,
+    LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _,
+    PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
+    UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -5032,15 +5034,33 @@ impl CarrierData {
 }
 
 impl PlateData {
-    fn lookup(
+    fn lookup(kws: &mut StdKeywords) -> Self {
+        let w = Wellid::lookup_metaroot_opt_noerror(kws);
+        let n = Platename::lookup_metaroot_opt_noerror(kws);
+        let i = Plateid::lookup_metaroot_opt_noerror(kws);
+        Self::new(i, n, w)
+    }
+
+    fn lookup_dep(
         kws: &mut StdKeywords,
-        is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let w = Wellid::lookup_metaroot_opt(kws, is_deprecated, conf);
-        let n = Platename::lookup_metaroot_opt(kws, is_deprecated, conf);
-        let i = Plateid::lookup_metaroot_opt(kws, is_deprecated, conf);
-        w.lift_f3_once(n, i, |wx, nx, ix| Self::new(ix, nx, wx))
+    ) -> DeferredFungibleErrors<Self, DisallowDeprecated, DepKeyWarnings> {
+        let ret = Self::lookup(kws);
+        let flag = conf.disallow_deprecated;
+        let e0 = (ret.plateid.is_default())
+            .then_some(SpecificKey::<Plateid, ()>::default())
+            .map(DepKeyWarning)
+            .map(DepKeyWarnings::from);
+        let e1 = (ret.platename.is_default())
+            .then_some(SpecificKey::<Platename, ()>::default())
+            .map(DepKeyWarning)
+            .map(DepKeyWarnings::from);
+        let e2 = (ret.wellid.is_default())
+            .then_some(SpecificKey::<Wellid, ()>::default())
+            .map(DepKeyWarning)
+            .map(DepKeyWarnings::from);
+        let es = [e0, e1, e2].into_iter().flatten();
+        DeferredFungibleErrors::new_deferred_fungible_iter(ret, es, flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -7432,19 +7452,18 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
         let subset = SubsetData::lookup(kws, conf);
         let modif = ModificationData::lookup(kws, conf);
-        let plate = PlateData::lookup(kws, false, conf);
+        let plate = PlateData::lookup(kws);
         let ts = Timestamps::lookup(kws, false, conf);
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);
         let ag = AppliedGates3_0::lookup(kws, par, true, conf);
 
         spill
-            .zip3_cmt(subset, modif)
-            .zip5_cmt(plate, ts, vol, ag)
+            .zip6_cmt(subset, modif, ts, vol, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|((sp, su, md), p, t, v, g)| {
+            .and_then_cmt(|(sp, su, md, t, v, g)| {
                 Mode::lookup_req(kws)
                     .and_then_cmt(process_mode)
-                    .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, p, v, su, g))
+                    .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
             })
     }
 }
@@ -7475,7 +7494,9 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
         let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
         let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
-        let plate = PlateData::lookup(kws, true, conf);
+        let plate = PlateData::lookup_dep(kws, conf)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
         let ts = Timestamps::lookup(kws, true, conf);
         let us = UnstainedData::lookup(kws, conf);
         let vol = Vol::lookup_metaroot_opt(kws, false, conf);

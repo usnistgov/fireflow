@@ -472,7 +472,7 @@ where
         .and_then_def(|value| {
             let is_ok = !(is_deprecated && value.is_some());
             let flag = conf.disallow_deprecated;
-            let error = OptKeyError_::Deprecated(k);
+            let error = OptKeyError_::Deprecated(DepKeyWarning(k));
             LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
                 .fungible_into_commutative()
         })
@@ -625,6 +625,14 @@ pub enum LookupKeysWarning {
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
     Dep(DepValueWarning),
+    DepKeys(DepKeyWarnings),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum DepKeyWarnings {
+    Wellid(DepKeyWarning<Wellid, ()>),
+    Platename(DepKeyWarning<Platename, ()>),
+    Plateid(DepKeyWarning<Plateid, ()>),
 }
 
 // TODO break these up to be more context-specific (layout vs metaroot etc)
@@ -705,22 +713,12 @@ pub enum ParseOptKeyError {
     PeakBin(OptIndexedKeyError<PeakBin>),
     PeakIndex(OptIndexedKeyError<PeakIndex>),
     Wavelength(OptIndexedKeyError<Wavelength>),
-    // TODO these actually can't fail, the only reason they are here is because
-    // they can be deprecated
-    Wellid(OptKeyError<Wellid>),
-    Platename(OptKeyError<Platename>),
-    Plateid(OptKeyError<Plateid>),
 }
 
 /// Error triggered when time measurement is missing but required.
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching {0}")]
 pub struct MissingTime(pub TimeMeasNamePattern);
-
-/// Error/warning triggered when encountering a key which is deprecated
-#[derive(Debug, Error)]
-#[error("deprecated key: {0}")]
-pub struct DepKeyWarning(pub StdKey);
 
 /// Error/warning triggered when encountering a key value which is deprecated
 #[derive(Debug, Error)]
@@ -774,13 +772,16 @@ pub enum ReqKeyError_<E, T, I> {
     Missing(SpecificKey<T, I>),
 }
 
-#[derive(From, Debug, Error)]
+#[derive(From, Display, Debug, Error)]
 pub enum OptKeyError_<E, T, I> {
-    #[error("{0}")]
     Parse(ParseKeyError<E, T, I>),
-    #[error("deprecated: {0}")]
-    Deprecated(SpecificKey<T, I>),
+    Deprecated(DepKeyWarning<T, I>),
 }
+
+/// Error/warning triggered when encountering a key which is deprecated
+#[derive(Debug, Error)]
+#[error("deprecated key: {0}")]
+pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
 
 pub type ReqKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, ()>;
 pub type ReqIndexedKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
@@ -904,15 +905,30 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
 mod python {
     use crate::{
         data::RawParsedError,
-        python::macros::{impl_from_pyerr, impl_pyreflow_err},
+        python::{
+            exceptions::FCSDeprecatedError,
+            macros::{impl_from_pyerr, impl_pyreflow_err},
+        },
         text::keywords::{Nextdata, NumType, Par, Tot},
     };
 
     use super::{
-        DepValueWarning, LookupKeysError, LookupKeysWarning, MissingTime, OptIndexedKeyError,
-        OptKeyError, ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError,
-        UnusedStandardError,
+        DepKeyWarning, DepKeyWarnings, DepValueWarning, LookupKeysError, LookupKeysWarning,
+        MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError, ParseReqKeyError,
+        PseudostandardError, ReqKeyError, UnusedStandardError,
     };
+
+    use pyo3::prelude::*;
+    use std::fmt::Display;
+
+    impl<T, I> From<DepKeyWarning<T, I>> for PyErr
+    where
+        DepKeyWarning<T, I>: Display,
+    {
+        fn from(value: DepKeyWarning<T, I>) -> Self {
+            FCSDeprecatedError::new_err(value.to_string())
+        }
+    }
 
     impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
     impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
@@ -951,6 +967,8 @@ mod python {
         RegionIndex3_2,
         TemporalGain,
         MissingTime,
-        Dep
+        Dep,
+        DepKeys
     );
+    impl_from_pyerr!(DepKeyWarnings, Wellid, Platename, Plateid);
 }

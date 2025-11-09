@@ -1,7 +1,10 @@
-use crate::config::{StdTextReadConfig, TimeMeasNamePattern};
+use crate::config::{
+    AllowOptionalDropping, ErrorFlag as _, StdTextReadConfig, TimeMeasNamePattern,
+};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
-    DeferredWarningsAndErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
+    DeferredFungibleError, DeferredWarningAndErrors, DeferredWarningsAndErrors, LogResult,
+    ResultExt, WarningsAndErrorsResult,
 };
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, MeasHeader, SpecificKey, StdKey,
@@ -25,6 +28,7 @@ use super::keywords::{
     TemporalGainError, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger,
     Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
 };
+use super::optional::IsDefault as _;
 use super::scale::Scale;
 use super::spillover::Spillover;
 use super::timestamps::{
@@ -40,6 +44,7 @@ use thiserror::Error;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
+use std::iter::once;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
@@ -75,27 +80,57 @@ pub trait FromStrWith: Sized {
 
 /// Any required key
 pub(crate) trait Required: Sized {
-    fn get_req<I>(kws: &StdKeywords, k: SpecificKey<Self, I>) -> ReqResult<Self, I>
+    fn get_req<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        get_req(kws, k)
+        let v = Self::get_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        v.parse()
+            .map_err(|e| ParseKeyError::new(e, k, v.to_owned()))
+            .map_err(ReqKeyError_::from)
     }
 
-    fn remove_req<F, OutE, InE, I>(
+    fn remove_req<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
-        f: F,
-    ) -> Result<Self, OutE>
+    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStr,
+    {
+        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        v.parse()
+            .map_err(|e| ParseKeyError::new(e, k, v))
+            .map_err(ReqKeyError_::from)
+    }
+
+    fn get_req_inner<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+    ) -> Result<&str, MissingKeyError<Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
-        F: FnOnce(SpecificKey<Self, I>, String) -> Result<Self, OutE>,
-        OutE: From<ReqKeyError_<InE, Self, I>>,
+    {
+        match kws.get(&k.as_std()) {
+            Some(v) => Ok(v),
+            None => Err(MissingKeyError(k)),
+        }
+    }
+
+    fn remove_req_inner<I>(
+        kws: &mut StdKeywords,
+        k: SpecificKey<Self, I>,
+    ) -> Result<String, MissingKeyError<Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey,
     {
         match kws.remove(&k.as_std()) {
-            Some(v) => f(k, v),
-            None => Err(ReqKeyError_::Missing(k).into()),
+            Some(v) => Ok(v),
+            None => Err(MissingKeyError(k)),
         }
     }
 }
@@ -109,10 +144,52 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey,
         Self: FromStr,
     {
-        get_opt(kws, k)
+        kws.get(&k.as_std())
+            .map(|v| {
+                v.parse()
+                    .map_err(|error| OptKeyError_::from(ParseKeyError::new(error, k, v.clone())))
+            })
+            .transpose()
     }
 
-    fn remove_opt<F, E, I>(
+    fn remove_opt<I>(
+        kws: &mut StdKeywords,
+        k: SpecificKey<Self, I>,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey,
+        Self: FromStr,
+    {
+        Self::remove_opt_inner(kws, k, |k_, v| {
+            v.parse().map_err(|e| ParseKeyError::new(e, k_, v))
+        })
+    }
+
+    fn remove_opt_with<I>(
+        kws: &mut StdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey,
+        Self: FromStrWith,
+    {
+        Self::remove_opt_inner(kws, k, |k_, v| {
+            Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k_, v))
+        })
+    }
+
+    fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
+    where
+        SpecificKey<Self, I>: AnyKey,
+        Self: FromStr<Err = Infallible>,
+    {
+        let Ok(res) = Self::remove_opt(kws, k);
+        res
+    }
+
+    fn remove_opt_inner<F, E, I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         f: F,
@@ -124,22 +201,7 @@ pub(crate) trait Optional: Sized {
         kws.remove(&k.as_std())
             .map(|v| f(k, v))
             .transpose()
-            .map(|x| x.map(Into::into).unwrap_or_default())
-    }
-
-    fn remove_opt_tnt<F, W, E, I>(
-        kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-        f: F,
-    ) -> DeferredWarningsAndErrors<Self::Outer, W, E>
-    where
-        SpecificKey<Self, I>: AnyKey,
-        F: FnOnce(SpecificKey<Self, I>, String) -> DeferredWarningsAndErrors<Option<Self>, W, E>,
-    {
-        kws.remove(&k.as_std())
-            .map_or(LogResult::new_ok(Self::Outer::default()), |v| {
-                f(k, v).map_def_value(|x| x.map(Into::into).unwrap_or_default())
-            })
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 }
 
@@ -156,9 +218,7 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
     where
         Self: FromStr,
     {
-        Self::remove_req(kws, SpecificKey::default(), |k, v| {
-            v.parse().map_err(|e| ParseKeyError::new(e, k, v).into())
-        })
+        Self::remove_req(kws, SpecificKey::default())
     }
 
     fn lookup_req(kws: &mut StdKeywords) -> LookupResult<Self>
@@ -196,9 +256,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
     where
         Self: FromStr,
     {
-        Self::remove_req(kws, SpecificKey::new_i1(i.into()), |k, v| {
-            v.parse().map_err(|e| ParseKeyError::new(e, k, v).into())
-        })
+        Self::remove_req(kws, SpecificKey::new_i1(i.into()))
     }
 
     fn lookup_req(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> LookupResult<Self>
@@ -222,13 +280,16 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         Self: FromStrWith,
         ParseReqKeyError: From<ReqIndexedStKeyError<Self>>,
     {
-        Self::remove_req(kws, SpecificKey::new_i1(i.into()), |k, v| {
-            Self::from_str_with(v.as_str(), data, conf)
-                .map_err(|e| ParseKeyError::new(e, k, v).into())
-        })
-        .map_err(ParseReqKeyError::from)
-        .map_err(LookupKeysError::from)
-        .into_log()
+        let k = SpecificKey::new_i1(i.into());
+        Self::remove_req_inner(kws, k)
+            .map_err(ReqKeyError_::from)
+            .and_then(|v| {
+                Self::from_str_with(v.as_str(), data, conf)
+                    .map_err(|e| ParseKeyError::new(e, k, v).into())
+            })
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log()
     }
 
     fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)
@@ -264,16 +325,14 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStr,
     {
-        Self::remove_opt(kws, SpecificKey::default(), parse_opt).map_err(OptKeyError_::from)
+        Self::remove_opt(kws, SpecificKey::default()).map_err(OptKeyError_::from)
     }
 
     fn lookup_metaroot_opt_noerror(kws: &mut StdKeywords) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
-        SpecificKey<Self, ()>: Copy,
     {
-        let Ok(res) = Self::remove_opt(kws, SpecificKey::default(), parse_opt);
-        res
+        Self::remove_opt_nofail(kws, SpecificKey::default())
     }
 
     // TODO it might be easier to move the deprecation flag to the type itself
@@ -285,16 +344,17 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
+        Self::Outer: PartialEq,
         Self: FromStr,
         ParseOptKeyError: From<OptKeyError<Self>>,
     {
-        Self::remove_opt_tnt(kws, SpecificKey::default(), |k, v| {
-            parse_opt_tnt(k, v, is_deprecated, conf)
-                .map_errors(ParseOptKeyError::from)
-                .map_commutative_warnings(ParseOptKeyError::from)
-                .map_errors(LookupKeysWarning::from)
-                .map_commutative_warnings(LookupKeysWarning::from)
-        })
+        let k = SpecificKey::default();
+        Self::remove_opt(kws, k)
+            .into_log_drop_dep(k, is_deprecated, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn lookup_metatroot_opt_with(
@@ -304,16 +364,17 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
+        Self::Outer: PartialEq,
         Self: FromStrWith,
         ParseOptKeyError: From<OptKeyStError<Self>>,
     {
-        Self::remove_opt_tnt(kws, SpecificKey::default(), |k, v| {
-            parse_opt_tnt_with(k, v, is_deprecated, data, conf)
-                .map_errors(ParseOptKeyError::from)
-                .map_commutative_warnings(ParseOptKeyError::from)
-                .map_errors(LookupKeysWarning::from)
-                .map_commutative_warnings(LookupKeysWarning::from)
-        })
+        let k = SpecificKey::default();
+        Self::remove_opt_with(kws, k, data, conf)
+            .into_log_drop_dep(k, is_deprecated, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn metaroot_pair_std(&self) -> (StdKey, String)
@@ -346,10 +407,8 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     fn lookup_meas_opt_noerror(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
-        SpecificKey<Self, ()>: Copy,
     {
-        let Ok(res) = Self::remove_opt(kws, SpecificKey::new_i1(i.into()), parse_opt);
-        res
+        Self::remove_opt_nofail(kws, SpecificKey::new_i1(i.into()))
     }
 
     // fn remove_meas_opt_st(
@@ -373,16 +432,17 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
+        Self::Outer: PartialEq,
         Self: FromStr,
         ParseOptKeyError: From<OptIndexedKeyError<Self>>,
     {
-        Self::remove_opt_tnt(kws, SpecificKey::new_i1(i.into()), |k, v| {
-            parse_opt_tnt(k, v, is_deprecated, conf)
-                .map_errors(ParseOptKeyError::from)
-                .map_commutative_warnings(ParseOptKeyError::from)
-                .map_errors(LookupKeysWarning::from)
-                .map_commutative_warnings(LookupKeysWarning::from)
-        })
+        let k = SpecificKey::new_i1(i.into());
+        Self::remove_opt(kws, k)
+            .into_log_drop_dep(k, is_deprecated, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn lookup_meas_opt_with(
@@ -393,16 +453,17 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         conf: &StdTextReadConfig,
     ) -> LookupTentative<Self::Outer>
     where
+        Self::Outer: PartialEq,
         Self: FromStrWith,
         ParseOptKeyError: From<OptIndexedKeyStError<Self>>,
     {
-        Self::remove_opt_tnt(kws, SpecificKey::new_i1(i.into()), |k, v| {
-            parse_opt_tnt_with(k, v, is_deprecated, data, conf)
-                .map_errors(ParseOptKeyError::from)
-                .map_commutative_warnings(ParseOptKeyError::from)
-                .map_errors(LookupKeysWarning::from)
-                .map_commutative_warnings(LookupKeysWarning::from)
-        })
+        let k = SpecificKey::new_i1(i.into());
+        Self::remove_opt_with(kws, k, data, conf)
+            .into_log_drop_dep(k, is_deprecated, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)
@@ -413,102 +474,76 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 }
 
-pub(crate) fn parse_opt<T: FromStr, I>(
-    k: SpecificKey<T, I>,
-    v: String,
-) -> Result<T, ParseKeyError<T::Err, T, I>> {
-    v.parse().map_err(|e| ParseKeyError::new(e, k, v))
-}
+trait OptResultExt: ResultExt {
+    fn into_log_drop_dep<X, E, T, I>(
+        self,
+        k: SpecificKey<T, I>,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> OptResult_<X, E, T, I>
+    where
+        X: PartialEq + Default,
+        Self: ResultExt<Ok = X, Error = ParseKeyError<E, T, I>>,
+    {
+        self.into_result()
+            .map_err(OptKeyError_::from)
+            .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
+            .fungible_into_commutative()
+            .and_then_def(|value| {
+                let is_ok = !is_deprecated || value.is_default();
+                let flag = conf.disallow_deprecated;
+                let error = OptKeyError_::Deprecated(DepKeyWarning(k));
+                LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
+                    .fungible_into_commutative()
+            })
+    }
 
-pub(crate) fn parse_opt_tnt<T: FromStr, I>(
-    k: SpecificKey<T, I>,
-    v: String,
-    is_deprecated: bool,
-    conf: &StdTextReadConfig,
-) -> OptResult_<Option<T>, T::Err, T, I>
-where
-    SpecificKey<T, I>: Copy + AnyKey,
-{
-    let res = parse_opt(k, v).map_err(OptKeyError_::from);
-    eval_drop_and_deprecated(res, k, is_deprecated, conf)
-}
+    fn into_log_drop<X>(
+        self,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<X, AllowOptionalDropping, Self::Error>
+    where
+        X: Default,
+        Self: ResultExt<Ok = X>,
+    {
+        self.into_result()
+            .into_deferred_fungible(conf.allow_optional_dropping)
+    }
 
-pub(crate) fn parse_opt_with<T: FromStrWith, I>(
-    k: SpecificKey<T, I>,
-    v: String,
-    data: T::Payload<'_>,
-    conf: &StdTextReadConfig,
-) -> Result<T, OptKeyError_<T::Err, T, I>> {
-    T::from_str_with(v.as_str(), data, conf)
-        .map_err(|e| ParseKeyError::new(e, k, v))
-        .map_err(OptKeyError_::from)
-}
-
-pub(crate) fn parse_opt_tnt_with<T: FromStrWith, I>(
-    k: SpecificKey<T, I>,
-    v: String,
-    is_deprecated: bool,
-    data: T::Payload<'_>,
-    conf: &StdTextReadConfig,
-) -> OptResult_<Option<T>, T::Err, T, I>
-where
-    SpecificKey<T, I>: Copy + AnyKey,
-{
-    let res = parse_opt_with(k, v, data, conf);
-    eval_drop_and_deprecated(res, k, is_deprecated, conf)
-}
-
-pub(crate) fn eval_drop_and_deprecated<E, T, I>(
-    res: Result<T, OptKeyError_<E, T, I>>,
-    k: SpecificKey<T, I>,
-    is_deprecated: bool,
-    conf: &StdTextReadConfig,
-) -> OptResult_<Option<T>, E, T, I>
-where
-    SpecificKey<T, I>: AnyKey,
-{
-    res.into_deferred_fungible_opt::<_, Vec<_>>(conf.allow_optional_dropping)
-        .fungible_into_commutative()
-        .and_then_def(|value| {
-            let is_ok = !(is_deprecated && value.is_some());
-            let flag = conf.disallow_deprecated;
-            let error = OptKeyError_::Deprecated(DepKeyWarning(k));
-            LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
-                .fungible_into_commutative()
-        })
-}
-
-type OptResult_<R, E, T, I> =
-    DeferredWarningsAndErrors<R, OptKeyError_<E, T, I>, OptKeyError_<E, T, I>>;
-
-/// Find a required standard key in a hash table
-pub(crate) fn get_req<T, I>(kws: &StdKeywords, k: SpecificKey<T, I>) -> ReqResult<T, I>
-where
-    SpecificKey<T, I>: AnyKey,
-    T: FromStr,
-{
-    match kws.get(&k.as_std()) {
-        Some(v) => v
-            .parse()
-            .map_err(|error| ParseKeyError::new(error, k, v.clone()))
-            .map_err(ReqKeyError_::Parse),
-        None => Err(ReqKeyError_::Missing(k)),
+    fn into_log_dep<X, T, I, E>(
+        self,
+        k: SpecificKey<T, I>,
+        is_deprecated: bool,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningAndErrors<X, DepKeyWarning<T, I>, E>
+    where
+        X: Default,
+        DepKeyWarning<T, I>: Into<E>,
+        Self::Error: Into<E>,
+        Self: ResultExt<Ok = X>,
+    {
+        let flag = conf.disallow_deprecated;
+        let e = DepKeyWarning(k);
+        let res = self
+            .into_result()
+            .map_err(Into::into)
+            .into_log()
+            .set_err_value(X::default());
+        if is_deprecated && flag.is_error() {
+            res.extend_deferred_errors(once(e.into()))
+                .nowarn_into_warn()
+        } else if is_deprecated {
+            res.set_commutative_warnings(Some(e))
+        } else {
+            res.nowarn_into_warn()
+        }
     }
 }
 
-/// Find an optional standard key in a hash table
-pub(crate) fn get_opt<T, I>(kws: &StdKeywords, k: SpecificKey<T, I>) -> OptResult<T, I>
-where
-    SpecificKey<T, I>: AnyKey,
-    T: FromStr,
-{
-    kws.get(&k.as_std())
-        .map(|v| {
-            v.parse()
-                .map_err(|error| OptKeyError_::from(ParseKeyError::new(error, k, v.clone())))
-        })
-        .transpose()
-}
+impl<T, E> OptResultExt for Result<T, E> {}
+
+type OptResult_<R, E, T, I> =
+    DeferredWarningsAndErrors<R, OptKeyError_<E, T, I>, OptKeyError_<E, T, I>>;
 
 #[derive(Debug, Display, Error, new)]
 #[display(
@@ -577,7 +612,7 @@ impl<T> DependentIndexedKeyError<T> {
 pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T, I>>;
-pub(crate) type OptResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
+// pub(crate) type OptResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
 pub(crate) type OptKwResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
 
 pub(crate) type LookupResult<V> =
@@ -743,7 +778,6 @@ pub struct UnusedStandardError(pub StdKey);
 
 #[derive(new, Debug, Error)]
 pub struct ParseKeyError<E, T, I> {
-    #[new(into)]
     pub error: E,
     pub key: SpecificKey<T, I>,
     pub value: String,
@@ -764,12 +798,10 @@ where
     }
 }
 
-#[derive(From, Debug, Error)]
+#[derive(From, Display, Debug, Error)]
 pub enum ReqKeyError_<E, T, I> {
-    #[error("{0}")]
     Parse(ParseKeyError<E, T, I>),
-    #[error("missing required key: {0}")]
-    Missing(SpecificKey<T, I>),
+    Missing(MissingKeyError<T, I>),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -777,6 +809,10 @@ pub enum OptKeyError_<E, T, I> {
     Parse(ParseKeyError<E, T, I>),
     Deprecated(DepKeyWarning<T, I>),
 }
+
+#[derive(Debug, Error)]
+#[error("missing required key: {0}")]
+pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]

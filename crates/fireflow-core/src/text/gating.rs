@@ -811,7 +811,7 @@ impl<I> Region<I> {
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
-        I: FromStr + fmt::Display + LinkedMeasIndex,
+        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
         ParseOptKeyError: From<OptIndexedKeyError<RegionGateIndex<I>>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
     {

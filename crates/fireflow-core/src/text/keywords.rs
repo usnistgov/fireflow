@@ -843,7 +843,7 @@ impl FromStr for Feature {
 pub struct FeatureError;
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Display, Debug)]
+#[derive(Clone, Copy, Display, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum RegionGateIndex<I> {
     Univariate(I),
@@ -890,7 +890,7 @@ impl<I> RegionGateIndex<I> {
         conf: &StdTextReadConfig,
     ) -> LookupOptional<Self>
     where
-        I: fmt::Display + FromStr + gating::LinkedMeasIndex,
+        I: fmt::Display + FromStr + gating::LinkedMeasIndex + PartialEq,
         for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
         ParseOptKeyError: From<OptIndexedKeyStError<Self>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
@@ -1050,7 +1050,7 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-#[derive(Display, Debug)]
+#[derive(Display, Debug, PartialEq)]
 pub enum RegionWindow {
     #[display("{_0}")]
     Univariate(UniGate),

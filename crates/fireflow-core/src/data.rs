@@ -76,7 +76,7 @@ use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, To
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
     LookupKeysError, LookupKeysWarning, LookupResult, LookupTentative, OptIndexedKey as _,
-    OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
+    DepOptIndexedKeyError, DepOptKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
     ReqMetarootKey as _,
 };
 
@@ -398,7 +398,7 @@ pub trait MeasDatatypeDef {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>;
+    ) -> DeferredWarningAndError<Self::MeasDatatype, DepOptIndexedKeyError<NumType>, RawParsedError>;
 
     fn lookup_all(
         kws: &mut StdKeywords,
@@ -415,7 +415,7 @@ pub trait MeasDatatypeDef {
     ) -> WarningsAndErrorsResult<
         Vec<ColumnLayoutValues<Self::MeasDatatype>>,
         (),
-        OptIndexedKeyError<NumType>,
+        DepOptIndexedKeyError<NumType>,
         RawParsedError,
     > {
         Par::get_metaroot_req(kws)
@@ -451,7 +451,7 @@ pub trait MeasDatatypeDef {
     ) -> WarningsAndErrorsResult<
         ColumnLayoutValues<Self::MeasDatatype>,
         (),
-        OptIndexedKeyError<NumType>,
+        DepOptIndexedKeyError<NumType>,
         RawParsedError,
     > {
         let w = Width::get_meas_req(kws, i)
@@ -1207,7 +1207,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
+    ) -> DeferredWarningAndError<Self::MeasDatatype, DepOptIndexedKeyError<NumType>, RawParsedError>
     {
         LogResult::new_ok(NullMeasDatatype)
     }
@@ -1228,7 +1228,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
+    ) -> DeferredWarningAndError<Self::MeasDatatype, DepOptIndexedKeyError<NumType>, RawParsedError>
     {
         NumType::get_meas_opt(kws, i).into_succ()
     }
@@ -4159,7 +4159,7 @@ pub enum NewDataReaderError {
 #[derive(From, Display)]
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
-    ParseTot(OptKeyError<Tot>),
+    ParseTot(DepOptKeyError<Tot>),
     Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -4252,7 +4252,7 @@ pub enum RawToLayoutError {
 #[derive(From, Display, Debug, Error)]
 pub enum RawToLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
-    Raw(OptIndexedKeyError<NumType>),
+    Raw(DepOptIndexedKeyError<NumType>),
 }
 
 #[derive(From, Display, Debug, Error)]

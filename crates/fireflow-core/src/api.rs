@@ -29,7 +29,7 @@ use crate::segment::{
 };
 use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
 use crate::text::parser::{
-    ExtraStdKeywords, OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
+    ExtraStdKeywords, DepOptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
     truncate_string,
 };
 use crate::type_families::ApplyOnce as _;
@@ -391,7 +391,7 @@ pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
     Keywords(ParseKeywordsIssue),
     SuppOffsets(STextSegmentWarning),
-    Nextdata(OptKeyError<Nextdata>),
+    Nextdata(DepOptKeyError<Nextdata>),
     Nonstandard(NonstandardError),
 }
 
@@ -1182,7 +1182,7 @@ where
 fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,
-) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
+) -> DeferredWarningAndError<Option<u64>, DepOptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
     let ret = if enforce {
         Nextdata::get_metaroot_req(kws)
             .map(Some)

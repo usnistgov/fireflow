@@ -318,7 +318,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::get_opt(kws, SpecificKey::default())
     }
 
-    fn remove_metaroot_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
+    fn remove_metaroot_opt(kws: &mut StdKeywords) -> Result<Self::Outer, DepOptKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -343,7 +343,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self::Outer: PartialEq,
         Self: FromStr,
-        ParseOptKeyError: From<OptKeyError<Self>>,
+        ParseOptKeyError: From<DepOptKeyError<Self>>,
     {
         let k = SpecificKey::default();
         Self::remove_opt(kws, k)
@@ -365,7 +365,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,
-        ParseOptKeyError: From<OptKeyStError<Self>>,
+        ParseOptKeyError: From<DepOptKeyStError<Self>>,
     {
         let k = SpecificKey::default();
         Self::remove_opt_with(kws, k, data, conf)
@@ -435,7 +435,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self::Outer: PartialEq,
         Self: FromStr,
-        ParseOptKeyError: From<OptIndexedKeyError<Self>>,
+        ParseOptKeyError: From<DepOptIndexedKeyError<Self>>,
     {
         let k = SpecificKey::new_i1(i.into());
         Self::remove_opt(kws, k)
@@ -458,7 +458,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,
-        ParseOptKeyError: From<OptIndexedKeyStError<Self>>,
+        ParseOptKeyError: From<DepOptIndexedKeyStError<Self>>,
     {
         let k = SpecificKey::new_i1(i.into());
         Self::remove_opt_with(kws, k, data, conf)
@@ -705,63 +705,63 @@ pub enum ParseReqKeyError {
 /// Error encountered when parsing an optional key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseOptKeyError {
-    NumType(OptIndexedKeyError<NumType>),
-    Trigger(OptKeyStError<Trigger>),
-    Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    NumType(DepOptIndexedKeyError<NumType>),
+    Trigger(DepOptKeyStError<Trigger>),
+    Scale(DepOptIndexedKeyStError<Scale>),
+    TemporalScale(DepOptIndexedKeyError<TemporalScale2_0>),
     Comp2_0(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
-    Comp3_0(OptKeyError<Compensation3_0>),
-    Gain(OptIndexedKeyError<Gain>),
-    Feature(OptIndexedKeyError<Feature>),
-    Wavelengths(OptIndexedKeyStError<Wavelengths>),
-    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
-    Date(OptKeyStError<FCSDate>),
-    Btim2_0(OptKeyStError<Btim<FCSTime>>),
-    Etim2_0(OptKeyStError<Etim<FCSTime>>),
-    Btim3_0(OptKeyStError<Btim<FCSTime60>>),
-    Etim3_0(OptKeyStError<Etim<FCSTime60>>),
-    Btim3_1(OptKeyStError<Btim<FCSTime100>>),
-    Etim3_1(OptKeyStError<Etim<FCSTime100>>),
-    Begindatetime(OptKeyError<BeginDateTime>),
-    Enddatetime(OptKeyError<EndDateTime>),
-    ModifiedDateTime(OptKeyError<LastModified>),
-    Originality(OptKeyError<Originality>),
-    UnstainedCenter(OptKeyStError<UnstainedCenters>),
-    Mode3_2(OptKeyError<Mode3_2>),
-    TemporalType(OptIndexedKeyError<TemporalType>),
-    OpticalType(OptIndexedKeyError<OpticalType>),
-    Shortname(OptIndexedKeyError<Shortname>),
-    Display(OptIndexedKeyError<Display>),
-    Unicode(OptKeyStError<Unicode>),
-    Spillover(OptKeyStError<Spillover>),
-    GateRegionIndex2_0(OptIndexedKeyError<RegionGateIndex<GateIndex>>),
-    GateRegionIndex3_0(OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
-    GateRegionIndex3_2(OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
-    GateRegionWindow(OptIndexedKeyError<RegionWindow>),
-    Gating(OptKeyError<Gating>),
-    Gate(OptKeyError<Gate>),
-    GateScale(OptIndexedKeyError<GateScale>),
-    GateFilter(OptIndexedKeyError<GateFilter>),
-    GateShortname(OptIndexedKeyError<GateShortname>),
-    GatePercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
-    GateRange(OptIndexedKeyError<GateRange>),
-    GateLongname(OptIndexedKeyError<GateLongname>),
-    GateDetectorType(OptIndexedKeyError<GateDetectorType>),
-    GateDetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
-    Vol(OptKeyError<Vol>),
-    Power(OptIndexedKeyError<Power>),
-    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
-    Abrt(OptKeyError<Abrt>),
-    Lost(OptKeyError<Lost>),
-    CSVBits(OptKeyError<CSVBits>),
-    CSVFlag(OptIndexedKeyError<CSVFlag>),
-    CSMode(OptKeyError<CSMode>),
-    CSTot(OptKeyError<CSTot>),
-    PeakBin(OptIndexedKeyError<PeakBin>),
-    PeakIndex(OptIndexedKeyError<PeakIndex>),
-    Wavelength(OptIndexedKeyError<Wavelength>),
+    Comp3_0(DepOptKeyError<Compensation3_0>),
+    Gain(DepOptIndexedKeyError<Gain>),
+    Feature(DepOptIndexedKeyError<Feature>),
+    Wavelengths(DepOptIndexedKeyStError<Wavelengths>),
+    Calibration3_1(DepOptIndexedKeyError<Calibration3_1>),
+    Calibration3_2(DepOptIndexedKeyError<Calibration3_2>),
+    Date(DepOptKeyStError<FCSDate>),
+    Btim2_0(DepOptKeyStError<Btim<FCSTime>>),
+    Etim2_0(DepOptKeyStError<Etim<FCSTime>>),
+    Btim3_0(DepOptKeyStError<Btim<FCSTime60>>),
+    Etim3_0(DepOptKeyStError<Etim<FCSTime60>>),
+    Btim3_1(DepOptKeyStError<Btim<FCSTime100>>),
+    Etim3_1(DepOptKeyStError<Etim<FCSTime100>>),
+    Begindatetime(DepOptKeyError<BeginDateTime>),
+    Enddatetime(DepOptKeyError<EndDateTime>),
+    ModifiedDateTime(DepOptKeyError<LastModified>),
+    Originality(DepOptKeyError<Originality>),
+    UnstainedCenter(DepOptKeyStError<UnstainedCenters>),
+    Mode3_2(DepOptKeyError<Mode3_2>),
+    TemporalType(DepOptIndexedKeyError<TemporalType>),
+    OpticalType(DepOptIndexedKeyError<OpticalType>),
+    Shortname(DepOptIndexedKeyError<Shortname>),
+    Display(DepOptIndexedKeyError<Display>),
+    Unicode(DepOptKeyStError<Unicode>),
+    Spillover(DepOptKeyStError<Spillover>),
+    GateRegionIndex2_0(DepOptIndexedKeyError<RegionGateIndex<GateIndex>>),
+    GateRegionIndex3_0(DepOptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
+    GateRegionIndex3_2(DepOptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
+    GateRegionWindow(DepOptIndexedKeyError<RegionWindow>),
+    Gating(DepOptKeyError<Gating>),
+    Gate(DepOptKeyError<Gate>),
+    GateScale(DepOptIndexedKeyError<GateScale>),
+    GateFilter(DepOptIndexedKeyError<GateFilter>),
+    GateShortname(DepOptIndexedKeyError<GateShortname>),
+    GatePercentEmitted(DepOptIndexedKeyError<GatePercentEmitted>),
+    GateRange(DepOptIndexedKeyError<GateRange>),
+    GateLongname(DepOptIndexedKeyError<GateLongname>),
+    GateDetectorType(DepOptIndexedKeyError<GateDetectorType>),
+    GateDetectorVoltage(DepOptIndexedKeyError<GateDetectorVoltage>),
+    Vol(DepOptKeyError<Vol>),
+    Power(DepOptIndexedKeyError<Power>),
+    PercentEmitted(DepOptIndexedKeyError<PercentEmitted>),
+    DetectorVoltage(DepOptIndexedKeyError<DetectorVoltage>),
+    Abrt(DepOptKeyError<Abrt>),
+    Lost(DepOptKeyError<Lost>),
+    CSVBits(DepOptKeyError<CSVBits>),
+    CSVFlag(DepOptIndexedKeyError<CSVFlag>),
+    CSMode(DepOptKeyError<CSMode>),
+    CSTot(DepOptKeyError<CSTot>),
+    PeakBin(DepOptIndexedKeyError<PeakBin>),
+    PeakIndex(DepOptIndexedKeyError<PeakIndex>),
+    Wavelength(DepOptIndexedKeyError<Wavelength>),
 }
 
 /// Error triggered when time measurement is missing but required.
@@ -839,11 +839,17 @@ pub type ReqIndexedKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, IndexFromO
 // pub type ReqKeyStError<T> = ReqKeyError_<<T as FromStrWith>::Err, T, ()>;
 pub type ReqIndexedStKeyError<T> = ReqKeyError_<<T as FromStrWith>::Err, T, IndexFromOne>;
 
-pub type OptKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, ()>;
-pub type OptIndexedKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
+pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
+pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
 
-pub type OptKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, ()>;
-pub type OptIndexedKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, IndexFromOne>;
+pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
+pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
+
+pub type DepOptKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, ()>;
+pub type DepOptIndexedKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
+
+pub type DepOptKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, ()>;
+pub type DepOptIndexedKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, IndexFromOne>;
 
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
@@ -963,8 +969,8 @@ mod python {
     };
 
     use super::{
-        DepKeyWarning, DepKeyWarnings, DepValueWarning, LookupKeysError, LookupKeysWarning,
-        MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError, ParseReqKeyError,
+        DepKeyWarning, DepKeyWarnings, DepOptIndexedKeyError, DepOptKeyError, DepValueWarning,
+        LookupKeysError, LookupKeysWarning, MissingTime, ParseOptKeyError, ParseReqKeyError,
         PseudostandardError, ReqKeyError, UnusedStandardError,
     };
 
@@ -990,10 +996,10 @@ mod python {
     //
     //  TODO maybe...
     impl_pyreflow_err!(FileLayoutError, ReqKeyError<Tot>);
-    impl_pyreflow_err!(FileLayoutError, OptKeyError<Tot>);
+    impl_pyreflow_err!(FileLayoutError, DepOptKeyError<Tot>);
     impl_pyreflow_err!(FileLayoutError, ReqKeyError<Par>);
-    impl_pyreflow_err!(FileLayoutError, OptKeyError<Nextdata>);
-    impl_pyreflow_err!(FileLayoutError, OptIndexedKeyError<NumType>);
+    impl_pyreflow_err!(FileLayoutError, DepOptKeyError<Nextdata>);
+    impl_pyreflow_err!(FileLayoutError, DepOptIndexedKeyError<NumType>);
     impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
     impl_pyreflow_err!(RelationalException, MissingTime);

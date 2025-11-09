@@ -61,7 +61,7 @@ use crate::text::parser::{
     BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
     DependentIndexedKeyError, DependentKeyError, ExtraStdKeywords, IndexedKeyToIndexLinkError,
     KeyToIndexLinkError, KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTentative, MissingTime, OptIndexedKey as _, OptKeyError, OptMetarootKey as _,
+    LookupTentative, MissingTime, OptIndexedKey as _, DepOptKeyError, OptMetarootKey as _,
     PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
     UnusedStandardError,
 };
@@ -8786,7 +8786,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
-    Tot(OptKeyError<Tot>),
+    Tot(DepOptKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),

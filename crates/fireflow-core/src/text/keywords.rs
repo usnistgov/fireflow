@@ -21,7 +21,7 @@ use super::optional::{
 };
 use super::parser::{
     DepValueWarning, FromStrDelim, FromStrWith, IndexedKeyToIndexLinkError, LookupKeysWarning,
-    LookupOptional, LookupResult, OptIndexedKey, OptIndexedKeyStError, OptMetarootKey, Optional,
+    LookupOptional, LookupResult, OptIndexedKey, DepOptIndexedKeyStError, OptMetarootKey, Optional,
     ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
@@ -892,7 +892,7 @@ impl<I> RegionGateIndex<I> {
     where
         I: fmt::Display + FromStr + gating::LinkedMeasIndex + PartialEq,
         for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
-        ParseOptKeyError: From<OptIndexedKeyStError<Self>>,
+        ParseOptKeyError: From<DepOptIndexedKeyStError<Self>>,
         LookupKeysWarning: From<RegionLinkError<I>>,
     {
         let flag = conf.allow_optional_dropping;

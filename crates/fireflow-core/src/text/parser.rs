@@ -1,10 +1,8 @@
-use crate::config::{
-    AllowOptionalDropping, ErrorFlag as _, StdTextReadConfig, TimeMeasNamePattern,
-};
+use crate::config::{AllowOptionalDropping, StdTextReadConfig, TimeMeasNamePattern};
 use crate::core::{NewCSVFlagsError, ScaleTransformError};
 use crate::logging::{
-    DeferredFungibleError, DeferredWarningAndErrors, DeferredWarningsAndErrors, LogResult,
-    ResultExt, WarningsAndErrorsResult,
+    Deferred, DeferredWarningsAndErrors, FungibleError, FungibleResult, IntoNewCardinality,
+    ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, MeasHeader, SpecificKey, StdKey,
@@ -28,7 +26,7 @@ use super::keywords::{
     TemporalGainError, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger,
     Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
 };
-use super::optional::IsDefault as _;
+use super::optional::{IsDefault as _, Nothing};
 use super::scale::Scale;
 use super::spillover::Spillover;
 use super::timestamps::{
@@ -44,7 +42,6 @@ use thiserror::Error;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
-use std::iter::once;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
@@ -350,6 +347,8 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         let k = SpecificKey::default();
         Self::remove_opt(kws, k)
+            .into_nowarn()
+            .set_err_value(Self::Outer::default())
             .into_log_drop_dep(k, is_deprecated, conf)
             .map_errors(ParseOptKeyError::from)
             .map_commutative_warnings(ParseOptKeyError::from)
@@ -370,6 +369,8 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         let k = SpecificKey::default();
         Self::remove_opt_with(kws, k, data, conf)
+            .into_nowarn()
+            .set_err_value(Self::Outer::default())
             .into_log_drop_dep(k, is_deprecated, conf)
             .map_errors(ParseOptKeyError::from)
             .map_commutative_warnings(ParseOptKeyError::from)
@@ -438,6 +439,8 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         let k = SpecificKey::new_i1(i.into());
         Self::remove_opt(kws, k)
+            .into_nowarn()
+            .set_err_value(Self::Outer::default())
             .into_log_drop_dep(k, is_deprecated, conf)
             .map_errors(ParseOptKeyError::from)
             .map_commutative_warnings(ParseOptKeyError::from)
@@ -459,6 +462,8 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         let k = SpecificKey::new_i1(i.into());
         Self::remove_opt_with(kws, k, data, conf)
+            .into_nowarn()
+            .set_err_value(Self::Outer::default())
             .into_log_drop_dep(k, is_deprecated, conf)
             .map_errors(ParseOptKeyError::from)
             .map_commutative_warnings(ParseOptKeyError::from)
@@ -474,73 +479,82 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 }
 
-trait OptResultExt: ResultExt {
-    fn into_log_drop_dep<X, E, T, I>(
+trait OptLogResultExt: Sized {
+    type V;
+    type WC;
+    type E;
+    type EC;
+
+    fn into_log(self) -> Deferred<Self::V, Self::WC, Self::E, Self::EC>;
+
+    fn into_log_drop_dep<E, T, I>(
         self,
         k: SpecificKey<T, I>,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> OptResult_<X, E, T, I>
+    ) -> OptResult_<Self::V, E, T, I>
     where
-        X: PartialEq + Default,
-        Self: ResultExt<Ok = X, Error = ParseKeyError<E, T, I>>,
+        Self: OptLogResultExt<WC = Nothing<()>>,
+        Self::V: Default + PartialEq,
+        <Self::EC as FungibleError>::Warn: Default + IntoNewCardinality<Vec<Self::E>>,
+        Self::EC: FungibleError<Inner = Self::E> + Default + IntoNewCardinality<Vec<Self::E>>,
+        Self::E: Into<OptKeyError_<E, T, I>>,
     {
-        self.into_result()
-            .map_err(OptKeyError_::from)
-            .into_deferred_fungible::<_, Vec<_>>(conf.allow_optional_dropping)
+        self.into_log_drop(conf)
             .fungible_into_commutative()
-            .and_then_def(|value| {
-                let is_ok = !is_deprecated || value.is_default();
-                let flag = conf.disallow_deprecated;
-                let error = OptKeyError_::Deprecated(DepKeyWarning(k));
-                LogResult::new_deferred_fungible_ok_if(is_ok, value, error, flag)
-                    .fungible_into_commutative()
-            })
+            .repack()
+            .map_errors(Into::into)
+            .map_commutative_warnings(Into::into)
+            .into_log_dep(k, is_deprecated, conf)
     }
 
-    fn into_log_drop<X>(
+    fn into_log_drop(
         self,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<X, AllowOptionalDropping, Self::Error>
+    ) -> FungibleResult<Self::V, Self::V, AllowOptionalDropping, Self::E, Self::EC>
     where
-        X: Default,
-        Self: ResultExt<Ok = X>,
+        Self::V: Default,
+        Self: OptLogResultExt<WC = Nothing<()>>,
+        Self::EC: FungibleError<Inner = Self::E> + Default,
+        <Self::EC as FungibleError>::Warn: Default,
     {
-        self.into_result()
-            .into_deferred_fungible(conf.allow_optional_dropping)
+        // TODO add a way to move dropped keywords into nonstandard dict
+        self.into_log()
+            .nowarn_into_fungible(conf.allow_optional_dropping)
     }
 
-    fn into_log_dep<X, T, I, E>(
+    fn into_log_dep<T, I, W>(
         self,
         k: SpecificKey<T, I>,
         is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> DeferredWarningAndErrors<X, DepKeyWarning<T, I>, E>
+    ) -> DeferredWarningsAndErrors<Self::V, W, Self::E>
     where
-        X: Default,
-        DepKeyWarning<T, I>: Into<E>,
-        Self::Error: Into<E>,
-        Self: ResultExt<Ok = X>,
+        DepKeyWarning<T, I>: Into<Self::E> + Into<W>,
+        Self::V: Default + PartialEq,
+        Self::EC: IntoNewCardinality<Vec<Self::E>>,
+        Self::WC: IntoNewCardinality<Vec<W>>,
     {
         let flag = conf.disallow_deprecated;
-        let e = DepKeyWarning(k);
-        let res = self
-            .into_result()
-            .map_err(Into::into)
-            .into_log()
-            .set_err_value(X::default());
-        if is_deprecated && flag.is_error() {
-            res.extend_deferred_errors(once(e.into()))
-                .nowarn_into_warn()
-        } else if is_deprecated {
-            res.set_commutative_warnings(Some(e))
-        } else {
-            res.nowarn_into_warn()
-        }
+        self.into_log()
+            .repack()
+            .set_err_value(Self::V::default())
+            .eval_warning_or_error(flag, |v| {
+                (is_deprecated && !v.is_default()).then_some(DepKeyWarning(k))
+            })
     }
 }
 
-impl<T, E> OptResultExt for Result<T, E> {}
+impl<V, WC, E, EC> OptLogResultExt for Deferred<V, WC, E, EC> {
+    type V = V;
+    type WC = WC;
+    type E = E;
+    type EC = EC;
+
+    fn into_log(self) -> Deferred<Self::V, Self::WC, Self::E, Self::EC> {
+        self
+    }
+}
 
 type OptResult_<R, E, T, I> =
     DeferredWarningsAndErrors<R, OptKeyError_<E, T, I>, OptKeyError_<E, T, I>>;

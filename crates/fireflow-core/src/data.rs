@@ -49,14 +49,16 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig, StdTextReadConfig,
+    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig,
+    StdTextReadConfig,
 };
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredFungibleErrors, DeferredIter as _,
-    DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult, FungibleErrorResult,
-    FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError, LogResult,
-    ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult, WarningsResult,
+    CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
+    FungibleErrorResult, FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError,
+    LogResult, ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -76,10 +78,11 @@ use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, To
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
     DepOptIndexedKeyError, DepOptKeyError, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTentative, OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _,
+    LookupTentative, OptIndexedKey as _, OptIndexedKeyError, ParseOptKeyError, ReqIndexedKey as _,
     ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 
+use crate::validated::keys::NonStdKeywords;
 use crate::validated::{
     ascii_range::{AsciiRange, Chars, NewAsciiRangeError},
     bitmask::{
@@ -390,10 +393,11 @@ pub trait MeasDatatypeDef {
     type MeasDatatype;
 
     fn lookup_datatype(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::MeasDatatype>;
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
@@ -401,12 +405,13 @@ pub trait MeasDatatypeDef {
     ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>;
 
     fn lookup_all(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Vec<ColumnLayoutValues<Self::MeasDatatype>>> {
         (0..par.0)
-            .map(|i| Self::lookup_one(kws, i.into(), conf))
+            .map(|i| Self::lookup_one(std, nonstd, i.into(), conf))
             .mappend_cmt()
     }
 
@@ -431,14 +436,19 @@ pub trait MeasDatatypeDef {
     // TODO why are width and range being put in lookup result which is
     // used for a totally different type of lookup?
     fn lookup_one(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
-        let w = Width::lookup_req(kws, i);
-        let r = Range::lookup_req(kws, i);
+        let w = Width::lookup_req(std, i);
+        let r = Range::lookup_req(std, i);
         w.zip_cmt(r).and_then_cmt(|(width, range)| {
-            Self::lookup_datatype(kws, i, conf)
+            Self::lookup_datatype(std, nonstd, i, conf)
+                .map_fungible_errors(ParseOptKeyError::from)
+                .map_fungible_errors(LookupKeysWarning::from)
+                .fungible_into_commutative()
+                .into_semigroup()
                 .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
                 .errors_into()
                 .set_err_value(())
@@ -644,7 +654,12 @@ where
     type MeasDTDef: MeasDatatypeDef;
     type TotDef: TotDefinition;
 
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
 
@@ -1198,10 +1213,12 @@ impl MeasDatatypeDef for NoMeasDatatype {
 
     fn lookup_datatype(
         _: &mut StdKeywords,
+        _: &mut NonStdKeywords,
         _: MeasIndex,
-        _: &StdTextReadConfig,
-    ) -> LookupTentative<Self::MeasDatatype> {
-        LogResult::new_ok(NullMeasDatatype)
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>
+    {
+        LogResult::new_fungible_ok(NullMeasDatatype, conf.allow_optional_dropping)
     }
 
     fn lookup_datatype_ro(
@@ -1217,14 +1234,17 @@ impl MeasDatatypeDef for HasMeasDatatype {
     type MeasDatatype = Option<NumType>;
 
     fn lookup_datatype(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::MeasDatatype> {
-        NumType::lookup_meas_opt(kws, i, false, conf)
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>
+    {
+        NumType::drop_meas_opt(std, nonstd, i, conf)
     }
 
     // TODO what is this actually doing?
+    // TODO make these "get" functions "drop" (really ignore) errors based on config
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
@@ -3448,11 +3468,16 @@ impl VersionedDataLayout for DataLayout2_0 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = MaybeTot;
 
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        AnyOrderedLayout::lookup(kws, conf, par).map_ok_value(Self::from)
+        AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
@@ -3481,11 +3506,16 @@ impl VersionedDataLayout for DataLayout3_0 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        AnyOrderedLayout::lookup(kws, conf, par).map_ok_value(Into::into)
+        AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Into::into)
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
@@ -3514,11 +3544,16 @@ impl VersionedDataLayout for DataLayout3_1 {
     type MeasDTDef = NoMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        NonMixedEndianLayout::lookup(kws, conf, par).map_ok_value(Self::from)
+        NonMixedEndianLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
@@ -3547,7 +3582,12 @@ impl VersionedDataLayout for DataLayout3_2 {
     type MeasDTDef = HasMeasDatatype;
     type TotDef = KnownTot;
 
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
@@ -3558,9 +3598,9 @@ impl VersionedDataLayout for DataLayout3_2 {
             };
         }
 
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let e = ByteOrd3_1::lookup_req(kws);
-        let cs = HasMeasDatatype::lookup_all(kws, par, conf.as_ref());
+        let d = AlphaNumType::lookup_req_check_ascii(std);
+        let e = ByteOrd3_1::lookup_req(std);
+        let cs = HasMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
 
         from!(d.zip3_cmt(e, cs)).and_then_cmt(|(datatype, endian, columns)| {
             from!(Self::try_new(datatype, endian, columns, conf.as_ref()))
@@ -3782,7 +3822,12 @@ impl<T> Default for AnyOrderedLayout<T> {
 }
 
 impl<T> AnyOrderedLayout<T> {
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
@@ -3793,9 +3838,9 @@ impl<T> AnyOrderedLayout<T> {
             };
         }
 
-        let cs = NoMeasDatatype::lookup_all(kws, par, conf.as_ref());
-        let d = AlphaNumType::lookup_req(kws);
-        let b = ByteOrd2_0::lookup_req(kws);
+        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
+        let d = AlphaNumType::lookup_req(std);
+        let b = ByteOrd2_0::lookup_req(std);
 
         from!(d.zip3_cmt(b, cs)).and_then_cmt(|(datatype, byteord, columns)| {
             from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
@@ -3940,13 +3985,18 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout<NoMeasDatatype> {
-    fn lookup<C>(kws: &mut StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+        par: Par,
+    ) -> LookupLayoutResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        let cs = NoMeasDatatype::lookup_all(kws, par, conf.as_ref());
-        let d = AlphaNumType::lookup_req_check_ascii(kws);
-        let n = ByteOrd3_1::lookup_req(kws);
+        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
+        let d = AlphaNumType::lookup_req_check_ascii(std);
+        let n = ByteOrd3_1::lookup_req(std);
         d.zip3_cmt(n, cs)
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::from)

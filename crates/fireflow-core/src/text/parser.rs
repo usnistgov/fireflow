@@ -440,6 +440,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::drop_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
+    fn drop_metaroot_opt_with(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
+    where
+        Self: FromStrWith,
+    {
+        Self::drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+    }
+
     // TODO it might be easier to move the deprecation flag to the type itself
     // so that way we don't need to pass a bool down a zillion layers worth of
     // call stack
@@ -542,6 +554,20 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr,
     {
         Self::drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+    }
+
+    fn drop_meas_opt_with(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: impl Into<IndexFromOne> + Copy,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptIndexedKeyStError<Self>>
+    where
+        Self::Outer: PartialEq,
+        Self: FromStrWith,
+    {
+        Self::drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }
 
     // fn remove_meas_opt_st(
@@ -836,17 +862,19 @@ pub enum ParseReqKeyError {
 /// Error encountered when parsing an optional key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseOptKeyError {
-    NumType(DepOptIndexedKeyError<NumType>),
+    NumType(OptIndexedKeyError<NumType>),
     Trigger(OptKeyStError<Trigger>),
-    Scale(DepOptIndexedKeyStError<Scale>),
-    TemporalScale(DepOptIndexedKeyError<TemporalScale2_0>),
+    Scale(OptIndexedKeyStError<Scale>),
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
     Comp2_0(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
     Comp3_0(OptKeyError<Compensation3_0>),
-    Gain(DepOptIndexedKeyError<Gain>),
-    Feature(DepOptIndexedKeyError<Feature>),
-    Wavelengths(DepOptIndexedKeyStError<Wavelengths>),
-    Calibration3_1(DepOptIndexedKeyError<Calibration3_1>),
-    Calibration3_2(DepOptIndexedKeyError<Calibration3_2>),
+    Gain(OptIndexedKeyError<Gain>),
+    TemporalGain(LookupTemporalGain),
+    Feature(OptIndexedKeyError<Feature>),
+    Wavelengths(OptIndexedKeyStError<Wavelengths>),
+    Wavelength(OptIndexedKeyError<Wavelength>),
+    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
+    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
     Date(DepOptKeyStError<FCSDate>),
     Btim2_0(DepOptKeyStError<Btim<FCSTime>>),
     Etim2_0(DepOptKeyStError<Etim<FCSTime>>),
@@ -856,14 +884,14 @@ pub enum ParseOptKeyError {
     Etim3_1(DepOptKeyStError<Etim<FCSTime100>>),
     Datetimes(LookupDatetimesError),
     Modified(LookupModifiedDataError),
-    UnstainedCenter(DepOptKeyStError<UnstainedCenters>),
+    UnstainedCenter(OptKeyStError<UnstainedCenters>),
     Mode3_2(DepOptKeyError<Mode3_2>),
-    TemporalType(DepOptIndexedKeyError<TemporalType>),
-    OpticalType(DepOptIndexedKeyError<OpticalType>),
-    Shortname(DepOptIndexedKeyError<Shortname>),
-    Display(DepOptIndexedKeyError<Display>),
-    Unicode(DepOptKeyStError<Unicode>),
-    Spillover(DepOptKeyStError<Spillover>),
+    TemporalType(OptIndexedKeyError<TemporalType>),
+    OpticalType(OptIndexedKeyError<OpticalType>),
+    Shortname(OptIndexedKeyError<Shortname>),
+    Display(OptIndexedKeyError<Display>),
+    Unicode(OptKeyStError<Unicode>),
+    Spillover(OptKeyStError<Spillover>),
     GateRegionIndex2_0(DepOptIndexedKeyError<RegionGateIndex<GateIndex>>),
     GateRegionIndex3_0(DepOptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
     GateRegionIndex3_2(DepOptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
@@ -879,19 +907,22 @@ pub enum ParseOptKeyError {
     GateDetectorType(DepOptIndexedKeyError<GateDetectorType>),
     GateDetectorVoltage(DepOptIndexedKeyError<GateDetectorVoltage>),
     Vol(OptKeyError<Vol>),
-    Power(DepOptIndexedKeyError<Power>),
+    Power(OptIndexedKeyError<Power>),
     PercentEmitted(DepOptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(DepOptIndexedKeyError<DetectorVoltage>),
+    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
     Abrt(OptKeyError<Abrt>),
     Lost(OptKeyError<Lost>),
     CSV(LookupCSVFlagsError),
     CSVBits(OptKeyError<CSVBits>),
-    // CSVFlag(DepOptIndexedKeyError<CSVFlag>),
-    // CSMode(DepOptKeyError<CSMode>),
     CSTot(OptKeyError<CSTot>),
     PeakBin(DepOptIndexedKeyError<PeakBin>),
     PeakIndex(DepOptIndexedKeyError<PeakIndex>),
-    Wavelength(DepOptIndexedKeyError<Wavelength>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalGain {
+    Parse(OptIndexedKeyError<Gain>),
+    HasGain(TemporalGainError),
 }
 
 #[derive(From, Display, Debug, Error)]

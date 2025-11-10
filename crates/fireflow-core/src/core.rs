@@ -15,11 +15,11 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _,
-    DeferredWarningsAndErrors, ErrorResult, ErrorsResult, FungibleErrorResult,
+    CmtResultIter as _, DeferredError, DeferredFungibleError, DeferredFungibleErrors,
+    DeferredIter as _, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, FungibleErrorResult,
     FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
-    SummaryResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
-    WarningsAndSummaryResult, WarningsResult,
+    SummaryResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -63,8 +63,9 @@ use crate::text::parser::{
     DependentIndexedKeyError, DependentKeyError, ExtraStdKeywords, IndexedKeyToIndexLinkError,
     KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupKeysError,
     LookupKeysWarning, LookupModifiedDataError, LookupResult, LookupTentative, MissingTime,
-    OptIndexedKey as _, OptKeyError, OptMetarootKey as _, ParseOptKeyError, PseudostandardError,
-    RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError, OptMetarootKey as _,
+    ParseOptKeyError, ParseReqKeyError, PseudostandardError, RawKeywords, ReqIndexedKey as _,
+    ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -1347,10 +1348,11 @@ pub trait Versioned {
 
 pub trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_shortname(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<Self::Name>;
+    ) -> WarningAndErrorResult<Self::Name, (), LookupKeysWarning, LookupKeysError>;
 
     fn lookup_specific(
         std: &mut StdKeywords,
@@ -1516,7 +1518,8 @@ pub trait VersionedOptical: Sized {
 
 pub trait LookupOptical: Sized + VersionedOptical {
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
@@ -1541,8 +1544,8 @@ pub trait VersionedTemporal: Sized {
 pub trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(
         std: &mut StdKeywords,
-        i: MeasIndex,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
@@ -1657,7 +1660,7 @@ pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
-    fn lookup(std: &mut StdKeywords, i: MeasIndex, nonstd: NonStdKeywords) -> Self {
+    fn lookup(std: &mut StdKeywords, nonstd: NonStdKeywords, i: MeasIndex) -> Self {
         let longname = Longname::lookup_meas_opt_noerror(std, i);
         Self::new(longname, nonstd)
     }
@@ -1666,15 +1669,15 @@ impl CommonMeasurement {
 impl<T> Temporal<T> {
     fn lookup_temporal(
         std: &mut StdKeywords,
-        i: MeasIndex,
         mut nonstd: NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
-        T::lookup_specific(std, i, &mut nonstd, conf).map_ok_value(|specific| {
-            let common = CommonMeasurement::lookup(std, i, nonstd);
+        T::lookup_specific(std, &mut nonstd, i, conf).map_ok_value(|specific| {
+            let common = CommonMeasurement::lookup(std, nonstd, i);
             Self::new(common, specific)
         })
     }
@@ -1733,7 +1736,7 @@ impl<O> Optical<O> {
     fn lookup_optical(
         std: &mut StdKeywords,
         i: MeasIndex,
-        nonstd: NonStdKeywords,
+        mut nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
@@ -1742,19 +1745,26 @@ impl<O> Optical<O> {
     {
         let version = O::Ver::fcs_version();
         let filter = Filter::lookup_meas_opt_noerror(std, i);
-        let power = Power::lookup_meas_opt(std, i, false, conf);
+        let power = Power::drop_meas_opt(std, &mut nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let det_type = DetectorType::lookup_meas_opt_noerror(std, i);
         let pe_dep = Version::from(version) == Version::FCS3_2;
         let perc_emit = PercentEmitted::lookup_meas_opt(std, i, pe_dep, conf);
-        let det_volt = DetectorVoltage::lookup_meas_opt(std, i, false, conf);
-        let common = CommonMeasurement::lookup(std, i, nonstd);
+        let det_volt = DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let specific = O::lookup_specific(std, &mut nonstd, i, conf);
+        let common = CommonMeasurement::lookup(std, nonstd, i);
         power
             .zip3_cmt(perc_emit, det_volt)
-            .errors_into()
-            .and_then_cmt(|(p, e, v)| {
-                O::lookup_specific(std, i, conf)
-                    .map_ok_value(|s| Self::new(common, filter, p, det_type, e, v, s))
-            })
+            .map_errors(LookupKeysError::from)
+            .zip_cmt(specific)
+            .map_ok_value(|((p, e, v), s)| Self::new(common, filter, p, det_type, e, v, s))
     }
 
     fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)>
@@ -3621,43 +3631,45 @@ where
             meas_nonstds
                 .into_iter()
                 .enumerate()
-                .map(|(n, meas_nonstd)| {
+                .map(|(n, mut meas_nonstd)| {
                     let i = n.into();
                     // Try to find $PnN first, for later versions this will
                     // totally fail if not found since this is required. If it
                     // does exist, also check if it matches the time pattern and
                     // use it as the time measurement if it does.
-                    M::lookup_shortname(std, i, conf).and_then_cmt(|wrapped| {
-                        // TODO if more than one name matches the time pattern
-                        // this will give a cryptic "cannot find $TIMESTEP" for
-                        // each subsequent match, which is not helpful. Probably
-                        // the best way around this is to add measurement index
-                        // and possibly key to the error, so at least the user
-                        // will know it is trying to find $TIMESTEP in a
-                        // nonsense measurement.
-                        let key = M::Name::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = conf.time_meas_pattern.as_ref()
-                                && tp.0.is_match(name.as_ref())
-                            {
-                                return Ok(name);
+                    M::lookup_shortname(std, &mut meas_nonstd, i, conf)
+                        .into_semigroup()
+                        .and_then_cmt(|wrapped| {
+                            // TODO if more than one name matches the time pattern
+                            // this will give a cryptic "cannot find $TIMESTEP" for
+                            // each subsequent match, which is not helpful. Probably
+                            // the best way around this is to add measurement index
+                            // and possibly key to the error, so at least the user
+                            // will know it is trying to find $TIMESTEP in a
+                            // nonsense measurement.
+                            let key = M::Name::unwrap(wrapped).and_then(|name| {
+                                if let Some(tp) = conf.time_meas_pattern.as_ref()
+                                    && tp.0.is_match(name.as_ref())
+                                {
+                                    return Ok(name);
+                                }
+                                Err(M::Name::pure(name))
+                            });
+                            // Once we checked $PnN, pull all the rest of the
+                            // standardized keywords from the hashtable and collect
+                            // errors. In general, required keywords will trigger an
+                            // error if they are missing and optional keywords will
+                            // trigger a warning. Either can generate an
+                            // error/warning if they fail to be parsed to their type
+                            match key {
+                                // TODO add switch to "downgrade" failed time
+                                // channel to optical channel, which is more general
+                                Ok(name) => Temporal::lookup_temporal(std, meas_nonstd, i, conf)
+                                    .map_ok_value(|t| Element::Center((name, t))),
+                                Err(k) => Optical::lookup_optical(std, i, meas_nonstd, conf)
+                                    .map_ok_value(|m| Element::NonCenter((k, m))),
                             }
-                            Err(M::Name::pure(name))
-                        });
-                        // Once we checked $PnN, pull all the rest of the
-                        // standardized keywords from the hashtable and collect
-                        // errors. In general, required keywords will trigger an
-                        // error if they are missing and optional keywords will
-                        // trigger a warning. Either can generate an
-                        // error/warning if they fail to be parsed to their type
-                        match key {
-                            // TODO add switch to "downgrade" failed time
-                            // channel to optical channel, which is more general
-                            Ok(name) => Temporal::lookup_temporal(std, i, meas_nonstd, conf)
-                                .map_ok_value(|t| Element::Center((name, t))),
-                            Err(k) => Optical::lookup_optical(std, i, meas_nonstd, conf)
-                                .map_ok_value(|m| Element::NonCenter((k, m))),
-                        }
-                    })
+                        })
                 })
                 .mappend_cmt()
                 .map_ok_value(Eithers)
@@ -3836,9 +3848,10 @@ where
                 .map_commutative_warnings(StdTEXTFromRawWarning::from)
                 .map_errors(StdTEXTFromRawError::from);
 
-            let layout_res = <M::Ver as Versioned>::Layout::lookup(&mut kws.std, conf, par)
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+            let layout_res =
+                <M::Ver as Versioned>::Layout::lookup(&mut kws.std, &mut kws.nonstd, conf, par)
+                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
+                    .map_errors(StdTEXTFromRawError::from);
 
             let mut root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
                 Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
@@ -4918,9 +4931,13 @@ impl CoreTEXT3_2 {
 }
 
 impl UnstainedData {
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let i = UnstainedInfo::lookup_metaroot_opt_noerror(kws);
-        UnstainedCenters::lookup_metatroot_opt_with(kws, false, (), conf)
+    fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
+        let i = UnstainedInfo::lookup_metaroot_opt_noerror(std);
+        UnstainedCenters::drop_metaroot_opt_with(std, nonstd, (), conf)
             .map_def_value(|c| Self::new(c, i))
     }
 
@@ -6271,12 +6288,21 @@ impl ScaleTransform {
         }
     }
 
-    fn lookup(kws: &mut StdKeywords, i: MeasIndex, conf: &StdTextReadConfig) -> LookupResult<Self> {
-        Gain::lookup_meas_opt(kws, i, false, conf)
-            .errors_into()
+    fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
+        Gain::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .map_errors(LookupKeysError::from)
+            .into_semigroup()
             .set_err_value(())
             .and_then_cmt(|g| {
-                Scale::lookup_req_with(kws, i, (), conf).and_then_cmt(|s| {
+                Scale::lookup_req_with(std, i, (), conf).and_then_cmt(|s| {
                     Self::try_from((s, g))
                         .map_err(LookupKeysError::from)
                         .into_log()
@@ -6663,13 +6689,22 @@ impl AsScaleTransform for InnerOptical3_2 {
 
 impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let scale = Scale::lookup_meas_opt_with(kws, i, false, (), conf);
-        let wave = Wavelength::lookup_meas_opt(kws, i, false, conf);
-        let peak = PeakData::lookup(kws, i, false, conf);
+        let scale = Scale::drop_meas_opt_with(std, nonstd, i, (), conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let peak = PeakData::lookup(std, i, false, conf);
         scale
             .zip3_cmt(wave, peak)
             .map_errors(LookupKeysError::from)
@@ -6679,34 +6714,52 @@ impl LookupOptical for InnerOptical2_0 {
 
 impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelength::lookup_meas_opt(kws, i, false, conf);
-        let peak = PeakData::lookup(kws, i, false, conf);
+        let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let peak = PeakData::lookup(std, i, false, conf);
         wave.zip_cmt(peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(wi, pi)| {
-                ScaleTransform::lookup(kws, i, conf).map_ok_value(|s| Self::new(s, wi, pi))
+                ScaleTransform::lookup(std, nonstd, i, conf).map_ok_value(|s| Self::new(s, wi, pi))
             })
     }
 }
 
 impl LookupOptical for InnerOptical3_1 {
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_with(kws, i, false, (), conf);
-        let cal = Calibration3_1::lookup_meas_opt(kws, i, false, conf);
-        let dpy = Display::lookup_meas_opt(kws, i, false, conf);
-        let peak = PeakData::lookup(kws, i, true, conf);
+        let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let cal = Calibration3_1::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let peak = PeakData::lookup(std, i, true, conf);
         wave.zip4_cmt(cal, dpy, peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(wi, ci, di, pi)| {
-                ScaleTransform::lookup(kws, i, conf)
+                ScaleTransform::lookup(std, nonstd, i, conf)
                     .map_ok_value(|scale| Self::new(scale, wi, ci, di, pi))
             })
     }
@@ -6714,23 +6767,44 @@ impl LookupOptical for InnerOptical3_1 {
 
 impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let wave = Wavelengths::lookup_meas_opt_with(kws, i, false, (), conf);
-        let cal = Calibration3_2::lookup_meas_opt(kws, i, false, conf);
-        let dpy = Display::lookup_meas_opt(kws, i, false, conf);
-        let det_name = DetectorName::lookup_meas_opt_noerror(kws, i);
-        let tag = Tag::lookup_meas_opt_noerror(kws, i);
-        let meas = OpticalType::lookup_meas_opt(kws, i, false, conf);
-        let feat = Feature::lookup_meas_opt(kws, i, false, conf);
-        let anal = Analyte::lookup_meas_opt_noerror(kws, i);
+        let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let cal = Calibration3_2::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let det_name = DetectorName::lookup_meas_opt_noerror(std, i);
+        let tag = Tag::lookup_meas_opt_noerror(std, i);
+        let meas = OpticalType::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let feat = Feature::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let anal = Analyte::lookup_meas_opt_noerror(std, i);
         wave.zip_f3_once(cal, dpy)
             .zip3_cmt(meas, feat)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|((w, c, d), m, f)| {
-                ScaleTransform::lookup(kws, i, conf)
+                ScaleTransform::lookup(std, nonstd, i, conf)
                     .map_ok_value(|s| Self::new(s, w, c, d, anal, f, m, tag, det_name))
             })
     }
@@ -6739,15 +6813,19 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(
         std: &mut StdKeywords,
-        i: MeasIndex,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let scale = if conf.force_time_linear {
             nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {
-            TemporalScale2_0::lookup_meas_opt(std, i, false, conf)
+            TemporalScale2_0::drop_meas_opt(std, nonstd, i, conf)
+                .map_fungible_errors(ParseOptKeyError::from)
+                .map_fungible_errors(LookupKeysWarning::from)
+                .fungible_into_commutative()
+                .into_semigroup()
         };
         let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
@@ -6761,11 +6839,14 @@ impl LookupTemporal for InnerTemporal2_0 {
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(
         std: &mut StdKeywords,
-        i: MeasIndex,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
         let peak = PeakData::lookup(std, i, false, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip_cmt(peak)
@@ -6783,12 +6864,19 @@ impl LookupTemporal for InnerTemporal3_0 {
 impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(
         std: &mut StdKeywords,
-        i: MeasIndex,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_meas_opt(std, i, false, conf);
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
+        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let peak = PeakData::lookup(std, i, true, conf);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3_cmt(dpy, peak)
@@ -6806,13 +6894,24 @@ impl LookupTemporal for InnerTemporal3_1 {
 impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(
         std: &mut StdKeywords,
-        i: MeasIndex,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let gain = Gain::lookup_temporal_3_0(std, i, nonstd, conf);
-        let dpy = Display::lookup_meas_opt(std, i, false, conf);
-        let meas = TemporalType::lookup_meas_opt(std, i, false, conf);
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
+        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let meas = TemporalType::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3_cmt(dpy, meas)
             .map_errors(LookupKeysError::from)
@@ -7406,12 +7505,16 @@ type Timestamps3_1 = Timestamps<FCSTime100>;
 
 impl LookupMetaroot for InnerMetaroot2_0 {
     fn lookup_shortname(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<Self::Name> {
-        Shortname::lookup_meas_opt(kws, i, false, conf)
+    ) -> WarningAndErrorResult<Self::Name, (), LookupKeysWarning, LookupKeysError> {
+        Shortname::drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
             .map_errors(LookupKeysError::from)
     }
 
@@ -7436,12 +7539,16 @@ impl LookupMetaroot for InnerMetaroot2_0 {
 
 impl LookupMetaroot for InnerMetaroot3_0 {
     fn lookup_shortname(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<Self::Name> {
-        Shortname::lookup_meas_opt(kws, i, false, conf)
+    ) -> WarningAndErrorResult<Self::Name, (), LookupKeysWarning, LookupKeysError> {
+        Shortname::drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
             .map_errors(LookupKeysError::from)
     }
 
@@ -7463,7 +7570,11 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .map_errors(LookupKeysWarning::from)
             .map_commutative_warnings(LookupKeysWarning::from);
         let ts = Timestamps::lookup(std, false, conf);
-        let uni = Unicode::lookup_metatroot_opt_with(std, false, (), conf);
+        let uni = Unicode::drop_metaroot_opt_with(std, nonstd, (), conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let ag = AppliedGates3_0::lookup(std, par, false, conf);
         comp.zip5_cmt(subset, ts, uni, ag)
             .map_errors(LookupKeysError::from)
@@ -7475,11 +7586,16 @@ impl LookupMetaroot for InnerMetaroot3_0 {
 
 impl LookupMetaroot for InnerMetaroot3_1 {
     fn lookup_shortname(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        _: &mut NonStdKeywords,
         i: MeasIndex,
         _: &StdTextReadConfig,
-    ) -> LookupResult<Self::Name> {
-        Shortname::lookup_req(kws, i).map_ok_value(Identity)
+    ) -> WarningAndErrorResult<Self::Name, (), LookupKeysWarning, LookupKeysError> {
+        Shortname::remove_meas_req(std, i)
+            .map(Identity)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log()
     }
 
     fn lookup_specific(
@@ -7508,7 +7624,11 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
         let cyt = Cyt::lookup_metaroot_opt_noerror(std);
-        let spill = Spillover::lookup_metatroot_opt_with(std, false, &ordered_names[..], conf);
+        let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
         let subset = SubsetData::lookup(std, nonstd, conf)
             .map_errors(LookupKeysWarning::from)
@@ -7539,11 +7659,16 @@ impl LookupMetaroot for InnerMetaroot3_1 {
 
 impl LookupMetaroot for InnerMetaroot3_2 {
     fn lookup_shortname(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        _: &mut NonStdKeywords,
         i: MeasIndex,
         _: &StdTextReadConfig,
-    ) -> LookupResult<Self::Name> {
-        Shortname::lookup_req(kws, i).map_ok_value(Identity)
+    ) -> WarningAndErrorResult<Self::Name, (), LookupKeysWarning, LookupKeysError> {
+        Shortname::remove_meas_req(std, i)
+            .map(Identity)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log()
     }
 
     fn lookup_specific(
@@ -7568,13 +7693,21 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
         let mode = Mode3_2::lookup_metaroot_opt(std, true, conf);
-        let spill = Spillover::lookup_metatroot_opt_with(std, false, &ordered_names[..], conf);
+        let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
         let plate = PlateData::lookup_dep(std, conf)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
         let ts = Timestamps::lookup(std, true, conf);
-        let us = UnstainedData::lookup(std, conf);
+        let us = UnstainedData::lookup(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)

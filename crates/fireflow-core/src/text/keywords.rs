@@ -1,6 +1,6 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::RemovedNamedLink;
-use crate::logging::{DeferredError, LogResult};
+use crate::logging::{DeferredError, DeferredFungibleError, DeferredFungibleErrors, LogResult};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -21,8 +21,9 @@ use super::optional::{
 };
 use super::parser::{
     DepOptIndexedKeyStError, DepValueWarning, FromStrDelim, FromStrWith,
-    IndexedKeyToIndexLinkError, LookupKeysWarning, LookupOptional, LookupResult, OptIndexedKey,
-    OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey, ReqMetarootKey, Required,
+    IndexedKeyToIndexLinkError, LookupKeysWarning, LookupOptional, LookupResult,
+    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey,
+    ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -66,22 +67,21 @@ pub struct Gain(pub PositiveFloat);
 
 impl Gain {
     pub(crate) fn lookup_temporal_3_0(
-        kws: &mut StdKeywords,
-        i: MeasIndex,
+        std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self> {
+    ) -> DeferredFungibleErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGain> {
         if conf.ignore_time_gain {
-            nonstd.transfer_demoted(kws, Self::std(i));
-            LogResult::new_ok(None)
+            nonstd.transfer_demoted(std, Self::std(i));
+            LogResult::new_fungible_ok(None, conf.allow_optional_dropping)
         } else {
-            Self::lookup_meas_opt(kws, i, false, conf).and_then_def(|gain| {
-                let is_ok = gain.is_none_or(|g| g.0.is_one());
-                let flag = conf.allow_optional_dropping;
-                let e = TemporalGainError(i).into();
-                LogResult::new_deferred_fungible_ok_if(is_ok, gain, e, flag)
-                    .fungible_into_commutative()
-            })
+            Self::drop_meas_opt(std, nonstd, i, conf)
+                .map_fungible_errors(LookupTemporalGain::from)
+                .into_semigroup()
+                .eval_deferred_fungible_error(|gain| {
+                    (!gain.is_none_or(|g| g.0.is_one())).then_some(TemporalGainError(i).into())
+                })
         }
     }
 }

@@ -796,6 +796,13 @@ pub trait ResultExt: Sized {
         self.into_log()
     }
 
+    fn into_deferred_nowarn(self) -> NowarnResult<Self::Ok, Self::Ok, Self::Error, Vec<Self::Error>>
+    where
+        Self::Ok: Default,
+    {
+        self.into_log().set_err_value(Self::Ok::default())
+    }
+
     fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
         self.into_log()
     }

@@ -8,7 +8,7 @@ use crate::logging::{
     LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::parser::{OptKeyError_, OptMetarootKey, Optional, ReqKeyError_, ReqMetarootKey};
+use crate::text::parser::{OptMetarootKey, Optional, ParseKeyError, ReqKeyError_, ReqMetarootKey};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
@@ -465,8 +465,8 @@ type ReqPair<B, E> = (
 );
 
 type OptPair<B, E> = (
-    Result<Option<B>, OptKeyError_<ParseIntError, B, ()>>,
-    Result<Option<E>, OptKeyError_<ParseIntError, E, ()>>,
+    Result<Option<B>, ParseKeyError<ParseIntError, B, ()>>,
+    Result<Option<E>, ParseKeyError<ParseIntError, E, ()>>,
 );
 
 /// Denotes that a type comes from a specific part of the FCS file
@@ -551,8 +551,8 @@ pub enum ReqSegmentError<B, E> {
 
 #[derive(Display, Debug, Error)]
 pub enum OptSegmentError<B, E> {
-    BeginKey(OptKeyError_<ParseIntError, B, ()>),
-    EndKey(OptKeyError_<ParseIntError, E, ()>),
+    BeginKey(ParseKeyError<ParseIntError, B, ()>),
+    EndKey(ParseKeyError<ParseIntError, E, ()>),
     Segment(SegmentError<UintZeroPad20>),
 }
 
@@ -1205,7 +1205,6 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::FileLayoutError;
-    use crate::python::macros::impl_pyreflow_err;
 
     use super::{
         InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarning_, ReqSegmentWithDefaultError_,

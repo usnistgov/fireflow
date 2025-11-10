@@ -1,12 +1,14 @@
-use crate::config::{AllowOptionalDropping, StdTextReadConfig, TimeMeasNamePattern};
-use crate::core::{NewCSVFlagsError, ScaleTransformError};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig, TimeMeasNamePattern,
+};
+use crate::core::ScaleTransformError;
 use crate::logging::{
-    Deferred, DeferredWarningsAndErrors, FungibleError, FungibleResult, IntoNewCardinality,
-    ResultExt as _, WarningsAndErrorsResult,
+    Deferred, DeferredFungibleError, DeferredWarningsAndErrors, FungibleError, FungibleResult,
+    IntoNewCardinality, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::validated::keys::{
-    AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, MeasHeader, SpecificKey, StdKey,
-    StdKeywords,
+    AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKeywords,
+    NonStdKeywordsExt as _, SpecificKey, StdKey, StdKeywords,
 };
 use crate::validated::shortname::Shortname;
 
@@ -136,17 +138,18 @@ pub(crate) trait Required: Sized {
 pub(crate) trait Optional: Sized {
     type Outer: Default + From<Self>;
 
-    fn get_opt<I>(kws: &StdKeywords, k: SpecificKey<Self, I>) -> OptKwResult<Self, I>
+    fn get_opt<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
         Self: FromStr,
     {
-        kws.get(&k.as_std())
-            .map(|v| {
-                v.parse()
-                    .map_err(|error| OptKeyError_::from(ParseKeyError::new(error, k, v.clone())))
-            })
-            .transpose()
+        Self::get_opt_inner(kws, k, |k_, v| {
+            v.parse()
+                .map_err(|e| ParseKeyError::new(e, k_, v.to_owned()))
+        })
     }
 
     fn remove_opt<I>(
@@ -184,6 +187,89 @@ pub(crate) trait Optional: Sized {
     {
         let Ok(res) = Self::remove_opt(kws, k);
         res
+    }
+
+    fn transfer_opt<I>(
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStr,
+    {
+        Self::remove_opt(kws, k).inspect_err(|e| {
+            if conf.transfer_dropped_optional.is_set() {
+                nonstd.insert_demoted(k.as_std(), e.value.clone());
+            }
+        })
+    }
+
+    fn transfer_opt_with<I>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStrWith,
+    {
+        Self::remove_opt_with(std, k, data, conf).inspect_err(|e| {
+            if conf.transfer_dropped_optional.is_set() {
+                nonstd.insert_demoted(k.as_std(), e.value.clone());
+            }
+        })
+    }
+
+    fn drop_opt<I>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStr,
+    {
+        Self::transfer_opt(std, nonstd, k, conf)
+            .into_nowarn1()
+            .set_err_value(Self::Outer::default())
+            .into_log_drop(conf)
+    }
+
+    fn drop_opt_with<I>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStrWith,
+    {
+        Self::transfer_opt_with(std, nonstd, k, data, conf)
+            .into_nowarn1()
+            .set_err_value(Self::Outer::default())
+            .into_log_drop(conf)
+    }
+
+    fn get_opt_inner<F, E, I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+        f: F,
+    ) -> Result<Self::Outer, E>
+    where
+        SpecificKey<Self, I>: AnyKey,
+        F: FnOnce(SpecificKey<Self, I>, &str) -> Result<Self, E>,
+    {
+        kws.get(&k.as_std())
+            .map(|v| f(k, v))
+            .transpose()
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
     fn remove_opt_inner<F, E, I>(
@@ -311,18 +397,18 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
 
 /// An optional metaroot key
 pub(crate) trait OptMetarootKey: Sized + Optional + Key {
-    fn get_metaroot_opt(kws: &StdKeywords) -> OptKwResult<Self, ()>
+    fn get_metaroot_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
     {
         Self::get_opt(kws, SpecificKey::default())
     }
 
-    fn remove_metaroot_opt(kws: &mut StdKeywords) -> Result<Self::Outer, DepOptKeyError<Self>>
+    fn remove_metaroot_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::remove_opt(kws, SpecificKey::default()).map_err(OptKeyError_::from)
+        Self::remove_opt(kws, SpecificKey::default())
     }
 
     fn lookup_metaroot_opt_noerror(kws: &mut StdKeywords) -> Self::Outer
@@ -330,6 +416,28 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStr<Err = Infallible>,
     {
         Self::remove_opt_nofail(kws, SpecificKey::default())
+    }
+
+    fn transfer_metaroot_opt(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, OptKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::transfer_opt(std, nonstd, SpecificKey::default(), conf)
+    }
+
+    fn drop_metaroot_opt(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::drop_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
     // TODO it might be easier to move the deprecation flag to the type itself
@@ -398,7 +506,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     fn get_meas_opt(
         kws: &StdKeywords,
         i: impl Into<IndexFromOne>,
-    ) -> OptKwResult<Self, IndexFromOne>
+    ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -410,6 +518,30 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStr<Err = Infallible>,
     {
         Self::remove_opt_nofail(kws, SpecificKey::new_i1(i.into()))
+    }
+
+    fn transfer_meas_opt(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: impl Into<IndexFromOne>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::transfer_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+    }
+
+    fn drop_meas_opt(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: impl Into<IndexFromOne>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
     }
 
     // fn remove_meas_opt_st(
@@ -627,7 +759,7 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T, I>>;
 // pub(crate) type OptResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
-pub(crate) type OptKwResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
+// pub(crate) type OptKwResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
 
 pub(crate) type LookupResult<V> =
     WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
@@ -661,9 +793,8 @@ pub enum LookupKeysError {
 pub enum LookupKeysWarning {
     Parse(ParseOptKeyError),
     Timestamp(ReversedTimestampsError),
-    Datetime(ReversedDatetimesError),
     Comp(NewCompError),
-    CSVFlag(NewCSVFlagsError),
+    // CSVFlag(NewCSVFlagsError),
     GateRegion(gating::MismatchedIndexAndWindowError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(DependentKeyError<Gating>),
@@ -706,11 +837,11 @@ pub enum ParseReqKeyError {
 #[derive(From, Display, Debug, Error)]
 pub enum ParseOptKeyError {
     NumType(DepOptIndexedKeyError<NumType>),
-    Trigger(DepOptKeyStError<Trigger>),
+    Trigger(OptKeyStError<Trigger>),
     Scale(DepOptIndexedKeyStError<Scale>),
     TemporalScale(DepOptIndexedKeyError<TemporalScale2_0>),
     Comp2_0(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
-    Comp3_0(DepOptKeyError<Compensation3_0>),
+    Comp3_0(OptKeyError<Compensation3_0>),
     Gain(DepOptIndexedKeyError<Gain>),
     Feature(DepOptIndexedKeyError<Feature>),
     Wavelengths(DepOptIndexedKeyStError<Wavelengths>),
@@ -723,10 +854,8 @@ pub enum ParseOptKeyError {
     Etim3_0(DepOptKeyStError<Etim<FCSTime60>>),
     Btim3_1(DepOptKeyStError<Btim<FCSTime100>>),
     Etim3_1(DepOptKeyStError<Etim<FCSTime100>>),
-    Begindatetime(DepOptKeyError<BeginDateTime>),
-    Enddatetime(DepOptKeyError<EndDateTime>),
-    ModifiedDateTime(DepOptKeyError<LastModified>),
-    Originality(DepOptKeyError<Originality>),
+    Datetimes(LookupDatetimesError),
+    Modified(LookupModifiedDataError),
     UnstainedCenter(DepOptKeyStError<UnstainedCenters>),
     Mode3_2(DepOptKeyError<Mode3_2>),
     TemporalType(DepOptIndexedKeyError<TemporalType>),
@@ -749,19 +878,39 @@ pub enum ParseOptKeyError {
     GateLongname(DepOptIndexedKeyError<GateLongname>),
     GateDetectorType(DepOptIndexedKeyError<GateDetectorType>),
     GateDetectorVoltage(DepOptIndexedKeyError<GateDetectorVoltage>),
-    Vol(DepOptKeyError<Vol>),
+    Vol(OptKeyError<Vol>),
     Power(DepOptIndexedKeyError<Power>),
     PercentEmitted(DepOptIndexedKeyError<PercentEmitted>),
     DetectorVoltage(DepOptIndexedKeyError<DetectorVoltage>),
-    Abrt(DepOptKeyError<Abrt>),
-    Lost(DepOptKeyError<Lost>),
-    CSVBits(DepOptKeyError<CSVBits>),
-    CSVFlag(DepOptIndexedKeyError<CSVFlag>),
-    CSMode(DepOptKeyError<CSMode>),
-    CSTot(DepOptKeyError<CSTot>),
+    Abrt(OptKeyError<Abrt>),
+    Lost(OptKeyError<Lost>),
+    CSV(LookupCSVFlagsError),
+    CSVBits(OptKeyError<CSVBits>),
+    // CSVFlag(DepOptIndexedKeyError<CSVFlag>),
+    // CSMode(DepOptKeyError<CSMode>),
+    CSTot(OptKeyError<CSTot>),
     PeakBin(DepOptIndexedKeyError<PeakBin>),
     PeakIndex(DepOptIndexedKeyError<PeakIndex>),
     Wavelength(DepOptIndexedKeyError<Wavelength>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupCSVFlagsError {
+    CSMode(OptKeyError<CSMode>),
+    CSVFlag(OptIndexedKeyError<CSVFlag>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupModifiedDataError {
+    ModifiedDateTime(OptKeyError<LastModified>),
+    Originality(OptKeyError<Originality>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupDatetimesError {
+    Begindatetime(OptKeyError<BeginDateTime>),
+    Enddatetime(OptKeyError<EndDateTime>),
+    Datetime(ReversedDatetimesError),
 }
 
 /// Error triggered when time measurement is missing but required.
@@ -969,8 +1118,8 @@ mod python {
     };
 
     use super::{
-        DepKeyWarning, DepKeyWarnings, DepOptIndexedKeyError, DepOptKeyError, DepValueWarning,
-        LookupKeysError, LookupKeysWarning, MissingTime, ParseOptKeyError, ParseReqKeyError,
+        DepKeyWarning, DepKeyWarnings, DepValueWarning, LookupKeysError, LookupKeysWarning,
+        MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError, ParseReqKeyError,
         PseudostandardError, ReqKeyError, UnusedStandardError,
     };
 
@@ -996,10 +1145,10 @@ mod python {
     //
     //  TODO maybe...
     impl_pyreflow_err!(FileLayoutError, ReqKeyError<Tot>);
-    impl_pyreflow_err!(FileLayoutError, DepOptKeyError<Tot>);
+    impl_pyreflow_err!(FileLayoutError, OptKeyError<Tot>);
     impl_pyreflow_err!(FileLayoutError, ReqKeyError<Par>);
-    impl_pyreflow_err!(FileLayoutError, DepOptKeyError<Nextdata>);
-    impl_pyreflow_err!(FileLayoutError, DepOptIndexedKeyError<NumType>);
+    impl_pyreflow_err!(FileLayoutError, OptKeyError<Nextdata>);
+    impl_pyreflow_err!(FileLayoutError, OptIndexedKeyError<NumType>);
     impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
     impl_pyreflow_err!(RelationalException, MissingTime);
@@ -1011,9 +1160,7 @@ mod python {
         LookupKeysWarning,
         Parse,
         Timestamp,
-        Datetime,
         Comp,
-        CSVFlag,
         GateRegion,
         GateMeasLink,
         GatingScheme,

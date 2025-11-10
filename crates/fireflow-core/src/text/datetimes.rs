@@ -1,10 +1,11 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
+use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt};
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::StdKeywords;
+use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{LookupKeysWarning, LookupTentative, OptMetarootKey as _};
+use super::parser::{LookupDatetimesError, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -50,12 +51,12 @@ impl Datetimes {
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
-    ) -> DatetimesResult<Self> {
+    ) -> DeferredError<Self, ReversedDatetimesError> {
         let ret = Self { begin, end };
         if ret.valid() {
-            Ok(ret)
+            LogResult::new_ok(ret)
         } else {
-            Err(ReversedDatetimesError)
+            LogResult::new_err1(ReversedDatetimesError).set_err_value(ret)
         }
     }
 
@@ -86,13 +87,34 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
-        let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
+    pub(crate) fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
+        let b = BeginDateTime::transfer_metaroot_opt(std, nonstd, conf)
+            .map_err(LookupDatetimesError::from)
+            .into_deferred_nowarn();
+        let e = EndDateTime::transfer_metaroot_opt(std, nonstd, conf)
+            .map_err(LookupDatetimesError::from)
+            .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
-        b.zip_f2_once(e).and_then_def_result(flag, |(begin, end)| {
-            Self::try_new(begin, end).map_err(LookupKeysWarning::from)
-        })
+        b.zip_f2_once(e)
+            .and_then_def(|(begin, end)| {
+                Self::try_new(begin, end)
+                    .map_errors(LookupDatetimesError::from)
+                    .map_err_value(|ret| {
+                        // If creating the new datetime object failed,
+                        // optionally transfer component keys to nonstandard
+                        if conf.transfer_dropped_optional.is_set() {
+                            ret.begin.inspect(|b| nonstd.insert_demoted_metaroot(b));
+                            ret.end.inspect(|e| nonstd.insert_demoted_metaroot(e));
+                        }
+                        ret
+                    })
+                    .into_semigroup()
+            })
+            .nowarn_into_fungible(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -113,8 +135,6 @@ impl Datetimes {
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 pub struct ReversedDatetimesError;
-
-type DatetimesResult<T> = Result<T, ReversedDatetimesError>;
 
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;

@@ -15,10 +15,11 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _, ErrorResult,
-    ErrorsResult, FungibleErrorResult, FungibleErrorsResult, IOWarningsAndErrorsResult,
-    ImpureError, LogResult, ResultExt as _, SummaryResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
+    CmtResultIter as _, DeferredError, DeferredFungibleErrors, DeferredIter as _,
+    DeferredWarningsAndErrors, ErrorResult, ErrorsResult, FungibleErrorResult,
+    FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
+    SummaryResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
+    WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -60,10 +61,10 @@ use crate::text::optional::{
 use crate::text::parser::{
     BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
     DependentIndexedKeyError, DependentKeyError, ExtraStdKeywords, IndexedKeyToIndexLinkError,
-    KeyToIndexLinkError, KeyToNameLinkError, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTentative, MissingTime, OptIndexedKey as _, DepOptKeyError, OptMetarootKey as _,
-    PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
-    UnusedStandardError,
+    KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupKeysError,
+    LookupKeysWarning, LookupModifiedDataError, LookupResult, LookupTentative, MissingTime,
+    OptIndexedKey as _, OptKeyError, OptMetarootKey as _, ParseOptKeyError, PseudostandardError,
+    RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -1352,7 +1353,8 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
     ) -> LookupResult<Self::Name>;
 
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         ms: &TemporalsAndOpticals<Self>,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
@@ -1907,26 +1909,41 @@ where
     fn lookup_metaroot(
         std: &mut StdKeywords,
         ms: &TemporalsAndOpticals<M>,
-        nonstd: NonStdKeywords,
+        mut nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         M: LookupMetaroot,
     {
-        let abrt_res = Abrt::lookup_metaroot_opt(std, false, conf);
         let com = Com::lookup_metaroot_opt_noerror(std);
         let cells = Cells::lookup_metaroot_opt_noerror(std);
         let exp = Exp::lookup_metaroot_opt_noerror(std);
         let fil = Fil::lookup_metaroot_opt_noerror(std);
         let inst = Inst::lookup_metaroot_opt_noerror(std);
-        let lost_res = Lost::lookup_metaroot_opt(std, false, conf);
         let op = Op::lookup_metaroot_opt_noerror(std);
         let proj = Proj::lookup_metaroot_opt_noerror(std);
         let smno = Smno::lookup_metaroot_opt_noerror(std);
         let src = Src::lookup_metaroot_opt_noerror(std);
         let sys = Sys::lookup_metaroot_opt_noerror(std);
-        let tr_res = Trigger::lookup_metaroot_opt(std, false, conf);
-        let spec_res = M::lookup_specific(std, ms, conf);
+
+        let abrt_res = Abrt::drop_metaroot_opt(std, &mut nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let lost_res = Lost::drop_metaroot_opt(std, &mut nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let tr_res = Trigger::drop_metaroot_opt(std, &mut nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+
+        let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
+
         abrt_res
             .zip3_cmt(lost_res, tr_res)
             .map_errors(LookupKeysError::from)
@@ -4860,8 +4877,8 @@ impl CoreTEXT3_2 {
             .into_nowarn()
             .errors_into();
         let dt_res = Datetimes::try_new(begindatetime, enddatetime)
-            .into_nowarn()
-            .errors_into();
+            .errors_into()
+            .repack();
         ts_res.zip_cmt(dt_res).and_then_cmt(|(ts, dt)| {
             let specific = InnerMetaroot3_2::new(
                 mode,
@@ -4924,10 +4941,23 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let f = CSVFlags::lookup(kws, conf);
-        let b = CSVBits::lookup_metaroot_opt(kws, false, conf);
-        let t = CSTot::lookup_metaroot_opt(kws, false, conf);
+    fn lookup(
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<Self, ParseOptKeyError, ParseOptKeyError> {
+        let f = CSVFlags::lookup(kws, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let b = CSVBits::drop_metaroot_opt(kws, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let t = CSTot::drop_metaroot_opt(kws, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         f.lift_f3_once(b, t, |flags, bits, tot| Self::new(bits, tot, flags))
     }
 
@@ -4948,23 +4978,33 @@ impl SubsetData {
 impl CSVFlags {
     // TODO technically these should be marked deprecated because they were
     // taken out in 3.2, but the standards don't say so
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        CSMode::lookup_metaroot_opt(kws, false, conf)
+    fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
+        let flag = conf.allow_optional_dropping;
+        CSMode::transfer_metaroot_opt(std, nonstd, conf)
+            .map_err(LookupCSVFlagsError::from)
+            .into_deferred_nowarn()
             .and_then_def(|m| {
-                if let Some(n) = m {
-                    let fs = (0..n.0).map(|i| CSVFlag::lookup_meas_opt(kws, i, false, conf));
-                    fs.mappend_def().and_then_def(|flags| {
-                        let flag = conf.allow_optional_dropping;
-                        let e = NewCSVFlagsError.into();
-                        let is_ok = !flags.is_empty();
-                        LogResult::new_deferred_fungible_ok_if(is_ok, flags, e, flag)
-                            .fungible_into_commutative()
+                // NOTE the standard seems to say that these flags are only
+                // required if the user wishes to encode a subset value using
+                // 0 as the identifier. This is in contrast to the paper it
+                // references (Redelman and Coder 1994) which seems to say
+                // they are required. Either way, I'm still not sure how these
+                // were ever supposed to be used. Good luck ;)
+                let n = m.map(|x| x.0).unwrap_or_default();
+                (0..n)
+                    .map(|i| {
+                        CSVFlag::transfer_meas_opt(std, nonstd, i, conf)
+                            .map_err(LookupCSVFlagsError::from)
+                            .into_deferred_nowarn()
                     })
-                } else {
-                    LogResult::new_ok(vec![])
-                }
+                    .mappend_def()
             })
             .map_def_value(Self)
+            .nowarn_into_fungible(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -4985,11 +5025,22 @@ impl CSVFlags {
 }
 
 impl ModificationData {
-    fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let last_mod = LastModifier::lookup_metaroot_opt_noerror(kws);
-        let last_mod_date = LastModified::lookup_metaroot_opt(kws, false, conf);
-        let ori = Originality::lookup_metaroot_opt(kws, false, conf);
-        last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
+    fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
+        let last_mod = LastModifier::lookup_metaroot_opt_noerror(std);
+        let last_mod_date = LastModified::transfer_metaroot_opt(std, nonstd, conf)
+            .into_deferred_nowarn()
+            .map_errors(LookupModifiedDataError::from);
+        let ori = Originality::transfer_metaroot_opt(std, nonstd, conf)
+            .into_deferred_nowarn()
+            .map_errors(LookupModifiedDataError::from);
+        let flag = conf.allow_optional_dropping;
+        last_mod_date
+            .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
+            .nowarn_into_fungible(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -7365,19 +7416,20 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     }
 
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         ms: &TemporalsAndOpticals2_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let par = Par(ms.0.len());
-        let comp = Compensation2_0::lookup(kws, par, conf);
-        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
-        let ts = Timestamps::lookup(kws, false, conf);
-        let ag = AppliedGates2_0::lookup(kws, par, conf);
+        let comp = Compensation2_0::lookup(std, par, conf);
+        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
+        let ts = Timestamps::lookup(std, false, conf);
+        let ag = AppliedGates2_0::lookup(std, par, conf);
         comp.zip3_cmt(ts, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, t, g)| {
-                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cyt, co, t, g))
+                Mode::lookup_req(std).map_ok_value(|mo| Self::new(mo, cyt, co, t, g))
             })
     }
 }
@@ -7394,22 +7446,29 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     }
 
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         ms: &TemporalsAndOpticals3_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let par = Par(ms.0.len());
-        let comp = Compensation3_0::lookup_metaroot_opt(kws, false, conf);
-        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
-        let subset = SubsetData::lookup(kws, conf);
-        let ts = Timestamps::lookup(kws, false, conf);
-        let uni = Unicode::lookup_metatroot_opt_with(kws, false, (), conf);
-        let ag = AppliedGates3_0::lookup(kws, par, false, conf);
+        let comp = Compensation3_0::drop_metaroot_opt(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let subset = SubsetData::lookup(std, nonstd, conf)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
+        let ts = Timestamps::lookup(std, false, conf);
+        let uni = Unicode::lookup_metatroot_opt_with(std, false, (), conf);
+        let ag = AppliedGates3_0::lookup(std, par, false, conf);
         comp.zip5_cmt(subset, ts, uni, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, su, t, u, g)| {
-                Mode::lookup_req(kws).map_ok_value(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
+                Mode::lookup_req(std).map_ok_value(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
             })
     }
 }
@@ -7424,7 +7483,8 @@ impl LookupMetaroot for InnerMetaroot3_1 {
     }
 
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         ms: &TemporalsAndOpticals3_1,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
@@ -7447,21 +7507,30 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let cyt = Cyt::lookup_metaroot_opt_noerror(kws);
-        let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
-        let subset = SubsetData::lookup(kws, conf);
-        let modif = ModificationData::lookup(kws, conf);
-        let plate = PlateData::lookup(kws);
-        let ts = Timestamps::lookup(kws, false, conf);
-        let vol = Vol::lookup_metaroot_opt(kws, false, conf);
-        let ag = AppliedGates3_0::lookup(kws, par, true, conf);
+        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
+        let spill = Spillover::lookup_metatroot_opt_with(std, false, &ordered_names[..], conf);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let subset = SubsetData::lookup(std, nonstd, conf)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
+        let plate = PlateData::lookup(std);
+        let ts = Timestamps::lookup(std, false, conf);
+        let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let ag = AppliedGates3_0::lookup(std, par, true, conf);
 
         spill
             .zip6_cmt(subset, modif, ts, vol, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(sp, su, md, t, v, g)| {
-                Mode::lookup_req(kws)
+                Mode::lookup_req(std)
                     .and_then_cmt(process_mode)
                     .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
             })
@@ -7478,7 +7547,8 @@ impl LookupMetaroot for InnerMetaroot3_2 {
     }
 
     fn lookup_specific(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         ms: &TemporalsAndOpticals3_2,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
@@ -7487,25 +7557,35 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let carrier = CarrierData::lookup(kws);
-        let dt = Datetimes::lookup(kws, conf);
-        let flow = Flowrate::lookup_metaroot_opt_noerror(kws);
-        let modif = ModificationData::lookup(kws, conf);
-        let mode = Mode3_2::lookup_metaroot_opt(kws, true, conf);
-        let spill = Spillover::lookup_metatroot_opt_with(kws, false, &ordered_names[..], conf);
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(kws);
-        let plate = PlateData::lookup_dep(kws, conf)
+        let carrier = CarrierData::lookup(std);
+        let dt = Datetimes::lookup(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
-        let ts = Timestamps::lookup(kws, true, conf);
-        let us = UnstainedData::lookup(kws, conf);
-        let vol = Vol::lookup_metaroot_opt(kws, false, conf);
-        let ag = AppliedGates3_2::lookup(kws, par, conf);
+        let flow = Flowrate::lookup_metaroot_opt_noerror(std);
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
+        let mode = Mode3_2::lookup_metaroot_opt(std, true, conf);
+        let spill = Spillover::lookup_metatroot_opt_with(std, false, &ordered_names[..], conf);
+        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let plate = PlateData::lookup_dep(std, conf)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative();
+        let ts = Timestamps::lookup(std, true, conf);
+        let us = UnstainedData::lookup(std, conf);
+        let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
+        let ag = AppliedGates3_2::lookup(std, par, conf);
         dt.zip4_cmt(modif, mode, spill)
             .zip6_cmt(plate, ts, us, vol, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|((d_, md_, mo_, sp_), p_, t_, u_, v_, ag_)| {
-                Cyt3_2::lookup_req(kws).map_ok_value(|c_| {
+                Cyt3_2::lookup_req(std).map_ok_value(|c_| {
                     Self::new(
                         mo_, t_, d_, c_, sp_, cytsn, md_, p_, v_, carrier, u_, flow, ag_,
                     )
@@ -8786,7 +8866,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTEXTOffsetsWarning {
-    Tot(DepOptKeyError<Tot>),
+    Tot(OptKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
     ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
@@ -8866,9 +8946,9 @@ pub struct CompParMismatchError {
 #[error("$RnI references non-existed measurements by index: {}", .0.iter().join(","))]
 pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
 
-#[derive(Debug, Error)]
-#[error("$CSVnFLAGS must not be empty")]
-pub struct NewCSVFlagsError;
+// #[derive(Debug, Error)]
+// #[error("$CSVnFLAGS must not be empty")]
+// pub struct NewCSVFlagsError;
 
 #[cfg(feature = "python")]
 def_failure!(NewCoreTEXTFailure, "could not make new CoreTEXT");
@@ -8990,8 +9070,8 @@ mod python {
         ColumnsToDataframeError, CompParMismatchError, ConvertError, ExistingLinkError,
         GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
         InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupMeasWarning,
-        LookupTEXTOffsetsError, LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCSVFlagsError,
-        NewCoreError, NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
+        LookupTEXTOffsetsError, LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCoreError,
+        NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
         NonLinearTemporalTransformError, Other, Others, PushOpticalError,
         PushOpticalToDatasetError, PushTemporalToDatasetError, RemoveMeasByIndexError,
         RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, ScaleTransformError,
@@ -9110,7 +9190,6 @@ mod python {
     impl_pyreflow_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow_err!(RelationalException, CompParMismatchError);
     impl_pyreflow_err!(RelationalException, ScaleTransformError);
-    impl_pyreflow_err!(RelationalException, NewCSVFlagsError);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);

@@ -6371,6 +6371,7 @@ impl DocArgParam {
             Self::new_allow_pseudostandard_param(),
             Self::new_allow_unused_standard_param(),
             Self::new_allow_optional_dropping(),
+            Self::new_transfer_dropped_optional(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -6573,6 +6574,11 @@ impl DocArgParam {
     fn new_allow_optional_dropping() -> Self {
         let d = "If ``True`` drop optional keys that cause an error and emit warning instead.";
         Self::new_bool_param("allow_optional_dropping", d)
+    }
+
+    fn new_transfer_dropped_optional() -> Self {
+        let d = "If ``True`` transfer optional keys to non-standard dict if dropped.";
+        Self::new_bool_param("transfer_dropped_optional", d)
     }
 
     fn new_disallow_deprecated_param() -> Self {

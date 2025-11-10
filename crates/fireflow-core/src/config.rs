@@ -21,7 +21,7 @@ use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
     IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasPattern, SpecificKey, StdKey, StdKeywords,
 };
 use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
@@ -627,6 +627,12 @@ pub struct StdTextReadConfig {
     /// If true, allow optional keys to be dropped on error with a warning.
     pub allow_optional_dropping: AllowOptionalDropping,
 
+    /// If true, transfer dropped optional keys to nonstandard dict.
+    ///
+    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
+    /// optional keywords will produce a fatal error.
+    pub transfer_dropped_optional: TransferDroppedOptional,
+
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
@@ -792,6 +798,7 @@ impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowUnusedStandard);
 impl_error_flag!(false_is_error AllowOptionalDropping);
+impl_config_flag!(TransferDroppedOptional);
 impl_error_flag!(true_is_error DisallowDeprecated);
 
 impl_error_flag!(true_is_error DisallowRangeTrunc);

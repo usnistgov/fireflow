@@ -401,6 +401,11 @@ fn main() -> Result<(), ()> {
         "Drop optional keys if they cause an error.",
     );
 
+    let transfer_dropped_optional = flag_arg(
+        TRANSFER_DROPPED_OPTIONAL,
+        "Transfer optional keys to non-standard dict if they are dropped.",
+    );
+
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
         "Throw error if any deprecated keywords are present.",
@@ -455,6 +460,7 @@ fn main() -> Result<(), ()> {
         allow_pseudostandard,
         allow_unused_standard,
         allow_optional_dropping,
+        transfer_dropped_optional,
         disallow_deprecated,
         fix_log_scale_offset,
         ns_meas_pattern,
@@ -875,6 +881,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
         allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
+        transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
         nonstandard_measurement_pattern,
@@ -1205,6 +1212,8 @@ const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 const ALLOW_UNUSED_STANDARD: &str = "allow-unused-standard";
 
 const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
+
+const TRANSFER_DROPPED_OPTIONAL: &str = "transfer-dropped-optional";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

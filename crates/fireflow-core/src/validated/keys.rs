@@ -1,7 +1,7 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
 use crate::logging::{FungibleErrorResult, FungibleErrorsResult, LogResult, WarningOrErrorResult};
 use crate::text::index::IndexFromOne;
-use crate::text::parser::OptMetarootKey;
+use crate::text::parser::{OptIndexedKey, OptMetarootKey};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -365,6 +365,11 @@ pub(crate) trait NonStdKeywordsExt {
 
     fn insert_demoted_metaroot<T: OptMetarootKey + fmt::Display>(&mut self, value: &T) {
         let (k, v) = value.metaroot_pair_std();
+        self.insert_demoted(k, v);
+    }
+
+    fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
+        let (k, v) = value.meas_pair_std(i);
         self.insert_demoted(k, v);
     }
 

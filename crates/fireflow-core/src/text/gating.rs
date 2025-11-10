@@ -1,23 +1,30 @@
-use crate::config::{AllowLoss, AllowOptionalDropping, StdTextReadConfig};
+use crate::config::{AllowLoss, AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
 use crate::core::{RemovedGateLink, RemovedGating, RemovedLink};
 use crate::logging::{
-    DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, FungibleErrorsResult,
+    LogResult, ResultExt as _,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{IndexedKey as _, StdKey, StdKeywords};
+use crate::validated::keys::{
+    IndexedKey as _, NonStdKeywords, NonStdKeywordsExt, StdKey, StdKeywords,
+};
 
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
-    DependentKeyError, LookupKeysWarning, LookupOptional, LookupTentative, OptIndexedKey as _,
-    DepOptIndexedKeyError, OptMetarootKey, ParseOptKeyError,
+    DepOptIndexedKeyError, DepOptKeyError, DependentKeyError, LookupAppliedGates2_0Error,
+    LookupAppliedGates3_0Error, LookupAppliedGates3_2Error, LookupAppliedGatesError,
+    LookupDepGatedMeasError, LookupGatedMeasError, LookupGatedMeasurementsError,
+    LookupGatingSchemeError, LookupKeysWarning, LookupOptional, LookupRegionError, LookupTentative,
+    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey, Optional,
+    ParseOptKeyError,
 };
 
 use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionLinkError, RegionWindow, UniGate, Vertex,
+    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -295,21 +302,33 @@ impl AppliedGates2_0 {
     }
 
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let ag = GatingScheme::lookup(
-            kws,
-            |k| Gating::lookup_metaroot_opt(k, false, conf),
-            |k, j| Region::lookup(k, j, par, false, conf),
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates2_0Error, LookupAppliedGates2_0Error>
+    {
+        let ag = GatingScheme::lookup_inner(
+            std,
+            nonstd,
+            |sk, nk| {
+                Gating::drop_metaroot_opt(sk, nk, conf)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+            },
+            |sk, nk, j| Region::lookup(sk, nk, j, conf),
             conf,
-        );
-        let gm = GatedMeasurements::lookup(kws, false, conf);
+        )
+        .map_errors(LookupAppliedGatesError::Scheme)
+        .map_commutative_warnings(LookupAppliedGatesError::Scheme);
+        let gm = GatedMeasurements::lookup(std, nonstd, conf)
+            .map_errors(LookupAppliedGatesError::GatedMeas)
+            .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let flag = conf.allow_optional_dropping;
         ag.zip_f2_once(gm)
             .and_then_def_result(flag, |(scheme, gated_measurements)| {
-                Self::try_new(gated_measurements.0, scheme).map_err(LookupKeysWarning::from)
+                let x = Self::try_new(gated_measurements.0, scheme)
+                    .map_err(LookupAppliedGatesError::Link);
+                x
             })
     }
 
@@ -395,41 +414,66 @@ impl AppliedGates3_0 {
     }
 
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
-        is_deprecated: bool,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_0Error, LookupAppliedGates3_0Error>
+    {
         Self::lookup_inner(
-            kws,
-            |k| {
-                GatingScheme::lookup(
-                    k,
-                    |kws_| Gating::lookup_metaroot_opt(kws_, is_deprecated, conf),
-                    |kk, j| Region::lookup(kk, j, par, is_deprecated, conf),
+            std,
+            nonstd,
+            |sk, nk| {
+                GatingScheme::lookup_inner(
+                    sk,
+                    nk,
+                    |sk, nk| {
+                        Gating::drop_metaroot_opt(sk, nk, conf)
+                            .fungible_into_commutative()
+                            .into_semigroup()
+                    },
+                    |sk, nk, j| Region::lookup(sk, nk, j, conf),
                     conf,
                 )
             },
-            |k| GatedMeasurements::lookup(k, is_deprecated, conf),
+            |sk, nk| GatedMeasurements::lookup(sk, nk, conf),
         )
     }
 
-    fn lookup_inner<F0, F1>(
-        kws: &mut StdKeywords,
+    fn lookup_inner<F0, F1, E0, E1, E2>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         lookup_scheme: F0,
         lookup_meas: F1,
-    ) -> LookupTentative<Self>
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupAppliedGatesError<E0, E1, E2>,
+        LookupAppliedGatesError<E0, E1, E2>,
+    >
     where
-        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>>,
-        F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements>,
+        F0: FnOnce(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+        ) -> DeferredWarningsAndErrors<GatingScheme<MeasOrGateIndex>, E0, E0>,
+        F1: FnOnce(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+        ) -> DeferredWarningsAndErrors<
+            GatedMeasurements,
+            LookupGatedMeasurementsError<E1, E2>,
+            LookupGatedMeasurementsError<E1, E2>,
+        >,
     {
-        let s = lookup_scheme(kws);
-        let ms = lookup_meas(kws);
+        let s = lookup_scheme(std, nonstd)
+            .map_errors(LookupAppliedGatesError::Scheme)
+            .map_commutative_warnings(LookupAppliedGatesError::Scheme);
+        let ms = lookup_meas(std, nonstd)
+            .map_errors(LookupAppliedGatesError::GatedMeas)
+            .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         s.zip_f2_once(ms)
             .and_then_def(|(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme)
-                    .into_succ::<_, _, Vec<_>, _, _>()
-                    .cmt_warnings_into()
+                    .map_err(LookupAppliedGatesError::Link)
+                    .into_succ()
             })
     }
 
@@ -541,14 +585,16 @@ impl AppliedGates3_2 {
     }
 
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        GatingScheme::lookup(
-            kws,
-            |k| Gating::lookup_metaroot_opt(k, false, conf),
-            |k, i| Region::lookup(k, i, par, false, conf),
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
+    {
+        GatingScheme::lookup_inner(
+            std,
+            nonstd,
+            |sk, nk| Gating::drop_metaroot_deprecated(sk, nk, conf),
+            |sk, nk, i| Region::lookup_dep(sk, nk, i, conf),
             conf,
         )
         .map_def_value(Self)
@@ -561,61 +607,121 @@ impl AppliedGates3_2 {
 
 impl GatedMeasurement {
     fn lookup(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: GateIndex,
-        is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Self::lookup_inner(
-            kws,
-            i,
-            |k, j| GateScale::lookup_meas_opt_with(k, j, is_deprecated, (), conf),
-            |k, j| GateFilter::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateShortname::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GatePercentEmitted::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateRange::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateLongname::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateDetectorType::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateDetectorVoltage::lookup_meas_opt(k, j, is_deprecated, conf),
+    ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasError, LookupGatedMeasError> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_fungible_errors(LookupGatedMeasError::from)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+            };
+        }
+        let scale = GateScale::drop_meas_opt_with(std, nonstd, i, (), conf);
+        let filter = GateFilter::lookup_meas_opt_noerror(std, i);
+        let sname = GateShortname::drop_meas_opt(std, nonstd, i, conf);
+        let pemit = GatePercentEmitted::drop_meas_opt(std, nonstd, i, conf);
+        let range = GateRange::drop_meas_opt(std, nonstd, i, conf);
+        let lname = GateLongname::lookup_meas_opt_noerror(std, i);
+        let dtype = GateDetectorType::lookup_meas_opt_noerror(std, i);
+        let dvolt = GateDetectorVoltage::drop_meas_opt(std, nonstd, i, conf);
+        go!(scale).lift_f5_once(
+            go!(sname),
+            go!(pemit),
+            go!(range),
+            go!(dvolt),
+            |s, n, p, r, v| Self::new(s, filter, n, p, r, lname, dtype, v),
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn lookup_inner<F0, F1, F2, F3, F4, F5, F6, F7>(
-        kws: &mut StdKeywords,
+    fn lookup_dep(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: GateIndex,
-        lookup_scale: F0,
-        lookup_filter: F1,
-        lookup_shortname: F2,
-        lookup_pe: F3,
-        lookup_range: F4,
-        lookup_longname: F5,
-        lookup_det_type: F6,
-        lookup_det_volt: F7,
-    ) -> LookupTentative<Self>
-    where
-        F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale>,
-        F1: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateFilter>,
-        F2: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateShortname>,
-        F3: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GatePercentEmitted>,
-        F4: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateRange>,
-        F5: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateLongname>,
-        F6: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateDetectorType>,
-        F7: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorVoltage>,
-    {
-        let scale = lookup_scale(kws, i);
-        let filter = lookup_filter(kws, i);
-        let shortname = lookup_shortname(kws, i);
-        let perc_emit = lookup_pe(kws, i);
-        let rng = lookup_range(kws, i);
-        let longname = lookup_longname(kws, i);
-        let det_type = lookup_det_type(kws, i);
-        let det_volt = lookup_det_volt(kws, i);
-        scale
-            .zip_f4_once(filter, shortname, perc_emit)
-            .zip_f5_once(rng, longname, det_type, det_volt)
-            .map_def_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<Self, LookupDepGatedMeasError, LookupDepGatedMeasError> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_errors(LookupDepGatedMeasError::from)
+                    .map_commutative_warnings(LookupDepGatedMeasError::from)
+            };
+        }
+        let scale = GateScale::drop_meas_deprecated_with(std, nonstd, i, (), conf);
+        let filter = GateFilter::lookup_meas_opt_noerror(std, i);
+        let sname = GateShortname::drop_meas_deprecated(std, nonstd, i, conf);
+        let pemit = GatePercentEmitted::drop_meas_deprecated(std, nonstd, i, conf);
+        let range = GateRange::drop_meas_deprecated(std, nonstd, i, conf);
+        let lname = GateLongname::lookup_meas_opt_noerror(std, i);
+        let dtype = GateDetectorType::lookup_meas_opt_noerror(std, i);
+        let dvolt = GateDetectorVoltage::drop_meas_deprecated(std, nonstd, i, conf);
+        go!(scale).lift_f5_once(
+            go!(sname),
+            go!(pemit),
+            go!(range),
+            go!(dvolt),
+            |s, n, p, r, v| Self::new(s, filter, n, p, r, lname, dtype, v),
+        )
     }
+
+    // #[allow(clippy::too_many_arguments)]
+    // fn lookup_inner<F0, F1, F2, F3, F4, F5, F6, F7>(
+    //     std: &mut StdKeywords,
+    //     nonstd: &mut NonStdKeywords,
+    //     i: GateIndex,
+    //     lookup_scale: F0,
+    //     lookup_filter: F1,
+    //     lookup_shortname: F2,
+    //     lookup_pe: F3,
+    //     lookup_range: F4,
+    //     lookup_longname: F5,
+    //     lookup_det_type: F6,
+    //     lookup_det_volt: F7,
+    // ) -> LookupTentative<Self>
+    // where
+    //     F0: FnOnce(&mut StdKeywords, &mut NonStdKeywords, GateIndex) -> LookupOptional<GateScale>,
+    //     F1: FnOnce(&mut StdKeywords, &mut NonStdKeywords, GateIndex) -> LookupTentative<GateFilter>,
+    //     F2: FnOnce(
+    //         &mut StdKeywords,
+    //         &mut NonStdKeywords,
+    //         GateIndex,
+    //     ) -> LookupOptional<GateShortname>,
+    //     F3: FnOnce(
+    //         &mut StdKeywords,
+    //         &mut NonStdKeywords,
+    //         GateIndex,
+    //     ) -> LookupOptional<GatePercentEmitted>,
+    //     F4: FnOnce(&mut StdKeywords, &mut NonStdKeywords, GateIndex) -> LookupOptional<GateRange>,
+    //     F5: FnOnce(
+    //         &mut StdKeywords,
+    //         &mut NonStdKeywords,
+    //         GateIndex,
+    //     ) -> LookupTentative<GateLongname>,
+    //     F6: FnOnce(
+    //         &mut StdKeywords,
+    //         &mut NonStdKeywords,
+    //         GateIndex,
+    //     ) -> LookupTentative<GateDetectorType>,
+    //     F7: FnOnce(
+    //         &mut StdKeywords,
+    //         &mut NonStdKeywords,
+    //         GateIndex,
+    //     ) -> LookupOptional<GateDetectorVoltage>,
+    // {
+    //     let scale = lookup_scale(std, nonstd, i);
+    //     let filter = lookup_filter(std, nonstd, i);
+    //     let shortname = lookup_shortname(std, nonstd, i);
+    //     let perc_emit = lookup_pe(std, nonstd, i);
+    //     let rng = lookup_range(std, nonstd, i);
+    //     let longname = lookup_longname(std, nonstd, i);
+    //     let det_type = lookup_det_type(std, nonstd, i);
+    //     let det_volt = lookup_det_volt(std, nonstd, i);
+    //     scale
+    //         .zip_f4_once(filter, shortname, perc_emit)
+    //         .zip_f5_once(rng, longname, det_type, det_volt)
+    //         .map_def_value(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
+    // }
 
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
         [
@@ -737,32 +843,57 @@ impl<I> GatingScheme<I> {
         self.regions.iter().flat_map(|(_, v)| v.meas_indices())
     }
 
-    fn lookup<F0, F1>(
-        kws: &mut StdKeywords,
+    fn lookup_inner<F0, F1, E0, E1, E2>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         lookup_gating: F0,
         lookup_region: F1,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self>
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupGatingSchemeError<E0, E1, E2>,
+        LookupGatingSchemeError<E0, E1, E2>,
+    >
     where
-        F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
-        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
+        F0: Fn(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+        ) -> DeferredWarningsAndErrors<Option<Gating>, E0, E0>,
+        F1: Fn(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+            RegionIndex,
+        ) -> DeferredWarningsAndErrors<
+            Option<Region<I>>,
+            LookupRegionError<E1, E2>,
+            LookupRegionError<E1, E2>,
+        >,
     {
         let flag = conf.allow_optional_dropping;
-        lookup_gating(kws).and_then_def(|gating| {
-            gating
-                .as_ref()
-                .map_or(LogResult::new_ok_default(), |g| {
-                    g.region_indices()
-                        .into_iter()
-                        .map(|ri| lookup_region(kws, ri).map_def_value(|x| x.map(|y| (ri, y))))
-                        .mappend_def()
-                })
-                .and_then_def_result(flag, |rs| {
-                    // TODO impl iterator for try_new
-                    let regions = rs.into_iter().flatten().collect();
-                    Self::try_new(gating, regions).map_err(LookupKeysWarning::from)
-                })
-        })
+        // TODO demote as necessary
+        lookup_gating(std, nonstd)
+            .map_errors(LookupGatingSchemeError::Gating)
+            .map_commutative_warnings(LookupGatingSchemeError::Gating)
+            .and_then_def(|gating| {
+                gating
+                    .as_ref()
+                    .map_or(LogResult::new_ok_default(), |g| {
+                        g.region_indices()
+                            .into_iter()
+                            .map(|ri| {
+                                lookup_region(std, nonstd, ri)
+                                    .map_def_value(|x| x.map(|y| (ri, y)))
+                                    .map_errors(LookupGatingSchemeError::Region)
+                                    .map_commutative_warnings(LookupGatingSchemeError::Region)
+                            })
+                            .mappend_def()
+                    })
+                    .and_then_def_result(flag, |rs| {
+                        // TODO impl iterator for try_new
+                        let regions = rs.into_iter().flatten().collect();
+                        Self::try_new(gating, regions).map_err(LookupGatingSchemeError::Link)
+                    })
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
@@ -788,64 +919,182 @@ impl<I> GatingScheme<I> {
 }
 
 impl<I> Region<I> {
-    pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
+    pub(crate) fn try_new(
+        r_index: RegionGateIndex<I>,
+        window: RegionWindow,
+    ) -> Result<Self, (RegionGateIndex<I>, RegionWindow)> {
         match (r_index, window) {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
-                Some(Self::Univariate(UnivariateRegion { gate, index }))
+                Ok(Self::Univariate(UnivariateRegion { gate, index }))
             }
             (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
-                Some(Self::Bivariate(BivariateRegion {
+                Ok(Self::Bivariate(BivariateRegion {
                     index,
                     vertices: vs.into(),
                 }))
             }
-            _ => None,
+            (r, w) => Err((r, w)),
         }
     }
 
     fn lookup(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: RegionIndex,
-        par: Par,
-        is_deprecated: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> DeferredWarningsAndErrors<
+        Option<Self>,
+        LookupRegionError<OptIndexedKeyError<RegionGateIndex<I>>, OptIndexedKeyError<RegionWindow>>,
+        LookupRegionError<OptIndexedKeyError<RegionGateIndex<I>>, OptIndexedKeyError<RegionWindow>>,
+    >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
-        ParseOptKeyError: From<DepOptIndexedKeyError<RegionGateIndex<I>>>,
-        LookupKeysWarning: From<RegionLinkError<I>>,
     {
         Self::lookup_inner(
-            kws,
+            std,
+            nonstd,
             i,
-            |k, j| RegionGateIndex::lookup_region_opt(k, j, par, is_deprecated, conf),
-            |k, j| RegionWindow::lookup_meas_opt_with(k, j, is_deprecated, (), conf),
+            |sk, nk, j| {
+                RegionGateIndex::drop_meas_opt(sk, nk, j, conf)
+                    .map_fungible_errors(LookupRegionError::Region)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+            },
+            |sk, nk, j| {
+                RegionWindow::drop_meas_opt_with(sk, nk, j, (), conf)
+                    .map_fungible_errors(LookupRegionError::Window)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+            },
             conf,
         )
     }
 
-    fn lookup_inner<F0, F1>(
-        kws: &mut StdKeywords,
+    fn lookup_dep(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: RegionIndex,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<
+        Option<Self>,
+        LookupRegionError<
+            DepOptIndexedKeyError<RegionGateIndex<I>>,
+            DepOptIndexedKeyError<RegionWindow>,
+        >,
+        LookupRegionError<
+            DepOptIndexedKeyError<RegionGateIndex<I>>,
+            DepOptIndexedKeyError<RegionWindow>,
+        >,
+    >
+    where
+        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+    {
+        Self::lookup_inner(
+            std,
+            nonstd,
+            i,
+            |sk, nk, j| {
+                RegionGateIndex::drop_meas_deprecated(sk, nk, j, conf)
+                    .map_commutative_warnings(LookupRegionError::Region)
+                    .map_errors(LookupRegionError::Region)
+            },
+            |sk, nk, j| {
+                RegionWindow::drop_meas_deprecated_with(sk, nk, j, (), conf)
+                    .map_commutative_warnings(LookupRegionError::Window)
+                    .map_errors(LookupRegionError::Window)
+            },
+            conf,
+        )
+    }
+
+    // fn lookup(
+    //     kws: &mut StdKeywords,
+    //     i: RegionIndex,
+    //     par: Par,
+    //     is_deprecated: bool,
+    //     conf: &StdTextReadConfig,
+    // ) -> LookupOptional<Self>
+    // where
+    //     I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+    //     ParseOptKeyError: From<DepOptIndexedKeyError<RegionGateIndex<I>>>,
+    //     LookupKeysWarning: From<RegionLinkError<I>>,
+    // {
+    //     Self::lookup_inner(
+    //         kws,
+    //         i,
+    //         |k, j| RegionGateIndex::lookup_region_opt(k, j, par, is_deprecated, conf),
+    //         |k, j| RegionWindow::lookup_meas_opt_with(k, j, is_deprecated, (), conf),
+    //         conf,
+    //     )
+    // }
+
+    fn lookup_inner<F0, F1, E0, E1>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        ri: RegionIndex,
         lookup_index: F0,
         lookup_window: F1,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    ) -> DeferredWarningsAndErrors<Option<Self>, LookupRegionError<E0, E1>, LookupRegionError<E0, E1>>
     where
-        F0: FnOnce(&mut StdKeywords, RegionIndex) -> LookupOptional<RegionGateIndex<I>>,
-        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<RegionWindow>,
+        F0: FnOnce(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+            RegionIndex,
+        ) -> DeferredWarningsAndErrors<
+            Option<RegionGateIndex<I>>,
+            LookupRegionError<E0, E1>,
+            LookupRegionError<E0, E1>,
+        >,
+        F1: FnOnce(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+            IndexFromOne,
+        ) -> DeferredWarningsAndErrors<
+            Option<RegionWindow>,
+            LookupRegionError<E0, E1>,
+            LookupRegionError<E0, E1>,
+        >,
         I: FromStr + fmt::Display,
-        ParseOptKeyError: From<DepOptIndexedKeyError<RegionGateIndex<I>>>,
     {
-        let n = lookup_index(kws, i);
-        let w = lookup_window(kws, i.into());
+        let index_res = lookup_index(std, nonstd, ri);
+        let window_res = lookup_window(std, nonstd, ri.into());
         let flag = conf.allow_optional_dropping;
-        n.zip_f2_once(w).and_then_def_result(flag, |(n_, y_)| {
-            n_.zip(y_)
-                .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
-                .ok_or(LookupKeysWarning::from(MismatchedIndexAndWindowError))
-                .map(Some)
-        })
+        index_res
+            .zip_f2_once(window_res)
+            .and_then_def_result(flag, |(gi_opt, w_opt)| {
+                // Try to combine the gateindex and window together to make a
+                // region. This will only work if both are present and
+                // they are both the same type (uni/bi-variate). If anything
+                // fails, return none, log an error (or warning if we allow
+                // dropping), and demote the keywords if applicable.
+                let res = match (gi_opt, w_opt) {
+                    (Some(gi), Some(w)) => match Self::try_new(gi, w) {
+                        Ok(x) => Ok(Some(x.inner_into())),
+                        Err((gi, w)) => {
+                            if flag.is_set() {
+                                nonstd.insert_demoted_meas(ri.into(), &gi);
+                                nonstd.insert_demoted_meas(ri.into(), &w);
+                            }
+                            Err(IndexWindowMismatchError::Both(ri))
+                        }
+                    },
+                    (Some(gi), None) => {
+                        if flag.is_set() {
+                            nonstd.insert_demoted_meas(ri.into(), &gi);
+                        }
+                        Err(IndexWindowMismatchError::NoWindow(ri))
+                    }
+                    (None, Some(w)) => {
+                        if flag.is_set() {
+                            nonstd.insert_demoted_meas(ri.into(), &w);
+                        }
+                        Err(IndexWindowMismatchError::NoIndex(ri))
+                    }
+                    (None, None) => Ok(None),
+                };
+                res.map_err(LookupRegionError::Mismatch)
+            })
     }
 
     pub(crate) fn opt_keywords_std(&self, i: RegionIndex) -> impl Iterator<Item = (StdKey, String)>
@@ -987,21 +1236,99 @@ impl TryFrom<PrefixedMeasIndex> for GateIndex {
 
 impl GatedMeasurements {
     fn lookup(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_then_def(|maybe| {
-            if let Some(n) = maybe {
-                (0..n.0)
-                    .map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf))
-                    .mappend_def()
-                    .map_def_value(Self)
-            } else {
-                LogResult::new_ok_default()
-            }
-        })
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupGatedMeasurementsError<OptKeyError<Gate>, LookupGatedMeasError>,
+        LookupGatedMeasurementsError<OptKeyError<Gate>, LookupGatedMeasError>,
+    > {
+        Self::lookup_inner(
+            std,
+            nonstd,
+            |sk, nk| {
+                Gate::drop_metaroot_opt(sk, nk, conf)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+            },
+            |sk, nk, i| GatedMeasurement::lookup(sk, nk, i, conf),
+        )
     }
+
+    fn lookup_dep(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupGatedMeasurementsError<DepOptKeyError<Gate>, LookupDepGatedMeasError>,
+        LookupGatedMeasurementsError<DepOptKeyError<Gate>, LookupDepGatedMeasError>,
+    > {
+        Self::lookup_inner(
+            std,
+            nonstd,
+            |sk, nk| Gate::drop_metaroot_deprecated(sk, nk, conf),
+            |sk, nk, i| GatedMeasurement::lookup_dep(sk, nk, i, conf),
+        )
+    }
+
+    fn lookup_inner<F0, F1, E0, E1>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        lookup_gate: F0,
+        lookup_meas: F1,
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupGatedMeasurementsError<E0, E1>,
+        LookupGatedMeasurementsError<E0, E1>,
+    >
+    where
+        F0: FnOnce(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+        ) -> DeferredWarningsAndErrors<Option<Gate>, E0, E0>,
+        F1: Fn(
+            &mut StdKeywords,
+            &mut NonStdKeywords,
+            GateIndex,
+        ) -> DeferredWarningsAndErrors<GatedMeasurement, E1, E1>,
+    {
+        lookup_gate(std, nonstd)
+            .map_errors(LookupGatedMeasurementsError::Gate)
+            .map_commutative_warnings(LookupGatedMeasurementsError::Gate)
+            .and_then_def(|maybe| {
+                if let Some(n) = maybe {
+                    (0..n.0)
+                        .map(|i| {
+                            lookup_meas(std, nonstd, i.into())
+                                .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
+                                .map_errors(LookupGatedMeasurementsError::Meas)
+                        })
+                        .mappend_def()
+                        .map_def_value(Self)
+                } else {
+                    LogResult::new_ok_default()
+                }
+            })
+    }
+
+    // fn lookup_dep(
+    //     kws: &mut StdKeywords,
+    //     is_deprecated: bool,
+    //     conf: &StdTextReadConfig,
+    // ) -> LookupTentative<Self> {
+    //     Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_then_def(|maybe| {
+    //         if let Some(n) = maybe {
+    //             (0..n.0)
+    //                 .map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf))
+    //                 .mappend_def()
+    //                 .map_def_value(Self)
+    //         } else {
+    //             LogResult::new_ok_default()
+    //         }
+    //     })
+    // }
 }
 
 impl From<AppliedGates2_0> for AppliedGates3_0 {
@@ -1080,8 +1407,14 @@ pub struct AppliedGates2_0To3_2Error;
 pub struct AppliedGates3_2To2_0Error;
 
 #[derive(Debug, Error)]
-#[error("values for $RnI and $RnW must both be univariate or bivariate")]
-pub struct MismatchedIndexAndWindowError;
+pub enum IndexWindowMismatchError {
+    #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
+    Both(RegionIndex),
+    #[error("$R{0}I not found when $R{0}W was given")]
+    NoIndex(RegionIndex),
+    #[error("$R{0}W not found when $R{0}I was given")]
+    NoWindow(RegionIndex),
+}
 
 #[cfg(feature = "python")]
 mod python {
@@ -1092,7 +1425,7 @@ mod python {
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
     use super::{
-        GateMeasurementLinkError, MismatchedIndexAndWindowError, NewAppliedGatesWithSchemeError,
+        GateMeasurementLinkError, IndexWindowMismatchError, NewAppliedGatesWithSchemeError,
     };
 
     impl_from_py_via_fromstr!(Gating);
@@ -1105,7 +1438,7 @@ mod python {
     impl_value_err!(MeasOrGateIndexError);
 
     impl_pyreflow_err!(RelationalException, GateMeasurementLinkError);
-    impl_pyreflow_err!(RelationalException, MismatchedIndexAndWindowError);
+    impl_pyreflow_err!(RelationalException, IndexWindowMismatchError);
 
     impl_from_pyerr!(NewAppliedGatesWithSchemeError, Link, Scheme);
 }

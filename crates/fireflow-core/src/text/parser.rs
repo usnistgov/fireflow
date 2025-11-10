@@ -15,7 +15,7 @@ use crate::validated::shortname::Shortname;
 use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
 use super::compensation::{Compensation3_0, NewCompError};
 use super::datetimes::{BeginDateTime, EndDateTime, ReversedDatetimesError};
-use super::gating;
+use super::gating::{self, GateMeasurementLinkError, IndexWindowMismatchError};
 use super::index::{GateIndex, IndexFromOne, MeasIndex};
 use super::keywords::{
     Abrt, AlphaNumType, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag,
@@ -24,7 +24,7 @@ use super::keywords::{
     GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale, GateShortname, Gating,
     LastModified, Longname, Lost, MeasOrGateIndex, Mode, Mode3_2, NumType, OpticalType,
     Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Range, RegionGateIndex, RegionLinkError, RegionWindow, Tag,
+    PrefixedMeasIndex, Range, RegionGateIndex, RegionGateIndexError, RegionWindow, Tag,
     TemporalGainError, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger,
     Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
 };
@@ -257,6 +257,41 @@ pub(crate) trait Optional: Sized {
             .into_log_drop(conf)
     }
 
+    fn drop_deprecated<I>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        conf: &StdTextReadConfig,
+    ) -> OptResult_<Self::Outer, Self::Err, Self, I>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStr,
+        Self::Outer: PartialEq,
+    {
+        Self::transfer_opt(std, nonstd, k, conf)
+            .into_nowarn1()
+            .set_err_value(Self::Outer::default())
+            .into_log_drop_dep_(k, conf)
+    }
+
+    fn drop_deprecated_with<I>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> OptResult_<Self::Outer, Self::Err, Self, I>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStrWith,
+        Self::Outer: PartialEq,
+    {
+        Self::transfer_opt_with(std, nonstd, k, data, conf)
+            .into_nowarn1()
+            .set_err_value(Self::Outer::default())
+            .into_log_drop_dep_(k, conf)
+    }
+
     fn get_opt_inner<F, E, I>(
         kws: &StdKeywords,
         k: SpecificKey<Self, I>,
@@ -440,6 +475,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::drop_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
+    fn drop_metaroot_deprecated(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<Self::Outer, DepOptKeyError<Self>, DepOptKeyError<Self>>
+    where
+        Self::Outer: PartialEq,
+        Self: FromStr,
+    {
+        Self::drop_deprecated(std, nonstd, SpecificKey::default(), conf)
+    }
+
     fn drop_metaroot_opt_with(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -570,6 +617,41 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }
 
+    fn drop_meas_deprecated(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: impl Into<IndexFromOne>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<
+        Self::Outer,
+        DepOptIndexedKeyError<Self>,
+        DepOptIndexedKeyError<Self>,
+    >
+    where
+        Self::Outer: PartialEq,
+        Self: FromStr,
+    {
+        Self::drop_deprecated(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+    }
+
+    fn drop_meas_deprecated_with(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: impl Into<IndexFromOne>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<
+        Self::Outer,
+        DepOptIndexedKeyStError<Self>,
+        DepOptIndexedKeyStError<Self>,
+    >
+    where
+        Self::Outer: PartialEq,
+        Self: FromStrWith,
+    {
+        Self::drop_deprecated_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
+    }
+
     // fn remove_meas_opt_st(
     //     kws: &mut StdKeywords,
     //     i: impl Into<IndexFromOne>,
@@ -637,13 +719,33 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 }
 
-trait OptLogResultExt: Sized {
+pub(crate) trait OptLogResultExt: Sized {
     type V;
     type WC;
     type E;
     type EC;
 
     fn into_log(self) -> Deferred<Self::V, Self::WC, Self::E, Self::EC>;
+
+    fn into_log_drop_dep_<E, T, I>(
+        self,
+        k: SpecificKey<T, I>,
+        conf: &StdTextReadConfig,
+    ) -> OptResult_<Self::V, E, T, I>
+    where
+        Self: OptLogResultExt<WC = Nothing<()>>,
+        Self::V: Default + PartialEq,
+        <Self::EC as FungibleError>::Warn: Default + IntoNewCardinality<Vec<Self::E>>,
+        Self::EC: FungibleError<Inner = Self::E> + Default + IntoNewCardinality<Vec<Self::E>>,
+        Self::E: Into<OptKeyError_<E, T, I>>,
+    {
+        self.into_log_drop(conf)
+            .fungible_into_commutative()
+            .repack()
+            .map_errors(Into::into)
+            .map_commutative_warnings(Into::into)
+            .into_log_dep_(k, conf)
+    }
 
     fn into_log_drop_dep<E, T, I>(
         self,
@@ -679,6 +781,24 @@ trait OptLogResultExt: Sized {
         // TODO add a way to move dropped keywords into nonstandard dict
         self.into_log()
             .nowarn_into_fungible(conf.allow_optional_dropping)
+    }
+
+    fn into_log_dep_<T, I, W>(
+        self,
+        k: SpecificKey<T, I>,
+        conf: &StdTextReadConfig,
+    ) -> DeferredWarningsAndErrors<Self::V, W, Self::E>
+    where
+        DepKeyWarning<T, I>: Into<Self::E> + Into<W>,
+        Self::V: Default + PartialEq,
+        Self::EC: IntoNewCardinality<Vec<Self::E>>,
+        Self::WC: IntoNewCardinality<Vec<W>>,
+    {
+        let flag = conf.disallow_deprecated;
+        self.into_log()
+            .repack()
+            .set_err_value(Self::V::default())
+            .eval_warning_or_error(flag, |v| (!v.is_default()).then_some(DepKeyWarning(k)))
     }
 
     fn into_log_dep<T, I, W>(
@@ -821,13 +941,13 @@ pub enum LookupKeysWarning {
     Timestamp(ReversedTimestampsError),
     Comp(NewCompError),
     // CSVFlag(NewCSVFlagsError),
-    GateRegion(gating::MismatchedIndexAndWindowError),
+    GateRegion(gating::IndexWindowMismatchError),
     GateMeasLink(gating::GateMeasurementLinkError),
     GatingScheme(DependentKeyError<Gating>),
     Spillover(KeyToIndexLinkError<Spillover>),
-    RegionIndex2_0(RegionLinkError<GateIndex>),
-    RegionIndex3_0(RegionLinkError<MeasOrGateIndex>),
-    RegionIndex3_2(RegionLinkError<PrefixedMeasIndex>),
+    // RegionIndex2_0(RegionLinkError<GateIndex>),
+    // RegionIndex3_0(RegionLinkError<MeasOrGateIndex>),
+    // RegionIndex3_2(RegionLinkError<PrefixedMeasIndex>),
     TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
     Dep(DepValueWarning),
@@ -892,20 +1012,9 @@ pub enum ParseOptKeyError {
     Display(OptIndexedKeyError<Display>),
     Unicode(OptKeyStError<Unicode>),
     Spillover(OptKeyStError<Spillover>),
-    GateRegionIndex2_0(DepOptIndexedKeyError<RegionGateIndex<GateIndex>>),
-    GateRegionIndex3_0(DepOptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
-    GateRegionIndex3_2(DepOptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
-    GateRegionWindow(DepOptIndexedKeyError<RegionWindow>),
-    Gating(DepOptKeyError<Gating>),
-    Gate(DepOptKeyError<Gate>),
-    GateScale(DepOptIndexedKeyError<GateScale>),
-    GateFilter(DepOptIndexedKeyError<GateFilter>),
-    GateShortname(DepOptIndexedKeyError<GateShortname>),
-    GatePercentEmitted(DepOptIndexedKeyError<GatePercentEmitted>),
-    GateRange(DepOptIndexedKeyError<GateRange>),
-    GateLongname(DepOptIndexedKeyError<GateLongname>),
-    GateDetectorType(DepOptIndexedKeyError<GateDetectorType>),
-    GateDetectorVoltage(DepOptIndexedKeyError<GateDetectorVoltage>),
+    Gate2_0(LookupAppliedGates2_0Error),
+    Gate3_0(LookupAppliedGates3_0Error),
+    Gate3_2(LookupAppliedGates3_2Error),
     Vol(OptKeyError<Vol>),
     Power(OptIndexedKeyError<Power>),
     PercentEmitted(DepOptIndexedKeyError<PercentEmitted>),
@@ -918,6 +1027,83 @@ pub enum ParseOptKeyError {
     PeakBin(DepOptIndexedKeyError<PeakBin>),
     PeakIndex(DepOptIndexedKeyError<PeakIndex>),
 }
+
+#[derive(Display, Debug, Error)]
+pub enum LookupGatingSchemeError<E0, E1, E2> {
+    Link(DependentKeyError<Gating>),
+    Gating(E0),
+    Region(LookupRegionError<E1, E2>),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupRegionError<E0, E1> {
+    Mismatch(IndexWindowMismatchError),
+    Region(E0),
+    Window(E1),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupAppliedGatesError<E0, E1, E2> {
+    Scheme(E0),
+    GatedMeas(LookupGatedMeasurementsError<E1, E2>),
+    Link(GateMeasurementLinkError),
+}
+
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptKeyError<Gating>,
+        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+    OptKeyError<Gate>,
+    LookupGatedMeasError,
+>;
+
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptKeyError<Gating>,
+        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+    OptKeyError<Gate>,
+    LookupGatedMeasError,
+>;
+
+pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
+    DepOptKeyError<Gating>,
+    DepOptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
+    DepOptIndexedKeyError<RegionWindow>,
+>;
+
+#[derive(Display, Debug, Error)]
+pub enum LookupGatedMeasurementsError<E0, E1> {
+    Gate(E0),
+    Meas(E1),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupGatedMeasError {
+    Scale(OptIndexedKeyError<GateScale>),
+    Shortname(OptIndexedKeyError<GateShortname>),
+    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
+    Range(OptIndexedKeyError<GateRange>),
+    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupDepGatedMeasError {
+    Scale(DepOptIndexedKeyError<GateScale>),
+    Shortname(DepOptIndexedKeyError<GateShortname>),
+    PercentEmitted(DepOptIndexedKeyError<GatePercentEmitted>),
+    Range(DepOptIndexedKeyError<GateRange>),
+    DetectorVoltage(DepOptIndexedKeyError<GateDetectorVoltage>),
+}
+
+// #[derive(From, Display, Debug, Error)]
+// pub enum LookupDepRegionGateIndex<I, E> {
+//     Inner(LookupRegionGateIndex<I, E>),
+//     Dep(DepKeyWarning<RegionGateIndex<I>, IndexFromOne>),
+// }
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupTemporalGain {
@@ -1196,9 +1382,9 @@ mod python {
         GateMeasLink,
         GatingScheme,
         Spillover,
-        RegionIndex2_0,
-        RegionIndex3_0,
-        RegionIndex3_2,
+        // RegionIndex2_0,
+        // RegionIndex3_0,
+        // RegionIndex3_2,
         TemporalGain,
         MissingTime,
         Dep,

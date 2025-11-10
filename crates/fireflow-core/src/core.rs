@@ -7528,7 +7528,11 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         let comp = Compensation2_0::lookup(std, par, conf);
         let cyt = Cyt::lookup_metaroot_opt_noerror(std);
         let ts = Timestamps::lookup(std, false, conf);
-        let ag = AppliedGates2_0::lookup(std, par, conf);
+        let ag = AppliedGates2_0::lookup(std, nonstd, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
         comp.zip3_cmt(ts, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, t, g)| {
@@ -7555,10 +7559,9 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     fn lookup_specific(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals3_0,
+        _: &TemporalsAndOpticals3_0,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let par = Par(ms.0.len());
         let comp = Compensation3_0::drop_metaroot_opt(std, nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -7575,7 +7578,11 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let ag = AppliedGates3_0::lookup(std, par, false, conf);
+        let ag = AppliedGates3_0::lookup(std, nonstd, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
         comp.zip5_cmt(subset, ts, uni, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, su, t, u, g)| {
@@ -7644,7 +7651,12 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let ag = AppliedGates3_0::lookup(std, par, true, conf);
+        // TODO this will currently not warn for all the deprecated keywords
+        let ag = AppliedGates3_0::lookup(std, nonstd, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
 
         spill
             .zip6_cmt(subset, modif, ts, vol, ag)
@@ -7692,7 +7704,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
-        let mode = Mode3_2::lookup_metaroot_opt(std, true, conf);
+        let mode = Mode3_2::drop_metaroot_deprecated(std, nonstd, conf)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_commutative_warnings(LookupKeysWarning::from)
+            .map_errors(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from);
         let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -7713,7 +7729,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let ag = AppliedGates3_2::lookup(std, par, conf);
+        let ag = AppliedGates3_2::lookup(std, nonstd, conf)
+            .map_errors(ParseOptKeyError::from)
+            .map_commutative_warnings(ParseOptKeyError::from)
+            .map_errors(LookupKeysWarning::from)
+            .map_commutative_warnings(LookupKeysWarning::from);
         dt.zip4_cmt(modif, mode, spill)
             .zip6_cmt(plate, ts, us, vol, ag)
             .map_errors(LookupKeysError::from)

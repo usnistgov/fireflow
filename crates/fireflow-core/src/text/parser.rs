@@ -32,7 +32,8 @@ use super::optional::{IsDefault as _, Nothing};
 use super::scale::Scale;
 use super::spillover::Spillover;
 use super::timestamps::{
-    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError,
+    Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime60Error, FCSTime100,
+    FCSTime100Error, FCSTimeError, ReversedTimestampsError,
 };
 
 use derive_more::{Display, From};
@@ -448,6 +449,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::transfer_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
+    fn transfer_metaroot_opt_with(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self::Outer, OptKeyStError<Self>>
+    where
+        Self: FromStrWith,
+    {
+        Self::transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+    }
+
     fn drop_metaroot_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -481,28 +494,6 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self: FromStrWith,
     {
         Self::drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
-    }
-
-    fn lookup_metatroot_opt_with(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
-        data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self::Outer: PartialEq,
-        Self: FromStrWith,
-        ParseOptKeyError: From<DepOptKeyStError<Self>>,
-    {
-        let k = SpecificKey::default();
-        Self::remove_opt_with(kws, k, data, conf)
-            .into_nowarn()
-            .set_err_value(Self::Outer::default())
-            .into_log_drop_dep(k, is_deprecated, conf)
-            .map_errors(ParseOptKeyError::from)
-            .map_commutative_warnings(ParseOptKeyError::from)
-            .map_errors(LookupKeysWarning::from)
-            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn metaroot_pair_std(&self) -> (StdKey, String)
@@ -610,28 +601,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: FromStrWith,
     {
         Self::drop_deprecated_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
-    }
-
-    fn lookup_meas_opt(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self::Outer: PartialEq,
-        Self: FromStr,
-        ParseOptKeyError: From<DepOptIndexedKeyError<Self>>,
-    {
-        let k = SpecificKey::new_i1(i.into());
-        Self::remove_opt(kws, k)
-            .into_nowarn()
-            .set_err_value(Self::Outer::default())
-            .into_log_drop_dep(k, is_deprecated, conf)
-            .map_errors(ParseOptKeyError::from)
-            .map_commutative_warnings(ParseOptKeyError::from)
-            .map_errors(LookupKeysWarning::from)
-            .map_commutative_warnings(LookupKeysWarning::from)
     }
 
     fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)
@@ -919,12 +888,9 @@ pub enum ParseOptKeyError {
     Calibration3_1(OptIndexedKeyError<Calibration3_1>),
     Calibration3_2(OptIndexedKeyError<Calibration3_2>),
     Date(DepOptKeyStError<FCSDate>),
-    Btim2_0(DepOptKeyStError<Btim<FCSTime>>),
-    Etim2_0(DepOptKeyStError<Etim<FCSTime>>),
-    Btim3_0(DepOptKeyStError<Btim<FCSTime60>>),
-    Etim3_0(DepOptKeyStError<Etim<FCSTime60>>),
-    Btim3_1(DepOptKeyStError<Btim<FCSTime100>>),
-    Etim3_1(DepOptKeyStError<Etim<FCSTime100>>),
+    Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
+    Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
+    Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
     Datetimes(LookupDatetimesError),
     Modified(LookupModifiedDataError),
     UnstainedCenter(OptKeyStError<UnstainedCenters>),
@@ -940,15 +906,36 @@ pub enum ParseOptKeyError {
     Gate3_2(LookupAppliedGates3_2Error),
     Vol(OptKeyError<Vol>),
     Power(OptIndexedKeyError<Power>),
-    PercentEmitted(DepOptIndexedKeyError<PercentEmitted>),
+    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
     DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
     Abrt(OptKeyError<Abrt>),
     Lost(OptKeyError<Lost>),
     CSV(LookupCSVFlagsError),
     CSVBits(OptKeyError<CSVBits>),
     CSTot(OptKeyError<CSTot>),
-    PeakBin(DepOptIndexedKeyError<PeakBin>),
-    PeakIndex(DepOptIndexedKeyError<PeakIndex>),
+    Peak(LookupPeakError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupPeakError {
+    PeakBin(OptIndexedKeyError<PeakBin>),
+    PeakIndex(OptIndexedKeyError<PeakIndex>),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupTimestampsError<T, E> {
+    Date(OptKeyStError<FCSDate>),
+    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
+    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>),
+    Reversed(ReversedTimestampsError),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupDepTimestampsError<T, E> {
+    Date(DepOptKeyStError<FCSDate>),
+    Btim(OptKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>),
+    Etim(OptKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>),
+    Reversed(ReversedTimestampsError),
 }
 
 #[derive(Display, Debug, Error)]

@@ -1,12 +1,15 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::logging::{
+    DeferredError, DeferredFungibleErrors, DeferredWarningsAndErrors, LogResult, ResultExt as _,
+};
 use crate::type_families::ApplyOnce as _;
-use crate::validated::keys::{Key, StdKeywords};
+use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    FromStrWith, LookupKeysWarning, LookupTentative, DepOptKeyStError, OptMetarootKey, Optional,
-    ParseOptKeyError,
+    DepOptKeyStError, FromStrWith, LookupKeysWarning, LookupTentative, LookupTimestampsError,
+    OptKeyStError, OptMetarootKey, Optional, ParseOptKeyError,
 };
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -87,15 +90,15 @@ impl<X> Timestamps<X> {
         btim: Option<Btim<X>>,
         etim: Option<Etim<X>>,
         date: Option<FCSDate>,
-    ) -> TimestampsResult<Self>
+    ) -> DeferredError<Self, ReversedTimestampsError>
     where
         X: PartialOrd,
     {
         let ret = Self { btim, etim, date };
         if ret.valid() {
-            Ok(ret)
+            LogResult::new_ok(ret)
         } else {
-            Err(ReversedTimestampsError)
+            LogResult::new_err1(ReversedTimestampsError).set_err_value(ret)
         }
     }
 
@@ -162,24 +165,48 @@ impl<X> Timestamps<X> {
     }
 
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self>
+    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        ParseOptKeyError: From<DepOptKeyStError<Btim<X>>> + From<DepOptKeyStError<Etim<X>>>,
-        for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
+        X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
     {
-        let b = Btim::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
-        let e = Etim::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
-        let d = FCSDate::lookup_metatroot_opt_with(kws, is_deprecated, (), conf);
+        let b = Btim::transfer_metaroot_opt_with(std, nonstd, (), conf)
+            .map_err(LookupTimestampsError::Btim)
+            .into_deferred_nowarn();
+        let e = Etim::transfer_metaroot_opt_with(std, nonstd, (), conf)
+            .map_err(LookupTimestampsError::Etim)
+            .into_deferred_nowarn();
+        let d = FCSDate::transfer_metaroot_opt_with(std, nonstd, (), conf)
+            .map_err(LookupTimestampsError::Date)
+            .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
         b.zip_f3_once(e, d)
-            .and_then_def_result(flag, |(btim, etim, date)| {
-                Self::try_new(btim, etim, date).map_err(LookupKeysWarning::from)
+            .and_then_def(|(btim, etim, date)| {
+                Self::try_new(btim, etim, date)
+                    .map_errors(LookupTimestampsError::Reversed)
+                    .map_err_value(|ret| {
+                        // If creating the new timestamp object failed,
+                        // optionally transfer component keys to nonstandard
+                        if conf.transfer_dropped_optional.is_set() {
+                            ret.date
+                                .as_ref()
+                                .inspect(|&d| nonstd.insert_demoted_metaroot(d));
+                            ret.btim
+                                .as_ref()
+                                .inspect(|&b| nonstd.insert_demoted_metaroot(b));
+                            ret.etim
+                                .as_ref()
+                                .inspect(|&e| nonstd.insert_demoted_metaroot(e));
+                        }
+                        ret
+                    })
+                    .into_semigroup()
             })
+            .nowarn_into_fungible(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>

@@ -2,7 +2,7 @@ use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::RemovedNamedLink;
 use crate::logging::{
     DeferredError, DeferredFungibleError, DeferredFungibleErrors, DeferredWarningsAndErrors,
-    LogResult,
+    LogResult, ResultExt as _,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -24,9 +24,9 @@ use super::optional::{
 };
 use super::parser::{
     DepOptIndexedKeyStError, DepValueWarning, FromStrDelim, FromStrWith,
-    IndexedKeyToIndexLinkError, LookupKeysWarning, LookupOptional, LookupResult,
-    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseOptKeyError, ReqIndexedKey,
-    ReqMetarootKey, Required,
+    IndexedKeyToIndexLinkError, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
+    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseOptKeyError,
+    ParseReqKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -368,7 +368,10 @@ pub enum AlphaNumType {
 
 impl AlphaNumType {
     pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
-        let mut d = Self::lookup_req(kws);
+        let mut d = Self::remove_metaroot_req(kws)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log();
         d.eval_warning(|v| check_datatype_ascii(*v));
         d
     }
@@ -446,12 +449,12 @@ impl TemporalScale3_0 {
         i: MeasIndex,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<()> {
+    ) -> Result<(), ReqIndexedKeyError<TemporalScale3_0>> {
         if conf.force_time_linear {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
-            LogResult::new_ok(())
+            Ok(())
         } else {
-            Self::lookup_req(kws, i).set_ok_value(())
+            Self::remove_meas_req(kws, i).map(|_| ())
         }
     }
 }

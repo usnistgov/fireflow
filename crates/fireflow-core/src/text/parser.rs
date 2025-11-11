@@ -107,6 +107,22 @@ pub(crate) trait Required: Sized {
             .map_err(ReqKeyError_::from)
     }
 
+    fn remove_req_with<I>(
+        kws: &mut StdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &StdTextReadConfig,
+    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyKey + Copy,
+        Self: FromStrWith,
+    {
+        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        Self::from_str_with(&v, data, conf)
+            .map_err(|e| ParseKeyError::new(e, k, v))
+            .map_err(ReqKeyError_::from)
+    }
+
     fn get_req_inner<I>(
         kws: &StdKeywords,
         k: SpecificKey<Self, I>,
@@ -339,17 +355,6 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
         Self::remove_req(kws, SpecificKey::default())
     }
 
-    fn lookup_req(kws: &mut StdKeywords) -> LookupResult<Self>
-    where
-        Self: FromStr,
-        ParseReqKeyError: From<ReqKeyError<Self>>,
-    {
-        Self::remove_metaroot_req(kws)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
-            .into_log()
-    }
-
     fn pair(&self) -> (String, String)
     where
         Self: fmt::Display,
@@ -377,37 +382,16 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         Self::remove_req(kws, SpecificKey::new_i1(i.into()))
     }
 
-    fn lookup_req(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> LookupResult<Self>
-    where
-        Self: FromStr,
-        ParseReqKeyError: From<ReqIndexedKeyError<Self>>,
-    {
-        Self::remove_meas_req(kws, i)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
-            .into_log()
-    }
-
-    fn lookup_req_with(
+    fn remove_meas_req_with(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<Self>
+    ) -> Result<Self, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
-        ParseReqKeyError: From<ReqIndexedStKeyError<Self>>,
     {
-        let k = SpecificKey::new_i1(i.into());
-        Self::remove_req_inner(kws, k)
-            .map_err(ReqKeyError_::from)
-            .and_then(|v| {
-                Self::from_str_with(v.as_str(), data, conf)
-                    .map_err(|e| ParseKeyError::new(e, k, v).into())
-            })
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
-            .into_log()
+        Self::remove_req_with(kws, SpecificKey::new_i1(i.into()), data, conf)
     }
 
     fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)
@@ -446,7 +430,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt(kws, SpecificKey::default())
     }
 
-    fn lookup_metaroot_opt_noerror(kws: &mut StdKeywords) -> Self::Outer
+    fn remove_metaroot_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {
@@ -499,30 +483,6 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
 
-    // TODO it might be easier to move the deprecation flag to the type itself
-    // so that way we don't need to pass a bool down a zillion layers worth of
-    // call stack
-    fn lookup_metaroot_opt(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self::Outer: PartialEq,
-        Self: FromStr,
-        ParseOptKeyError: From<DepOptKeyError<Self>>,
-    {
-        let k = SpecificKey::default();
-        Self::remove_opt(kws, k)
-            .into_nowarn()
-            .set_err_value(Self::Outer::default())
-            .into_log_drop_dep(k, is_deprecated, conf)
-            .map_errors(ParseOptKeyError::from)
-            .map_commutative_warnings(ParseOptKeyError::from)
-            .map_errors(LookupKeysWarning::from)
-            .map_commutative_warnings(LookupKeysWarning::from)
-    }
-
     fn lookup_metatroot_opt_with(
         kws: &mut StdKeywords,
         is_deprecated: bool,
@@ -572,7 +532,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::get_opt(kws, SpecificKey::new_i1(i.into()))
     }
 
-    fn lookup_meas_opt_noerror(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
+    fn remove_meas_opt_nofail(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {
@@ -652,20 +612,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::drop_deprecated_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }
 
-    // fn remove_meas_opt_st(
-    //     kws: &mut StdKeywords,
-    //     i: impl Into<IndexFromOne>,
-    //     data: Self::Payload<'_>,
-    //     conf: &StdTextReadConfig,
-    // ) -> Result<MaybeValue<Self>, OptKeyError<Self::Err>>
-    // where
-    //     Self: FromStrStateful,
-    // {
-    //     Self::remove_opt(kws, Self::std(i), |k, v| {
-    //         Self::from_str_st(v.as_str(), data, conf).map_err(|e| OptKeyError::new(e, k, v))
-    //     })
-    // }
-
     fn lookup_meas_opt(
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
@@ -679,29 +625,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     {
         let k = SpecificKey::new_i1(i.into());
         Self::remove_opt(kws, k)
-            .into_nowarn()
-            .set_err_value(Self::Outer::default())
-            .into_log_drop_dep(k, is_deprecated, conf)
-            .map_errors(ParseOptKeyError::from)
-            .map_commutative_warnings(ParseOptKeyError::from)
-            .map_errors(LookupKeysWarning::from)
-            .map_commutative_warnings(LookupKeysWarning::from)
-    }
-
-    fn lookup_meas_opt_with(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne> + Copy,
-        is_deprecated: bool,
-        data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self::Outer>
-    where
-        Self::Outer: PartialEq,
-        Self: FromStrWith,
-        ParseOptKeyError: From<DepOptIndexedKeyStError<Self>>,
-    {
-        let k = SpecificKey::new_i1(i.into());
-        Self::remove_opt_with(kws, k, data, conf)
             .into_nowarn()
             .set_err_value(Self::Outer::default())
             .into_log_drop_dep(k, is_deprecated, conf)

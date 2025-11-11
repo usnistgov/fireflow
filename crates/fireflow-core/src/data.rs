@@ -78,8 +78,8 @@ use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, To
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
     DepOptIndexedKeyError, DepOptKeyError, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTentative, OptIndexedKey as _, OptIndexedKeyError, ParseOptKeyError, ReqIndexedKey as _,
-    ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
+    LookupTentative, OptIndexedKey as _, OptIndexedKeyError, ParseOptKeyError, ParseReqKeyError,
+    ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 
 use crate::validated::keys::NonStdKeywords;
@@ -441,18 +441,25 @@ pub trait MeasDatatypeDef {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
-        let w = Width::lookup_req(std, i);
-        let r = Range::lookup_req(std, i);
-        w.zip_cmt(r).and_then_cmt(|(width, range)| {
-            Self::lookup_datatype(std, nonstd, i, conf)
-                .map_fungible_errors(ParseOptKeyError::from)
-                .map_fungible_errors(LookupKeysWarning::from)
-                .fungible_into_commutative()
-                .into_semigroup()
-                .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                .errors_into()
-                .set_err_value(())
-        })
+        let w = Width::remove_meas_req(std, i)
+            .map_err(ParseReqKeyError::from)
+            .into_nowarn();
+        let r = Range::remove_meas_req(std, i)
+            .map_err(ParseReqKeyError::from)
+            .into_nowarn();
+        w.zip_cmt(r)
+            .map_errors(LookupKeysError::from)
+            .nowarn_into_warn()
+            .and_then_cmt(|(width, range)| {
+                Self::lookup_datatype(std, nonstd, i, conf)
+                    .map_fungible_errors(ParseOptKeyError::from)
+                    .map_fungible_errors(LookupKeysWarning::from)
+                    .fungible_into_commutative()
+                    .into_semigroup()
+                    .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
+                    .errors_into()
+                    .set_err_value(())
+            })
     }
 
     fn lookup_one_ro(
@@ -3599,7 +3606,10 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
 
         let d = AlphaNumType::lookup_req_check_ascii(std);
-        let e = ByteOrd3_1::lookup_req(std);
+        let e = ByteOrd3_1::remove_metaroot_req(std)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log();
         let cs = HasMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
 
         from!(d.zip3_cmt(e, cs)).and_then_cmt(|(datatype, endian, columns)| {
@@ -3839,8 +3849,14 @@ impl<T> AnyOrderedLayout<T> {
         }
 
         let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
-        let d = AlphaNumType::lookup_req(std);
-        let b = ByteOrd2_0::lookup_req(std);
+        let d = AlphaNumType::remove_metaroot_req(std)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log();
+        let b = ByteOrd2_0::remove_metaroot_req(std)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log();
 
         from!(d.zip3_cmt(b, cs)).and_then_cmt(|(datatype, byteord, columns)| {
             from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
@@ -3996,7 +4012,10 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
     {
         let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
         let d = AlphaNumType::lookup_req_check_ascii(std);
-        let n = ByteOrd3_1::lookup_req(std);
+        let n = ByteOrd3_1::remove_metaroot_req(std)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .into_log();
         d.zip3_cmt(n, cs)
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::from)

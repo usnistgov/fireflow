@@ -620,12 +620,12 @@ impl GatedMeasurement {
             };
         }
         let scale = GateScale::drop_meas_opt_with(std, nonstd, i, (), conf);
-        let filter = GateFilter::lookup_meas_opt_noerror(std, i);
+        let filter = GateFilter::remove_meas_opt_nofail(std, i);
         let sname = GateShortname::drop_meas_opt(std, nonstd, i, conf);
         let pemit = GatePercentEmitted::drop_meas_opt(std, nonstd, i, conf);
         let range = GateRange::drop_meas_opt(std, nonstd, i, conf);
-        let lname = GateLongname::lookup_meas_opt_noerror(std, i);
-        let dtype = GateDetectorType::lookup_meas_opt_noerror(std, i);
+        let lname = GateLongname::remove_meas_opt_nofail(std, i);
+        let dtype = GateDetectorType::remove_meas_opt_nofail(std, i);
         let dvolt = GateDetectorVoltage::drop_meas_opt(std, nonstd, i, conf);
         go!(scale).lift_f5_once(
             go!(sname),
@@ -649,12 +649,12 @@ impl GatedMeasurement {
             };
         }
         let scale = GateScale::drop_meas_deprecated_with(std, nonstd, i, (), conf);
-        let filter = GateFilter::lookup_meas_opt_noerror(std, i);
+        let filter = GateFilter::remove_meas_opt_nofail(std, i);
         let sname = GateShortname::drop_meas_deprecated(std, nonstd, i, conf);
         let pemit = GatePercentEmitted::drop_meas_deprecated(std, nonstd, i, conf);
         let range = GateRange::drop_meas_deprecated(std, nonstd, i, conf);
-        let lname = GateLongname::lookup_meas_opt_noerror(std, i);
-        let dtype = GateDetectorType::lookup_meas_opt_noerror(std, i);
+        let lname = GateLongname::remove_meas_opt_nofail(std, i);
+        let dtype = GateDetectorType::remove_meas_opt_nofail(std, i);
         let dvolt = GateDetectorVoltage::drop_meas_deprecated(std, nonstd, i, conf);
         go!(scale).lift_f5_once(
             go!(sname),

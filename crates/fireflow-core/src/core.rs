@@ -1661,7 +1661,7 @@ pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
     fn lookup(std: &mut StdKeywords, nonstd: NonStdKeywords, i: MeasIndex) -> Self {
-        let longname = Longname::lookup_meas_opt_noerror(std, i);
+        let longname = Longname::remove_meas_opt_nofail(std, i);
         Self::new(longname, nonstd)
     }
 }
@@ -1744,13 +1744,13 @@ impl<O> Optical<O> {
         Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
-        let filter = Filter::lookup_meas_opt_noerror(std, i);
+        let filter = Filter::remove_meas_opt_nofail(std, i);
         let power = Power::drop_meas_opt(std, &mut nonstd, i, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let det_type = DetectorType::lookup_meas_opt_noerror(std, i);
+        let det_type = DetectorType::remove_meas_opt_nofail(std, i);
         let pe_dep = Version::from(version) == Version::FCS3_2;
         let perc_emit = PercentEmitted::lookup_meas_opt(std, i, pe_dep, conf);
         let det_volt = DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf)
@@ -1925,16 +1925,16 @@ where
     where
         M: LookupMetaroot,
     {
-        let com = Com::lookup_metaroot_opt_noerror(std);
-        let cells = Cells::lookup_metaroot_opt_noerror(std);
-        let exp = Exp::lookup_metaroot_opt_noerror(std);
-        let fil = Fil::lookup_metaroot_opt_noerror(std);
-        let inst = Inst::lookup_metaroot_opt_noerror(std);
-        let op = Op::lookup_metaroot_opt_noerror(std);
-        let proj = Proj::lookup_metaroot_opt_noerror(std);
-        let smno = Smno::lookup_metaroot_opt_noerror(std);
-        let src = Src::lookup_metaroot_opt_noerror(std);
-        let sys = Sys::lookup_metaroot_opt_noerror(std);
+        let com = Com::remove_metaroot_opt_nofail(std);
+        let cells = Cells::remove_metaroot_opt_nofail(std);
+        let exp = Exp::remove_metaroot_opt_nofail(std);
+        let fil = Fil::remove_metaroot_opt_nofail(std);
+        let inst = Inst::remove_metaroot_opt_nofail(std);
+        let op = Op::remove_metaroot_opt_nofail(std);
+        let proj = Proj::remove_metaroot_opt_nofail(std);
+        let smno = Smno::remove_metaroot_opt_nofail(std);
+        let src = Src::remove_metaroot_opt_nofail(std);
+        let sys = Sys::remove_metaroot_opt_nofail(std);
 
         let abrt_res = Abrt::drop_metaroot_opt(std, &mut nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
@@ -3835,9 +3835,11 @@ where
         let _ = kws.std.remove(&Endstext::std());
 
         // Lookup $PAR first since we need this to get the measurements
-        let par_res = Par::lookup_req(&mut kws.std)
-            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-            .map_errors(StdTEXTFromRawError::from);
+        let par_res = Par::remove_metaroot_req(&mut kws.std)
+            .map_err(ParseReqKeyError::from)
+            .map_err(LookupKeysError::from)
+            .map_err(StdTEXTFromRawError::from)
+            .into_log();
 
         let version = Version::from(M::Ver::fcs_version());
         let std_conf = conf.as_ref();
@@ -4936,7 +4938,7 @@ impl UnstainedData {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredFungibleError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
-        let i = UnstainedInfo::lookup_metaroot_opt_noerror(std);
+        let i = UnstainedInfo::remove_metaroot_opt_nofail(std);
         UnstainedCenters::drop_metaroot_opt_with(std, nonstd, (), conf)
             .map_def_value(|c| Self::new(c, i))
     }
@@ -5047,7 +5049,7 @@ impl ModificationData {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
-        let last_mod = LastModifier::lookup_metaroot_opt_noerror(std);
+        let last_mod = LastModifier::remove_metaroot_opt_nofail(std);
         let last_mod_date = LastModified::transfer_metaroot_opt(std, nonstd, conf)
             .into_deferred_nowarn()
             .map_errors(LookupModifiedDataError::from);
@@ -5080,9 +5082,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup(kws: &mut StdKeywords) -> Self {
-        let l = Locationid::lookup_metaroot_opt_noerror(kws);
-        let i = Carrierid::lookup_metaroot_opt_noerror(kws);
-        let t = Carriertype::lookup_metaroot_opt_noerror(kws);
+        let l = Locationid::remove_metaroot_opt_nofail(kws);
+        let i = Carrierid::remove_metaroot_opt_nofail(kws);
+        let t = Carriertype::remove_metaroot_opt_nofail(kws);
         Self::new(i, t, l)
     }
 
@@ -5103,9 +5105,9 @@ impl CarrierData {
 
 impl PlateData {
     fn lookup(kws: &mut StdKeywords) -> Self {
-        let w = Wellid::lookup_metaroot_opt_noerror(kws);
-        let n = Platename::lookup_metaroot_opt_noerror(kws);
-        let i = Plateid::lookup_metaroot_opt_noerror(kws);
+        let w = Wellid::remove_metaroot_opt_nofail(kws);
+        let n = Platename::remove_metaroot_opt_nofail(kws);
+        let i = Plateid::remove_metaroot_opt_nofail(kws);
         Self::new(i, n, w)
     }
 
@@ -6302,11 +6304,11 @@ impl ScaleTransform {
             .into_semigroup()
             .set_err_value(())
             .and_then_cmt(|g| {
-                Scale::lookup_req_with(std, i, (), conf).and_then_cmt(|s| {
-                    Self::try_from((s, g))
-                        .map_err(LookupKeysError::from)
-                        .into_log()
-                })
+                Scale::remove_meas_req_with(std, i, (), conf)
+                    .map_err(ParseReqKeyError::from)
+                    .map_err(LookupKeysError::from)
+                    .and_then(|s| Self::try_from((s, g)).map_err(LookupKeysError::from))
+                    .into_log()
             })
     }
 
@@ -6787,8 +6789,8 @@ impl LookupOptical for InnerOptical3_2 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let det_name = DetectorName::lookup_meas_opt_noerror(std, i);
-        let tag = Tag::lookup_meas_opt_noerror(std, i);
+        let det_name = DetectorName::remove_meas_opt_nofail(std, i);
+        let tag = Tag::remove_meas_opt_nofail(std, i);
         let meas = OpticalType::drop_meas_opt(std, nonstd, i, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -6799,7 +6801,7 @@ impl LookupOptical for InnerOptical3_2 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let anal = Analyte::lookup_meas_opt_noerror(std, i);
+        let anal = Analyte::remove_meas_opt_nofail(std, i);
         wave.zip_f3_once(cal, dpy)
             .zip3_cmt(meas, feat)
             .map_errors(LookupKeysError::from)
@@ -6852,10 +6854,16 @@ impl LookupTemporal for InnerTemporal3_0 {
         gain.zip_cmt(peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, p)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
-                let timestep = Timestep::lookup_req(std);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
+                let timestep = Timestep::remove_metaroot_req(std)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
                 scale
                     .zip_cmt(timestep)
+                    .map_errors(LookupKeysError::from)
+                    .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, p))
             })
     }
@@ -6882,10 +6890,16 @@ impl LookupTemporal for InnerTemporal3_1 {
         gain.zip3_cmt(dpy, peak)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, d, p)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
-                let timestep = Timestep::lookup_req(std);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
+                let timestep = Timestep::remove_metaroot_req(std)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
                 scale
                     .zip_cmt(timestep)
+                    .map_errors(LookupKeysError::from)
+                    .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, d, p))
             })
     }
@@ -6916,10 +6930,16 @@ impl LookupTemporal for InnerTemporal3_2 {
         gain.zip3_cmt(dpy, meas)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(_, d, m)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf);
-                let timestep = Timestep::lookup_req(std);
+                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
+                let timestep = Timestep::remove_metaroot_req(std)
+                    .map_err(ParseReqKeyError::from)
+                    .into_nowarn();
                 scale
                     .zip_cmt(timestep)
+                    .map_errors(LookupKeysError::from)
+                    .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, d, m))
             })
     }
@@ -7526,7 +7546,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     ) -> LookupResult<Self> {
         let par = Par(ms.0.len());
         let comp = Compensation2_0::lookup(std, par, conf);
-        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
+        let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let ts = Timestamps::lookup(std, false, conf);
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
             .map_errors(ParseOptKeyError::from)
@@ -7536,7 +7556,11 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         comp.zip3_cmt(ts, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, t, g)| {
-                Mode::lookup_req(std).map_ok_value(|mo| Self::new(mo, cyt, co, t, g))
+                Mode::remove_metaroot_req(std)
+                    .map(|mo| Self::new(mo, cyt, co, t, g))
+                    .map_err(ParseReqKeyError::from)
+                    .map_err(LookupKeysError::from)
+                    .into_log()
             })
     }
 }
@@ -7567,8 +7591,8 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let cyt = Cyt::remove_metaroot_opt_nofail(std);
+        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let subset = SubsetData::lookup(std, nonstd, conf)
             .map_errors(LookupKeysWarning::from)
             .map_commutative_warnings(LookupKeysWarning::from);
@@ -7586,7 +7610,11 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         comp.zip5_cmt(subset, ts, uni, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(co, su, t, u, g)| {
-                Mode::lookup_req(std).map_ok_value(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
+                Mode::remove_metaroot_req(std)
+                    .map(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
+                    .map_err(ParseReqKeyError::from)
+                    .map_err(LookupKeysError::from)
+                    .into_log()
             })
     }
 }
@@ -7630,13 +7658,13 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let cyt = Cyt::lookup_metaroot_opt_noerror(std);
+        let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let subset = SubsetData::lookup(std, nonstd, conf)
             .map_errors(LookupKeysWarning::from)
             .map_commutative_warnings(LookupKeysWarning::from);
@@ -7662,9 +7690,11 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .zip6_cmt(subset, modif, ts, vol, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|(sp, su, md, t, v, g)| {
-                Mode::lookup_req(std)
-                    .and_then_cmt(process_mode)
-                    .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
+                Mode::remove_metaroot_req(std)
+                    .map(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
+                    .map_err(ParseReqKeyError::from)
+                    .map_err(LookupKeysError::from)
+                    .into_log()
             })
     }
 }
@@ -7699,7 +7729,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
-        let flow = Flowrate::lookup_metaroot_opt_noerror(std);
+        let flow = Flowrate::remove_metaroot_opt_nofail(std);
         let modif = ModificationData::lookup(std, nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -7714,7 +7744,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative()
             .into_semigroup();
-        let cytsn = Cytsn::lookup_metaroot_opt_noerror(std);
+        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let plate = PlateData::lookup_dep(std, conf)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
@@ -7738,11 +7768,15 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .zip6_cmt(plate, ts, us, vol, ag)
             .map_errors(LookupKeysError::from)
             .and_then_cmt(|((d_, md_, mo_, sp_), p_, t_, u_, v_, ag_)| {
-                Cyt3_2::lookup_req(std).map_ok_value(|c_| {
-                    Self::new(
-                        mo_, t_, d_, c_, sp_, cytsn, md_, p_, v_, carrier, u_, flow, ag_,
-                    )
-                })
+                Cyt3_2::remove_metaroot_req(std)
+                    .map(|c_| {
+                        Self::new(
+                            mo_, t_, d_, c_, sp_, cytsn, md_, p_, v_, carrier, u_, flow, ag_,
+                        )
+                    })
+                    .map_err(ParseReqKeyError::from)
+                    .map_err(LookupKeysError::from)
+                    .into_log()
             })
     }
 }

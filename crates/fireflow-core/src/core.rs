@@ -1,7 +1,7 @@
 use crate::config::{
     AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
     ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, WriteConfig,
+    StdTextReadConfig, TemporalOpticalKey, TransferDroppedOptional, WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -59,13 +59,14 @@ use crate::text::optional::{
     Nothing,
 };
 use crate::text::parser::{
-    BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
-    DependentIndexedKeyError, DependentKeyError, ExtraStdKeywords, IndexedKeyToIndexLinkError,
-    KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupKeysError,
-    LookupKeysWarning, LookupModifiedDataError, LookupPeakError, LookupResult, LookupTentative,
-    MissingTime, OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError,
-    OptMetarootKey as _, ParseOptKeyError, ParseReqKeyError, PseudostandardError, RawKeywords,
-    ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
+    DependentIndexedKeyError, DependentKeyError, DeprecatedPeakRef, DeprecatedPlateRef,
+    DeprecatedRef, DeprecatedStrRef, ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError,
+    IsDeprecated as _, KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError,
+    LookupKeysError, LookupKeysWarning, LookupModifiedDataError, LookupPeakError, LookupResult,
+    MissingTime, OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _,
+    ParseOptKeyError, ParseReqKeyError, PseudostandardError, RawKeywords, ReqIndexedKey as _,
+    ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -1302,7 +1303,7 @@ pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
 
-    fn fcs_version() -> Self;
+    fn fcs_version() -> Version;
 
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
@@ -1411,6 +1412,8 @@ pub trait VersionedMetaroot: Sized {
         indices: &HashSet<MeasIndex>,
     ) -> impl Iterator<Item = RemovedLink>;
 
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>>;
+
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -1514,6 +1517,8 @@ pub trait VersionedOptical: Sized {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError>;
+
+    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
 pub trait LookupOptical: Sized + VersionedOptical {
@@ -1539,6 +1544,8 @@ pub trait VersionedTemporal: Sized {
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError>;
+
+    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
 pub trait LookupTemporal: VersionedTemporal {
@@ -1890,6 +1897,28 @@ impl<O> Optical<O> {
             .into_iter()
             .flatten()
     }
+
+    fn deprecated(
+        &mut self,
+        i: MeasIndex,
+        es: &mut Vec<AnyDepKeyError>,
+        keep: bool,
+        do_demote: bool,
+    ) where
+        O: VersionedOptical,
+        Version: From<O::Ver>,
+    {
+        let v = O::Ver::fcs_version();
+        let p = (v >= Version::FCS3_2).then(|| {
+            DeprecatedRef::PercentEmitted(IndexedDepRef::new(i.into(), &mut self.percent_emitted))
+        });
+        for mut d in self.specific.deprecated(i).chain(p) {
+            if do_demote {
+                d.demote(&mut self.common.nonstandard_keywords, keep);
+            }
+            d.errors(es);
+        }
+    }
 }
 
 impl<M> Metaroot<M>
@@ -2139,7 +2168,7 @@ where
     where
         Version: From<M::Ver>,
     {
-        M::Ver::fcs_version().into()
+        M::Ver::fcs_version()
     }
 
     /// Write this core structure (HEADER+TEXT) to a handle
@@ -2192,7 +2221,7 @@ where
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, M::Ver::fcs_version().into(), delim, other_segs)?;
+        hdr_kws.h_write(h, M::Ver::fcs_version(), delim, other_segs)?;
         Ok(())
     }
 
@@ -3145,8 +3174,8 @@ where
         let layout_res = ConvertFromLayout::convert_from_layout(self.layout)
             .map_errors(ConvertError::Layout)
             .nowarn_into_warn();
-        let v0 = M::Ver::fcs_version().into();
-        let v1 = ToM::Ver::fcs_version().into();
+        let v0 = M::Ver::fcs_version();
+        let v1 = ToM::Ver::fcs_version();
         let summary = ConvertFailure::new(v0, v1);
         root_res
             .zip3_cmt(meas_res, layout_res)
@@ -3469,7 +3498,7 @@ where
             .opt_root_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
-        if Version::from(M::Ver::fcs_version()) == Version::FCS2_0 {
+        if M::Ver::fcs_version() == Version::FCS2_0 {
             HeaderKeywordsToWrite::new_2_0(
                 req,
                 opt,
@@ -3846,7 +3875,7 @@ where
             .map_err(StdTEXTFromRawError::from)
             .into_log();
 
-        let version = Version::from(M::Ver::fcs_version());
+        let version = M::Ver::fcs_version();
         let std_conf = conf.as_ref();
 
         par_res.and_then_cmt(|par| {
@@ -3865,8 +3894,7 @@ where
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from)
                     .and_then_cmt(|metaroot| {
-                        let flag = std_conf.allow_optional_dropping;
-                        Self::try_new(metaroot, ms, layout, flag)
+                        Self::try_new(metaroot, ms, layout, std_conf)
                             .map_commutative_warnings(StdTEXTFromRawWarning::from)
                             .map_errors(StdTEXTFromRawError::from)
                     })
@@ -4061,6 +4089,82 @@ where
             analysis,
             others,
         )
+    }
+
+    fn deprecated(
+        &mut self,
+        dep_flag: DisallowDeprecated,
+        xfer_flag: TransferDroppedOptional,
+    ) -> FungibleErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
+    where
+        Version: From<M::Ver>,
+    {
+        let mut es = vec![];
+        // Demote deprecated keywords to nonstandard if a) we consider it an
+        // error if a deprecated key is present and b) if when we drop and
+        // optional flag we are to transfer it to the nonstandard dict. If (a)
+        // is not true, we don't care (only a warning), if (b) is not true, the
+        // transfer shouldn't happen
+        //
+        // NOTE the drop_optional flag should not be used here because the
+        // disallow_deprecated flag effectively takes its place. If this flag is
+        // set, the we consider it an error to be deprecated, thus dropping a
+        // keyval is not relevant (error = crash).
+        let keep = xfer_flag.is_set();
+        let do_demote = dep_flag.is_set() && xfer_flag.is_set();
+        for mut d in self.metaroot.specific.deprecated() {
+            if do_demote {
+                d.demote(&mut self.metaroot.nonstandard_keywords, keep);
+            }
+            d.errors(&mut es);
+        }
+        for (i, e) in self.measurements.iter_mut().enumerate() {
+            match e {
+                Element::Center(t) => {
+                    for mut d in t.specific.deprecated(i.into()) {
+                        if do_demote {
+                            d.demote(&mut t.common.nonstandard_keywords, keep);
+                        }
+                        d.errors(&mut es);
+                    }
+                }
+                Element::NonCenter(o) => o.deprecated(i.into(), &mut es, keep, do_demote),
+            }
+        }
+        LogResult::new_fungible_iter((), (), es, dep_flag)
+    }
+
+    pub(crate) fn try_new(
+        mut metaroot: Metaroot<M>,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+        conf: &StdTextReadConfig,
+    ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, NewCoreError>
+    where
+        M::Optical: AsScaleTransform,
+        Version: From<M::Ver>,
+    {
+        let drop_flag = conf.allow_optional_dropping;
+        Measurements::try_new(measurements)
+            .map_err(NewCoreError::from)
+            .into_log()
+            .and_then_cmt(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, &layout, drop_flag.is_set())
+                    .nowarn_into_fungible(drop_flag)
+                    .fungible_into_commutative()
+                    .map_errors(NewCoreError::from)
+                    .map_commutative_warnings(NewCoreWarning::from)
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+                    .and_then_cmt(|mut ret| {
+                        let xfer_flag = conf.transfer_dropped_optional;
+                        let dep_flag = conf.disallow_deprecated;
+                        ret.deprecated(dep_flag, xfer_flag)
+                            .fungible_into_commutative()
+                            .map_errors(NewCoreError::from)
+                            .map_commutative_warnings(NewCoreWarning::from)
+                            .set_ok_value(ret)
+                    })
+            })
     }
 }
 
@@ -4482,27 +4586,6 @@ where
 }
 
 impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
-    pub(crate) fn try_new(
-        mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
-        flag: AllowOptionalDropping,
-    ) -> WarningsAndErrorsResult<Self, (), NewCoreRelationalError, NewCoreError>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        Measurements::try_new(measurements)
-            .map_err(NewCoreError::from)
-            .into_log()
-            .and_then_cmt(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, &layout, flag.is_set())
-                    .nowarn_into_fungible(flag)
-                    .fungible_into_commutative()
-                    .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
-            })
-    }
-
     pub(crate) fn try_new_nodrop(
         mut metaroot: Metaroot<M>,
         measurements: TemporalsAndOpticals<M>,
@@ -5141,6 +5224,13 @@ impl PlateData {
         DeferredFungibleErrors::new_deferred_fungible_iter(ret, es, flag)
     }
 
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedPlateRef<'_>> {
+        let a = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.platename));
+        let b = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.plateid));
+        let c = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.wellid));
+        [a, b, c].into_iter()
+    }
+
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.wellid.metaroot_opt_pair(),
@@ -5175,6 +5265,13 @@ impl PeakData {
             .fungible_into_commutative()
             .into_semigroup();
         b.lift_f2_once(s, Self::new)
+    }
+
+    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedPeakRef<'_>> {
+        let j = i.into();
+        let a = DeprecatedPeakRef::from(IndexedDepRef::new(j, &mut self.size));
+        let b = DeprecatedPeakRef::from(IndexedDepRef::new(j, &mut self.bin));
+        [a, b].into_iter()
     }
 
     pub(crate) fn opt_keywords(
@@ -6647,8 +6744,8 @@ impl Versioned for Version2_0 {
     type Layout = DataLayout2_0;
     type Offsets = TEXTOffsets2_0;
 
-    fn fcs_version() -> Self {
-        Self
+    fn fcs_version() -> Version {
+        Self.into()
     }
 }
 
@@ -6656,8 +6753,8 @@ impl Versioned for Version3_0 {
     type Layout = DataLayout3_0;
     type Offsets = TEXTOffsets3_0;
 
-    fn fcs_version() -> Self {
-        Self
+    fn fcs_version() -> Version {
+        Self.into()
     }
 }
 
@@ -6665,8 +6762,8 @@ impl Versioned for Version3_1 {
     type Layout = DataLayout3_1;
     type Offsets = TEXTOffsets3_0;
 
-    fn fcs_version() -> Self {
-        Self
+    fn fcs_version() -> Version {
+        Self.into()
     }
 }
 
@@ -6674,8 +6771,8 @@ impl Versioned for Version3_2 {
     type Layout = DataLayout3_2;
     type Offsets = TEXTOffsets3_2;
 
-    fn fcs_version() -> Self {
-        Self
+    fn fcs_version() -> Version {
+        Self.into()
     }
 }
 
@@ -7006,7 +7103,7 @@ impl VersionedOptical for InnerOptical2_0 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        let v = Self::Ver::fcs_version().into();
+        let v = Self::Ver::fcs_version();
         self.scale
             .as_ref()
             .is_some_and(|s| *s == Scale::Linear)
@@ -7018,6 +7115,10 @@ impl VersionedOptical for InnerOptical2_0 {
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
         self.wavelength.indexed_key_convert_error(i).into_iter()
+    }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 }
 
@@ -7040,7 +7141,7 @@ impl VersionedOptical for InnerOptical3_0 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        let v = Self::Ver::fcs_version().into();
+        let v = Self::Ver::fcs_version();
         (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
@@ -7049,6 +7150,10 @@ impl VersionedOptical for InnerOptical3_0 {
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
         self.wavelength.indexed_key_convert_error(i).into_iter()
+    }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 }
 
@@ -7076,7 +7181,7 @@ impl VersionedOptical for InnerOptical3_1 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        let v = Self::Ver::fcs_version().into();
+        let v = Self::Ver::fcs_version();
         (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
@@ -7087,6 +7192,10 @@ impl VersionedOptical for InnerOptical3_1 {
         let a = self.calibration.indexed_key_convert_error(i);
         let b = self.wavelengths.indexed_key_convert_error(i);
         [a, b].into_iter().flatten()
+    }
+
+    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        self.peak.deprecated(i).map(DeprecatedRef::from)
     }
 }
 
@@ -7118,7 +7227,7 @@ impl VersionedOptical for InnerOptical3_2 {
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
-        let v = Self::Ver::fcs_version().into();
+        let v = Self::Ver::fcs_version();
         (!self.scale.is_noop()).then_some(OpticalNonLinearError::new(i, v))
     }
 
@@ -7136,6 +7245,10 @@ impl VersionedOptical for InnerOptical3_2 {
         [cal, wave, meas, anal, tag, det_name, feat]
             .into_iter()
             .flatten()
+    }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 }
 
@@ -7167,6 +7280,10 @@ impl VersionedTemporal for InnerTemporal2_0 {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
+    }
 }
 
 impl VersionedTemporal for InnerTemporal3_0 {
@@ -7194,6 +7311,10 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
+    }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 }
 
@@ -7225,6 +7346,10 @@ impl VersionedTemporal for InnerTemporal3_1 {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
+
+    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        self.peak.deprecated(i).map(DeprecatedRef::from)
+    }
 }
 
 impl VersionedTemporal for InnerTemporal3_2 {
@@ -7252,6 +7377,10 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).err()
+    }
+
+    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 }
 
@@ -7768,7 +7897,6 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         ms: &TemporalsAndOpticals3_2,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
-        let par = Par(ms.0.len());
         let ordered_names: Vec<_> =
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
@@ -7797,7 +7925,6 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup_dep(std, conf)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
-        // TODO this won't emit deprecated error
         let ts = Timestamps::lookup(std, nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -7847,6 +7974,10 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         _: &HashSet<MeasIndex>,
     ) -> impl Iterator<Item = RemovedLink> {
         Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
+    }
+
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -7918,6 +8049,10 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
         let ag = self.applied_gates.remove_invalid_links(indices);
         comp.into_iter().chain(ag)
+    }
+
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        empty()
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -7995,6 +8130,11 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         self.applied_gates
             .remove_invalid_links(indices)
             .chain(spill.map(RemovedLink::from))
+    }
+
+    // TODO these traits should be private since they leak internal mutable state
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        self.applied_gates.deprecated().map(DeprecatedRef::from)
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -8088,6 +8228,18 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             .remove_invalid_links(indices)
             .chain(spill.map(RemovedLink::from))
             .chain(uc.map(RemovedLink::from))
+    }
+
+    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+        let a = self.timestamps.deprecated().map(DeprecatedRef::from);
+        let b = DeprecatedRef::from(&mut self.mode);
+        let c = self.applied_gates.0.deprecated().map(DeprecatedRef::from);
+        self.plate
+            .deprecated()
+            .map(DeprecatedRef::from)
+            .chain(a)
+            .chain(once(b))
+            .chain(c)
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -8813,7 +8965,7 @@ pub enum StdTEXTFromRawError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdTEXTFromRawWarning {
-    Relational(NewCoreRelationalError),
+    New(NewCoreWarning),
     Metaroot(LookupKeysWarning),
     Meas(LookupMeasWarning),
     Layout(LookupLayoutWarning),
@@ -9126,6 +9278,13 @@ pub enum LookupTEXTOffsetsError {
 pub enum NewCoreError {
     Meas(NewNamedVecError),
     Relational(NewCoreRelationalError),
+    Deprecated(AnyDepKeyError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum NewCoreWarning {
+    Relational(NewCoreRelationalError),
+    Deprecated(AnyDepKeyError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -9311,7 +9470,7 @@ mod python {
         GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
         InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupMeasWarning,
         LookupTEXTOffsetsError, LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCoreError,
-        NewCoreRelationalError, NewCoreTEXTError, NonLinearTemporalScaleError,
+        NewCoreRelationalError, NewCoreTEXTError, NewCoreWarning, NonLinearTemporalScaleError,
         NonLinearTemporalTransformError, Other, Others, PushOpticalError,
         PushOpticalToDatasetError, PushTemporalToDatasetError, RemoveMeasByIndexError,
         RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, ScaleTransformError,
@@ -9448,7 +9607,8 @@ mod python {
     impl_from_pyerr!(SetScalesError, Layout, Temporal);
     impl_from_pyerr!(SetTransformsError, Layout, Temporal);
     impl_from_pyerr!(ColumnsToDataframeError, New, Mismatch);
-    impl_from_pyerr!(NewCoreError, Meas, Relational);
+    impl_from_pyerr!(NewCoreError, Meas, Deprecated, Relational);
+    impl_from_pyerr!(NewCoreWarning, Deprecated, Relational);
     impl_from_pyerr!(NewCoreRelationalError, Link, Layout);
     impl_from_pyerr!(NewCoreTEXTError, Core, Timestamps, Datetimes);
     impl_from_pyerr!(StdTEXTFromKeywordsError, Error, Warn);
@@ -9463,7 +9623,7 @@ mod python {
     );
     impl_from_pyerr!(
         StdTEXTFromRawWarning,
-        Relational,
+        New,
         Metaroot,
         Meas,
         Layout,

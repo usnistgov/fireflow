@@ -205,6 +205,18 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
     }
 
+    /// Return iterator over all elements with indices
+    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = Element<&'a mut U, &'a mut V>> + 'a {
+        let go = |xs: &'a mut [Pair<K, V>]| xs.iter_mut().map(|p| Element::NonCenter(&mut p.value));
+        match self {
+            Self::Split(s) => {
+                let c = Element::Center(&mut s.center.value);
+                go(&mut s.left).chain(vec![c]).chain(go(&mut s.right))
+            }
+            Self::Unsplit(u) => go(&mut u.members).chain(vec![]).chain(go(&mut [])),
+        }
+    }
+
     pub(crate) fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T> + 'a
     where
         U: AsRef<T>,
@@ -1728,10 +1740,10 @@ impl<U, V> Element<U, V> {
         }
     }
 
-    pub fn both<F, G, X>(self, f: F, g: G) -> X
+    pub fn both<F, G, X>(self, mut f: F, mut g: G) -> X
     where
-        F: Fn(U) -> X,
-        G: Fn(V) -> X,
+        F: FnMut(U) -> X,
+        G: FnMut(V) -> X,
     {
         match self {
             Self::Center(u) => f(u),

@@ -8,8 +8,9 @@ use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    DepOptKeyStError, FromStrWith, LookupKeysWarning, LookupTentative, LookupTimestampsError,
-    OptKeyStError, OptMetarootKey, Optional, ParseOptKeyError,
+    DepOptKeyStError, DeprecatedRef, DeprecatedTimestampsRef, FromStrWith, LookupKeysWarning,
+    LookupTentative, LookupTimestampsError, OptKeyStError, OptMetarootKey, Optional,
+    ParseOptKeyError,
 };
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -224,6 +225,15 @@ impl<X> Timestamps<X> {
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
+    }
+}
+
+impl Timestamps<FCSTime100> {
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedTimestampsRef<'_>> {
+        let a = DeprecatedTimestampsRef::from(&mut self.btim);
+        let b = DeprecatedTimestampsRef::from(&mut self.etim);
+        let c = DeprecatedTimestampsRef::from(&mut self.date);
+        [a, b, c].into_iter()
     }
 }
 

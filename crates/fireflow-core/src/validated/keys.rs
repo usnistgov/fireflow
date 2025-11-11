@@ -277,19 +277,19 @@ pub(crate) trait AnyKey {
     fn as_std(&self) -> StdKey;
 }
 
-impl<T: Key> AnyKey for SpecificKey<T, ()> {
+impl<T: Key> AnyKey for Key0<T> {
     fn as_std(&self) -> StdKey {
         T::std()
     }
 }
 
-impl<T: IndexedKey> AnyKey for SpecificKey<T, IndexFromOne> {
+impl<T: IndexedKey> AnyKey for Key1<T> {
     fn as_std(&self) -> StdKey {
         T::std(self.index)
     }
 }
 
-impl<T: BiIndexedKey> AnyKey for SpecificKey<T, BiIndex> {
+impl<T: BiIndexedKey> AnyKey for Key2<T> {
     fn as_std(&self) -> StdKey {
         let i = &self.index;
         T::std(i.i0, i.i1)
@@ -310,19 +310,23 @@ impl<T, I: Clone> Clone for SpecificKey<T, I> {
 
 impl<T, I: Copy> Copy for SpecificKey<T, I> {}
 
-impl<T> Default for SpecificKey<T, ()> {
+pub type Key0<T> = SpecificKey<T, ()>;
+pub type Key1<T> = SpecificKey<T, IndexFromOne>;
+pub type Key2<T> = SpecificKey<T, BiIndex>;
+
+impl<T> Default for Key0<T> {
     fn default() -> Self {
         Self::new(())
     }
 }
 
-impl<T> SpecificKey<T, IndexFromOne> {
+impl<T> Key1<T> {
     pub(crate) fn new_i1(i: IndexFromOne) -> Self {
         Self::new(i)
     }
 }
 
-impl<T> SpecificKey<T, BiIndex> {
+impl<T> Key2<T> {
     pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
         Self::new(BiIndex::new(i, j))
     }
@@ -358,6 +362,13 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted(&mut self, key: StdKey, value: String);
 
+    fn insert_demoted_<T, I>(&mut self, key: SpecificKey<T, I>, value: String)
+    where
+        SpecificKey<T, I>: AnyKey,
+    {
+        self.insert_demoted(key.as_std(), value);
+    }
+
     fn insert_demoted_as<T: Key>(&mut self, value: String) {
         let k = T::std();
         self.insert_demoted(k, value);
@@ -366,6 +377,17 @@ pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted_metaroot<T: OptMetarootKey + fmt::Display>(&mut self, value: &T) {
         let (k, v) = value.metaroot_pair_std();
         self.insert_demoted(k, v);
+    }
+
+    fn insert_demoted_metaroot_<T: Key + fmt::Display>(&mut self, value: &T) {
+        self.insert_demoted_(SpecificKey::<T, ()>::default(), value.to_string());
+    }
+
+    fn insert_demoted_indexed_<T>(&mut self, i: IndexFromOne, value: &T)
+    where
+        T: IndexedKey + fmt::Display,
+    {
+        self.insert_demoted_(SpecificKey::<T, _>::new_i1(i.into()), value.to_string());
     }
 
     fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {

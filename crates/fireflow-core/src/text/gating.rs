@@ -12,7 +12,8 @@ use crate::validated::keys::{
 
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
-    DepOptIndexedKeyError, DepOptKeyError, DependentKeyError, LookupAppliedGates2_0Error,
+    DepGatedMeasRef, DepOptIndexedKeyError, DepOptKeyError, DependentKeyError,
+    DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef, LookupAppliedGates2_0Error,
     LookupAppliedGates3_0Error, LookupAppliedGates3_2Error, LookupAppliedGatesError,
     LookupDepGatedMeasError, LookupGatedMeasError, LookupGatedMeasurementsError,
     LookupGatingSchemeError, LookupKeysWarning, LookupOptional, LookupRegionError, LookupTentative,
@@ -33,6 +34,7 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::iter::{once, repeat};
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -550,6 +552,14 @@ impl AppliedGates3_0 {
                     .map_err(AppliedGates3_0To3_2Error::from)
             })
     }
+
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
+        self.gated_measurements
+            .0
+            .iter_mut()
+            .enumerate()
+            .flat_map(|(i, g)| g.deprecated(i.into()))
+    }
 }
 
 impl AppliedGates3_2 {
@@ -634,6 +644,24 @@ impl GatedMeasurement {
             go!(dvolt),
             |s, n, p, r, v| Self::new(s, filter, n, p, r, lname, dtype, v),
         )
+    }
+
+    fn deprecated(&mut self, i: GateIndex) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
+        let j = i.into();
+        macro_rules! go {
+            ($j:expr, $x:expr) => {
+                DepGatedMeasRef::from(IndexedDepRef::new($j, $x))
+            };
+        }
+        let x0 = go!(j, &mut self.scale);
+        let x1 = go!(j, DeprecatedStrRef(&mut self.filter));
+        let x2 = go!(j, &mut self.shortname);
+        let x3 = go!(j, &mut self.percent_emitted);
+        let x4 = go!(j, &mut self.range);
+        let x5 = go!(j, DeprecatedStrRef(&mut self.longname));
+        let x6 = go!(j, DeprecatedStrRef(&mut self.detector_type));
+        let x7 = go!(j, &mut self.detector_voltage);
+        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
     fn lookup_dep(
@@ -915,6 +943,14 @@ impl<I> GatingScheme<I> {
                 .map(|(ri, r)| (ri, r.inner_into()))
                 .collect(),
         }
+    }
+}
+
+impl GatingScheme<PrefixedMeasIndex> {
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedGatingSchemeRef<'_>> {
+        let g = DeprecatedGatingSchemeRef::from(&mut self.gating);
+        let r = DeprecatedGatingSchemeRef::from(&mut self.regions);
+        [g, r].into_iter()
     }
 }
 

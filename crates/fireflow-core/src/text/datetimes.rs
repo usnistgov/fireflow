@@ -1,6 +1,6 @@
 use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt};
+use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
@@ -48,6 +48,7 @@ pub struct EndDateTime(pub FCSDateTime);
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
+    #[must_use]
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
@@ -107,8 +108,8 @@ impl Datetimes {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
                         if conf.transfer_dropped_optional.is_set() {
-                            ret.begin.inspect(|b| nonstd.insert_demoted_metaroot(b));
-                            ret.end.inspect(|e| nonstd.insert_demoted_metaroot(e));
+                            ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
+                            ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
                         }
                         ret
                     })

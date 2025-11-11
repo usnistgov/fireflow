@@ -387,7 +387,7 @@ pub(crate) trait NonStdKeywordsExt {
     where
         T: IndexedKey + fmt::Display,
     {
-        self.insert_demoted_(SpecificKey::<T, _>::new_i1(i.into()), value.to_string());
+        self.insert_demoted_(SpecificKey::<T, _>::new_i1(i), value.to_string());
     }
 
     fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {

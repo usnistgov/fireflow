@@ -1,16 +1,12 @@
 use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
-use crate::logging::{
-    DeferredError, DeferredFungibleErrors, DeferredWarningsAndErrors, LogResult, ResultExt as _,
-};
+use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    DepOptKeyStError, DeprecatedRef, DeprecatedTimestampsRef, FromStrWith, LookupKeysWarning,
-    LookupTentative, LookupTimestampsError, OptKeyStError, OptMetarootKey, Optional,
-    ParseOptKeyError,
+    DeprecatedTimestampsRef, FromStrWith, LookupTimestampsError, OptMetarootKey, Optional,
 };
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -195,13 +191,13 @@ impl<X> Timestamps<X> {
                         if conf.transfer_dropped_optional.is_set() {
                             ret.date
                                 .as_ref()
-                                .inspect(|&d| nonstd.insert_demoted_metaroot(d));
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
                             ret.btim
                                 .as_ref()
-                                .inspect(|&b| nonstd.insert_demoted_metaroot(b));
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
                             ret.etim
                                 .as_ref()
-                                .inspect(|&e| nonstd.insert_demoted_metaroot(e));
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
                         }
                         ret
                     })

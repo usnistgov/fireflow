@@ -281,7 +281,7 @@ pub(crate) fn lookup_dfc(
 ) -> Result<Option<f32>, OptKeyError_<ParseFloatError, Dfc, BiIndex>> {
     kws.remove(&k.as_std()).map_or(Ok(None), |v| {
         v.parse::<f32>()
-            .map_err(|e| OptKeyError_::Parse(ParseKeyError::new(e, k, v.clone())))
+            .map_err(|e| ParseKeyError::new(e, k, v.clone()))
             .map(Some)
     })
 }

@@ -7911,11 +7911,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
             .fungible_into_commutative();
-        let mode = Mode3_2::drop_metaroot_deprecated(std, nonstd, conf)
-            .map_commutative_warnings(ParseOptKeyError::from)
-            .map_commutative_warnings(LookupKeysWarning::from)
-            .map_errors(ParseOptKeyError::from)
-            .map_errors(LookupKeysWarning::from);
+        let mode = Mode3_2::drop_metaroot_opt(std, nonstd, conf)
+            .map_fungible_errors(ParseOptKeyError::from)
+            .map_fungible_errors(LookupKeysWarning::from)
+            .fungible_into_commutative()
+            .into_semigroup();
         let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)

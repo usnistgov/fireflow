@@ -77,9 +77,9 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, Tot};
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
-    DepOptIndexedKeyError, DepOptKeyError, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTentative, OptIndexedKey as _, OptIndexedKeyError, ParseOptKeyError, ParseReqKeyError,
-    ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
+    LookupKeysError, LookupKeysWarning, LookupResult, OptIndexedKey as _, OptIndexedKeyError,
+    OptKeyError, ParseOptKeyError, ParseReqKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
+    ReqKeyError, ReqMetarootKey as _,
 };
 
 use crate::validated::keys::NonStdKeywords;
@@ -4228,7 +4228,7 @@ pub enum NewDataReaderError {
 #[derive(From, Display)]
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
-    ParseTot(DepOptKeyError<Tot>),
+    ParseTot(OptKeyError<Tot>),
     Layout(ColumnError<IntRangeError<()>>),
     Width(UnevenEventWidth),
     Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),

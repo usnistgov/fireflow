@@ -1,14 +1,11 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::RemovedNamedLink;
-use crate::logging::{
-    DeferredError, DeferredFungibleError, DeferredFungibleErrors, DeferredWarningsAndErrors,
-    LogResult, ResultExt as _,
-};
+use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
+use crate::validated::keys::NonStdKeywordsExt as _;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
-use crate::validated::keys::{NonStdKeywordsExt as _, SpecificKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
@@ -16,17 +13,15 @@ use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
 use super::compensation::Compensation3_0;
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
-use super::gating;
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::named_vec::NameMapping;
 use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepOptIndexedKeyStError, DepValueWarning, FromStrDelim, FromStrWith,
-    IndexedKeyToIndexLinkError, LookupKeysError, LookupKeysWarning, LookupOptional, LookupResult,
-    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseOptKeyError,
-    ParseReqKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+    DepValueWarning, FromStrDelim, FromStrWith, LookupKeysError, LookupKeysWarning, LookupResult,
+    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseReqKeyError, ReqIndexedKey,
+    ReqIndexedKeyError, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -449,7 +444,7 @@ impl TemporalScale3_0 {
         i: MeasIndex,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> Result<(), ReqIndexedKeyError<TemporalScale3_0>> {
+    ) -> Result<(), ReqIndexedKeyError<Self>> {
         if conf.force_time_linear {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
@@ -886,95 +881,6 @@ impl<I> IndexPair<I> {
         })
     }
 }
-
-impl<I> RegionGateIndex<I> {
-    // pub(crate) fn lookup_region_opt0(
-    //     std: &mut StdKeywords,
-    //     nonstd: &mut NonStdKeywords,
-    //     i: RegionIndex,
-    //     par: Par,
-    //     conf: &StdTextReadConfig,
-    // ) -> DeferredFungibleErrors<
-    //     Option<Self>,
-    //     AllowOptionalDropping,
-    //     LookupRegionGateIndex<I, <Self as FromStrWith>::Err>,
-    // >
-    // where
-    //     I: fmt::Display + FromStr + gating::LinkedMeasIndex + PartialEq,
-    //     for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
-    // {
-    //     Self::drop_meas_opt_with(std, nonstd, i, (), conf)
-    // }
-
-    // pub(crate) fn lookup_region_opt_dep(
-    //     std: &mut StdKeywords,
-    //     nonstd: &mut NonStdKeywords,
-    //     i: RegionIndex,
-    //     par: Par,
-    //     conf: &StdTextReadConfig,
-    // ) -> DeferredWarningsAndErrors<
-    //     Option<Self>,
-    //     LookupDepRegionGateIndex<I, <Self as FromStrWith>::Err>,
-    //     LookupDepRegionGateIndex<I, <Self as FromStrWith>::Err>,
-    // >
-    // where
-    //     I: fmt::Display + FromStr + gating::LinkedMeasIndex + PartialEq,
-    //     for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
-    // {
-    //     Self::lookup_region_opt0(std, nonstd, i, par, conf)
-    //         .fungible_into_commutative()
-    //         .into_semigroup()
-    //         .map_errors(LookupDepRegionGateIndex::from)
-    //         .map_commutative_warnings(LookupDepRegionGateIndex::from)
-    //         // TODO sloppy
-    //         .into_log_dep_(SpecificKey::new_i1(i.into()), conf)
-    // }
-
-    // pub(crate) fn lookup_region_opt(
-    //     kws: &mut StdKeywords,
-    //     i: RegionIndex,
-    //     par: Par,
-    //     is_deprecated: bool,
-    //     conf: &StdTextReadConfig,
-    // ) -> LookupOptional<Self>
-    // where
-    //     I: fmt::Display + FromStr + gating::LinkedMeasIndex + PartialEq,
-    //     for<'a> Self: fmt::Display + FromStrWith<Payload<'a> = ()>,
-    //     ParseOptKeyError: From<DepOptIndexedKeyStError<Self>>,
-    //     LookupKeysWarning: From<RegionLinkError<I>>,
-    // {
-    //     let flag = conf.allow_optional_dropping;
-    //     Self::lookup_meas_opt_with(kws, i, is_deprecated, (), conf)
-    //         .eval_warning_or_error(flag, |maybe| maybe.as_ref()?.link_error(i, par))
-    // }
-
-    // fn link_error(&self, ri: RegionIndex, par: Par) -> Option<RegionLinkError<I>>
-    // where
-    //     I: gating::LinkedMeasIndex,
-    // {
-    //     let xs = self
-    //         .meas_indices()
-    //         .into_iter()
-    //         .filter(|&mi| mi >= par.0.into());
-    //     let k = SpecificKey::new(ri.into());
-    //     NonEmpty::collect(xs).map(|ne| IndexedKeyToIndexLinkError::new(ne, k))
-    // }
-
-    fn meas_indices(&self) -> Vec<MeasIndex>
-    where
-        I: gating::LinkedMeasIndex,
-    {
-        match self {
-            Self::Univariate(i) => i.meas_index().into_iter().collect(),
-            Self::Bivariate(i) => [i.x.meas_index(), i.y.meas_index()]
-                .into_iter()
-                .flatten()
-                .collect(),
-        }
-    }
-}
-
-// pub(crate) type RegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
 impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;

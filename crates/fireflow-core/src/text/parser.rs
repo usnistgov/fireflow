@@ -919,7 +919,9 @@ where
     }
 
     fn errors(&self, es: &mut Vec<AnyDepKeyError>) {
-        es.push(AnyDepKeyError::from(DepKeyWarning(Key0::<T>::default())));
+        if self.is_some() {
+            es.push(AnyDepKeyError::from(DepKeyWarning(Key0::<T>::default())));
+        }
     }
 }
 
@@ -937,7 +939,9 @@ where
     }
 
     fn errors(&self, es: &mut Vec<AnyDepKeyError>) {
-        es.push(AnyDepKeyError::from(DepKeyWarning(Key0::<T>::default())));
+        if !self.0.is_default() {
+            es.push(AnyDepKeyError::from(DepKeyWarning(Key0::<T>::default())));
+        }
     }
 }
 
@@ -955,9 +959,11 @@ where
     }
 
     fn errors(&self, es: &mut Vec<AnyDepKeyError>) {
-        es.push(AnyDepKeyError::from(DepKeyWarning(Key1::<T>::new_i1(
-            self.index,
-        ))));
+        if self.value.is_some() {
+            es.push(AnyDepKeyError::from(DepKeyWarning(Key1::<T>::new_i1(
+                self.index,
+            ))));
+        }
     }
 }
 
@@ -975,9 +981,11 @@ where
     }
 
     fn errors(&self, es: &mut Vec<AnyDepKeyError>) {
-        es.push(AnyDepKeyError::from(DepKeyWarning(Key1::<T>::new_i1(
-            self.index,
-        ))));
+        if !self.value.0.is_default() {
+            es.push(AnyDepKeyError::from(DepKeyWarning(Key1::<T>::new_i1(
+                self.index,
+            ))));
+        }
     }
 }
 

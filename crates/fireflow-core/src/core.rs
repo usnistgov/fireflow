@@ -55,18 +55,17 @@ use crate::text::named_vec::{
     SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{
-    CheckMaybe as _, DisplayMaybe as _, Identity, IsDefault as _, KeywordPairMaybe as _, MightHave,
-    Nothing,
+    CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
 };
 use crate::text::parser::{
-    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DepKeyWarning, DepKeyWarnings, DepValueWarning,
-    DependentIndexedKeyError, DependentKeyError, DeprecatedPeakRef, DeprecatedPlateRef,
-    DeprecatedRef, DeprecatedStrRef, ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError,
-    IsDeprecated as _, KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError,
-    LookupKeysError, LookupKeysWarning, LookupModifiedDataError, LookupPeakError, LookupResult,
-    MissingTime, OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _,
-    ParseOptKeyError, ParseReqKeyError, PseudostandardError, RawKeywords, ReqIndexedKey as _,
-    ReqKeyError, ReqMetarootKey as _, UnusedStandardError,
+    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexedKeyError,
+    DependentKeyError, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
+    ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError, IsDeprecated as _,
+    KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupKeysError,
+    LookupKeysWarning, LookupModifiedDataError, LookupPeakError, LookupResult, MissingTime,
+    OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _, ParseOptKeyError,
+    ParseReqKeyError, PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError,
+    ReqMetarootKey as _, UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -5202,28 +5201,6 @@ impl PlateData {
         Self::new(i, n, w)
     }
 
-    fn lookup_dep(
-        kws: &mut StdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Self, DisallowDeprecated, DepKeyWarnings> {
-        let ret = Self::lookup(kws);
-        let flag = conf.disallow_deprecated;
-        let e0 = (ret.plateid.is_default())
-            .then_some(SpecificKey::<Plateid, ()>::default())
-            .map(DepKeyWarning)
-            .map(DepKeyWarnings::from);
-        let e1 = (ret.platename.is_default())
-            .then_some(SpecificKey::<Platename, ()>::default())
-            .map(DepKeyWarning)
-            .map(DepKeyWarnings::from);
-        let e2 = (ret.wellid.is_default())
-            .then_some(SpecificKey::<Wellid, ()>::default())
-            .map(DepKeyWarning)
-            .map(DepKeyWarnings::from);
-        let es = [e0, e1, e2].into_iter().flatten();
-        DeferredFungibleErrors::new_deferred_fungible_iter(ret, es, flag)
-    }
-
     fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedPlateRef<'_>> {
         let a = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.platename));
         let b = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.plateid));
@@ -7813,6 +7790,8 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         ms: &TemporalsAndOpticals3_1,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
+        // TODO this is not supposed to be an error since it cannot be fixed
+        // automatically
         let process_mode = |mode| {
             let err = match &mode {
                 Mode::Correlated => Some(DepValueWarning::ModeCorrelated),
@@ -7922,9 +7901,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .fungible_into_commutative()
             .into_semigroup();
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
-        let plate = PlateData::lookup_dep(std, conf)
-            .map_fungible_errors(LookupKeysWarning::from)
-            .fungible_into_commutative();
+        let plate = PlateData::lookup(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)
@@ -7945,13 +7922,13 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_errors(LookupKeysWarning::from)
             .map_commutative_warnings(LookupKeysWarning::from);
         dt.zip4_cmt(modif, mode, spill)
-            .zip6_cmt(plate, ts, us, vol, ag)
+            .zip5_cmt(ts, us, vol, ag)
             .map_errors(LookupKeysError::from)
-            .and_then_cmt(|((d_, md_, mo_, sp_), p_, t_, u_, v_, ag_)| {
+            .and_then_cmt(|((d_, md_, mo_, sp_), t_, u_, v_, ag_)| {
                 Cyt3_2::remove_metaroot_req(std)
                     .map(|c_| {
                         Self::new(
-                            mo_, t_, d_, c_, sp_, cytsn, md_, p_, v_, carrier, u_, flow, ag_,
+                            mo_, t_, d_, c_, sp_, cytsn, md_, plate, v_, carrier, u_, flow, ag_,
                         )
                     })
                     .map_err(ParseReqKeyError::from)

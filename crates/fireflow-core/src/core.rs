@@ -2154,7 +2154,6 @@ impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot,
-    M::Name: Clone,
 {
     /// Show FCS version.
     pub fn fcs_version(&self) -> Version
@@ -3136,7 +3135,6 @@ where
     >
     where
         Version: From<M::Ver> + From<ToM::Ver>,
-        M::Name: Clone,
         ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
@@ -3775,12 +3773,7 @@ where
     }
 }
 
-impl<M> VersionedCoreTEXT<M>
-where
-    M: VersionedMetaroot,
-    // TODO why is this here?
-    M::Name: Clone,
-{
+impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
@@ -4151,12 +4144,62 @@ where
                     })
             })
     }
+
+    pub(crate) fn try_new_nodrop(
+        mut metaroot: Metaroot<M>,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> ErrorsResult<Self, (), NewCoreError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        Measurements::try_new(measurements)
+            .map_err(NewCoreError::from)
+            .into_log()
+            .and_then_cmt(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, &layout, false)
+                    .map_errors(NewCoreWarning::from)
+                    .map_errors(NewCoreError::from)
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+            })
+    }
+
+    fn check_relationships(
+        metaroot: &mut Metaroot<M>,
+        measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
+        layout: &<M::Ver as Versioned>::Layout,
+        allow_dropping: bool,
+    ) -> ErrorsResult<(), (), NewCoreRelationalError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let ns: Vec<_> = measurements.indexed_names().collect();
+        // Check for any invalid links; throw error if any are found
+        let par = Par(measurements.len());
+        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_dropping);
+        let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
+        // Check that measurement and layout vectors are same length
+        // and that transforms are valid for given datatype(s)
+        let layout_res = layout
+            .check_measurement_vector(measurements)
+            .map_errors(NewCoreRelationalError::from);
+        link_res
+            .map_errors(NewCoreRelationalError::from)
+            .lift_f2_once(layout_res, |(), ()| ())
+    }
+
+    fn new_unchecked(
+        metaroot: Metaroot<M>,
+        measurements: Measurements<M::Name, M::Temporal, M::Optical>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Self {
+        Self::new(metaroot, measurements, layout, (), (), ())
+    }
 }
 
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetaroot,
-    M::Name: Clone,
     <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
     pub fn new_from_keywords<C>(
@@ -4567,59 +4610,6 @@ where
             })
             .summarize_errors()
             .resolve_nowarn()
-    }
-}
-
-impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
-    pub(crate) fn try_new_nodrop(
-        mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
-    ) -> ErrorsResult<Self, (), NewCoreError>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        Measurements::try_new(measurements)
-            .map_err(NewCoreError::from)
-            .into_log()
-            .and_then_cmt(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, &layout, false)
-                    .map_errors(NewCoreWarning::from)
-                    .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
-            })
-    }
-
-    fn check_relationships(
-        metaroot: &mut Metaroot<M>,
-        measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
-        layout: &<M::Ver as Versioned>::Layout,
-        allow_dropping: bool,
-    ) -> ErrorsResult<(), (), NewCoreRelationalError>
-    where
-        M::Optical: AsScaleTransform,
-    {
-        let ns: Vec<_> = measurements.indexed_names().collect();
-        // Check for any invalid links; throw error if any are found
-        let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_dropping);
-        let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
-        // Check that measurement and layout vectors are same length
-        // and that transforms are valid for given datatype(s)
-        let layout_res = layout
-            .check_measurement_vector(measurements)
-            .map_errors(NewCoreRelationalError::from);
-        link_res
-            .map_errors(NewCoreRelationalError::from)
-            .lift_f2_once(layout_res, |(), ()| ())
-    }
-
-    fn new_unchecked(
-        metaroot: Metaroot<M>,
-        measurements: Measurements<M::Name, M::Temporal, M::Optical>,
-        layout: <M::Ver as Versioned>::Layout,
-    ) -> Self {
-        Self::new(metaroot, measurements, layout, (), (), ())
     }
 }
 

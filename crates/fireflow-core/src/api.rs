@@ -16,9 +16,9 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, SwitchableErrorResult, SwitchableErrorsResult, IOSummaryResult,
-    ImpureError, LogResult, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
+    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
+    DeferredWarningsAndErrors, IOSummaryResult, ImpureError, LogResult, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult,
 };
 use crate::macros::def_failure;
@@ -64,7 +64,7 @@ pub fn fcs_read_header(
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
         .into_log()
-        .and_then_cmt(|(st, file)| {
+        .and_then_commutative(|(st, file)| {
             let mut reader = BufReader::new(file);
             Header::h_read(&mut reader, &st)
         })
@@ -81,7 +81,7 @@ pub fn fcs_read_raw_text(
 {
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, _)| x)
-        .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(w.into()))
+        .commutative_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(w.into()))
         .summarize_errors()
 }
 
@@ -98,14 +98,14 @@ pub fn fcs_read_std_text(
 > {
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, st)| (x, st))
-        .cmt_warnings_into()
+        .map_commutative_warnings(StdTEXTWarning::from)
         .map_errors(ImpureError::inner_into)
-        .and_then_cmt(|(raw, st)| {
+        .and_then_commutative(|(raw, st)| {
             raw.into_std_text(&st)
-                .cmt_warnings_into()
+                .map_commutative_warnings(StdTEXTWarning::from)
                 .map_errors(|e| ImpureError::Pure(e.into()))
         })
-        .cmt_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
+        .commutative_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
         .summarize_errors()
 }
 
@@ -121,9 +121,9 @@ pub fn fcs_read_raw_dataset(
     RawDatasetFailure,
 > {
     read_fcs_raw_text_inner(p, conf)
-        .cmt_warnings_into()
+        .map_commutative_warnings(RawDatasetWarning::from)
         .map_errors(ImpureError::inner_into)
-        .and_then_cmt(|(raw, mut h, st)| {
+        .and_then_commutative(|(raw, mut h, st)| {
             h_read_dataset_from_kws(
                 &mut h,
                 raw.version,
@@ -134,10 +134,10 @@ pub fn fcs_read_raw_dataset(
                 &st,
             )
             .map_ok_value(|dataset| RawDatasetOutput::new(raw, dataset))
-            .cmt_warnings_into()
+            .map_commutative_warnings(RawDatasetWarning::from)
             .map_errors(ImpureError::inner_into)
         })
-        .cmt_warnings_to_errors(&conf.shared, |w| {
+        .commutative_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(RawDatasetError::from(w))
         })
         .summarize_errors()
@@ -155,14 +155,14 @@ pub fn fcs_read_std_dataset(
     StdDatasetFailure,
 > {
     read_fcs_raw_text_inner(p, conf)
-        .cmt_warnings_into()
+        .map_commutative_warnings(StdDatasetWarning::from)
         .map_errors(ImpureError::inner_into)
-        .and_then_cmt(|(raw, mut h, st)| {
+        .and_then_commutative(|(raw, mut h, st)| {
             raw.into_std_dataset(&mut h, &st)
-                .cmt_warnings_into()
+                .map_commutative_warnings(StdDatasetWarning::from)
                 .map_errors(ImpureError::inner_into)
         })
-        .cmt_warnings_to_errors(&conf.shared, |w| {
+        .commutative_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(StdDatasetError::from(w))
         })
         .summarize_errors()
@@ -187,7 +187,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
         .into_log()
-        .and_then_cmt(|(st, file)| {
+        .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
             h_read_dataset_from_kws(
                 &mut h,
@@ -199,7 +199,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 &st,
             )
         })
-        .cmt_warnings_to_errors(&conf.shared, |w| {
+        .commutative_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(LookupAndReadDataAnalysisError::from(w))
         })
         .summarize_errors()
@@ -224,7 +224,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
         .into_log()
-        .and_then_cmt(|(st, file)| {
+        .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
             AnyCoreDataset::new_from_keywords(
                 &mut h,
@@ -236,7 +236,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &st,
             )
         })
-        .cmt_warnings_to_errors(&conf.shared, |w| {
+        .commutative_warnings_to_errors(&conf.shared, |w| {
             ImpureError::Pure(StdDatasetFromRawError::from(w))
         })
         .summarize_errors()
@@ -561,7 +561,7 @@ where
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
         .into_log()
-        .and_then_cmt(|(st, file)| {
+        .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
             RawTEXTOutput::h_read(&mut h, &st).map_ok_value(|x| (x, h, st))
         })
@@ -587,7 +587,7 @@ where
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .map_errors(ImpureError::inner_into)
-        .and_then_cmt(|(data, analysis, dataset_segments)| {
+        .and_then_commutative(|(data, analysis, dataset_segments)| {
             OthersReader::new(other_segs)
                 .h_read(h)
                 .map_err(ImpureError::IO)
@@ -613,7 +613,7 @@ impl RawTEXTOutput {
         Header::h_read(h, st)
             .nowarn_into_warn()
             .map_errors(ImpureError::inner_into)
-            .and_then_cmt(|mut header| {
+            .and_then_commutative(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
                 if let Some(v) = conf.version_override {
                     header.version = v;
@@ -721,17 +721,17 @@ where
     let delim_res = ptext_seg
         .h_read_contents(h, &mut buf)
         .into_io_log()
-        .and_then_cmt(|()| {
+        .and_then_commutative(|()| {
             // buffer is filled above by side effect, and this won't run if the
             // read step has an error
             split_first_delim(&buf, conf)
                 .map_errors(|e| ImpureError::Pure(e.into()))
-                .cmt_warnings_into()
+                .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .repack()
         });
 
     delim_res
-        .and_then_cmt(|(delim, bytes)| {
+        .and_then_commutative(|(delim, bytes)| {
             let mut kws = ParsedKeywords::default();
             split_raw_primary_text(&mut kws, delim, bytes, conf)
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
@@ -739,7 +739,7 @@ where
                 .map_errors(ImpureError::Pure)
                 .map_ok_value(|()| (kws, delim))
         })
-        .and_then_cmt(|(mut kws, delim)| {
+        .and_then_commutative(|(mut kws, delim)| {
             if conf.ignore_supp_text.is_set() {
                 // NOTE rip out the STEXT keywords so they don't trigger a false
                 // positive pseudostandard keyword error later
@@ -760,7 +760,7 @@ where
                     })
             }
         })
-        .and_then_cmt(|(delim, mut kws, supp_text_seg)| {
+        .and_then_commutative(|(delim, mut kws, supp_text_seg)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParseRawTEXTError::from)
@@ -794,14 +794,18 @@ where
                     RawTEXTOutput::new(header.version, vkws, parse)
                 })
         })
-        .and_then_cmt(|raw| {
+        .and_then_commutative(|raw| {
             let p = &raw.parse;
-            let na = p.as_non_ascii_errors(conf).errors_into();
-            let be = p.as_byte_errors(conf).errors_into();
-            let os = p.as_overlapping_segment_error().errors_into();
+            let na = p
+                .as_non_ascii_errors(conf)
+                .map_errors(ParseRawTEXTError::from);
+            let be = p.as_byte_errors(conf).map_errors(ParseRawTEXTError::from);
+            let os = p
+                .as_overlapping_segment_error()
+                .map_errors(ParseRawTEXTError::from);
             [na, be, os]
                 .into_iter()
-                .mappend_cmt()
+                .mappend_commutative()
                 .map_errors(ImpureError::Pure)
                 .nowarn_into_warn()
                 .map_ok_value(|_| raw)
@@ -819,11 +823,11 @@ fn h_read_raw_supp_text<R: Read + Seek>(
     if let Some(seg) = maybe_seg {
         seg.h_read_contents(h, buf)
             .into_io_log()
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| {
                 // buffer is read above by side effect
                 split_raw_supp_text(kws, delim, buf, conf)
                     .map_errors(ImpureError::Pure)
-                    .cmt_warnings_into()
+                    .map_commutative_warnings(ParseKeywordsIssue::from)
                     .map_errors(ImpureError::inner_into)
             })
     } else {
@@ -856,7 +860,8 @@ fn split_raw_primary_text(
     if bytes.is_empty() {
         LogResult::new_err1(NoTEXTWordsError.into())
     } else {
-        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf).errors_into()
+        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
+            .map_errors(ParsePrimaryTEXTError::from)
     }
 }
 
@@ -931,7 +936,7 @@ fn split_raw_text_literal_delim(
             } else {
                 let e = kws
                     .insert(key, value, conf)
-                    .map_non_cmt_warnings(ParseKeywordsIssue::from)
+                    .map_non_commutative_warnings(ParseKeywordsIssue::from)
                     .map_errors(ParseKeywordsIssue::from);
                 insert_results.push(e);
             }
@@ -965,7 +970,7 @@ fn split_raw_text_literal_delim(
     // it can consume options or b) use stack-vectors for warnings
     insert_results
         .into_iter()
-        .map(LogResult::non_cmt_into_cmt)
+        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
         .chain([uneven_res, final_delim_res, blank_res])
         .mappend_def_void()
@@ -984,7 +989,7 @@ fn split_raw_text_escaped_delim(
     let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
         let e = kws
             .insert(kb, vb, conf)
-            .map_non_cmt_warnings(ParseKeywordsIssue::from)
+            .map_non_commutative_warnings(ParseKeywordsIssue::from)
             .map_errors(ParseKeywordsIssue::from);
         insert_results.push(e);
     };
@@ -1095,7 +1100,7 @@ fn split_raw_text_escaped_delim(
 
     insert_results
         .into_iter()
-        .map(LogResult::non_cmt_into_cmt)
+        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
         .chain([uneven_res, final_delim_res, even_delim_res, boundary_res])
         .mappend_def_void()
@@ -1191,7 +1196,7 @@ fn lookup_nextdata(
     } else {
         Nextdata::get_metaroot_opt(kws).into_succ()
     };
-    ret.map_def_value(|x| x.map(|y| u64::from(y.0)))
+    ret.map_deferred_value(|x| x.map(|y| u64::from(y.0)))
 }
 
 impl RawTEXTParseData {

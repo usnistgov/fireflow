@@ -1,6 +1,6 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult,
+    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult,
     ResultExt,
 };
 use crate::segment::{
@@ -138,7 +138,7 @@ impl<T> HeaderSegments<T> {
             self.as_generics()
                 .map(|x| x.overlaps(&q).into_log())
                 .mappend_def()
-                .set_def_value(())
+                .set_deferred_value(())
         } else {
             LogResult::new_ok(())
         }
@@ -149,8 +149,12 @@ impl<T> HeaderSegments<T> {
     where
         T: Copy + Into<u64> + HeaderString,
     {
-        let x = self.overlapping_segments().errors_into();
-        let y = self.contains_header_segments().errors_into();
+        let x = self
+            .overlapping_segments()
+            .map_errors(HeaderValidationError::from);
+        let y = self
+            .contains_header_segments()
+            .map_errors(HeaderValidationError::from);
         x.lift_f2_once(y, |(), ()| ())
     }
 
@@ -246,7 +250,7 @@ impl Header {
         C: AsRef<HeaderConfigInner>,
         R: Read,
     {
-        h_read_required_header(h, st).and_then_cmt(|(version, text, data, analysis)| {
+        h_read_required_header(h, st).and_then_commutative(|(version, text, data, analysis)| {
             [text.try_coords(), data.try_coords(), analysis.try_coords()]
                 .iter()
                 .flatten()
@@ -258,7 +262,7 @@ impl Header {
                 .map_ok_value(|other| {
                     Self::new(version, HeaderSegments::new(text, data, analysis, other))
                 })
-                .and_then_cmt(|hdr| {
+                .and_then_commutative(|hdr| {
                     hdr.segments
                         .validate()
                         .map_errors(HeaderError::Validation)
@@ -296,10 +300,10 @@ where
     let data_res = h_read_primary_segment(h, true, conf.data_correction, st);
     let anal_res = h_read_primary_segment(h, true, conf.analysis_correction, st);
     let offset_res = text_res
-        .zip3_cmt(data_res, anal_res)
+        .zip3_commutative(data_res, anal_res)
         .map_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
-        .zip3_cmt(space_res, offset_res)
+        .zip3_commutative(space_res, offset_res)
         .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
 }
 
@@ -373,7 +377,7 @@ where
             };
             let res0 = readbuf(&mut buf0);
             let res1 = readbuf(&mut buf1);
-            res0.zip_cmt(res1).and_then_nowarn_with_warn(|_| {
+            res0.zip_commutative(res1).and_then_nowarn_with_warn(|_| {
                 // If any regions are entirely blank, just ignore them
                 if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                     LogResult::new_ok(None)
@@ -385,7 +389,7 @@ where
                 }
             })
         })
-        .mappend_cmt()
+        .mappend_commutative()
         .map_ok_value(|os| os.into_iter().flatten().collect())
 }
 

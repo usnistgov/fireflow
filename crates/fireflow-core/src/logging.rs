@@ -54,19 +54,19 @@ pub type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V, X, E>;
 // Results with warnings and errors of differing types which are not commutable
 //
 
-pub type WarningOrErrorResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, E, Nothing<E>>;
-pub type WarningsOrErrorResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, E, Nothing<E>>;
-pub type WarningOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Option<W>, E, Vec<E>>;
-pub type WarningsOrErrorsResult<V, P, W, E> = NonCmtResult<V, P, Vec<W>, E, Vec<E>>;
+pub type WarningOrErrorResult<V, P, W, E> = NonCommutativeResult<V, P, Option<W>, E, Nothing<E>>;
+pub type WarningsOrErrorResult<V, P, W, E> = NonCommutativeResult<V, P, Vec<W>, E, Nothing<E>>;
+pub type WarningOrErrorsResult<V, P, W, E> = NonCommutativeResult<V, P, Option<W>, E, Vec<E>>;
+pub type WarningsOrErrorsResult<V, P, W, E> = NonCommutativeResult<V, P, Vec<W>, E, Vec<E>>;
 
 //
 // Results with warnings and errors of differing types which are commutable
 //
 
-pub type WarningAndErrorResult<V, P, W, E> = CmtResult<V, P, Option<W>, E, Nothing<E>>;
-pub type WarningsAndErrorResult<V, P, W, E> = CmtResult<V, P, Vec<W>, E, Nothing<E>>;
-pub type WarningAndErrorsResult<V, P, W, E> = CmtResult<V, P, Option<W>, E, Vec<E>>;
-pub type WarningsAndErrorsResult<V, P, W, E> = CmtResult<V, P, Vec<W>, E, Vec<E>>;
+pub type WarningAndErrorResult<V, P, W, E> = CommutativeResult<V, P, Option<W>, E, Nothing<E>>;
+pub type WarningsAndErrorResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E, Nothing<E>>;
+pub type WarningAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Option<W>, E, Vec<E>>;
+pub type WarningsAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E, Vec<E>>;
 
 pub type IOWarningAndErrorResult<V, P, W, E> = WarningAndErrorResult<V, P, W, ImpureError<E>>;
 pub type IOWarningsAndErrorResult<V, P, W, E> = WarningsAndErrorResult<V, P, W, ImpureError<E>>;
@@ -92,13 +92,13 @@ pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E
 // helper types for constructing the "complete" types above
 //
 
-pub(crate) type NowarnResult<V, P, E, EC> = CmtResult<V, P, Nothing<()>, E, EC>;
+pub(crate) type NowarnResult<V, P, E, EC> = CommutativeResult<V, P, Nothing<()>, E, EC>;
 
-pub(crate) type Deferred<V, WC, E, EC> = CmtResult<V, V, WC, E, EC>;
+pub(crate) type Deferred<V, WC, E, EC> = CommutativeResult<V, V, WC, E, EC>;
 
-pub(crate) type CmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
+pub(crate) type CommutativeResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
 
-pub(crate) type NonCmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
+pub(crate) type NonCommutativeResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
 
 pub(crate) type SwitchableResult<V, P, X, E, EC> =
     LogResult<V, P, <EC as SwitchableErrorContainer>::Warn, Nothing<()>, X, E, EC>;
@@ -460,9 +460,9 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    pub(crate) fn with_value<F, ToV, P, E, EC>(self, f: F) -> CmtResult<ToV, P, WC, E, EC>
+    pub(crate) fn with_value<F, ToV, P, E, EC>(self, f: F) -> CommutativeResult<ToV, P, WC, E, EC>
     where
-        F: FnOnce(V) -> CmtResult<ToV, P, WC, E, EC>,
+        F: FnOnce(V) -> CommutativeResult<ToV, P, WC, E, EC>,
         WC: Semigroup,
     {
         match f(self.value) {
@@ -629,9 +629,9 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         self.errors.extend(es);
     }
 
-    fn with_value<F, V, Pf, EC1>(mut self, f: F) -> CmtResult<V, Pf, WC, E, EC>
+    fn with_value<F, V, Pf, EC1>(mut self, f: F) -> CommutativeResult<V, Pf, WC, E, EC>
     where
-        F: FnOnce(P) -> CmtResult<V, Pf, WC, E, EC1>,
+        F: FnOnce(P) -> CommutativeResult<V, Pf, WC, E, EC1>,
         WC: Semigroup,
         EC: Extend<E> + IntoIterator<Item = E>,
         EC1: IntoIterator<Item = E>,
@@ -876,7 +876,7 @@ pub trait ResultExt: Sized {
     {
         self.into_result()
             .into_deferred_switchable_opt(flag)
-            .map_def_value(|v| v.unwrap_or(default))
+            .map_deferred_value(|v| v.unwrap_or(default))
     }
 
     fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
@@ -1017,21 +1017,12 @@ where
 }
 
 // commutative
-impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
-    /// Convert warnings of commutative Result
-    pub(crate) fn cmt_warnings_into<W, Wf>(self) -> CmtResult<V, P, Sibling1<WC, Wf>, E, EC>
-    where
-        W: Into<Wf>,
-        WC: Functor<W>,
-    {
-        self.map_commutative_warnings(Into::into)
-    }
-
+impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
     /// Map function over warnings of commutative Result
     pub(crate) fn map_commutative_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> CmtResult<V, P, Sibling1<WC, Wf>, E, EC>
+    ) -> CommutativeResult<V, P, Sibling1<WC, Wf>, E, EC>
     where
         F: Fn(W) -> Wf,
         WC: Functor<W>,
@@ -1040,11 +1031,11 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
             .map_err(|e| e.map_warnings(f))
     }
 
-    pub(crate) fn cmt_warnings_to_errors<F, W>(
+    pub(crate) fn commutative_warnings_to_errors<F, W>(
         self,
         conf: &SharedConfig,
         f: F,
-    ) -> CmtResult<V, (), WC, E, EC>
+    ) -> CommutativeResult<V, (), WC, E, EC>
     where
         F: Fn(W) -> E,
         EC: Extend<E> + Default,
@@ -1089,7 +1080,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         fv: Fv,
         fp: Fp,
         fe: Fe,
-    ) -> CmtResult<V, Pf, WC, E, EC>
+    ) -> CommutativeResult<V, Pf, WC, E, EC>
     where
         Fe: FnOnce(&V) -> Option<E>,
         Fv: FnOnce(V) -> Pf,
@@ -1112,7 +1103,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         fv: Fv,
         fp: Fp,
         fe: Fe,
-    ) -> CmtResult<V, Pf, WC, E, EC>
+    ) -> CommutativeResult<V, Pf, WC, E, EC>
     where
         X: ErrorFlag,
         Fv: FnOnce(V) -> Pf,
@@ -1172,12 +1163,12 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         }
     }
 
-    pub(crate) fn and_cmt<F>(self, f: F) -> Self
+    pub(crate) fn and_commutative<F>(self, f: F) -> Self
     where
-        F: FnOnce() -> CmtResult<(), P, WC, E, EC>,
+        F: FnOnce() -> CommutativeResult<(), P, WC, E, EC>,
         WC: Semigroup,
     {
-        self.and_then_cmt(|v| f().map_ok_value(|()| v))
+        self.and_then_commutative(|v| f().map_ok_value(|()| v))
     }
 
     /// Monad-ically chain commutative result operations.
@@ -1191,9 +1182,9 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
     ///
     /// Inner for warnings must be a semigroup, which specifically means
     /// that Option<T> must be converted to a vector before calling this.
-    pub(crate) fn and_then_cmt<F, Vf>(self, f: F) -> CmtResult<Vf, P, WC, E, EC>
+    pub(crate) fn and_then_commutative<F, Vf>(self, f: F) -> CommutativeResult<Vf, P, WC, E, EC>
     where
-        F: FnOnce(V) -> CmtResult<Vf, P, WC, E, EC>,
+        F: FnOnce(V) -> CommutativeResult<Vf, P, WC, E, EC>,
         WC: Semigroup,
     {
         match self {
@@ -1211,10 +1202,10 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
     /// be a semigroup (which here means Option<T> must be converted to Vec<T>
     /// prior to calling). The latter will be converted to a Vec<T> since
     /// there could be more than one errors.
-    pub(crate) fn zip_cmt<V1, P1>(
+    pub(crate) fn zip_commutative<V1, P1>(
         self,
-        a: CmtResult<V1, P1, WC, E, EC>,
-    ) -> CmtResult<(V, V1), (), WC, E, EC>
+        a: CommutativeResult<V1, P1, WC, E, EC>,
+    ) -> CommutativeResult<(V, V1), (), WC, E, EC>
     where
         EC: Extend<E> + IntoIterator<Item = E>,
         WC: Monoid,
@@ -1228,82 +1219,82 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
     }
 
     /// Combine three commutative results.
-    pub(crate) fn zip3_cmt<V1, V2, P1, P2>(
+    pub(crate) fn zip3_commutative<V1, V2, P1, P2>(
         self,
-        a: CmtResult<V1, P1, WC, E, EC>,
-        b: CmtResult<V2, P2, WC, E, EC>,
-    ) -> CmtResult<(V, V1, V2), (), WC, E, EC>
+        a: CommutativeResult<V1, P1, WC, E, EC>,
+        b: CommutativeResult<V2, P2, WC, E, EC>,
+    ) -> CommutativeResult<(V, V1, V2), (), WC, E, EC>
     where
         EC: Extend<E> + IntoIterator<Item = E>,
         WC: Monoid,
     {
-        self.zip_cmt(a)
-            .zip_cmt(b.repack())
+        self.zip_commutative(a)
+            .zip_commutative(b.repack())
             .map_ok_value(|((ax, bx), cx)| (ax, bx, cx))
     }
 
     /// Combine four commutative results.
     #[allow(clippy::type_complexity)]
-    pub(crate) fn zip4_cmt<V1, V2, V3, P1, P2, P3>(
+    pub(crate) fn zip4_commutative<V1, V2, V3, P1, P2, P3>(
         self,
-        a: CmtResult<V1, P1, WC, E, EC>,
-        b: CmtResult<V2, P2, WC, E, EC>,
-        c: CmtResult<V3, P3, WC, E, EC>,
-    ) -> CmtResult<(V, V1, V2, V3), (), WC, E, EC>
+        a: CommutativeResult<V1, P1, WC, E, EC>,
+        b: CommutativeResult<V2, P2, WC, E, EC>,
+        c: CommutativeResult<V3, P3, WC, E, EC>,
+    ) -> CommutativeResult<(V, V1, V2, V3), (), WC, E, EC>
     where
         EC: Extend<E> + IntoIterator<Item = E>,
         WC: Monoid,
     {
-        self.zip3_cmt(a, b)
-            .zip_cmt(c.repack())
+        self.zip3_commutative(a, b)
+            .zip_commutative(c.repack())
             .map_ok_value(|((ax, bx, cx), dx)| (ax, bx, cx, dx))
     }
 
     /// Combine five commutative results.
     #[allow(clippy::type_complexity)]
-    pub(crate) fn zip5_cmt<V1, V2, V3, V4, P1, P2, P3, P4>(
+    pub(crate) fn zip5_commutative<V1, V2, V3, V4, P1, P2, P3, P4>(
         self,
-        a: CmtResult<V1, P1, WC, E, EC>,
-        b: CmtResult<V2, P2, WC, E, EC>,
-        c: CmtResult<V3, P3, WC, E, EC>,
-        d: CmtResult<V4, P4, WC, E, EC>,
-    ) -> CmtResult<(V, V1, V2, V3, V4), (), WC, E, EC>
+        a: CommutativeResult<V1, P1, WC, E, EC>,
+        b: CommutativeResult<V2, P2, WC, E, EC>,
+        c: CommutativeResult<V3, P3, WC, E, EC>,
+        d: CommutativeResult<V4, P4, WC, E, EC>,
+    ) -> CommutativeResult<(V, V1, V2, V3, V4), (), WC, E, EC>
     where
         EC: Extend<E> + IntoIterator<Item = E>,
         WC: Monoid,
     {
-        self.zip4_cmt(a, b, c)
-            .zip_cmt(d.repack())
+        self.zip4_commutative(a, b, c)
+            .zip_commutative(d.repack())
             .map_ok_value(|((ax, bx, cx, dx), ex)| (ax, bx, cx, dx, ex))
     }
 
     /// Combine six commutative results.
     #[allow(clippy::type_complexity)]
-    pub(crate) fn zip6_cmt<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
+    pub(crate) fn zip6_commutative<V1, V2, V3, V4, V5, P1, P2, P3, P4, P5>(
         self,
-        x1: CmtResult<V1, P1, WC, E, EC>,
-        x2: CmtResult<V2, P2, WC, E, EC>,
-        x3: CmtResult<V3, P3, WC, E, EC>,
-        x4: CmtResult<V4, P4, WC, E, EC>,
-        x5: CmtResult<V5, P5, WC, E, EC>,
-    ) -> CmtResult<(V, V1, V2, V3, V4, V5), (), WC, E, EC>
+        x1: CommutativeResult<V1, P1, WC, E, EC>,
+        x2: CommutativeResult<V2, P2, WC, E, EC>,
+        x3: CommutativeResult<V3, P3, WC, E, EC>,
+        x4: CommutativeResult<V4, P4, WC, E, EC>,
+        x5: CommutativeResult<V5, P5, WC, E, EC>,
+    ) -> CommutativeResult<(V, V1, V2, V3, V4, V5), (), WC, E, EC>
     where
         EC: Extend<E> + IntoIterator<Item = E>,
         WC: Monoid,
     {
-        self.zip5_cmt(x1, x2, x3, x4)
-            .zip_cmt(x5.repack())
+        self.zip5_commutative(x1, x2, x3, x4)
+            .zip_commutative(x5.repack())
             .map_ok_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
     }
 }
 
 // commutative/resolvable
-impl<V, WC, E> CmtResult<V, (), WC, E, Nothing<E>> {
+impl<V, WC, E> CommutativeResult<V, (), WC, E, Nothing<E>> {
     /// Resolve commutative Result with into regular Result type.
     ///
     /// Warnings will be given outside the result since commutative Results by
     /// definition allow the same warnings in both Succ and Failor branches.
-    pub fn resolve_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+    pub fn resolve_commutative<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,
         f_errors: Ferr,
@@ -1324,12 +1315,12 @@ impl<V, WC, E> CmtResult<V, (), WC, E, Nothing<E>> {
 
 impl<VP, LWC, RWC, X, E, EC> LogResult<VP, VP, LWC, RWC, X, E, EC> {
     /// Set value of deferred Result
-    pub(crate) fn set_def_value<Vf>(self, x: Vf) -> LogResult<Vf, Vf, LWC, RWC, X, E, EC> {
-        self.map_def_value(|_| x)
+    pub(crate) fn set_deferred_value<Vf>(self, x: Vf) -> LogResult<Vf, Vf, LWC, RWC, X, E, EC> {
+        self.map_deferred_value(|_| x)
     }
 
     /// Map function over Succ and Failor value of result (assumed same type).
-    pub(crate) fn map_def_value<F: FnOnce(VP) -> VPf, VPf>(
+    pub(crate) fn map_deferred_value<F: FnOnce(VP) -> VPf, VPf>(
         self,
         f: F,
     ) -> LogResult<VPf, VPf, LWC, RWC, X, E, EC> {
@@ -1464,9 +1455,9 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     /// that Option<T> must be converted to a vector before calling this.
     ///
     /// Inner for errors must be able to hold multiple values.
-    pub(crate) fn and_then_def<F, Vf, Pf>(self, f: F) -> CmtResult<Vf, Pf, WC, E, EC>
+    pub(crate) fn and_then_def<F, Vf, Pf>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
     where
-        F: FnOnce(V) -> CmtResult<Vf, Pf, WC, E, EC>,
+        F: FnOnce(V) -> CommutativeResult<Vf, Pf, WC, E, EC>,
         WC: Semigroup,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
@@ -1497,16 +1488,16 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
 // nowarn
 impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     /// Lift Result with no warnings to commutative Result
-    pub(crate) fn nowarn_into_warn<LWCf>(self) -> CmtResult<V, P, LWCf, E, EC>
+    pub(crate) fn nowarn_into_warn<LWCf>(self) -> CommutativeResult<V, P, LWCf, E, EC>
     where
         LWCf: Default,
     {
         self.map_either(Success::nowarn_into_warn, |x| x)
-            .non_cmt_into_cmt()
+            .non_commutative_into_commutative()
     }
 
     /// Set warnings in both Succ and Error sides of Result
-    pub(crate) fn set_commutative_warnings<WC>(self, ws: WC) -> CmtResult<V, P, WC, E, EC> {
+    pub(crate) fn set_commutative_warnings<WC>(self, ws: WC) -> CommutativeResult<V, P, WC, E, EC> {
         match self {
             Succ(s) => Succ(s.set_warnings(ws)),
             Fail(e) => Fail(e.set_warnings(ws)),
@@ -1599,9 +1590,9 @@ impl<V, E> NowarnResult<V, (), E, Nothing<E>> {
 }
 
 // non-commutative
-impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
+impl<V, P, LWC, E, EC> NonCommutativeResult<V, P, LWC, E, EC> {
     /// Lift non-commutative Result into commutative Result
-    pub(crate) fn non_cmt_into_cmt(self) -> CmtResult<V, P, LWC, E, EC>
+    pub(crate) fn non_commutative_into_commutative(self) -> CommutativeResult<V, P, LWC, E, EC>
     where
         LWC: Default,
     {
@@ -1609,10 +1600,10 @@ impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
     }
 
     /// Map function over warnings of a non-commutative Result
-    pub(crate) fn map_non_cmt_warnings<F, W, Wf>(
+    pub(crate) fn map_non_commutative_warnings<F, W, Wf>(
         self,
         f: F,
-    ) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, E, EC>
+    ) -> NonCommutativeResult<V, P, Sibling1<LWC, Wf>, E, EC>
     where
         F: Fn(W) -> Wf,
         LWC: Functor<W>,
@@ -1622,13 +1613,13 @@ impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
 }
 
 // non-commutative/resolveable
-impl<V, LWC, E> NonCmtResult<V, (), LWC, E, Nothing<E>> {
+impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
     /// Resolve non-commutative Result with regular Result type.
     ///
     /// Warnings will be given on the Succ side since non-commutative Result's
     /// by definition cannot have warnings in the Fail branch.
     #[cfg(feature = "python")]
-    pub(crate) fn resolve_non_cmt<Fwarn, Ferr, WarnRes, FailRes>(
+    pub(crate) fn resolve_non_commutative<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,
         f_errors: Ferr,
@@ -1666,11 +1657,13 @@ where
         }
     }
 
-    pub(crate) fn switchable_into_non_commutative(self) -> NonCmtResult<V, P, EC::Warn, E, EC> {
+    pub(crate) fn switchable_into_non_commutative(
+        self,
+    ) -> NonCommutativeResult<V, P, EC::Warn, E, EC> {
         self.map(Success::remove_flag)
     }
 
-    pub(crate) fn switchable_into_commutative(self) -> CmtResult<V, P, EC::Warn, E, EC>
+    pub(crate) fn switchable_into_commutative(self) -> CommutativeResult<V, P, EC::Warn, E, EC>
     where
         EC::Warn: Default,
     {
@@ -1953,21 +1946,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         }
     }
 
-    /// Convert errors in Result
-    ///
-    /// This function will work on any Result type but may change a switchable
-    /// Result to non-switchable one, which is generally not a good idea.
-    /// See [`*_fung_errors_into`] for functions that will map over warnings
-    /// if they are the same type as errors.
-    // TODO this should always be non-switchable
-    pub(crate) fn errors_into<Ef>(self) -> LogResult<V, P, LWC, RWC, X, Ef, Sibling1<EC, Ef>>
-    where
-        E: Into<Ef>,
-        EC: Functor<E>,
-    {
-        self.map_errors(Into::into)
-    }
-
     /// Map function over errors in Result
     ///
     /// This function will work on any Result type but may change a switchable
@@ -2007,7 +1985,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.repack()
     }
 
-    // these seem not necessary
     pub(crate) fn repack_left_warnings<LWCf>(self) -> LogResult<V, P, LWCf, RWC, X, E, EC>
     where
         LWC: IntoNewCardinality<LWCf>,
@@ -2110,10 +2087,10 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
 ///
 /// The wrapper for warning must be a semigroup and wrapper for error must be
 /// extendable since it might hold more than one error.
-pub(crate) trait CmtResultIter<T, P, WC, E, EC>:
-    Iterator<Item = CmtResult<T, P, WC, E, EC>> + Sized
+pub(crate) trait CommutativeResultIter<T, P, WC, E, EC>:
+    Iterator<Item = CommutativeResult<T, P, WC, E, EC>> + Sized
 {
-    fn mappend_cmt(mut self) -> CmtResult<Vec<T>, (), WC, E, EC>
+    fn mappend_commutative(mut self) -> CommutativeResult<Vec<T>, (), WC, E, EC>
     where
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
@@ -2153,8 +2130,8 @@ pub(crate) trait CmtResultIter<T, P, WC, E, EC>:
     }
 }
 
-impl<I, V, P, WC, E, EC> CmtResultIter<V, P, WC, E, EC> for I where
-    I: Iterator<Item = CmtResult<V, P, WC, E, EC>>
+impl<I, V, P, WC, E, EC> CommutativeResultIter<V, P, WC, E, EC> for I where
+    I: Iterator<Item = CommutativeResult<V, P, WC, E, EC>>
 {
 }
 
@@ -2216,7 +2193,7 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
-        self.mappend_def().set_def_value(())
+        self.mappend_def().set_deferred_value(())
     }
 }
 
@@ -2265,7 +2242,7 @@ where
 mod python {
     use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
-    use super::{CmtResult, ErrorSummary, ImpureError, NonCmtResult, Success};
+    use super::{CommutativeResult, ErrorSummary, ImpureError, NonCommutativeResult, Success};
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
@@ -2303,27 +2280,27 @@ mod python {
         }
     }
 
-    impl<V, WC, E> CmtResult<V, (), WC, E, Nothing<E>> {
+    impl<V, WC, E> CommutativeResult<V, (), WC, E, Nothing<E>> {
         pub fn py_resolve_commutative<W>(self) -> PyResult<V>
         where
             WC: IntoIterator<Item = W>,
             W: Display,
             E: Into<PyErr>,
         {
-            let (warn, res) = self.resolve_cmt(emit_warnings, Into::into);
+            let (warn, res) = self.resolve_commutative(emit_warnings, Into::into);
             warn?;
             res
         }
     }
 
-    impl<V, WC, E> NonCmtResult<V, (), WC, E, Nothing<E>> {
+    impl<V, WC, E> NonCommutativeResult<V, (), WC, E, Nothing<E>> {
         pub fn py_resolve_non_commutative<W>(self) -> PyResult<V>
         where
             WC: IntoIterator<Item = W>,
             W: Display,
             E: Into<PyErr>,
         {
-            let (res, warn) = self.resolve_non_cmt(emit_warnings, Into::into)?;
+            let (res, warn) = self.resolve_non_commutative(emit_warnings, Into::into)?;
             warn?;
             Ok(res)
         }

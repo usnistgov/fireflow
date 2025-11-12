@@ -100,7 +100,7 @@ impl AsciiRange {
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
             .into_log();
-        rng_res.zip_cmt(chars_res).and_then_cmt(|(rng, chars)| {
+        rng_res.zip_commutative(chars_res).and_then_commutative(|(rng, chars)| {
             Self::try_new(rng, chars)
                 .map_err(NewAsciiRangeError::from)
                 .into_log()

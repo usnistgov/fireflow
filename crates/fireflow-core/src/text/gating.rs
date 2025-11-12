@@ -537,7 +537,7 @@ impl AppliedGates3_2 {
         conf: &StdTextReadConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
     {
-        GatingScheme::lookup(std, nonstd, conf).map_def_value(Self)
+        GatingScheme::lookup(std, nonstd, conf).map_deferred_value(Self)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -747,7 +747,7 @@ impl<I> GatingScheme<I> {
                             .into_iter()
                             .map(|ri| {
                                 Region::lookup(std, nonstd, ri, conf)
-                                    .map_def_value(|x| x.map(|y| (ri, y)))
+                                    .map_deferred_value(|x| x.map(|y| (ri, y)))
                                     .map_errors(LookupGatingSchemeError::Region)
                                     .map_commutative_warnings(LookupGatingSchemeError::Region)
                             })
@@ -1027,7 +1027,7 @@ impl GatedMeasurements {
                                 .map_errors(LookupGatedMeasurementsError::Meas)
                         })
                         .mappend_def()
-                        .map_def_value(Self)
+                        .map_deferred_value(Self)
                 } else {
                     LogResult::new_ok_default()
                 }

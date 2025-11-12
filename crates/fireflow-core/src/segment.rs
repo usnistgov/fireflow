@@ -800,8 +800,8 @@ impl<I: Copy> HeaderSegment<I> {
         let mut buf1 = [0_u8; 8];
         h.read_exact(&mut buf0)
             .into_io_log()
-            .and_then_cmt(|()| h.read_exact(&mut buf1).into_io_log())
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| h.read_exact(&mut buf1).into_io_log())
+            .and_then_commutative(|()| {
                 Self::parse(
                     buf0,
                     buf1,
@@ -833,7 +833,7 @@ impl<I: Copy> HeaderSegment<I> {
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
+        begin_res.zip_commutative(end_res).and_then_commutative(|(begin, end)| {
             Self::try_new_squish(begin, end, squish_offsets, conf)
                 .map_err(HeaderSegmentError::from)
                 .into_log()
@@ -894,7 +894,7 @@ impl OtherSegment20 {
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res.zip_cmt(end_res).and_then_cmt(|(begin, end)| {
+        begin_res.zip_commutative(end_res).and_then_commutative(|(begin, end)| {
             Self::try_new(begin, end, conf)
                 .map_err(HeaderSegmentError::from)
                 .into_log()

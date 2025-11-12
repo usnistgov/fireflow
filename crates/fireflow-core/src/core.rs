@@ -15,11 +15,11 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredSwitchableError, DeferredSwitchableErrors,
-    DeferredIter as _, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, SwitchableErrorResult,
-    SwitchableErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
-    SummaryResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
-    WarningsAndSummaryResult, WarningsResult,
+    CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
+    DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult,
+    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -1331,9 +1331,9 @@ pub trait Versioned {
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
-            .zip_cmt(offset_res)
+            .zip_commutative(offset_res)
             .map_errors(ImpureError::Pure)
-            .and_then_cmt(|(layout, offsets)| {
+            .and_then_commutative(|(layout, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReaderConfig = st.conf.as_ref();
@@ -1343,7 +1343,7 @@ pub trait Versioned {
                     .map_errors(ImpureError::inner_into);
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
                 data_res
-                    .zip_cmt(analysis_res)
+                    .zip_commutative(analysis_res)
                     .map_ok_value(|(d, a)| (d, a, *dataset_segs))
             })
     }
@@ -1696,7 +1696,7 @@ impl<T> Temporal<T> {
         ToT: ConvertFromTemporal<T>,
     {
         ToT::convert_from_temporal(self.specific, i, flag)
-            .map_def_value(|specific| Temporal::new(self.common, specific))
+            .map_deferred_value(|specific| Temporal::new(self.common, specific))
     }
 
     fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)>
@@ -1769,9 +1769,9 @@ impl<O> Optical<O> {
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         power
-            .zip3_cmt(perc_emit, det_volt)
+            .zip3_commutative(perc_emit, det_volt)
             .map_errors(LookupOpticalError::from)
-            .zip_cmt(specific)
+            .zip_commutative(specific)
             .map_ok_value(|((p, e, v), s)| Self::new(common, filter, p, det_type, e, v, s))
     }
 
@@ -1982,9 +1982,9 @@ where
         let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
 
         abrt_res
-            .zip3_cmt(lost_res, tr_res)
+            .zip3_commutative(lost_res, tr_res)
             .map_errors(LookupMetarootError::from)
-            .zip_cmt(spec_res)
+            .zip_commutative(spec_res)
             .map_ok_value(|((abrt, lost, tr), specific)| {
                 Self::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
@@ -3152,12 +3152,12 @@ where
             .set_err_value(())
             .map_errors(ConvertError::Temporal)
             .map_commutative_warnings(MetarootConvertWarning::from)
-            .and_then_cmt(|meas| {
+            .and_then_commutative(|meas| {
                 meas.map_non_center_values(|i, v| v.try_convert(i, flag))
                     .map_errors(ConvertError::Optical)
                     .map_commutative_warnings(MetarootConvertWarning::from)
             })
-            .and_then_cmt(|meas| {
+            .and_then_commutative(|meas| {
                 meas.try_rewrapped()
                     .map_errors(ConvertError::Rewrap)
                     .nowarn_into_warn()
@@ -3169,7 +3169,7 @@ where
         let v1 = ToM::Ver::fcs_version();
         let summary = ConvertFailure::new(v0, v1);
         root_res
-            .zip3_cmt(meas_res, layout_res)
+            .zip3_commutative(meas_res, layout_res)
             .map_ok_value(|(metaroot, measurements, layout)| {
                 Core::new(
                     metaroot,
@@ -3265,7 +3265,7 @@ where
             .push_center(n, m)
             .map_err(InsertTemporalError::from)
             .into_log()
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
@@ -3290,7 +3290,7 @@ where
             .insert_center(i, n, m)
             .map_err(InsertTemporalError::from)
             .into_log()
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
@@ -3310,7 +3310,7 @@ where
             .push(n, m)
             .map_err(PushOpticalError::from)
             .into_log()
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
@@ -3335,7 +3335,7 @@ where
             .insert(i, n, m)
             .map_err(InsertOpticalError::from)
             .into_log()
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
@@ -3417,8 +3417,8 @@ where
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
         check_res
-            .zip_cmt(vec_res)
-            .and_then_cmt(|((), ms)| {
+            .zip_commutative(vec_res)
+            .and_then_commutative(|((), ms)| {
                 layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3448,8 +3448,8 @@ where
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
         check_res
-            .zip_cmt(vec_res)
-            .and_then_cmt(|((), ms)| {
+            .zip_commutative(vec_res)
+            .and_then_commutative(|((), ms)| {
                 self.layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3652,7 +3652,7 @@ where
         );
 
         // then iterate over each measurement and look for standardized keys
-        ns_res.and_then_cmt(|meas_nonstds| {
+        ns_res.and_then_commutative(|meas_nonstds| {
             meas_nonstds
                 .into_iter()
                 .enumerate()
@@ -3666,7 +3666,7 @@ where
                         .map_commutative_warnings(LookupMeasurementWarning::from)
                         .map_errors(LookupMeasurementError::from)
                         .into_semigroup()
-                        .and_then_cmt(|wrapped| {
+                        .and_then_commutative(|wrapped| {
                             // TODO if more than one name matches the time pattern
                             // this will give a cryptic "cannot find $TIMESTEP" for
                             // each subsequent match, which is not helpful. Probably
@@ -3702,7 +3702,7 @@ where
                             }
                         })
                 })
-                .mappend_cmt()
+                .mappend_commutative()
                 .map_ok_value(Eithers)
         })
     }
@@ -3803,7 +3803,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .map_errors(StdTEXTFromRawError::from);
 
         Self::lookup_inner(kws, &st.conf)
-            .zip_cmt(offsets_res)
+            .zip_commutative(offsets_res)
             .map_ok_value(|((x, y), z)| (x, y, z))
     }
 
@@ -3869,7 +3869,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let version = M::Ver::fcs_version();
         let std_conf = conf.as_ref();
 
-        par_res.and_then_cmt(|par| {
+        par_res.and_then_commutative(|par| {
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(&mut kws.std, par, &mut kws.nonstd, std_conf)
                 .map_commutative_warnings(StdTEXTFromRawWarning::from)
@@ -3880,11 +3880,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from);
 
-            let root_res = meas_res.zip_cmt(layout_res).and_then_cmt(|(ms, layout)| {
+            let root_res = meas_res.zip_commutative(layout_res).and_then_commutative(|(ms, layout)| {
                 Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from)
-                    .and_then_cmt(|metaroot| {
+                    .and_then_commutative(|metaroot| {
                         Self::try_new(metaroot, ms, layout, std_conf)
                             .map_commutative_warnings(StdTEXTFromRawWarning::from)
                             .map_errors(StdTEXTFromRawError::from)
@@ -4125,7 +4125,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .map_err(NewCoreError::from)
             .into_log()
             .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
-            .and_then_cmt(|ms| {
+            .and_then_commutative(|ms| {
                 Self::check_relationships(&mut metaroot, &ms, &layout, drop_flag.is_set())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(drop_flag)
@@ -4133,7 +4133,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_errors(NewCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
-                    .and_then_cmt(|mut ret| {
+                    .and_then_commutative(|mut ret| {
                         let xfer_flag = conf.transfer_dropped_optional;
                         let dep_flag = conf.disallow_deprecated;
                         ret.deprecated(dep_flag, xfer_flag)
@@ -4156,7 +4156,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
             .into_log()
-            .and_then_cmt(|ms| {
+            .and_then_commutative(|ms| {
                 Self::check_relationships(&mut metaroot, &ms, &layout, false)
                     .map_errors(NewCoreWarning::from)
                     .map_errors(NewCoreError::from)
@@ -4233,11 +4233,11 @@ where
             .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
             .map_err(ImpureError::IO)
             .into_log()
-            .and_then_cmt(|(st, file)| {
+            .and_then_commutative(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
-            .cmt_warnings_to_errors(conf.as_ref(), |w| {
+            .commutative_warnings_to_errors(conf.as_ref(), |w| {
                 ImpureError::Pure(StdDatasetFromRawError::from(w))
             })
             .summarize_errors()
@@ -4272,7 +4272,7 @@ where
             .map_commutative_warnings(StdDatasetFromRawWarning::from)
             .map_errors(StdDatasetFromRawError::from)
             .map_errors(ImpureError::Pure)
-            .and_then_cmt(|(text, extra, offsets)| {
+            .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let or = OthersReader::new(other_segs);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
@@ -4285,7 +4285,7 @@ where
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
                 let others_res = or.h_read(h).map_err(ImpureError::IO).into_log();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                data_res.zip3_cmt(analysis_res, others_res).map_ok_value(
+                data_res.zip3_commutative(analysis_res, others_res).map_ok_value(
                     |(data, analysis, others)| {
                         let c = text.into_coredataset_unchecked(data, analysis, others);
                         (c, out)
@@ -4323,7 +4323,7 @@ where
 
         check_res
             // write HEADER+TEXT+OTHER(s) first
-            .and_cmt(|| {
+            .and_commutative(|| {
                 let data_len = layout.nbytes(df);
                 let res = if conf.big_other {
                     self.h_write_text_inner::<_, UintSpacePad20>(
@@ -4350,7 +4350,7 @@ where
             // we want to emit warnings as we are writing if we did not run
             // through the data once at the beginning and check for
             // conversion loss.
-            .and_cmt(|| {
+            .and_commutative(|| {
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
                     .map_commutative_warnings(StdWriterWarning::from)
@@ -4358,7 +4358,7 @@ where
                     .repack_errors()
             })
             // write ANALYSIS
-            .and_cmt(|| h.write_all(&self.analysis.0).into_io_log())
+            .and_commutative(|| h.write_all(&self.analysis.0).into_io_log())
             .summarize_errors()
     }
 
@@ -4483,7 +4483,7 @@ where
     {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushTemporalToDatasetError::from)
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.data
                     .push_column(col)
                     .map_err(PushTemporalToDatasetError::from)
@@ -4512,7 +4512,7 @@ where
     > {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertTemporalToDatasetError::from)
-            .and_cmt(|| {
+            .and_commutative(|| {
                 // ASSUME index is within bounds here since it was checked above
                 self.data
                     .insert_column_nocheck(i.into(), col)
@@ -4540,7 +4540,7 @@ where
     > {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushOpticalToDatasetError::from)
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.data
                     .push_column(col)
                     .map_err(PushOpticalToDatasetError::from)
@@ -4569,7 +4569,7 @@ where
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertOpticalInDatasetError::from)
             // ASSUME index is within bounds here since it was checked above
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.data
                     .insert_column_nocheck(i.into(), col)
                     .map_err(InsertOpticalInDatasetError::from)
@@ -4603,7 +4603,7 @@ where
         let data_n = df.ncols();
         let e = MeasDataMismatchError { meas_n, data_n };
         LogResult::new_log_if(meas_n == data_n, (), (), e.into())
-            .and_cmt(|| {
+            .and_commutative(|| {
                 self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
                     .map_errors(SetMeasurementsAndDataError::from)
                     .when_ok(|| self.data = df)
@@ -4736,7 +4736,7 @@ impl CoreTEXT2_0 {
             .map_errors(NewCoreTEXTError::from)
             .set_err_value(())
             .into_semigroup()
-            .and_then_cmt(|ts| {
+            .and_then_commutative(|ts| {
                 let specific =
                     InnerMetaroot2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
                 let metaroot = Metaroot::new(
@@ -4756,7 +4756,8 @@ impl CoreTEXT2_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout)
+                    .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -4799,7 +4800,7 @@ impl CoreTEXT3_0 {
             .map_errors(NewCoreTEXTError::from)
             .set_err_value(())
             .into_semigroup()
-            .and_then_cmt(|ts| {
+            .and_then_commutative(|ts| {
                 let specific = InnerMetaroot3_0::new(
                     mode,
                     cyt,
@@ -4827,7 +4828,8 @@ impl CoreTEXT3_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout)
+                    .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -4876,7 +4878,7 @@ impl CoreTEXT3_1 {
             .map_errors(NewCoreTEXTError::from)
             .set_err_value(())
             .into_semigroup()
-            .and_then_cmt(|ts| {
+            .and_then_commutative(|ts| {
                 let specific = InnerMetaroot3_1::new(
                     mode,
                     cyt,
@@ -4906,7 +4908,8 @@ impl CoreTEXT3_1 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
+                Self::try_new_nodrop(metaroot, measurements, layout)
+                    .map_errors(NewCoreTEXTError::from)
             })
     }
 }
@@ -4961,7 +4964,7 @@ impl CoreTEXT3_2 {
         let dt_res = Datetimes::try_new(begindatetime, enddatetime)
             .map_errors(NewCoreTEXTError::from)
             .into_semigroup();
-        ts_res.zip_cmt(dt_res).and_then_cmt(|(ts, dt)| {
+        ts_res.zip_commutative(dt_res).and_then_commutative(|(ts, dt)| {
             let specific = InnerMetaroot3_2::new(
                 mode,
                 ts,
@@ -4994,7 +4997,7 @@ impl CoreTEXT3_2 {
                 specific,
                 nonstandard_keywords,
             );
-            Self::try_new_nodrop(metaroot, measurements, layout).errors_into()
+            Self::try_new_nodrop(metaroot, measurements, layout).map_errors(NewCoreTEXTError::from)
         })
     }
 }
@@ -5007,7 +5010,7 @@ impl UnstainedData {
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
         let i = UnstainedInfo::remove_metaroot_opt_nofail(std);
         UnstainedCenters::drop_metaroot_opt_with(std, nonstd, (), conf)
-            .map_def_value(|c| Self::new(c, i))
+            .map_deferred_value(|c| Self::new(c, i))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5089,7 +5092,7 @@ impl CSVFlags {
                     })
                     .mappend_def()
             })
-            .map_def_value(Self)
+            .map_deferred_value(Self)
             .nowarn_into_switchable(flag)
     }
 
@@ -5541,7 +5544,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| {
                 value
                     .scale
                     .ok_or(NoScaleError(i).into())
@@ -5909,7 +5912,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| {
                 value
                     .applied_gates
                     .try_into_2_0(flag)
@@ -5951,7 +5954,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| {
                 value
                     .applied_gates
                     .try_into_2_0(flag)
@@ -6214,7 +6217,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .into_log();
 
         check_res
-            .zip3_cmt(mode_res, cyt_res)
+            .zip3_commutative(mode_res, cyt_res)
             .map_ok_value(|((), mode, cyt)| {
                 Self::new(
                     mode,
@@ -6266,7 +6269,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res.zip4_cmt(mode_res, ag_res, cyt_res).map_ok_value(
+        check_res.zip4_commutative(mode_res, ag_res, cyt_res).map_ok_value(
             |((), mode, applied_gates, cyt)| {
                 Self::new(
                     mode,
@@ -6316,7 +6319,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res.zip4_cmt(ag_res, mode_rs, cyt_res).map_ok_value(
+        check_res.zip4_commutative(ag_res, mode_rs, cyt_res).map_ok_value(
             |((), applied_gates, mode, cyt)| {
                 Self::new(
                     mode,
@@ -6367,7 +6370,7 @@ impl ScaleTransform {
             .map_errors(LookupOpticalError::from)
             .into_semigroup()
             .set_err_value(())
-            .and_then_cmt(|g| {
+            .and_then_commutative(|g| {
                 Scale::remove_meas_req_with(std, i, (), conf)
                     .map_err(LookupOpticalError::from)
                     .and_then(|s| Self::try_from((s, g)).map_err(LookupOpticalError::from))
@@ -6669,7 +6672,10 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
     fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         match value {
             DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
-            DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map_ok_value(Self).errors_into(),
+            DataLayout3_2::Mixed(x) => x
+                .try_into_non_mixed()
+                .map_ok_value(Self)
+                .map_errors(LayoutConvertError::from),
         }
     }
 }
@@ -6771,7 +6777,7 @@ impl LookupOptical for InnerOptical2_0 {
             .map_errors(LookupOpticalWarning::from)
             .map_commutative_warnings(LookupOpticalWarning::from);
         scale
-            .zip3_cmt(wave, peak)
+            .zip3_commutative(wave, peak)
             .map_errors(LookupOpticalError::from)
             .map_ok_value(|(si, wi, pi)| Self::new(si, wi, pi))
     }
@@ -6791,9 +6797,9 @@ impl LookupOptical for InnerOptical3_0 {
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupOpticalWarning::from)
             .map_commutative_warnings(LookupOpticalWarning::from);
-        wave.zip_cmt(peak)
+        wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
-            .and_then_cmt(|(wi, pi)| {
+            .and_then_commutative(|(wi, pi)| {
                 ScaleTransform::lookup(std, nonstd, i, conf).map_ok_value(|s| Self::new(s, wi, pi))
             })
     }
@@ -6821,9 +6827,9 @@ impl LookupOptical for InnerOptical3_1 {
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupOpticalWarning::from)
             .map_commutative_warnings(LookupOpticalWarning::from);
-        wave.zip4_cmt(cal, dpy, peak)
+        wave.zip4_commutative(cal, dpy, peak)
             .map_errors(LookupOpticalError::from)
-            .and_then_cmt(|(wi, ci, di, pi)| {
+            .and_then_commutative(|(wi, ci, di, pi)| {
                 ScaleTransform::lookup(std, nonstd, i, conf)
                     .map_ok_value(|scale| Self::new(scale, wi, ci, di, pi))
             })
@@ -6861,9 +6867,9 @@ impl LookupOptical for InnerOptical3_2 {
             .into_semigroup();
         let anal = Analyte::remove_meas_opt_nofail(std, i);
         wave.zip_f3_once(cal, dpy)
-            .zip3_cmt(meas, feat)
+            .zip3_commutative(meas, feat)
             .map_errors(LookupOpticalError::from)
-            .and_then_cmt(|((w, c, d), m, f)| {
+            .and_then_commutative(|((w, c, d), m, f)| {
                 ScaleTransform::lookup(std, nonstd, i, conf)
                     .map_ok_value(|s| Self::new(s, w, c, d, anal, f, m, tag, det_name))
             })
@@ -6891,7 +6897,7 @@ impl LookupTemporal for InnerTemporal2_0 {
             .map_commutative_warnings(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         scale
-            .zip_cmt(peak)
+            .zip_commutative(peak)
             .map_errors(LookupTemporalError::from)
             .map_ok_value(|(s, p)| Self::new(s, p))
     }
@@ -6911,9 +6917,9 @@ impl LookupTemporal for InnerTemporal3_0 {
             .map_errors(LookupTemporalWarning::from)
             .map_commutative_warnings(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
-        gain.zip_cmt(peak)
+        gain.zip_commutative(peak)
             .map_errors(LookupTemporalError::from)
-            .and_then_cmt(|(_, p)| {
+            .and_then_commutative(|(_, p)| {
                 let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
@@ -6921,7 +6927,7 @@ impl LookupTemporal for InnerTemporal3_0 {
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
                 scale
-                    .zip_cmt(timestep)
+                    .zip_commutative(timestep)
                     .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, p))
             })
@@ -6946,9 +6952,9 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_errors(LookupTemporalWarning::from)
             .map_commutative_warnings(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
-        gain.zip3_cmt(dpy, peak)
+        gain.zip3_commutative(dpy, peak)
             .map_errors(LookupTemporalError::from)
-            .and_then_cmt(|(_, d, p)| {
+            .and_then_commutative(|(_, d, p)| {
                 let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
@@ -6956,7 +6962,7 @@ impl LookupTemporal for InnerTemporal3_1 {
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
                 scale
-                    .zip_cmt(timestep)
+                    .zip_commutative(timestep)
                     .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, d, p))
             })
@@ -6982,9 +6988,9 @@ impl LookupTemporal for InnerTemporal3_2 {
             .switchable_into_commutative()
             .into_semigroup();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
-        gain.zip3_cmt(dpy, meas)
+        gain.zip3_commutative(dpy, meas)
             .map_errors(LookupTemporalError::from)
-            .and_then_cmt(|(_, d, m)| {
+            .and_then_commutative(|(_, d, m)| {
                 let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
@@ -6992,7 +6998,7 @@ impl LookupTemporal for InnerTemporal3_2 {
                     .map_err(LookupTemporalError::from)
                     .into_nowarn();
                 scale
-                    .zip_cmt(timestep)
+                    .zip_commutative(timestep)
                     .nowarn_into_warn()
                     .map_ok_value(|((), t)| Self::new(t, d, m))
             })
@@ -7373,7 +7379,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
-            .zip3_cmt(data_res, analysis_res)
+            .zip3_commutative(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
@@ -7396,7 +7402,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
-            .zip3_cmt(data_res, analysis_res)
+            .zip3_commutative(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
@@ -7432,7 +7438,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
-            .zip3_cmt(data_res, analysis_res)
+            .zip3_commutative(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
@@ -7455,7 +7461,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
-            .zip3_cmt(data_res, analysis_res)
+            .zip3_commutative(data_res, analysis_res)
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
@@ -7553,7 +7559,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         tmp.specific
             .can_convert_to_optical(i)
             .into_deferred_switchable::<_, Nothing<_>>(flag)
-            .set_def_value(tmp)
+            .set_deferred_value(tmp)
             .map_ok_value(Self::from_temporal_unchecked)
     }
 
@@ -7639,9 +7645,9 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
-        comp.zip3_cmt(ts, ag)
+        comp.zip3_commutative(ts, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_cmt(|(co, t, g)| {
+            .and_then_commutative(|(co, t, g)| {
                 Mode::remove_metaroot_req(std)
                     .map(|mo| Self::new(mo, cyt, co, t, g))
                     .map_err(LookupMetarootError::from)
@@ -7688,9 +7694,9 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
-        comp.zip5_cmt(subset, ts, uni, ag)
+        comp.zip5_commutative(subset, ts, uni, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_cmt(|(co, su, t, u, g)| {
+            .and_then_commutative(|(co, su, t, u, g)| {
                 Mode::remove_metaroot_req(std)
                     .map(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
                     .map_err(LookupMetarootError::from)
@@ -7760,13 +7766,13 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .map_commutative_warnings(LookupMetarootWarning::from);
 
         spill
-            .zip6_cmt(subset, modif, ts, vol, ag)
+            .zip6_commutative(subset, modif, ts, vol, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_cmt(|(sp, su, md, t, v, g)| {
+            .and_then_commutative(|(sp, su, md, t, v, g)| {
                 Mode::remove_metaroot_req(std)
                     .map_err(LookupMetarootError::from)
                     .into_log()
-                    .and_then_cmt(process_mode)
+                    .and_then_commutative(process_mode)
                     .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
             })
     }
@@ -7827,10 +7833,10 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let ag = AppliedGates3_2::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
-        dt.zip4_cmt(modif, mode, spill)
-            .zip5_cmt(ts, us, vol, ag)
+        dt.zip4_commutative(modif, mode, spill)
+            .zip5_commutative(ts, us, vol, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_cmt(|((d_, md_, mo_, sp_), t_, u_, v_, ag_)| {
+            .and_then_commutative(|((d_, md_, mo_, sp_), t_, u_, v_, ag_)| {
                 Cyt3_2::remove_metaroot_req(std)
                     .map(|c_| {
                         Self::new(

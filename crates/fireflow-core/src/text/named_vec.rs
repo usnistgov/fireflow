@@ -1,6 +1,6 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CmtResult, CmtResultIter as _, ErrorResult, ErrorsResult, LogResult, ResultExt as _,
+    CommutativeResult, CommutativeResultIter as _, ErrorResult, ErrorsResult, LogResult, ResultExt as _,
 };
 use crate::text::optional::MightHave;
 use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
@@ -359,14 +359,14 @@ impl<K, U, V> NamedVec<K, U, V> {
             ys.into_iter()
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err1(i), ErrorsResult::new_ok))
-                .mappend_cmt()
+                .mappend_commutative()
                 .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(true)))
         };
 
         self.check_keys_length(&xs[..], true)
             .map_err(SetElementsError::from)
             .into_log()
-            .and_then_cmt(|()| {
+            .and_then_commutative(|()| {
                 let res = match self {
                     Self::Split(s) => {
                         let nleft = s.left.len();
@@ -381,7 +381,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                             .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
                             .into_log();
                         let right_res = check_optical(xs_right);
-                        left_res.zip3_cmt(center_res, right_res).map_ok_value(
+                        left_res.zip3_commutative(center_res, right_res).map_ok_value(
                             |(ys_left, y_center, ys_right)| {
                                 let left_out = go(&mut s.left, ys_left, 0);
                                 let c = &mut s.center;
@@ -515,7 +515,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_non_center_values<F, Vf, WC, E, EC>(
         self,
         f: F,
-    ) -> CmtResult<
+    ) -> CommutativeResult<
         NamedVec<K, U, Vf>,
         (),
         WC,
@@ -523,7 +523,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         Sibling1<EC, IndexedElementError<E>>,
     >
     where
-        F: Fn(MeasIndex, V) -> CmtResult<Vf, (), WC, E, EC>,
+        F: Fn(MeasIndex, V) -> CommutativeResult<Vf, (), WC, E, EC>,
         WC: Monoid,
         EC: Functor<E>,
         Sibling1<EC, IndexedElementError<E>>:
@@ -538,14 +538,14 @@ impl<K, U, V> NamedVec<K, U, V> {
                         .map_ok_value(|value| Pair::new(p.key, value))
                         .map_errors(|error| IndexedElementError::new(error, j.into()))
                 })
-                .mappend_cmt()
+                .mappend_commutative()
         };
         match self {
             Self::Split(s) => {
                 let nleft = s.left.len();
                 let lres = go(s.left, 0);
                 let rres = go(s.right, nleft + 1);
-                lres.zip_cmt(rres)
+                lres.zip_commutative(rres)
                     .map_ok_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
             Self::Unsplit(u) => {
@@ -1435,14 +1435,14 @@ impl<K, U, V> NamedVec<K, U, V> {
                         .map_err(|error| IndexedElementError::new(error, (i + offset).into()))
                         .into_nowarn()
                 })
-                .mappend_cmt()
+                .mappend_commutative()
         };
         match self {
             Self::Split(s) => {
                 let offset = s.left.len() + 1;
                 let lres = go(s.left, 0);
                 let rres = go(s.right, offset);
-                lres.zip_cmt(rres)
+                lres.zip_commutative(rres)
                     .map_ok_value(|(left, right)| NamedVec::new_split(left, *s.center, right))
             }
             Self::Unsplit(u) => go(u.members, 0).map_ok_value(NamedVec::new_unsplit),

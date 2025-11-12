@@ -685,7 +685,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_raw_config(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) =
-                fcs_read_raw_text(filepath, &conf).resolve_cmt(print_warnings, print_errors);
+                fcs_read_raw_text(filepath, &conf).resolve_commutative(print_warnings, print_errors);
             res.map(|raw| print_json(&raw))
         }
 
@@ -694,7 +694,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) =
-                fcs_read_std_text(filepath, &conf).resolve_cmt(print_warnings, print_errors);
+                fcs_read_std_text(filepath, &conf).resolve_commutative(print_warnings, print_errors);
             res.map(|(core, _)| core.print_comp_or_spillover_table(delim))
         }
 
@@ -703,7 +703,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) =
-                fcs_read_std_text(filepath, &conf).resolve_cmt(print_warnings, print_errors);
+                fcs_read_std_text(filepath, &conf).resolve_commutative(print_warnings, print_errors);
             res.map(|(core, _)| core.print_meas_table(delim))
         }
 
@@ -711,7 +711,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_std_config(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) =
-                fcs_read_std_text(filepath, &conf).resolve_cmt(print_warnings, print_errors);
+                fcs_read_std_text(filepath, &conf).resolve_commutative(print_warnings, print_errors);
             res.map(|(core, _)| print_json(&core))
         }
 
@@ -720,7 +720,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) =
-                fcs_read_std_dataset(filepath, &conf).resolve_cmt(print_warnings, print_errors);
+                fcs_read_std_dataset(filepath, &conf).resolve_commutative(print_warnings, print_errors);
             res.map(|(core, _)| print_parsed_data(&core, delim))
         }
 

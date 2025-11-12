@@ -1,12 +1,13 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::logging::{LogResult, ResultExt as _};
+use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _, WarningsAndErrorsResult};
 use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
 use super::parser::{
-    FromStrDelim, FromStrWith, LookupKeysWarning, LookupOptional, OptKeyError_, ParseKeyError,
+    FromStrDelim, FromStrWith, LookupComp2_0Error, LookupKeysWarning, LookupOptional, OptKeyError_,
+    ParseKeyError,
 };
 
 use derive_more::{AsRef, Display, From, Into};
@@ -50,7 +51,7 @@ impl Compensation2_0 {
         kws: &mut StdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self> {
+    ) -> DeferredFungibleErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
@@ -62,7 +63,7 @@ impl Compensation2_0 {
                 let k = SpecificKey::new_i2(c.into(), r.into());
                 match lookup_dfc(kws, k) {
                     Ok(x) => (x, None),
-                    Err(w) => (None, Some(LookupKeysWarning::Parse(w.into()))),
+                    Err(w) => (None, Some(LookupComp2_0Error::Dfc(w.into()))),
                 }
             })
             .unzip();
@@ -73,11 +74,10 @@ impl Compensation2_0 {
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
-                .map_err(LookupKeysWarning::Comp)
+                .map_err(LookupComp2_0Error::Matrix)
                 .into_deferred_fungible(flag)
         };
         res.extend_deferred_fungible_errors(warnings.into_iter().flatten())
-            .fungible_into_commutative()
     }
 
     #[must_use]

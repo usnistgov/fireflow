@@ -635,6 +635,55 @@ pub enum LookupKeysWarning {
     Dep(DepValueWarning),
 }
 
+pub type LookupMetarootResult<V> =
+    WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMetarootError {
+    // AlphaNumType(ReqKeyError<AlphaNumType>),
+    Mode(ReqKeyError<Mode>),
+    // ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
+    // ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
+    // Width(ReqIndexedKeyError<Width>),
+    // Range(ReqIndexedKeyError<Range>),
+    Cyt3_2(ReqKeyError<Cyt3_2>),
+    Par(ReqKeyError<Par>),
+    Warn(LookupMetarootWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMetarootWarning {
+    Trigger(OptKeyStError<Trigger>),
+    Comp2_0(LookupComp2_0Error),
+    Comp3_0(OptKeyError<Compensation3_0>),
+    Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
+    Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
+    Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
+    Datetimes(LookupDatetimesError),
+    Modified(LookupModifiedDataError),
+    UnstainedCenter(OptKeyStError<UnstainedCenters>),
+    Mode3_2(OptKeyError<Mode3_2>),
+    // NOTE this can never be an error even if we forbid deprecated keys
+    // because there is no easy way to fix it (ie by dropping a key)
+    Mode(DeprecatedModeWarning),
+    Unicode(OptKeyStError<Unicode>),
+    Spillover(OptKeyStError<Spillover>),
+    Gate2_0(LookupAppliedGates2_0Error),
+    Gate3_0(LookupAppliedGates3_0Error),
+    Gate3_2(LookupAppliedGates3_2Error),
+    Vol(OptKeyError<Vol>),
+    Abrt(OptKeyError<Abrt>),
+    Lost(OptKeyError<Lost>),
+    Subset(LookupSubsetError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupSubsetError {
+    Flags(LookupCSVFlagsError),
+    Bits(OptKeyError<CSVBits>),
+    Tot(OptKeyError<CSTot>),
+}
+
 pub type LookupMeasurementResult<V> =
     WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
 
@@ -652,6 +701,7 @@ pub enum LookupMeasurementWarning {
     Optical(LookupOpticalWarning),
     Shortname(OptIndexedKeyError<Shortname>),
     Pattern(NonStdMeasRegexError),
+    MissingTime(MissingTime),
 }
 
 pub type LookupShortnameResult<V> =
@@ -710,6 +760,12 @@ pub enum LookupTemporalWarning {
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),
     Peak(LookupPeakError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupComp2_0Error {
+    Dfc(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
+    Matrix(NewCompError),
 }
 
 /// Error encountered when parsing a required key from a string
@@ -1146,13 +1202,13 @@ pub enum LookupTemporalGain {
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupCSVFlagsError {
-    CSMode(OptKeyError<CSMode>),
-    CSVFlag(OptIndexedKeyError<CSVFlag>),
+    Mode(OptKeyError<CSMode>),
+    Flag(OptIndexedKeyError<CSVFlag>),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupModifiedDataError {
-    ModifiedDateTime(OptKeyError<LastModified>),
+    LastModTime(OptKeyError<LastModified>),
     Originality(OptKeyError<Originality>),
 }
 
@@ -1173,6 +1229,14 @@ pub struct MissingTime(pub TimeMeasNamePattern);
 pub enum DepValueWarning {
     #[error("$DATATYPE=A is deprecated")]
     DatatypeASCII,
+    #[error("$MODE=C is deprecated")]
+    ModeCorrelated,
+    #[error("$MODE=U is deprecated")]
+    ModeUncorrelated,
+}
+
+#[derive(Debug, Error)]
+pub enum DeprecatedModeWarning {
     #[error("$MODE=C is deprecated")]
     ModeCorrelated,
     #[error("$MODE=U is deprecated")]
@@ -1394,17 +1458,22 @@ mod python {
             exceptions::FCSDeprecatedError,
             macros::{impl_from_pyerr, impl_pyreflow_err},
         },
-        text::keywords::{Nextdata, NumType, Par, TemporalGainError, Tot},
+        text::{
+            keywords::{Nextdata, NumType, Par, TemporalGainError, Tot},
+            timestamps::{Btim, Etim, FCSFixedTimeError},
+        },
         validated::keys::SpecificKey,
     };
 
     use super::{
-        AnyDepKeyError, DepKeyWarning, DepValueWarning, LookupKeysError, LookupKeysWarning,
-        LookupMeasurementError, LookupMeasurementWarning, LookupOpticalError, LookupOpticalWarning,
-        LookupPeakError, LookupShortnameError, LookupTemporalError, LookupTemporalGain,
-        LookupTemporalWarning, MissingTime, OptIndexedKeyError, OptKeyError, ParseKeyError,
-        ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError, ReqKeyError_,
-        UnusedStandardError,
+        AnyDepKeyError, DepKeyWarning, DepValueWarning, DeprecatedModeWarning, LookupCSVFlagsError,
+        LookupComp2_0Error, LookupDatetimesError, LookupKeysError, LookupKeysWarning,
+        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
+        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
+        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTemporalError,
+        LookupTemporalGain, LookupTemporalWarning, LookupTimestampsError, MissingTime,
+        OptIndexedKeyError, OptKeyError, ParseKeyError, ParseOptKeyError, ParseReqKeyError,
+        PseudostandardError, ReqKeyError, ReqKeyError_, UnusedStandardError,
     };
 
     use pyo3::prelude::*;
@@ -1452,14 +1521,48 @@ mod python {
 
     impl_pyreflow_err!(FCSDeprecatedError, DepValueWarning);
     impl_pyreflow_err!(FCSDeprecatedError, AnyDepKeyError);
+    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);
 
     impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
     impl_from_pyerr!(LookupKeysWarning, Parse, Comp, MissingTime, Dep);
+
+    impl_from_pyerr!(
+        LookupMetarootWarning,
+        Trigger,
+        Comp2_0,
+        Comp3_0,
+        Timestamps2_0,
+        Timestamps3_0,
+        Timestamps3_1,
+        Datetimes,
+        Modified,
+        UnstainedCenter,
+        Mode3_2,
+        Mode,
+        Unicode,
+        Spillover,
+        Gate2_0,
+        Gate3_0,
+        Gate3_2,
+        Vol,
+        Abrt,
+        Lost,
+        Subset
+    );
+
+    impl_from_pyerr!(LookupMetarootError, Mode, Cyt3_2, Par, Warn);
+    impl_from_pyerr!(LookupSubsetError, Flags, Bits, Tot);
+    impl_from_pyerr!(LookupCSVFlagsError, Mode, Flag);
+    impl_from_pyerr!(LookupDatetimesError, Begindatetime, Enddatetime, Datetime);
+    impl_from_pyerr!(LookupModifiedDataError, LastModTime, Originality);
+    impl_from_pyerr!(LookupComp2_0Error, Dfc, Matrix);
+
     impl_from_pyerr!(
         LookupMeasurementWarning,
         Temporal,
         Optical,
         Shortname,
+        MissingTime,
         Pattern
     );
     impl_from_pyerr!(LookupMeasurementError, Temporal, Optical, Shortname, Warn);

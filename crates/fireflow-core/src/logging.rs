@@ -1,4 +1,4 @@
-use crate::config::{ErrorFlag, SharedConfig};
+use crate::config::{ConfigFlag, ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
     Applicative, Apply, ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid,
@@ -1104,6 +1104,31 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
                 None => Succ(x),
             },
             Fail(x) => Fail(x.fmap_once(fp)),
+        }
+    }
+
+    pub(crate) fn eval_commutative_warning_or_error<Pf, Fe, Fv, Fp, W, M, X>(
+        mut self,
+        flag: X,
+        fv: Fv,
+        fp: Fp,
+        fe: Fe,
+    ) -> CmtResult<V, Pf, WC, E, EC>
+    where
+        X: ErrorFlag,
+        Fv: FnOnce(V) -> Pf,
+        Fp: FnOnce(P) -> Pf,
+        Fe: FnOnce(&V) -> Option<M>,
+        EC: Extend<E> + Default,
+        WC: Extend<W> + Default,
+        M: Into<W>,
+        M: Into<E>,
+    {
+        if flag.is_error() {
+            self.eval_commutative_error(fv, fp, |v| fe(v).map(Into::into))
+        } else {
+            self.eval_warning(|v| fe(v).map(Into::into));
+            self.map_err_value(fp)
         }
     }
 

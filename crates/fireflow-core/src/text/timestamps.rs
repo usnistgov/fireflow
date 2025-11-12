@@ -422,8 +422,14 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Xtim};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use super::{
+        Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime100,
+        ReversedTimestampsError, Xtim,
+    };
+    use crate::{
+        python::macros::{impl_from_py_transparent, impl_pyreflow_err},
+        text::parser::{LookupTimestampsError, ParseKeyError},
+    };
 
     use pyo3::prelude::*;
 
@@ -440,6 +446,21 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract::<T>()?))
+        }
+    }
+
+    impl<T, E> From<LookupTimestampsError<T, E>> for PyErr
+    where
+        ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<PyErr>,
+        ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<PyErr>,
+    {
+        fn from(value: LookupTimestampsError<T, E>) -> Self {
+            match value {
+                LookupTimestampsError::Date(x) => x.into(),
+                LookupTimestampsError::Btim(x) => x.into(),
+                LookupTimestampsError::Etim(x) => x.into(),
+                LookupTimestampsError::Reversed(x) => x.into(),
+            }
         }
     }
 }

@@ -1130,10 +1130,16 @@ mod python {
         impl_value_err,
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
+    use crate::text::parser::{
+        LookupAppliedGatesError, LookupGatedMeasError, LookupGatedMeasurementsError,
+        LookupGatingSchemeError, LookupRegionError,
+    };
 
     use super::{
         GateMeasurementLinkError, IndexWindowMismatchError, NewAppliedGatesWithSchemeError,
     };
+
+    use pyo3::prelude::*;
 
     impl_from_py_via_fromstr!(Gating);
     impl_to_py_via_display!(Gating);
@@ -1148,4 +1154,54 @@ mod python {
     impl_pyreflow_err!(RelationalException, IndexWindowMismatchError);
 
     impl_from_pyerr!(NewAppliedGatesWithSchemeError, Link, Scheme);
+
+    impl<E0, E1> From<LookupGatingSchemeError<E0, E1>> for PyErr
+    where
+        LookupRegionError<E0, E1>: Into<Self>,
+    {
+        fn from(value: LookupGatingSchemeError<E0, E1>) -> Self {
+            match value {
+                LookupGatingSchemeError::Link(x) => x.into(),
+                LookupGatingSchemeError::Gating(x) => x.into(),
+                LookupGatingSchemeError::Region(x) => x.into(),
+            }
+        }
+    }
+
+    impl<E0, E1> From<LookupRegionError<E0, E1>> for PyErr
+    where
+        E0: Into<Self>,
+        E1: Into<Self>,
+    {
+        fn from(value: LookupRegionError<E0, E1>) -> Self {
+            match value {
+                LookupRegionError::Mismatch(x) => x.into(),
+                LookupRegionError::Region(x) => x.into(),
+                LookupRegionError::Window(x) => x.into(),
+            }
+        }
+    }
+
+    impl<E0> From<LookupAppliedGatesError<E0>> for PyErr
+    where
+        E0: Into<Self>,
+    {
+        fn from(value: LookupAppliedGatesError<E0>) -> Self {
+            match value {
+                LookupAppliedGatesError::Scheme(x) => x.into(),
+                LookupAppliedGatesError::GatedMeas(x) => x.into(),
+                LookupAppliedGatesError::Link(x) => x.into(),
+            }
+        }
+    }
+
+    impl_from_pyerr!(LookupGatedMeasurementsError, Gate, Meas);
+    impl_from_pyerr!(
+        LookupGatedMeasError,
+        Scale,
+        Shortname,
+        PercentEmitted,
+        Range,
+        DetectorVoltage
+    );
 }

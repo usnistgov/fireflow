@@ -571,7 +571,7 @@ pub struct StdTextReadConfig {
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
     /// If true, allow time to not be present even if we specify [`pattern`].
-    pub allow_missing_time: bool,
+    pub allow_missing_time: AllowMissingTime,
 
     /// If ``true`` force, force scale to be linear for temporal measurement.
     pub force_time_linear: bool,
@@ -795,6 +795,7 @@ impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
+impl_error_flag!(false_is_error AllowMissingTime);
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowUnusedStandard);
 impl_error_flag!(false_is_error AllowOptionalDropping);

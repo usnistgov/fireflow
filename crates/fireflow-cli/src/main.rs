@@ -874,7 +874,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
         ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
         ignore_time_optical_keys,
-        allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
+        allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME).into(),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
         date_pattern,
         time_pattern,

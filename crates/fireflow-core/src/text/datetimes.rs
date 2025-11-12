@@ -57,7 +57,7 @@ impl Datetimes {
         if ret.valid() {
             LogResult::new_ok(ret)
         } else {
-            LogResult::new_err1(ReversedDatetimesError).set_err_value(ret)
+            LogResult::new_err(ReversedDatetimesError).set_err_value(ret)
         }
     }
 

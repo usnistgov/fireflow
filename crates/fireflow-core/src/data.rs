@@ -587,7 +587,7 @@ pub trait LayoutOps<'a, T>: Sized {
         let layout_n = self.ncols();
         if meas_n != layout_n {
             let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return LogResult::new_err1(e.into());
+            return LogResult::new_err(e.into());
         }
         self.check_transforms(xforms)
             .map_errors(MeasLayoutMismatchError::from)
@@ -2055,7 +2055,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
                         .map_errors(FloatWidthError::from)
                 } else {
                     let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN));
-                    LogResult::new_err1(e)
+                    LogResult::new_err(e)
                 }
             })
     }
@@ -2903,7 +2903,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         // TODO is this always not zero?
         let w = self.event_width();
         if w == 0 {
-            LogResult::new_err1(EventWidthError::from(ZeroEventWidth::new(n)))
+            LogResult::new_err(EventWidthError::from(ZeroEventWidth::new(n)))
         } else {
             let total_events = n / w;
             let remainder = n % w;
@@ -3355,7 +3355,7 @@ impl<T> AnyOrderedUintLayout<T> {
                     let ws = widths.into_iter().filter(|&w| w != n);
                     if let Some(mismatches) = NonEmpty::collect(ws) {
                         let e = WidthMismatchError::new(real_bo, mismatches);
-                        LogResult::new_err1(SingleFixedWidthError::from(e))
+                        LogResult::new_err(SingleFixedWidthError::from(e))
                     } else {
                         LogResult::new_ok(())
                     }

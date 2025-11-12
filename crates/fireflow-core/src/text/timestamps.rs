@@ -95,7 +95,7 @@ impl<X> Timestamps<X> {
         if ret.valid() {
             LogResult::new_ok(ret)
         } else {
-            LogResult::new_err1(ReversedTimestampsError).set_err_value(ret)
+            LogResult::new_err(ReversedTimestampsError).set_err_value(ret)
         }
     }
 

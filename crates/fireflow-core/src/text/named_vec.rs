@@ -359,7 +359,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let check_optical = |ys: Vec<Element<X, Y>>| {
             ys.into_iter()
                 .enumerate()
-                .map(|(i, x)| x.both(|_| ErrorsResult::new_err1(i), ErrorsResult::new_ok))
+                .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
                 .mappend_commutative()
                 .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(true)))
         };

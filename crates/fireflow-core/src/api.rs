@@ -847,7 +847,7 @@ fn split_first_delim<'a>(
             .switchable_into_commutative()
             .map_errors(DelimVerifyError::from)
     } else {
-        LogResult::new_err1(EmptyTEXTError.into())
+        LogResult::new_err(EmptyTEXTError.into())
     }
 }
 
@@ -858,7 +858,7 @@ fn split_raw_primary_text(
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
-        LogResult::new_err1(NoTEXTWordsError.into())
+        LogResult::new_err(NoTEXTWordsError.into())
     } else {
         split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
             .map_errors(ParsePrimaryTEXTError::from)

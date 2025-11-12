@@ -1,7 +1,7 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult,
-    ResultExt,
+    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError,
+    LogResult, ResultExt,
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,

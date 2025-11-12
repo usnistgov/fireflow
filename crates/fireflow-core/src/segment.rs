@@ -4,8 +4,8 @@ use crate::config::{
     ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::logging::{
-    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, SwitchableErrorsResult, ImpureError,
-    LogResult, ResultExt as _, WarningsAndErrorsResult,
+    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, ImpureError, LogResult,
+    ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::parser::{OptMetarootKey, Optional, ParseKeyError, ReqKeyError_, ReqMetarootKey};
@@ -438,11 +438,13 @@ where
                         .switchable_into_commutative()
                 }
             },
-            Err((e0, e1)) => SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
-                .extend_deferred_switchable_errors(e1)
-                .map_switchable_errors(OptSegmentError::from)
-                .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
-                .switchable_into_commutative(),
+            Err((e0, e1)) => {
+                SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
+                    .extend_deferred_switchable_errors(e1)
+                    .map_switchable_errors(OptSegmentError::from)
+                    .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
+                    .switchable_into_commutative()
+            }
         }
     }
 
@@ -833,11 +835,13 @@ impl<I: Copy> HeaderSegment<I> {
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res.zip_commutative(end_res).and_then_commutative(|(begin, end)| {
-            Self::try_new_squish(begin, end, squish_offsets, conf)
-                .map_err(HeaderSegmentError::from)
-                .into_log()
-        })
+        begin_res
+            .zip_commutative(end_res)
+            .and_then_commutative(|(begin, end)| {
+                Self::try_new_squish(begin, end, squish_offsets, conf)
+                    .map_err(HeaderSegmentError::from)
+                    .into_log()
+            })
     }
 
     pub(crate) fn unless(
@@ -894,11 +898,13 @@ impl OtherSegment20 {
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res.zip_commutative(end_res).and_then_commutative(|(begin, end)| {
-            Self::try_new(begin, end, conf)
-                .map_err(HeaderSegmentError::from)
-                .into_log()
-        })
+        begin_res
+            .zip_commutative(end_res)
+            .and_then_commutative(|(begin, end)| {
+                Self::try_new(begin, end, conf)
+                    .map_err(HeaderSegmentError::from)
+                    .into_log()
+            })
     }
 }
 

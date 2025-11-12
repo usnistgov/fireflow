@@ -1,5 +1,7 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
-use crate::logging::{SwitchableErrorResult, SwitchableErrorsResult, LogResult, WarningOrErrorResult};
+use crate::logging::{
+    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
+};
 use crate::text::index::IndexFromOne;
 use crate::text::parser::{OptIndexedKey, OptMetarootKey};
 

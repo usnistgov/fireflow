@@ -247,7 +247,11 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<
+        Self::Outer,
+        AllowOptionalDropping,
+        ParseKeyError<Self::Err, Self, I>,
+    >
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
@@ -264,7 +268,11 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<
+        Self::Outer,
+        AllowOptionalDropping,
+        ParseKeyError<Self::Err, Self, I>,
+    >
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,

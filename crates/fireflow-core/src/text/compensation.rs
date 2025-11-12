@@ -1,6 +1,8 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _, WarningsAndErrorsResult};
+use crate::logging::{
+    DeferredSwitchableErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
+};
 use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
 
 use super::index::MeasIndex;

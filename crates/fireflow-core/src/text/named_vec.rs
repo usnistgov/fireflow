@@ -1,6 +1,7 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CommutativeResult, CommutativeResultIter as _, ErrorResult, ErrorsResult, LogResult, ResultExt as _,
+    CommutativeResult, CommutativeResultIter as _, ErrorResult, ErrorsResult, LogResult,
+    ResultExt as _,
 };
 use crate::text::optional::MightHave;
 use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
@@ -381,8 +382,9 @@ impl<K, U, V> NamedVec<K, U, V> {
                             .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
                             .into_log();
                         let right_res = check_optical(xs_right);
-                        left_res.zip3_commutative(center_res, right_res).map_ok_value(
-                            |(ys_left, y_center, ys_right)| {
+                        left_res
+                            .zip3_commutative(center_res, right_res)
+                            .map_ok_value(|(ys_left, y_center, ys_right)| {
                                 let left_out = go(&mut s.left, ys_left, 0);
                                 let c = &mut s.center;
                                 let center_index =
@@ -390,8 +392,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                                 let center_out = f_center(center_index, y_center);
                                 let right_out = go(&mut s.right, ys_right, 1 + nleft);
                                 left_out.chain([center_out]).chain(right_out).collect()
-                            },
-                        )
+                            })
                     }
                     Self::Unsplit(u) => {
                         check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())

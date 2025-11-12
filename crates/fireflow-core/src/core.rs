@@ -3880,16 +3880,19 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_commutative_warnings(StdTEXTFromRawWarning::from)
                     .map_errors(StdTEXTFromRawError::from);
 
-            let root_res = meas_res.zip_commutative(layout_res).and_then_commutative(|(ms, layout)| {
-                Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
-                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                    .map_errors(StdTEXTFromRawError::from)
-                    .and_then_commutative(|metaroot| {
-                        Self::try_new(metaroot, ms, layout, std_conf)
+            let root_res =
+                meas_res
+                    .zip_commutative(layout_res)
+                    .and_then_commutative(|(ms, layout)| {
+                        Metaroot::lookup_metaroot(&mut kws.std, &ms, kws.nonstd, std_conf)
                             .map_commutative_warnings(StdTEXTFromRawWarning::from)
                             .map_errors(StdTEXTFromRawError::from)
-                    })
-            });
+                            .and_then_commutative(|metaroot| {
+                                Self::try_new(metaroot, ms, layout, std_conf)
+                                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
+                                    .map_errors(StdTEXTFromRawError::from)
+                            })
+                    });
 
             // Push pseudostandard/unused warnings/errors
             let esks = match version {
@@ -4285,12 +4288,12 @@ where
                 let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
                 let others_res = or.h_read(h).map_err(ImpureError::IO).into_log();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                data_res.zip3_commutative(analysis_res, others_res).map_ok_value(
-                    |(data, analysis, others)| {
+                data_res
+                    .zip3_commutative(analysis_res, others_res)
+                    .map_ok_value(|(data, analysis, others)| {
                         let c = text.into_coredataset_unchecked(data, analysis, others);
                         (c, out)
-                    },
-                )
+                    })
             })
     }
 
@@ -4964,41 +4967,44 @@ impl CoreTEXT3_2 {
         let dt_res = Datetimes::try_new(begindatetime, enddatetime)
             .map_errors(NewCoreTEXTError::from)
             .into_semigroup();
-        ts_res.zip_commutative(dt_res).and_then_commutative(|(ts, dt)| {
-            let specific = InnerMetaroot3_2::new(
-                mode,
-                ts,
-                dt,
-                cyt,
-                spillover,
-                cytsn,
-                ModificationData::new(last_modifier, last_mod_date, originality),
-                PlateData::new(plateid, platename, wellid),
-                vol,
-                CarrierData::new(carrierid, carriertype, locationid),
-                UnstainedData::new(unstainedcenters, unstainedinfo),
-                flowrate,
-                applied_gates,
-            );
-            let metaroot = Metaroot::new(
-                abrt,
-                com,
-                cells,
-                exp,
-                fil,
-                inst,
-                lost,
-                op,
-                proj,
-                smno,
-                src,
-                sys,
-                tr,
-                specific,
-                nonstandard_keywords,
-            );
-            Self::try_new_nodrop(metaroot, measurements, layout).map_errors(NewCoreTEXTError::from)
-        })
+        ts_res
+            .zip_commutative(dt_res)
+            .and_then_commutative(|(ts, dt)| {
+                let specific = InnerMetaroot3_2::new(
+                    mode,
+                    ts,
+                    dt,
+                    cyt,
+                    spillover,
+                    cytsn,
+                    ModificationData::new(last_modifier, last_mod_date, originality),
+                    PlateData::new(plateid, platename, wellid),
+                    vol,
+                    CarrierData::new(carrierid, carriertype, locationid),
+                    UnstainedData::new(unstainedcenters, unstainedinfo),
+                    flowrate,
+                    applied_gates,
+                );
+                let metaroot = Metaroot::new(
+                    abrt,
+                    com,
+                    cells,
+                    exp,
+                    fil,
+                    inst,
+                    lost,
+                    op,
+                    proj,
+                    smno,
+                    src,
+                    sys,
+                    tr,
+                    specific,
+                    nonstandard_keywords,
+                );
+                Self::try_new_nodrop(metaroot, measurements, layout)
+                    .map_errors(NewCoreTEXTError::from)
+            })
     }
 }
 
@@ -6269,8 +6275,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res.zip4_commutative(mode_res, ag_res, cyt_res).map_ok_value(
-            |((), mode, applied_gates, cyt)| {
+        check_res
+            .zip4_commutative(mode_res, ag_res, cyt_res)
+            .map_ok_value(|((), mode, applied_gates, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps.map(Into::into),
@@ -6286,8 +6293,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
                     Flowrate::default(),
                     applied_gates,
                 )
-            },
-        )
+            })
     }
 }
 
@@ -6319,8 +6325,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res.zip4_commutative(ag_res, mode_rs, cyt_res).map_ok_value(
-            |((), applied_gates, mode, cyt)| {
+        check_res
+            .zip4_commutative(ag_res, mode_rs, cyt_res)
+            .map_ok_value(|((), applied_gates, mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps,
@@ -6336,8 +6343,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
                     Flowrate::default(),
                     applied_gates,
                 )
-            },
-        )
+            })
     }
 }
 

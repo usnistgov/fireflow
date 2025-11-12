@@ -3,8 +3,7 @@ use crate::config::{
 };
 use crate::core::ScaleTransformError;
 use crate::logging::{
-    DeferredFungibleError, DeferredWarningsAndErrors, ResultExt as _, WarningAndErrorResult,
-    WarningsAndErrorsResult,
+    DeferredFungibleError, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::validated::keys::{
@@ -14,27 +13,29 @@ use crate::validated::keys::{
 use crate::validated::shortname::Shortname;
 
 use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
-use super::compensation::{Compensation3_0, NewCompError};
-use super::datetimes::{BeginDateTime, EndDateTime, ReversedDatetimesError};
-use super::gating::{GateMeasurementLinkError, IndexWindowMismatchError, Region};
-use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use super::compensation::{Compensation3_0, LookupComp2_0Error, NewCompError};
+use super::datetimes::LookupDatetimesError;
+use super::gating::{
+    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error, Region,
+};
+use super::index::{IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
     Abrt, AlphaNumType, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag,
     Calibration3_1, Calibration3_2, Cyt3_2, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Endanalysis, Enddata, Feature, Gain, Gate, GateDetectorType, GateDetectorVoltage,
+    Display, Endanalysis, Enddata, Feature, Gain, GateDetectorType, GateDetectorVoltage,
     GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale, GateShortname, Gating,
-    LastModified, Longname, Lost, MeasOrGateIndex, Mode, Mode3_2, NumType, OpticalType,
+    LastModified, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, NumType, OpticalType,
     Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Range, RegionGateIndex, RegionWindow, Tag, TemporalGainError,
-    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
-    UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
+    PrefixedMeasIndex, Range, RegionGateIndex, RegionWindow, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters, Vol,
+    Wavelength, Wavelengths, Wellid,
 };
 use super::optional::DisplayMaybe;
 use super::scale::Scale;
 use super::spillover::Spillover;
 use super::timestamps::{
-    Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime60Error, FCSTime100,
-    FCSTime100Error, FCSTimeError, ReversedTimestampsError,
+    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
+    FCSTimeError, LookupTimestampsError,
 };
 
 use derive_more::{Display, From};
@@ -601,9 +602,6 @@ pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T,
 
 pub(crate) type LookupResult<V> =
     WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
-pub(crate) type LookupTentative<V> =
-    DeferredWarningsAndErrors<V, LookupKeysWarning, LookupKeysWarning>;
-pub(crate) type LookupOptional<V> = LookupTentative<Option<V>>;
 
 /// Errors when looking up any key.
 ///
@@ -760,12 +758,6 @@ pub enum LookupTemporalWarning {
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),
     Peak(LookupPeakError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupComp2_0Error {
-    Dfc(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
-    Matrix(NewCompError),
 }
 
 /// Error encountered when parsing a required key from a string
@@ -1108,98 +1100,6 @@ pub enum LookupPeakError {
     Index(OptIndexedKeyError<PeakIndex>),
 }
 
-#[derive(Display, Debug, Error)]
-pub enum LookupTimestampsError<T, E> {
-    Date(OptKeyStError<FCSDate>),
-    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
-    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>),
-    Reversed(ReversedTimestampsError),
-}
-
-#[derive(Display, Debug, Error)]
-pub enum LookupDepTimestampsError<T, E> {
-    Date(OptKeyStError<FCSDate>),
-    Btim(OptKeyError_<FCSFixedTimeError<E>, Btim<T>, ()>),
-    Etim(OptKeyError_<FCSFixedTimeError<E>, Etim<T>, ()>),
-    Reversed(ReversedTimestampsError),
-}
-
-#[derive(Display, Debug, Error)]
-pub enum LookupGatingSchemeError<E0, E1> {
-    Link(DependentKeyError<Gating>),
-    Gating(OptKeyError<Gating>),
-    Region(LookupRegionError<E0, E1>),
-}
-
-#[derive(Display, Debug, Error)]
-pub enum LookupRegionError<E0, E1> {
-    Mismatch(IndexWindowMismatchError),
-    Region(E0),
-    Window(E1),
-}
-
-#[derive(Display, Debug, Error)]
-pub enum LookupAppliedGatesError<E0> {
-    Scheme(E0),
-    GatedMeas(LookupGatedMeasurementsError),
-    Link(GateMeasurementLinkError),
-}
-
-pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
-    OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
-    OptIndexedKeyError<RegionWindow>,
->;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupGatedMeasurementsError {
-    Gate(OptKeyError<Gate>),
-    Meas(LookupGatedMeasError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupGatedMeasError {
-    Scale(OptIndexedKeyError<GateScale>),
-    Shortname(OptIndexedKeyError<GateShortname>),
-    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
-    Range(OptIndexedKeyError<GateRange>),
-    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupDepGatedMeasError {
-    Scale(OptIndexedKeyError<GateScale>),
-    Shortname(OptIndexedKeyError<GateShortname>),
-    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
-    Range(OptIndexedKeyError<GateRange>),
-    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
-}
-
-// #[derive(From, Display, Debug, Error)]
-// pub enum LookupDepRegionGateIndex<I, E> {
-//     Inner(LookupRegionGateIndex<I, E>),
-//     Dep(DepKeyWarning<RegionGateIndex<I>, IndexFromOne>),
-// }
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupTemporalGain {
-    Parse(OptIndexedKeyError<Gain>),
-    HasGain(TemporalGainError),
-}
-
 #[derive(From, Display, Debug, Error)]
 pub enum LookupCSVFlagsError {
     Mode(OptKeyError<CSMode>),
@@ -1210,13 +1110,6 @@ pub enum LookupCSVFlagsError {
 pub enum LookupModifiedDataError {
     LastModTime(OptKeyError<LastModified>),
     Originality(OptKeyError<Originality>),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupDatetimesError {
-    Begindatetime(OptKeyError<BeginDateTime>),
-    Enddatetime(OptKeyError<EndDateTime>),
-    Datetime(ReversedDatetimesError),
 }
 
 /// Error triggered when time measurement is missing but required.
@@ -1452,28 +1345,17 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::{
-        data::RawParsedError,
-        python::{
-            exceptions::FCSDeprecatedError,
-            macros::{impl_from_pyerr, impl_pyreflow_err},
-        },
-        text::{
-            keywords::{Nextdata, NumType, Par, TemporalGainError, Tot},
-            timestamps::{Btim, Etim, FCSFixedTimeError},
-        },
-        validated::keys::SpecificKey,
-    };
+    use crate::data::RawParsedError;
+    use crate::python::exceptions::FCSDeprecatedError;
+    use crate::python::macros::{impl_from_pyerr, impl_pyreflow_err};
 
     use super::{
         AnyDepKeyError, DepKeyWarning, DepValueWarning, DeprecatedModeWarning, LookupCSVFlagsError,
-        LookupComp2_0Error, LookupDatetimesError, LookupKeysError, LookupKeysWarning,
-        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
-        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
-        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTemporalError,
-        LookupTemporalGain, LookupTemporalWarning, LookupTimestampsError, MissingTime,
-        OptIndexedKeyError, OptKeyError, ParseKeyError, ParseOptKeyError, ParseReqKeyError,
-        PseudostandardError, ReqKeyError, ReqKeyError_, UnusedStandardError,
+        LookupKeysError, LookupKeysWarning, LookupMeasurementError, LookupMeasurementWarning,
+        LookupMetarootError, LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError,
+        LookupOpticalWarning, LookupPeakError, LookupShortnameError, LookupSubsetError,
+        LookupTemporalError, LookupTemporalWarning, MissingTime, ParseKeyError, ParseOptKeyError,
+        ParseReqKeyError, PseudostandardError, ReqKeyError_, UnusedStandardError,
     };
 
     use pyo3::prelude::*;
@@ -1553,9 +1435,7 @@ mod python {
     impl_from_pyerr!(LookupMetarootError, Mode, Cyt3_2, Par, Warn);
     impl_from_pyerr!(LookupSubsetError, Flags, Bits, Tot);
     impl_from_pyerr!(LookupCSVFlagsError, Mode, Flag);
-    impl_from_pyerr!(LookupDatetimesError, Begindatetime, Enddatetime, Datetime);
     impl_from_pyerr!(LookupModifiedDataError, LastModTime, Originality);
-    impl_from_pyerr!(LookupComp2_0Error, Dfc, Matrix);
 
     impl_from_pyerr!(
         LookupMeasurementWarning,
@@ -1597,5 +1477,4 @@ mod python {
         Peak
     );
     impl_from_pyerr!(LookupPeakError, Bin, Index);
-    impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
 }

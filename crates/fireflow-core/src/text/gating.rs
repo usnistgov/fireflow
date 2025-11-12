@@ -12,10 +12,7 @@ use crate::validated::keys::{
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
     DepGatedMeasRef, DependentKeyError, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
-    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
-    LookupAppliedGatesError, LookupGatedMeasError, LookupGatedMeasurementsError,
-    LookupGatingSchemeError, LookupRegionError, OptIndexedKey as _, OptIndexedKeyError,
-    OptMetarootKey,
+    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey,
 };
 
 use super::index::{GateIndex, MeasIndex, RegionIndex};
@@ -1123,6 +1120,61 @@ pub enum IndexWindowMismatchError {
     NoWindow(RegionIndex),
 }
 
+#[derive(Display, Debug, Error)]
+pub enum LookupGatingSchemeError<E0, E1> {
+    Link(DependentKeyError<Gating>),
+    Gating(OptKeyError<Gating>),
+    Region(LookupRegionError<E0, E1>),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupRegionError<E0, E1> {
+    Mismatch(IndexWindowMismatchError),
+    Region(E0),
+    Window(E1),
+}
+
+#[derive(Display, Debug, Error)]
+pub enum LookupAppliedGatesError<E0> {
+    Scheme(E0),
+    GatedMeas(LookupGatedMeasurementsError),
+    Link(GateMeasurementLinkError),
+}
+
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+>;
+
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+>;
+
+pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
+    OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
+    OptIndexedKeyError<RegionWindow>,
+>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupGatedMeasurementsError {
+    Gate(OptKeyError<Gate>),
+    Meas(LookupGatedMeasError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupGatedMeasError {
+    Scale(OptIndexedKeyError<GateScale>),
+    Shortname(OptIndexedKeyError<GateShortname>),
+    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
+    Range(OptIndexedKeyError<GateRange>),
+    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
+}
+
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
@@ -1130,13 +1182,11 @@ mod python {
         impl_value_err,
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
-    use crate::text::parser::{
-        LookupAppliedGatesError, LookupGatedMeasError, LookupGatedMeasurementsError,
-        LookupGatingSchemeError, LookupRegionError,
-    };
 
     use super::{
-        GateMeasurementLinkError, IndexWindowMismatchError, NewAppliedGatesWithSchemeError,
+        GateMeasurementLinkError, IndexWindowMismatchError, LookupAppliedGatesError,
+        LookupGatedMeasError, LookupGatedMeasurementsError, LookupGatingSchemeError,
+        LookupRegionError, NewAppliedGatesWithSchemeError,
     };
 
     use pyo3::prelude::*;

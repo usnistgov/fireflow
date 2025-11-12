@@ -18,8 +18,8 @@ use crate::logging::{
     CmtResultIter as _, DeferredError, DeferredFungibleError, DeferredFungibleErrors,
     DeferredIter as _, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, FungibleErrorResult,
     FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
-    SummaryResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
+    SummaryResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
+    WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -58,18 +58,17 @@ use crate::text::optional::{
     CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
 };
 use crate::text::parser::{
-    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DepValueWarning, DependentIndexedKeyError,
-    DependentKeyError, DeprecatedModeWarning, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef,
-    DeprecatedStrRef, ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError,
-    IsDeprecated as _, KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError,
-    LookupKeysError, LookupKeysWarning, LookupMeasurementError, LookupMeasurementResult,
-    LookupMeasurementWarning, LookupMetarootError, LookupMetarootResult, LookupMetarootWarning,
-    LookupModifiedDataError, LookupOpticalError, LookupOpticalResult, LookupOpticalWarning,
-    LookupPeakError, LookupResult, LookupShortnameError, LookupShortnameResult, LookupSubsetError,
-    LookupTemporalError, LookupTemporalResult, LookupTemporalWarning, MissingTime,
-    OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _, ParseOptKeyError,
-    ParseReqKeyError, PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError,
-    ReqMetarootKey as _, UnusedStandardError,
+    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
+    DeprecatedModeWarning, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
+    ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError, IsDeprecated as _,
+    KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupMeasurementError,
+    LookupMeasurementResult, LookupMeasurementWarning, LookupMetarootError, LookupMetarootResult,
+    LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalResult,
+    LookupOpticalWarning, LookupPeakError, LookupShortnameError, LookupShortnameResult,
+    LookupSubsetError, LookupTemporalError, LookupTemporalResult, LookupTemporalWarning,
+    MissingTime, OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _,
+    PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
+    UnusedStandardError,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
@@ -86,7 +85,7 @@ use crate::validated::{
     dataframe::{AnyFCSColumn, FCSDataFrame},
     keys::{
         BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords,
-        NonStdKeywordsExt as _, NonStdMeasRegexError, StdKeywords, ValidKeywords,
+        NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
     },
     shortname::Shortname,
     textdelim::TEXTDelim,

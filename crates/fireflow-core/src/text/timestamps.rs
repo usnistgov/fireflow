@@ -6,7 +6,7 @@ use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::optional::KeywordPairMaybe;
 use super::parser::{
-    DeprecatedTimestampsRef, FromStrWith, LookupTimestampsError, OptMetarootKey, Optional,
+    DeprecatedTimestampsRef, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -391,6 +391,14 @@ impl fmt::Display for FCSTime100 {
 )]
 pub struct FCSTime100Error;
 
+#[derive(Display, Debug, Error)]
+pub enum LookupTimestampsError<T, E> {
+    Date(OptKeyStError<FCSDate>),
+    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
+    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>),
+    Reversed(ReversedTimestampsError),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,11 +432,11 @@ mod tests {
 mod python {
     use super::{
         Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime100,
-        ReversedTimestampsError, Xtim,
+        LookupTimestampsError, ReversedTimestampsError, Xtim,
     };
     use crate::{
         python::macros::{impl_from_py_transparent, impl_pyreflow_err},
-        text::parser::{LookupTimestampsError, ParseKeyError},
+        text::parser::ParseKeyError,
     };
 
     use pyo3::prelude::*;
@@ -451,8 +459,8 @@ mod python {
 
     impl<T, E> From<LookupTimestampsError<T, E>> for PyErr
     where
-        ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<PyErr>,
-        ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<PyErr>,
+        ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<Self>,
+        ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<Self>,
     {
         fn from(value: LookupTimestampsError<T, E>) -> Self {
             match value {

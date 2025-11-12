@@ -5,10 +5,7 @@ use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKe
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::parser::{
-    FromStrDelim, FromStrWith, LookupComp2_0Error, LookupKeysWarning, LookupOptional, OptKeyError_,
-    ParseKeyError,
-};
+use super::parser::{FromStrDelim, FromStrWith, OptKeyError_, ParseKeyError};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
@@ -286,6 +283,12 @@ pub(crate) fn lookup_dfc(
     })
 }
 
+#[derive(From, Display, Debug, Error)]
+pub enum LookupComp2_0Error {
+    Dfc(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
+    Matrix(NewCompError),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,9 +332,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_transparent, impl_value_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_value_err};
 
-    use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
+    use super::{Compensation, Compensation2_0, Compensation3_0, LookupComp2_0Error, NewCompError};
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
@@ -358,4 +361,6 @@ mod python {
 
     impl_from_py_transparent!(Compensation2_0);
     impl_from_py_transparent!(Compensation3_0);
+
+    impl_from_pyerr!(LookupComp2_0Error, Dfc, Matrix);
 }

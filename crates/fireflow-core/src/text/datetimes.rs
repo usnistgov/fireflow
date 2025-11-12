@@ -5,7 +5,7 @@ use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{LookupDatetimesError, OptMetarootKey as _};
+use super::parser::{OptKeyError, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -180,6 +180,13 @@ pub enum FCSDateTimeError {
     Other,
 }
 
+#[derive(From, Display, Debug, Error)]
+pub enum LookupDatetimesError {
+    Begindatetime(OptKeyError<BeginDateTime>),
+    Enddatetime(OptKeyError<EndDateTime>),
+    Datetime(ReversedDatetimesError),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,12 +232,16 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use super::{
+        BeginDateTime, EndDateTime, FCSDateTime, LookupDatetimesError, ReversedDatetimesError,
+    };
+    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);
     impl_from_py_transparent!(EndDateTime);
 
     impl_pyreflow_err!(RelationalException, ReversedDatetimesError);
+
+    impl_from_pyerr!(LookupDatetimesError, Begindatetime, Enddatetime, Datetime);
 }

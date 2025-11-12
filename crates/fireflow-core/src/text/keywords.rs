@@ -20,7 +20,7 @@ use super::optional::{
 };
 use super::parser::{
     DepValueWarning, FromStrDelim, FromStrWith, LookupKeysError, LookupKeysWarning, LookupResult,
-    LookupTemporalGain, OptIndexedKey, OptMetarootKey, Optional, ParseReqKeyError, ReqIndexedKey,
+    OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional, ParseReqKeyError, ReqIndexedKey,
     ReqIndexedKeyError, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
@@ -82,6 +82,12 @@ impl Gain {
                 })
         }
     }
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalGain {
+    Parse(OptIndexedKeyError<Gain>),
+    HasGain(TemporalGainError),
 }
 
 /// Error triggered when time measurement has $PnG
@@ -2355,7 +2361,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow_err,
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow_err,
         impl_to_py_via_display, impl_value_err,
     };
     use crate::text::ranged_float::PositiveFloat;
@@ -2363,10 +2369,11 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
-        FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2,
-        Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, Range, TemporalGainError, Timestep, Trigger, UniGate,
-        Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
+        FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified,
+        LookupTemporalGain, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError,
+        OpticalType, OpticalTypeError, Originality, OriginalityError, PrefixedMeasIndex, Range,
+        TemporalGainError, Timestep, Trigger, UniGate, Unicode, UnstainedCenters, Vertex, Vol,
+        Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2406,6 +2413,8 @@ mod python {
 
     impl_from_py_via_fromstr!(OpticalType);
     impl_value_err!(OpticalTypeError);
+
+    impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

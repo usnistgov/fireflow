@@ -1749,7 +1749,6 @@ impl<O> Optical<O> {
         O: LookupOptical,
         Version: From<O::Ver>,
     {
-        // let version = O::Ver::fcs_version();
         let filter = Filter::remove_meas_opt_nofail(std, i);
         let power = Power::drop_meas_opt(std, &mut nonstd, i, conf)
             .map_fungible_errors(ParseOptKeyError::from)
@@ -1757,8 +1756,6 @@ impl<O> Optical<O> {
             .fungible_into_commutative()
             .into_semigroup();
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        // let pe_dep = Version::from(version) == Version::FCS3_2;
-        // TODO this won't emit deprecated error for 3.2
         let perc_emit = PercentEmitted::drop_meas_opt(std, &mut nonstd, i, conf)
             .map_fungible_errors(ParseOptKeyError::from)
             .map_fungible_errors(LookupKeysWarning::from)

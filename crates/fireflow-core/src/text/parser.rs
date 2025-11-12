@@ -15,7 +15,7 @@ use crate::validated::shortname::Shortname;
 use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
 use super::compensation::{Compensation3_0, NewCompError};
 use super::datetimes::{BeginDateTime, EndDateTime, ReversedDatetimesError};
-use super::gating::{self, GateMeasurementLinkError, IndexWindowMismatchError, Region};
+use super::gating::{GateMeasurementLinkError, IndexWindowMismatchError, Region};
 use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
     Abrt, AlphaNumType, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag,
@@ -597,8 +597,6 @@ impl<T> DependentIndexedKeyError<T> {
 pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T, I>>;
-// pub(crate) type OptResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
-// pub(crate) type OptKwResult<T, I> = Result<Option<T>, OptKeyError_<<T as FromStr>::Err, T, I>>;
 
 pub(crate) type LookupResult<V> =
     WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
@@ -631,27 +629,9 @@ pub enum LookupKeysError {
 #[derive(From, Display, Debug, Error)]
 pub enum LookupKeysWarning {
     Parse(ParseOptKeyError),
-    Timestamp(ReversedTimestampsError),
     Comp(NewCompError),
-    // CSVFlag(NewCSVFlagsError),
-    GateRegion(gating::IndexWindowMismatchError),
-    GateMeasLink(gating::GateMeasurementLinkError),
-    GatingScheme(DependentKeyError<Gating>),
-    Spillover(KeyToIndexLinkError<Spillover>),
-    // RegionIndex2_0(RegionLinkError<GateIndex>),
-    // RegionIndex3_0(RegionLinkError<MeasOrGateIndex>),
-    // RegionIndex3_2(RegionLinkError<PrefixedMeasIndex>),
-    TemporalGain(TemporalGainError),
     MissingTime(MissingTime),
     Dep(DepValueWarning),
-    DepKeys(DepKeyWarnings),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum DepKeyWarnings {
-    Wellid(DepKeyWarning<Wellid, ()>),
-    Platename(DepKeyWarning<Platename, ()>),
-    Plateid(DepKeyWarning<Plateid, ()>),
 }
 
 // TODO break these up to be more context-specific (layout vs metaroot etc)
@@ -1341,9 +1321,9 @@ mod python {
     };
 
     use super::{
-        AnyDepKeyError, DepKeyWarning, DepKeyWarnings, DepValueWarning, LookupKeysError,
-        LookupKeysWarning, MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError,
-        ParseReqKeyError, PseudostandardError, ReqKeyError, UnusedStandardError,
+        AnyDepKeyError, DepKeyWarning, DepValueWarning, LookupKeysError, LookupKeysWarning,
+        MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError, ParseReqKeyError,
+        PseudostandardError, ReqKeyError, UnusedStandardError,
     };
 
     use pyo3::prelude::*;
@@ -1380,19 +1360,5 @@ mod python {
     impl_pyreflow_err!(FCSDeprecatedError, AnyDepKeyError);
 
     impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
-    impl_from_pyerr!(
-        LookupKeysWarning,
-        Parse,
-        Timestamp,
-        Comp,
-        GateRegion,
-        GateMeasLink,
-        GatingScheme,
-        Spillover,
-        TemporalGain,
-        MissingTime,
-        Dep,
-        DepKeys
-    );
-    impl_from_pyerr!(DepKeyWarnings, Wellid, Platename, Plateid);
+    impl_from_pyerr!(LookupKeysWarning, Parse, Comp, MissingTime, Dep);
 }

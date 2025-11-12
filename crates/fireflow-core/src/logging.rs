@@ -593,22 +593,22 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         Failure::new(self.warnings, self.errors.fmap(f), self.value)
     }
 
-    fn push_warning<W>(&mut self, w: W)
-    where
-        WC: Extend<W>,
-    {
-        self.warnings.extend(iter::once(w));
-    }
+    // fn push_warning<W>(&mut self, w: W)
+    // where
+    //     WC: Extend<W>,
+    // {
+    //     self.warnings.extend(iter::once(w));
+    // }
 
-    fn eval_warning<F, W>(&mut self, f: F)
-    where
-        F: FnOnce(&P) -> Option<W>,
-        WC: Extend<W>,
-    {
-        if let Some(e) = f(&self.value) {
-            self.push_warning(e);
-        }
-    }
+    // fn eval_warning<F, W>(&mut self, f: F)
+    // where
+    //     F: FnOnce(&P) -> Option<W>,
+    //     WC: Extend<W>,
+    // {
+    //     if let Some(e) = f(&self.value) {
+    //         self.push_warning(e);
+    //     }
+    // }
 
     fn extend_warnings<W>(&mut self, ws: impl IntoIterator<Item = W>)
     where
@@ -1086,7 +1086,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
     ///
     /// This must be commutative since and OK might flip to an error, and thus
     /// the warnings must match.
-    pub(crate) fn eval_commutative_error<Pf, Fe, Fv, Fp>(
+    pub(crate) fn eval_error<Pf, Fe, Fv, Fp>(
         self,
         fv: Fv,
         fp: Fp,
@@ -1107,7 +1107,8 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         }
     }
 
-    pub(crate) fn eval_commutative_warning_or_error<Pf, Fe, Fv, Fp, W, M, X>(
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn eval_warning_or_error<Pf, Fe, Fv, Fp, W, M, X>(
         mut self,
         flag: X,
         fv: Fv,
@@ -1120,11 +1121,11 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         Fp: FnOnce(P) -> Pf,
         Fe: FnOnce(&V) -> Option<M>,
         EC: Extend<E> + Default,
-        WC: Extend<W> + Default,
+        WC: Extend<W>,
         M: Into<W> + Into<E>,
     {
         if flag.is_error() {
-            self.eval_commutative_error(fv, fp, |v| fe(v).map(Into::into))
+            self.eval_error(fv, fp, |v| fe(v).map(Into::into))
         } else {
             self.eval_warning(|v| fe(v).map(Into::into));
             self.map_err_value(fp)
@@ -1367,20 +1368,20 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    /// Push a warning based on the value in a deferred Result.
-    ///
-    /// This must be a deferred result because the same value type must exist
-    /// on both Succ and Failor sides.
-    pub(crate) fn eval_def_warning<W, F>(&mut self, f: F)
-    where
-        F: FnOnce(&V) -> Option<W>,
-        WC: Extend<W>,
-    {
-        match self {
-            Succ(s) => s.eval_warning(f),
-            Fail(e) => e.eval_warning(f),
-        }
-    }
+    // /// Push a warning based on the value in a deferred Result.
+    // ///
+    // /// This must be a deferred result because the same value type must exist
+    // /// on both Succ and Failor sides.
+    // pub(crate) fn eval_def_warning<W, F>(&mut self, f: F)
+    // where
+    //     F: FnOnce(&V) -> Option<W>,
+    //     WC: Extend<W>,
+    // {
+    //     match self {
+    //         Succ(s) => s.eval_warning(f),
+    //         Fail(e) => e.eval_warning(f),
+    //     }
+    // }
 
     /// Push an error based on the value in a deferred Result.
     ///
@@ -1440,7 +1441,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
     #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn eval_warning_or_error<X, M, W, F>(mut self, flag: X, f: F) -> Self
+    pub(crate) fn eval_deferred_warning_or_error<X, M, W, F>(self, flag: X, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<M>,
         M: Into<E> + Into<W>,
@@ -1448,12 +1449,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         WC: Extend<W>,
         X: ErrorFlag,
     {
-        if flag.is_error() {
-            self.eval_deferred_error(|x| f(x).map(Into::into))
-        } else {
-            self.eval_def_warning(|x| f(x).map(Into::into));
-            self
-        }
+        self.eval_warning_or_error(flag, |v| v, |v| v, f)
     }
 
     /// Monad-ically apply commutative result operation to deferred result.

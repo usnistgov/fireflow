@@ -869,7 +869,7 @@ fn split_raw_supp_text(
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
-            .eval_warning_or_error(flag, |()| {
+            .eval_deferred_warning_or_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
             .map_errors(ParseSupplementalTEXTError::from)

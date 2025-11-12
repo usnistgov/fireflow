@@ -4124,7 +4124,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
             .into_log()
-            .eval_commutative_warning_or_error(missing_flag, |_| (), |()| (), go)
+            .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
             .and_then_cmt(|ms| {
                 Self::check_relationships(&mut metaroot, &ms, &layout, drop_flag.is_set())
                     .map_errors(NewCoreWarning::from)
@@ -5999,7 +5999,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .fungible_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .eval_warning_or_error(flag, |()| {
+            .eval_deferred_warning_or_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(AppliedGates3_2To2_0Error)
             })
             .map_ok_value(|()| {
@@ -6194,10 +6194,10 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let check_res = LogResult::new_ok(())
-            .eval_warning_or_error(flag, |()| {
+            .eval_deferred_warning_or_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(AppliedGates2_0To3_2Error)
             })
-            .eval_warning_or_error(flag, |()| {
+            .eval_deferred_warning_or_error(flag, |()| {
                 value.comp.is_some().then_some(Comp2_0TransferError)
             });
 
@@ -9337,7 +9337,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::{AnyRangeError, LookupLayoutError, RawToLayoutError};
+    use crate::data::{AnyRangeError, RawToLayoutError};
     use crate::python::exceptions::{ConversionException, RelationalException};
     use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
     use crate::text::parser::{

@@ -6,8 +6,8 @@ use crate::logging::{
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::NonStdKeywordsExt as _;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
@@ -39,6 +39,7 @@ use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::One as _;
 use thiserror::Error;
 
+use derive_new::new;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -221,6 +222,14 @@ pub enum Mode {
     Uncorrelated,
     #[display("C")]
     Correlated,
+}
+
+#[derive(Debug, Error)]
+pub enum DeprecatedModeWarning {
+    #[error("$MODE=C is deprecated")]
+    ModeCorrelated,
+    #[error("$MODE=U is deprecated")]
+    ModeUncorrelated,
 }
 
 #[derive(Debug, Error)]
@@ -1691,6 +1700,112 @@ impl CheckMaybe for UnstainedCenters {
     type Inner = Self;
 }
 
+/// Leftover standard keyword after parsing
+#[derive(Clone, new, PartialEq)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct ExtraStdKeywords {
+    pub pseudostandard: StdKeywords,
+    pub unused: StdKeywords,
+}
+
+impl ExtraStdKeywords {
+    pub(crate) fn split_2_0(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_2_0)
+    }
+
+    pub(crate) fn split_3_0(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_0)
+    }
+
+    pub(crate) fn split_3_1(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_1)
+    }
+
+    pub(crate) fn split_3_2(kws: StdKeywords) -> Self {
+        Self::split_inner(kws, Self::matches_kw_3_2)
+    }
+
+    fn split_inner<F>(mut kws: StdKeywords, mut f: F) -> Self
+    where
+        F: FnMut(&StdKey) -> bool,
+    {
+        let unused: HashMap<_, _> = kws.extract_if(|k, _| f(k)).collect();
+        Self::new(kws, unused)
+    }
+
+    fn matches_kw_2_0(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        s.eq_ignore_ascii_case(Tot::C) || Dfc::matches(k) || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_0(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_1(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Display::matches(k)
+            || Calibration3_1::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_kw_3_2(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        Self::matches_offsets(k)
+            || s.eq_ignore_ascii_case(Tot::C)
+            || s.eq_ignore_ascii_case(Timestep::C)
+            || Gain::matches(k)
+            || Display::matches(k)
+            || Calibration3_2::matches(k)
+            || NumType::matches(k)
+            || DetectorName::matches(k)
+            || Tag::matches(k)
+            || Analyte::matches(k)
+            || Feature::matches(k)
+            || OpticalType::matches(k)
+            || Self::matches_meas_kw_common(k)
+    }
+
+    fn matches_offsets(k: &StdKey) -> bool {
+        let s: &str = k.as_ref();
+        s.eq_ignore_ascii_case(Beginanalysis::C)
+            || s.eq_ignore_ascii_case(Endanalysis::C)
+            || s.eq_ignore_ascii_case(Begindata::C)
+            || s.eq_ignore_ascii_case(Enddata::C)
+    }
+
+    fn matches_meas_kw_common(k: &StdKey) -> bool {
+        Width::matches(k)
+            || Range::matches(k)
+            || Scale::matches(k)
+            || Shortname::matches(k)
+            || Longname::matches(k)
+            || Power::matches(k)
+            || DetectorType::matches(k)
+            || PercentEmitted::matches(k)
+            || DetectorVoltage::matches(k)
+    }
+}
+
+/// Error denoting that pseudostandard keyword was found.
+#[derive(Debug, Error)]
+#[error("pseudostandard keyword found: {0}")]
+pub struct PseudostandardError(pub StdKey);
+
+/// Error denoting that unused standard keyword was found.
+#[derive(Debug, Error)]
+#[error("unused standard keyword found: {0}")]
+pub struct UnusedStandardError(pub StdKey);
+
 macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
@@ -2375,11 +2490,12 @@ mod python {
 
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2,
-        DeprecatedDatatypeWarning, Display, Feature, FeatureError, GateRange, GateScale,
-        GateShortname, IndexPair, LastModified, LookupTemporalGain, Mode, Mode3_2, Mode3_2Error,
-        ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, Range, TemporalGainError, Timestep, Trigger, UniGate,
-        Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
+        DeprecatedDatatypeWarning, DeprecatedModeWarning, Display, Feature, FeatureError,
+        GateRange, GateScale, GateShortname, IndexPair, LastModified, LookupTemporalGain, Mode,
+        Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
+        Originality, OriginalityError, PrefixedMeasIndex, PseudostandardError, Range,
+        TemporalGainError, Timestep, Trigger, UniGate, Unicode, UnstainedCenters,
+        UnusedStandardError, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2423,6 +2539,10 @@ mod python {
     impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
 
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
+    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);
+
+    impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
+    impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

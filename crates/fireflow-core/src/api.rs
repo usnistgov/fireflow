@@ -27,10 +27,9 @@ use crate::segment::{
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
     SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::keywords::{Beginstext, Endstext, Nextdata, Tot};
+use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
 use crate::text::parser::{
-    ExtraStdKeywords, OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
-    truncate_string,
+    OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::UintSpacePad20;

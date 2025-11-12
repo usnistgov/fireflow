@@ -1,5 +1,5 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
-use crate::core::{RemovedGateLink, RemovedGating, RemovedLink};
+use crate::core::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
@@ -11,7 +11,7 @@ use crate::validated::keys::{
 
 use super::optional::KeywordPairMaybe as _;
 use super::parser::{
-    DepGatedMeasRef, DependentKeyError, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
+    DepGatedMeasRef, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey,
 };
 

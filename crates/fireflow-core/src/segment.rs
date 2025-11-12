@@ -8,7 +8,9 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
-use crate::text::parser::{OptMetarootKey, Optional, ParseKeyError, ReqKeyError_, ReqMetarootKey};
+use crate::text::parser::{
+    OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
+};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
@@ -170,10 +172,10 @@ pub type ReqSegmentWithDefaultWarning<T> =
     ReqSegmentWithDefaultWarning_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
 
 pub type ReqSegmentWithDefaultError<T> =
-    ReqSegmentWithDefaultError_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
+    ReqSegmentWithDefaultErrorInner<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
 
 pub type OptSegmentWithDefaultWarning<T> =
-    OptSegmentWithDefaultWarning_<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
+    OptSegmentWithDefaultWarningInner<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum InnerSegment<T> {
@@ -305,14 +307,14 @@ where
                     .map_switchable_errors(SegmentMismatchWarning::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .map_errors(ReqSegmentWithDefaultError_::from)
+                    .map_errors(ReqSegmentWithDefaultErrorInner::from)
             }
             Err((e0, e1)) => {
                 let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
                     .extend_deferred_switchable_errors(e1)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .map_errors(ReqSegmentWithDefaultError_::from)
+                    .map_errors(ReqSegmentWithDefaultErrorInner::from)
                     .set_ok_value(header_seg);
                 let w = SegmentDefaultWarning::default().into();
                 res.eval_warning(|_| Some(w));
@@ -434,7 +436,7 @@ where
                 Some(ts) => {
                     let (seg, warn) = default.unless(ts);
                     SwitchableErrorsResult::new_deferred_switchable_maybe(seg, warn, *mismatch_flag)
-                        .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
+                        .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                         .switchable_into_commutative()
                 }
             },
@@ -442,7 +444,7 @@ where
                 SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
                     .map_switchable_errors(OptSegmentError::from)
-                    .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
+                    .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                     .switchable_into_commutative()
             }
         }
@@ -462,8 +464,8 @@ where
 }
 
 type ReqPair<B, E> = (
-    Result<B, ReqKeyError_<ParseIntError, B, ()>>,
-    Result<E, ReqKeyError_<ParseIntError, E, ()>>,
+    Result<B, ReqKeyErrorInner<ParseIntError, B, ()>>,
+    Result<E, ReqKeyErrorInner<ParseIntError, E, ()>>,
 );
 
 type OptPair<B, E> = (
@@ -546,8 +548,8 @@ impl HasRegion for OtherSegmentId {
 
 #[derive(Display, Debug, Error)]
 pub enum ReqSegmentError<B, E> {
-    BeginKey(ReqKeyError_<ParseIntError, B, ()>),
-    EndKey(ReqKeyError_<ParseIntError, E, ()>),
+    BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
+    EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
     Segment(SegmentError<UintZeroPad20>),
 }
 
@@ -1159,7 +1161,7 @@ pub struct SegmentMismatchWarning<I> {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum ReqSegmentWithDefaultError_<I, B, E> {
+pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
 }
@@ -1172,7 +1174,7 @@ pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum OptSegmentWithDefaultWarning_<I, B, E> {
+pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
 }
@@ -1213,8 +1215,9 @@ mod python {
     use crate::python::exceptions::FileLayoutError;
 
     use super::{
-        InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarning_, ReqSegmentWithDefaultError_,
-        ReqSegmentWithDefaultWarning_, Segment, SegmentMismatchWarning, Zero,
+        InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarningInner,
+        ReqSegmentWithDefaultErrorInner, ReqSegmentWithDefaultWarning_, Segment,
+        SegmentMismatchWarning, Zero,
     };
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -1261,11 +1264,11 @@ mod python {
         }
     }
 
-    impl<I, B, E> From<ReqSegmentWithDefaultError_<I, B, E>> for PyErr
+    impl<I, B, E> From<ReqSegmentWithDefaultErrorInner<I, B, E>> for PyErr
     where
-        ReqSegmentWithDefaultError_<I, B, E>: Display,
+        ReqSegmentWithDefaultErrorInner<I, B, E>: Display,
     {
-        fn from(value: ReqSegmentWithDefaultError_<I, B, E>) -> Self {
+        fn from(value: ReqSegmentWithDefaultErrorInner<I, B, E>) -> Self {
             FileLayoutError::new_err(value.to_string())
         }
     }
@@ -1279,11 +1282,11 @@ mod python {
         }
     }
 
-    impl<I, B, E> From<OptSegmentWithDefaultWarning_<I, B, E>> for PyErr
+    impl<I, B, E> From<OptSegmentWithDefaultWarningInner<I, B, E>> for PyErr
     where
-        OptSegmentWithDefaultWarning_<I, B, E>: Display,
+        OptSegmentWithDefaultWarningInner<I, B, E>: Display,
     {
-        fn from(value: OptSegmentWithDefaultWarning_<I, B, E>) -> Self {
+        fn from(value: OptSegmentWithDefaultWarningInner<I, B, E>) -> Self {
             FileLayoutError::new_err(value.to_string())
         }
     }

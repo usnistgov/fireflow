@@ -1,46 +1,23 @@
-use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig, TimeMeasNamePattern,
-};
-use crate::core::ScaleTransformError;
-use crate::logging::{
-    DeferredSwitchableError, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
-};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::macros::match_many_to_one;
 use crate::validated::keys::{
-    AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, Key0, Key1, MeasHeader, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasRegexError, SpecificKey, StdKey, StdKeywords,
+    AnyKey, IndexedKey, Key, Key0, Key1, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _,
+    SpecificKey, StdKey, StdKeywords,
 };
-use crate::validated::shortname::Shortname;
 
-use super::byteord::Width;
-use super::compensation::{Compensation3_0, LookupComp2_0Error};
-use super::datetimes::LookupDatetimesError;
-use super::gating::{
-    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error, Region,
-};
-use super::index::{IndexFromOne, MeasIndex, RegionIndex};
+use super::gating::Region;
+use super::index::{IndexFromOne, RegionIndex};
 use super::keywords::{
-    Abrt, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
-    Calibration3_2, Cyt3_2, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endanalysis,
-    Enddata, Feature, Gain, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname,
-    GatePercentEmitted, GateRange, GateScale, GateShortname, Gating, LastModified, Longname,
-    LookupTemporalGain, Lost, Mode, Mode3_2, NumType, OpticalType, Originality, Par, PeakBin,
-    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Range,
-    RegionGateIndex, RegionWindow, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
-    Tot, Trigger, Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
+    GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange,
+    GateScale, GateShortname, Gating, Mode3_2, PeakBin, PeakIndex, PercentEmitted, Plateid,
+    Platename, PrefixedMeasIndex, RegionGateIndex, RegionWindow, Wellid,
 };
 use super::optional::DisplayMaybe;
-use super::scale::Scale;
-use super::spillover::Spillover;
-use super::timestamps::{
-    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
-    FCSTimeError, LookupTimestampsError,
-};
+use super::timestamps::{Btim, Etim, FCSDate, FCSTime100};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools as _;
-use nonempty::NonEmpty;
 use thiserror::Error;
 
 use std::collections::HashMap;
@@ -49,9 +26,145 @@ use std::fmt;
 use std::mem::take;
 use std::str::FromStr;
 
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
+/// An error caused when parsing a required non-indexed standard key
+pub type ReqKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, ()>;
 
+/// An error caused when parsing a required indexed standard key
+pub type ReqIndexedKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, IndexFromOne>;
+
+/// An error caused when parsing a required indexed standard key with external state
+pub type ReqIndexedStKeyError<T> = ReqKeyErrorInner<<T as FromStrWith>::Err, T, IndexFromOne>;
+
+/// An parse key error for an optional non-indexed key.
+pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
+
+/// An parse key error for an optional indexed key.
+pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
+
+/// An parse key error for an optional non-indexed key when parsing with external state.
+pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
+
+/// An parse key error for an optional indexed key when parsing with external state.
+pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
+
+/// An error caused by parsing a string incorrectly for a standard key value.
+#[derive(new, Debug, Error)]
+pub struct ParseKeyError<E, T, I> {
+    pub error: E,
+    pub key: SpecificKey<T, I>,
+    pub value: String,
+}
+
+/// An error caused when parsing a required standard key
+#[derive(From, Display, Debug, Error)]
+pub enum ReqKeyErrorInner<E, T, I> {
+    /// Error due to parsing
+    Parse(ParseKeyError<E, T, I>),
+
+    /// Error due to absence
+    Missing(MissingKeyError<T, I>),
+}
+
+/// An error caused by a required standard key being missing
+#[derive(Debug, Error)]
+#[error("missing required key: {0}")]
+pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
+
+type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
+
+// TODO move this dep stuff to own module
+/// Error/warning triggered when encountering a key which is deprecated
+#[derive(Debug, Error)]
+#[error("deprecated key: {0}")]
+pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
+
+pub type DepKey0<T> = DepKeyWarning<T, ()>;
+pub type DepKey1<T> = DepKeyWarning<T, IndexFromOne>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum AnyDepKeyError {
+    Gating(DepKey0<Gating>),
+    RegionIndex(DepKey1<RegionGateIndex<PrefixedMeasIndex>>),
+    RegionWindow(DepKey1<RegionWindow>),
+    GateScale(DepKey1<GateScale>),
+    GateFilter(DepKey1<GateFilter>),
+    GateShortname(DepKey1<GateShortname>),
+    GatePercentEmitted(DepKey1<GatePercentEmitted>),
+    GateRange(DepKey1<GateRange>),
+    GateLongname(DepKey1<GateLongname>),
+    GateDetectorType(DepKey1<GateDetectorType>),
+    GateDetectorVoltage(DepKey1<GateDetectorVoltage>),
+    Plateid(DepKey0<Plateid>),
+    Platename(DepKey0<Platename>),
+    Wellid(DepKey0<Wellid>),
+    PeakIndex(DepKey1<PeakIndex>),
+    PeakBin(DepKey1<PeakBin>),
+    Btim(DepKey0<Btim<FCSTime100>>),
+    Etim(DepKey0<Etim<FCSTime100>>),
+    Date(DepKey0<FCSDate>),
+    Mode(DepKey0<Mode3_2>),
+    PcntEmit(DepKey1<PercentEmitted>),
+}
+
+#[derive(From)]
+pub enum DeprecatedRef<'a> {
+    Plate(DeprecatedPlateRef<'a>),
+    Peak(DeprecatedPeakRef<'a>),
+    Timestamps(DeprecatedTimestampsRef<'a>),
+    PercentEmitted(IndexedDepRef<&'a mut Option<PercentEmitted>>),
+    Mode(&'a mut Option<Mode3_2>),
+    Gate(DepGatedMeasRef<'a>),
+    Scheme(DeprecatedGatingSchemeRef<'a>),
+}
+
+#[derive(new)]
+pub struct IndexedDepRef<T> {
+    index: IndexFromOne,
+    value: T,
+}
+
+#[derive(From)]
+pub struct DeprecatedStrRef<'a, T>(pub(crate) &'a mut T);
+
+#[derive(From)]
+pub enum DeprecatedTimestampsRef<'a> {
+    Btim(&'a mut Option<Btim<FCSTime100>>),
+    Etim(&'a mut Option<Etim<FCSTime100>>),
+    Date(&'a mut Option<FCSDate>),
+}
+
+#[derive(From)]
+pub enum DeprecatedPeakRef<'a> {
+    Index(IndexedDepRef<&'a mut Option<PeakIndex>>),
+    Bin(IndexedDepRef<&'a mut Option<PeakBin>>),
+}
+
+#[derive(From)]
+pub enum DeprecatedPlateRef<'a> {
+    Plateid(DeprecatedStrRef<'a, Plateid>),
+    Platename(DeprecatedStrRef<'a, Platename>),
+    Wellid(DeprecatedStrRef<'a, Wellid>),
+}
+
+#[derive(From)]
+pub enum DepGatedMeasRef<'a> {
+    Scale(IndexedDepRef<&'a mut Option<GateScale>>),
+    Filter(IndexedDepRef<DeprecatedStrRef<'a, GateFilter>>),
+    Sname(IndexedDepRef<&'a mut Option<GateShortname>>),
+    PEmit(IndexedDepRef<&'a mut Option<GatePercentEmitted>>),
+    Range(IndexedDepRef<&'a mut Option<GateRange>>),
+    Lname(IndexedDepRef<DeprecatedStrRef<'a, GateLongname>>),
+    DetType(IndexedDepRef<DeprecatedStrRef<'a, GateDetectorType>>),
+    DetVolt(IndexedDepRef<&'a mut Option<GateDetectorVoltage>>),
+}
+
+#[derive(From)]
+pub enum DeprecatedGatingSchemeRef<'a> {
+    Gating(&'a mut Option<Gating>),
+    Region(&'a mut HashMap<RegionIndex, Region<PrefixedMeasIndex>>),
+}
+
+/// Parse a string that includes delimiters
 pub trait FromStrDelim: Sized {
     type Err;
     const DELIM: char;
@@ -68,6 +181,7 @@ pub trait FromStrDelim: Sized {
     }
 }
 
+/// Parse a string based on external data and config
 pub trait FromStrWith: Sized {
     type Err;
     type Payload<'a>;
@@ -84,29 +198,29 @@ pub(crate) trait Required: Sized {
     fn get_req<I>(
         kws: &StdKeywords,
         k: SpecificKey<Self, I>,
-    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        let v = Self::get_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
             .map_err(|e| ParseKeyError::new(e, k, v.to_owned()))
-            .map_err(ReqKeyError_::from)
+            .map_err(ReqKeyErrorInner::from)
     }
 
     fn remove_req<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
-    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
             .map_err(|e| ParseKeyError::new(e, k, v))
-            .map_err(ReqKeyError_::from)
+            .map_err(ReqKeyErrorInner::from)
     }
 
     fn remove_req_with<I>(
@@ -114,15 +228,15 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> Result<Self, ReqKeyError_<Self::Err, Self, I>>
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
     {
-        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyError_::from)?;
+        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(&v, data, conf)
             .map_err(|e| ParseKeyError::new(e, k, v))
-            .map_err(ReqKeyError_::from)
+            .map_err(ReqKeyErrorInner::from)
     }
 
     fn get_req_inner<I>(
@@ -538,254 +652,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 }
 
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} references non-existent $PnN: {bad}",
-    bad = self.names.iter().join(", ")
-)]
-pub struct NameLinkError<T, I> {
-    names: NonEmpty<Shortname>,
-    key: SpecificKey<T, I>,
-}
-
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} references non-existent measurement indices: {bad}",
-    bad = self.indices.iter().join(", ")
-)]
-pub struct IndexLinkError<T, I> {
-    indices: NonEmpty<MeasIndex>,
-    key: SpecificKey<T, I>,
-}
-
-pub type KeyToNameLinkError<T> = NameLinkError<T, ()>;
-
-pub type KeyToIndexLinkError<T> = IndexLinkError<T, ()>;
-pub type IndexedKeyToIndexLinkError<T> = IndexLinkError<T, IndexFromOne>;
-pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
-
-impl<T> NameLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
-        Self::new(js, SpecificKey::default())
-    }
-}
-
-impl<T> IndexLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<MeasIndex>) -> Self {
-        Self::new(js, SpecificKey::default())
-    }
-}
-
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} depends on other keys which do not exist: {bad}",
-    bad = self.deps.iter().join(", "),
-
-)]
-pub struct DependentKeyError_<T, I> {
-    deps: NonEmpty<StdKey>,
-    key: SpecificKey<T, I>,
-}
-
-pub type DependentKeyError<T> = DependentKeyError_<T, ()>;
-pub type DependentIndexedKeyError<T> = DependentKeyError_<T, IndexFromOne>;
-
-impl<T> DependentKeyError<T> {
-    pub(crate) fn new1(deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::default())
-    }
-}
-
-impl<T> DependentIndexedKeyError<T> {
-    pub(crate) fn new2(i: IndexFromOne, deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::new_i1(i))
-    }
-}
-
-pub(crate) type RawKeywords = HashMap<String, String>;
-
-pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T, I>>;
-
-pub type LookupMetarootResult<V> =
-    WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupMetarootError {
-    Mode(ReqKeyError<Mode>),
-    Cyt3_2(ReqKeyError<Cyt3_2>),
-    Par(ReqKeyError<Par>),
-    Warn(LookupMetarootWarning),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupMetarootWarning {
-    Trigger(OptKeyStError<Trigger>),
-    Comp2_0(LookupComp2_0Error),
-    Comp3_0(OptKeyError<Compensation3_0>),
-    Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
-    Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
-    Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
-    Datetimes(LookupDatetimesError),
-    Modified(LookupModifiedDataError),
-    UnstainedCenter(OptKeyStError<UnstainedCenters>),
-    Mode3_2(OptKeyError<Mode3_2>),
-    // NOTE this can never be an error even if we forbid deprecated keys
-    // because there is no easy way to fix it (ie by dropping a key)
-    Mode(DeprecatedModeWarning),
-    Unicode(OptKeyStError<Unicode>),
-    Spillover(OptKeyStError<Spillover>),
-    Gate2_0(LookupAppliedGates2_0Error),
-    Gate3_0(LookupAppliedGates3_0Error),
-    Gate3_2(LookupAppliedGates3_2Error),
-    Vol(OptKeyError<Vol>),
-    Abrt(OptKeyError<Abrt>),
-    Lost(OptKeyError<Lost>),
-    Subset(LookupSubsetError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupSubsetError {
-    Flags(LookupCSVFlagsError),
-    Bits(OptKeyError<CSVBits>),
-    Tot(OptKeyError<CSTot>),
-}
-
-pub type LookupMeasurementResult<V> =
-    WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupMeasurementError {
-    Temporal(LookupTemporalError),
-    Optical(LookupOpticalError),
-    Shortname(LookupShortnameError),
-    Warn(LookupMeasurementWarning),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupMeasurementWarning {
-    Temporal(LookupTemporalWarning),
-    Optical(LookupOpticalWarning),
-    Shortname(OptIndexedKeyError<Shortname>),
-    Pattern(NonStdMeasRegexError),
-    MissingTime(MissingTime),
-}
-
-pub type LookupShortnameResult<V> =
-    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupShortnameError {
-    Req(ReqIndexedKeyError<Shortname>),
-    Opt(OptIndexedKeyError<Shortname>),
-}
-
-pub type LookupOpticalResult<V> =
-    WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupOpticalError {
-    Xform(ScaleTransformError),
-    Scale(ReqIndexedKeyError<Scale>),
-    Warn(LookupOpticalWarning),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupOpticalWarning {
-    Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
-    Gain(OptIndexedKeyError<Gain>),
-    TemporalGain(LookupTemporalGain),
-    Feature(OptIndexedKeyError<Feature>),
-    Wavelengths(OptIndexedKeyStError<Wavelengths>),
-    Wavelength(OptIndexedKeyError<Wavelength>),
-    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
-    TemporalType(OptIndexedKeyError<TemporalType>),
-    OpticalType(OptIndexedKeyError<OpticalType>),
-    Display(OptIndexedKeyError<Display>),
-    Power(OptIndexedKeyError<Power>),
-    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
-    Peak(LookupPeakError),
-}
-
-pub type LookupTemporalResult<V> =
-    WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupTemporalError {
-    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
-    Timestep(ReqKeyError<Timestep>),
-    Warn(LookupTemporalWarning),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupTemporalWarning {
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
-    TemporalGain(LookupTemporalGain),
-    TemporalType(OptIndexedKeyError<TemporalType>),
-    Display(OptIndexedKeyError<Display>),
-    Peak(LookupPeakError),
-}
-
-#[derive(From)]
-pub enum DeprecatedRef<'a> {
-    Plate(DeprecatedPlateRef<'a>),
-    Peak(DeprecatedPeakRef<'a>),
-    Timestamps(DeprecatedTimestampsRef<'a>),
-    PercentEmitted(IndexedDepRef<&'a mut Option<PercentEmitted>>),
-    Mode(&'a mut Option<Mode3_2>),
-    Gate(DepGatedMeasRef<'a>),
-    Scheme(DeprecatedGatingSchemeRef<'a>),
-}
-
-#[derive(new)]
-pub struct IndexedDepRef<T> {
-    index: IndexFromOne,
-    value: T,
-}
-
-#[derive(From)]
-pub struct DeprecatedStrRef<'a, T>(pub(crate) &'a mut T);
-
-#[derive(From)]
-pub enum DeprecatedTimestampsRef<'a> {
-    Btim(&'a mut Option<Btim<FCSTime100>>),
-    Etim(&'a mut Option<Etim<FCSTime100>>),
-    Date(&'a mut Option<FCSDate>),
-}
-
-#[derive(From)]
-pub enum DeprecatedPeakRef<'a> {
-    Index(IndexedDepRef<&'a mut Option<PeakIndex>>),
-    Bin(IndexedDepRef<&'a mut Option<PeakBin>>),
-}
-
-#[derive(From)]
-pub enum DeprecatedPlateRef<'a> {
-    Plateid(DeprecatedStrRef<'a, Plateid>),
-    Platename(DeprecatedStrRef<'a, Platename>),
-    Wellid(DeprecatedStrRef<'a, Wellid>),
-}
-
-#[derive(From)]
-pub enum DepGatedMeasRef<'a> {
-    Scale(IndexedDepRef<&'a mut Option<GateScale>>),
-    Filter(IndexedDepRef<DeprecatedStrRef<'a, GateFilter>>),
-    Sname(IndexedDepRef<&'a mut Option<GateShortname>>),
-    PEmit(IndexedDepRef<&'a mut Option<GatePercentEmitted>>),
-    Range(IndexedDepRef<&'a mut Option<GateRange>>),
-    Lname(IndexedDepRef<DeprecatedStrRef<'a, GateLongname>>),
-    DetType(IndexedDepRef<DeprecatedStrRef<'a, GateDetectorType>>),
-    DetVolt(IndexedDepRef<&'a mut Option<GateDetectorVoltage>>),
-}
-
-#[derive(From)]
-pub enum DeprecatedGatingSchemeRef<'a> {
-    Gating(&'a mut Option<Gating>),
-    Region(&'a mut HashMap<RegionIndex, Region<PrefixedMeasIndex>>),
-}
-
+/// Process mutable references to optional keys which are deprecated
 pub(crate) trait IsDeprecated {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool);
 
@@ -1000,65 +867,6 @@ where
     }
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum LookupPeakError {
-    Bin(OptIndexedKeyError<PeakBin>),
-    Index(OptIndexedKeyError<PeakIndex>),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupCSVFlagsError {
-    Mode(OptKeyError<CSMode>),
-    Flag(OptIndexedKeyError<CSVFlag>),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LookupModifiedDataError {
-    LastModTime(OptKeyError<LastModified>),
-    Originality(OptKeyError<Originality>),
-}
-
-/// Error triggered when time measurement is missing but required.
-#[derive(Debug, Error)]
-#[error("Could not find time measurement matching {0}")]
-pub struct MissingTime(pub TimeMeasNamePattern);
-
-// /// Error/warning triggered when encountering a key value which is deprecated
-// #[derive(Debug, Error)]
-// pub enum DepValueWarning {
-//     #[error("$DATATYPE=A is deprecated")]
-//     DatatypeASCII,
-//     #[error("$MODE=C is deprecated")]
-//     ModeCorrelated,
-//     #[error("$MODE=U is deprecated")]
-//     ModeUncorrelated,
-// }
-
-#[derive(Debug, Error)]
-pub enum DeprecatedModeWarning {
-    #[error("$MODE=C is deprecated")]
-    ModeCorrelated,
-    #[error("$MODE=U is deprecated")]
-    ModeUncorrelated,
-}
-
-/// Error denoting that pseudostandard keyword was found.
-#[derive(Debug, Error)]
-#[error("pseudostandard keyword found: {0}")]
-pub struct PseudostandardError(pub StdKey);
-
-/// Error denoting that unused standard keyword was found.
-#[derive(Debug, Error)]
-#[error("unused standard keyword found: {0}")]
-pub struct UnusedStandardError(pub StdKey);
-
-#[derive(new, Debug, Error)]
-pub struct ParseKeyError<E, T, I> {
-    pub error: E,
-    pub key: SpecificKey<T, I>,
-    pub value: String,
-}
-
 impl<E, T, I> fmt::Display for ParseKeyError<E, T, I>
 where
     E: fmt::Display,
@@ -1071,170 +879,6 @@ where
             "key '{}' with value '{value}' could not be parsed: {}",
             self.key, self.error
         )
-    }
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum ReqKeyError_<E, T, I> {
-    Parse(ParseKeyError<E, T, I>),
-    Missing(MissingKeyError<T, I>),
-}
-
-pub type OptKeyError_<E, T, I> = ParseKeyError<E, T, I>;
-
-// #[derive(From, Display, Debug, Error)]
-// pub enum OptKeyError_<E, T, I> {
-//     Parse(ParseKeyError<E, T, I>),
-//     Deprecated(DepKeyWarning<T, I>),
-// }
-
-#[derive(Debug, Error)]
-#[error("missing required key: {0}")]
-pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
-
-/// Error/warning triggered when encountering a key which is deprecated
-#[derive(Debug, Error)]
-#[error("deprecated key: {0}")]
-pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
-
-pub type DepKey0<T> = DepKeyWarning<T, ()>;
-pub type DepKey1<T> = DepKeyWarning<T, IndexFromOne>;
-
-#[derive(From, Display, Debug, Error)]
-pub enum AnyDepKeyError {
-    Gating(DepKey0<Gating>),
-    RegionIndex(DepKey1<RegionGateIndex<PrefixedMeasIndex>>),
-    RegionWindow(DepKey1<RegionWindow>),
-    GateScale(DepKey1<GateScale>),
-    GateFilter(DepKey1<GateFilter>),
-    GateShortname(DepKey1<GateShortname>),
-    GatePercentEmitted(DepKey1<GatePercentEmitted>),
-    GateRange(DepKey1<GateRange>),
-    GateLongname(DepKey1<GateLongname>),
-    GateDetectorType(DepKey1<GateDetectorType>),
-    GateDetectorVoltage(DepKey1<GateDetectorVoltage>),
-    Plateid(DepKey0<Plateid>),
-    Platename(DepKey0<Platename>),
-    Wellid(DepKey0<Wellid>),
-    PeakIndex(DepKey1<PeakIndex>),
-    PeakBin(DepKey1<PeakBin>),
-    Btim(DepKey0<Btim<FCSTime100>>),
-    Etim(DepKey0<Etim<FCSTime100>>),
-    Date(DepKey0<FCSDate>),
-    Mode(DepKey0<Mode3_2>),
-    PcntEmit(DepKey1<PercentEmitted>),
-}
-
-pub type ReqKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, ()>;
-pub type ReqIndexedKeyError<T> = ReqKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
-
-// pub type ReqKeyStError<T> = ReqKeyError_<<T as FromStrWith>::Err, T, ()>;
-pub type ReqIndexedStKeyError<T> = ReqKeyError_<<T as FromStrWith>::Err, T, IndexFromOne>;
-
-pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
-pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
-
-pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
-pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
-
-// pub type DepOptKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, ()>;
-// pub type DepOptIndexedKeyError<T> = OptKeyError_<<T as FromStr>::Err, T, IndexFromOne>;
-
-// pub type DepOptKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, ()>;
-// pub type DepOptIndexedKeyStError<T> = OptKeyError_<<T as FromStrWith>::Err, T, IndexFromOne>;
-
-#[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ExtraStdKeywords {
-    pub pseudostandard: StdKeywords,
-    pub unused: StdKeywords,
-}
-
-impl ExtraStdKeywords {
-    pub(crate) fn split_2_0(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_2_0)
-    }
-
-    pub(crate) fn split_3_0(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_0)
-    }
-
-    pub(crate) fn split_3_1(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_1)
-    }
-
-    pub(crate) fn split_3_2(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_2)
-    }
-
-    fn split_inner<F>(mut kws: StdKeywords, mut f: F) -> Self
-    where
-        F: FnMut(&StdKey) -> bool,
-    {
-        let unused: HashMap<_, _> = kws.extract_if(|k, _| f(k)).collect();
-        Self::new(kws, unused)
-    }
-
-    fn matches_kw_2_0(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        s.eq_ignore_ascii_case(Tot::C) || Dfc::matches(k) || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_0(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_1(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Display::matches(k)
-            || Calibration3_1::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_2(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Display::matches(k)
-            || Calibration3_2::matches(k)
-            || NumType::matches(k)
-            || DetectorName::matches(k)
-            || Tag::matches(k)
-            || Analyte::matches(k)
-            || Feature::matches(k)
-            || OpticalType::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_offsets(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        s.eq_ignore_ascii_case(Beginanalysis::C)
-            || s.eq_ignore_ascii_case(Endanalysis::C)
-            || s.eq_ignore_ascii_case(Begindata::C)
-            || s.eq_ignore_ascii_case(Enddata::C)
-    }
-
-    fn matches_meas_kw_common(k: &StdKey) -> bool {
-        Width::matches(k)
-            || Range::matches(k)
-            || Scale::matches(k)
-            || Shortname::matches(k)
-            || Longname::matches(k)
-            || Power::matches(k)
-            || DetectorType::matches(k)
-            || PercentEmitted::matches(k)
-            || DetectorVoltage::matches(k)
     }
 }
 
@@ -1253,16 +897,9 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
 mod python {
     use crate::data::RawParsedError;
     use crate::python::exceptions::FCSDeprecatedError;
-    use crate::python::macros::{impl_from_pyerr, impl_pyreflow_err};
+    use crate::python::macros::impl_pyreflow_err;
 
-    use super::{
-        AnyDepKeyError, DepKeyWarning, DeprecatedModeWarning, LookupCSVFlagsError,
-        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
-        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
-        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTemporalError,
-        LookupTemporalWarning, MissingTime, ParseKeyError, PseudostandardError, ReqKeyError_,
-        UnusedStandardError,
-    };
+    use super::{AnyDepKeyError, DepKeyWarning, ParseKeyError, ReqKeyErrorInner};
 
     use pyo3::prelude::*;
     use std::fmt::Display;
@@ -1276,11 +913,11 @@ mod python {
         }
     }
 
-    impl<E, T, I> From<ReqKeyError_<E, T, I>> for PyErr
+    impl<E, T, I> From<ReqKeyErrorInner<E, T, I>> for PyErr
     where
-        ReqKeyError_<E, T, I>: Display,
+        ReqKeyErrorInner<E, T, I>: Display,
     {
-        fn from(value: ReqKeyError_<E, T, I>) -> Self {
+        fn from(value: ReqKeyErrorInner<E, T, I>) -> Self {
             FCSDeprecatedError::new_err(value.to_string())
         }
     }
@@ -1294,87 +931,11 @@ mod python {
         }
     }
 
-    impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
-    impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
-
     // These are file layout errors despite being keywords since they contain
     // data pertaining to the byte layout of the file
     //
     //  TODO maybe...
     impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
-    impl_pyreflow_err!(RelationalException, MissingTime);
-
     impl_pyreflow_err!(FCSDeprecatedError, AnyDepKeyError);
-    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);
-
-    impl_from_pyerr!(
-        LookupMetarootWarning,
-        Trigger,
-        Comp2_0,
-        Comp3_0,
-        Timestamps2_0,
-        Timestamps3_0,
-        Timestamps3_1,
-        Datetimes,
-        Modified,
-        UnstainedCenter,
-        Mode3_2,
-        Mode,
-        Unicode,
-        Spillover,
-        Gate2_0,
-        Gate3_0,
-        Gate3_2,
-        Vol,
-        Abrt,
-        Lost,
-        Subset
-    );
-
-    impl_from_pyerr!(LookupMetarootError, Mode, Cyt3_2, Par, Warn);
-    impl_from_pyerr!(LookupSubsetError, Flags, Bits, Tot);
-    impl_from_pyerr!(LookupCSVFlagsError, Mode, Flag);
-    impl_from_pyerr!(LookupModifiedDataError, LastModTime, Originality);
-
-    impl_from_pyerr!(
-        LookupMeasurementWarning,
-        Temporal,
-        Optical,
-        Shortname,
-        MissingTime,
-        Pattern
-    );
-    impl_from_pyerr!(LookupMeasurementError, Temporal, Optical, Shortname, Warn);
-    impl_from_pyerr!(LookupShortnameError, Req, Opt);
-    impl_from_pyerr!(LookupTemporalError, TemporalScale, Timestep, Warn);
-    impl_from_pyerr!(LookupOpticalError, Xform, Scale, Warn);
-    impl_from_pyerr!(
-        LookupTemporalWarning,
-        TemporalScale,
-        TemporalGain,
-        TemporalType,
-        Display,
-        Peak
-    );
-    impl_from_pyerr!(
-        LookupOpticalWarning,
-        Scale,
-        TemporalScale,
-        Gain,
-        TemporalGain,
-        Feature,
-        Wavelengths,
-        Wavelength,
-        Calibration3_1,
-        Calibration3_2,
-        TemporalType,
-        OpticalType,
-        Display,
-        Power,
-        PercentEmitted,
-        DetectorVoltage,
-        Peak
-    );
-    impl_from_pyerr!(LookupPeakError, Bin, Index);
 }

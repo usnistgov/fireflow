@@ -1,7 +1,8 @@
 use crate::config::{
     AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
     ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, TransferDroppedOptional, WriteConfig,
+    StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
+    WriteConfig,
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
@@ -18,8 +19,8 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult,
     IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
 };
 use crate::macros::{def_failure, match_many_to_one};
 use crate::segment::{
@@ -29,24 +30,30 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 use crate::text::byteord::OrderedToEndianError;
-use crate::text::compensation::{Compensation, Compensation2_0, Compensation3_0};
-use crate::text::datetimes::{BeginDateTime, Datetimes, EndDateTime, ReversedDatetimesError};
+use crate::text::compensation::{
+    Compensation, Compensation2_0, Compensation3_0, LookupComp2_0Error,
+};
+use crate::text::datetimes::{
+    BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
+};
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
     AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error, GateToMeasIndexError,
+    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
     MeasToGateIndexError, Region, RegionToGateIndexError, RegionToMeasIndexError,
 };
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-    Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType,
-    DetectorVoltage, Dfc, Display, Endstext, Exp, Feature, Fil, Filter, Flowrate, Gain, Gating,
-    Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType, Originality, Par,
-    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, Range,
-    RegionGateIndex, RegionWindow, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
-    TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName,
+    DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords, Feature, Fil,
+    Filter, Flowrate, Gain, Gating, Inst, IntRangeError, LastModified, LastModifier, Locationid,
+    Longname, LookupTemporalGain, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
+    NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
+    Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range, RegionGateIndex,
+    RegionWindow, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
+    TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, UnusedStandardError,
+    Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
@@ -58,27 +65,21 @@ use crate::text::optional::{
     CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
 };
 use crate::text::parser::{
-    AnyDepKeyError, BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
-    DeprecatedModeWarning, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
-    ExtraStdKeywords, IndexedDepRef, IndexedKeyToIndexLinkError, IsDeprecated as _,
-    KeyToIndexLinkError, KeyToNameLinkError, LookupCSVFlagsError, LookupMeasurementError,
-    LookupMeasurementResult, LookupMeasurementWarning, LookupMetarootError, LookupMetarootResult,
-    LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalResult,
-    LookupOpticalWarning, LookupPeakError, LookupShortnameError, LookupShortnameResult,
-    LookupSubsetError, LookupTemporalError, LookupTemporalResult, LookupTemporalWarning,
-    MissingTime, OptIndexedKey as _, OptKeyError, OptKeyStError, OptMetarootKey as _,
-    PseudostandardError, RawKeywords, ReqIndexedKey as _, ReqKeyError, ReqMetarootKey as _,
-    UnusedStandardError,
+    AnyDepKeyError, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
+    IndexedDepRef, IsDeprecated as _, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError,
+    OptKeyError, OptKeyStError, OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError,
+    ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};
 use crate::text::spillover::{NewSpilloverError, Spillover};
 use crate::text::timestamps::{
-    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, ReversedTimestampsError, Timestamps, Xtim,
+    Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
+    FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
 use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
 
-use crate::validated::keys::{SpecificKey, StdKey};
+use crate::validated::keys::{BiIndex, NonStdMeasRegexError, SpecificKey, StdKey};
 use crate::validated::{
     ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20},
     dataframe as df,
@@ -2230,7 +2231,7 @@ where
         exclude_opt_root: bool,
         exclude_req_meas: bool,
         exclude_opt_meas: bool,
-    ) -> RawKeywords {
+    ) -> HashMap<String, String> {
         fn go(
             xs: impl Iterator<Item = (String, String)>,
             exclude: bool,
@@ -8584,6 +8585,73 @@ pub struct RemovedGating {
     pub(crate) gating: Gating,
 }
 
+#[derive(Debug, Display, Error, new)]
+#[display(
+    "{key} references non-existent $PnN: {bad}",
+    bad = self.names.iter().join(", ")
+)]
+pub struct NameLinkError<T, I> {
+    names: NonEmpty<Shortname>,
+    key: SpecificKey<T, I>,
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display(
+    "{key} references non-existent measurement indices: {bad}",
+    bad = self.indices.iter().join(", ")
+)]
+pub struct IndexLinkError<T, I> {
+    indices: NonEmpty<MeasIndex>,
+    key: SpecificKey<T, I>,
+}
+
+pub type KeyToNameLinkError<T> = NameLinkError<T, ()>;
+
+impl<T> NameLinkError<T, ()> {
+    pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
+        Self::new(js, SpecificKey::default())
+    }
+}
+
+impl<T> IndexLinkError<T, ()> {
+    pub(crate) fn new_i0(js: NonEmpty<MeasIndex>) -> Self {
+        Self::new(js, SpecificKey::default())
+    }
+}
+
+pub type KeyToIndexLinkError<T> = IndexLinkError<T, ()>;
+pub type IndexedKeyToIndexLinkError<T> = IndexLinkError<T, IndexFromOne>;
+pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
+
+/// Error for key which depends on another key.
+#[derive(Debug, Display, Error, new)]
+#[display(
+    "{key} depends on other keys which do not exist: {bad}",
+    bad = self.deps.iter().join(", "),
+
+)]
+pub struct DependentKeyErrorInner<T, I> {
+    deps: NonEmpty<StdKey>,
+    key: SpecificKey<T, I>,
+}
+
+// TODO move this stuff to its own module to keep this from being more bloated
+// than it already is
+pub type DependentKeyError<T> = DependentKeyErrorInner<T, ()>;
+pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
+
+impl<T> DependentKeyError<T> {
+    pub(crate) fn new1(deps: NonEmpty<StdKey>) -> Self {
+        Self::new(deps, SpecificKey::default())
+    }
+}
+
+impl<T> DependentIndexedKeyError<T> {
+    pub(crate) fn new2(i: IndexFromOne, deps: NonEmpty<StdKey>) -> Self {
+        Self::new(deps, SpecificKey::new_i1(i))
+    }
+}
+
 impl RemovedLink {
     fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
         macro_rules! go_gate {
@@ -9170,6 +9238,13 @@ pub enum LookupTEXTOffsetsError {
 }
 
 #[derive(From, Display, Debug, Error)]
+pub enum NewCoreTEXTError {
+    Core(NewCoreError),
+    Timestamps(ReversedTimestampsError),
+    Datetimes(ReversedDatetimesError),
+}
+
+#[derive(From, Display, Debug, Error)]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
     Warn(NewCoreWarning),
@@ -9188,12 +9263,150 @@ pub enum NewCoreRelationalError {
     Layout(MeasLayoutMismatchError),
 }
 
+pub type LookupMetarootResult<V> =
+    WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
+
 #[derive(From, Display, Debug, Error)]
-pub enum NewCoreTEXTError {
-    Core(NewCoreError),
-    Timestamps(ReversedTimestampsError),
-    Datetimes(ReversedDatetimesError),
+pub enum LookupMetarootError {
+    Mode(ReqKeyError<Mode>),
+    Cyt3_2(ReqKeyError<Cyt3_2>),
+    Par(ReqKeyError<Par>),
+    Warn(LookupMetarootWarning),
 }
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMetarootWarning {
+    Trigger(OptKeyStError<Trigger>),
+    Comp2_0(LookupComp2_0Error),
+    Comp3_0(OptKeyError<Compensation3_0>),
+    Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
+    Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
+    Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
+    Datetimes(LookupDatetimesError),
+    Modified(LookupModifiedDataError),
+    UnstainedCenter(OptKeyStError<UnstainedCenters>),
+    Mode3_2(OptKeyError<Mode3_2>),
+    // NOTE this can never be an error even if we forbid deprecated keys
+    // because there is no easy way to fix it (ie by dropping a key)
+    Mode(DeprecatedModeWarning),
+    Unicode(OptKeyStError<Unicode>),
+    Spillover(OptKeyStError<Spillover>),
+    Gate2_0(LookupAppliedGates2_0Error),
+    Gate3_0(LookupAppliedGates3_0Error),
+    Gate3_2(LookupAppliedGates3_2Error),
+    Vol(OptKeyError<Vol>),
+    Abrt(OptKeyError<Abrt>),
+    Lost(OptKeyError<Lost>),
+    Subset(LookupSubsetError),
+}
+
+pub type LookupMeasurementResult<V> =
+    WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasurementError {
+    Temporal(LookupTemporalError),
+    Optical(LookupOpticalError),
+    Shortname(LookupShortnameError),
+    Warn(LookupMeasurementWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasurementWarning {
+    Temporal(LookupTemporalWarning),
+    Optical(LookupOpticalWarning),
+    Shortname(OptIndexedKeyError<Shortname>),
+    Pattern(NonStdMeasRegexError),
+    MissingTime(MissingTime),
+}
+
+pub type LookupShortnameResult<V> =
+    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupShortnameError {
+    Req(ReqIndexedKeyError<Shortname>),
+    Opt(OptIndexedKeyError<Shortname>),
+}
+
+pub type LookupOpticalResult<V> =
+    WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupOpticalError {
+    Xform(ScaleTransformError),
+    Scale(ReqIndexedKeyError<Scale>),
+    Warn(LookupOpticalWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupOpticalWarning {
+    Scale(OptIndexedKeyStError<Scale>),
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    Gain(OptIndexedKeyError<Gain>),
+    TemporalGain(LookupTemporalGain),
+    Feature(OptIndexedKeyError<Feature>),
+    Wavelengths(OptIndexedKeyStError<Wavelengths>),
+    Wavelength(OptIndexedKeyError<Wavelength>),
+    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
+    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
+    TemporalType(OptIndexedKeyError<TemporalType>),
+    OpticalType(OptIndexedKeyError<OpticalType>),
+    Display(OptIndexedKeyError<Display>),
+    Power(OptIndexedKeyError<Power>),
+    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
+    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
+    Peak(LookupPeakError),
+}
+
+pub type LookupTemporalResult<V> =
+    WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalError {
+    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
+    Timestep(ReqKeyError<Timestep>),
+    Warn(LookupTemporalWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalWarning {
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalGain(LookupTemporalGain),
+    TemporalType(OptIndexedKeyError<TemporalType>),
+    Display(OptIndexedKeyError<Display>),
+    Peak(LookupPeakError),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupPeakError {
+    Bin(OptIndexedKeyError<PeakBin>),
+    Index(OptIndexedKeyError<PeakIndex>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupSubsetError {
+    Flags(LookupCSVFlagsError),
+    Bits(OptKeyError<CSVBits>),
+    Tot(OptKeyError<CSTot>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupCSVFlagsError {
+    Mode(OptKeyError<CSMode>),
+    Flag(OptIndexedKeyError<CSVFlag>),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupModifiedDataError {
+    LastModTime(OptKeyError<LastModified>),
+    Originality(OptKeyError<Originality>),
+}
+
+/// Error triggered when time measurement is missing but required.
+#[derive(Debug, Error)]
+#[error("Could not find time measurement matching {0}")]
+pub struct MissingTime(pub TimeMeasNamePattern);
 
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
@@ -9352,27 +9565,28 @@ mod python {
     use crate::data::{AnyRangeError, RawToLayoutError};
     use crate::python::exceptions::{ConversionException, RelationalException};
     use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
-    use crate::text::parser::{
-        BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
-        IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
-    };
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
-        Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, CSVFlags,
-        ColumnsToDataframeError, CompParMismatchError, ConvertError, ExistingLinkError,
-        GatingMeasLinkError, InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupTEXTOffsetsError,
-        LookupTEXTOffsetsWarning, MeasDataMismatchError, NewCoreError, NewCoreRelationalError,
-        NewCoreTEXTError, NewCoreWarning, NonLinearTemporalScaleError,
-        NonLinearTemporalTransformError, Other, Others, PushOpticalError,
-        PushOpticalToDatasetError, PushTemporalToDatasetError, RemoveMeasByIndexError,
-        RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform, ScaleTransformError,
-        SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError, SetTemporalByIndexError,
-        SetTemporalByNameError, SetTemporalError, SetTransformsError, SpilloverLinkError,
-        StdDatasetFromRawWarning, StdTEXTFromKeywordsError, StdTEXTFromRawError,
-        StdTEXTFromRawWarning, StdWriterError, TriggerLinkError,
+        Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, BiIndexedKeyToIndexLinkError,
+        CSVFlags, ColumnsToDataframeError, CompParMismatchError, ConvertError,
+        DependentIndexedKeyError, DependentKeyError, ExistingLinkError, GatingMeasLinkError,
+        IndexedKeyToIndexLinkError, InsertOpticalError, InsertOpticalInDatasetError,
+        InsertTemporalError, InsertTemporalToDatasetError, KeyToIndexLinkError, KeyToNameLinkError,
+        LookupAndReadDataAnalysisError, LookupCSVFlagsError, LookupMeasurementError,
+        LookupMeasurementWarning, LookupMetarootError, LookupMetarootWarning,
+        LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning, LookupPeakError,
+        LookupShortnameError, LookupSubsetError, LookupTEXTOffsetsError, LookupTEXTOffsetsWarning,
+        LookupTemporalError, LookupTemporalWarning, MeasDataMismatchError, MissingTime,
+        NewCoreError, NewCoreRelationalError, NewCoreTEXTError, NewCoreWarning,
+        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
+        PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
+        RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
+        ScaleTransformError, SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError,
+        SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError, SetTransformsError,
+        SpilloverLinkError, StdDatasetFromRawWarning, StdTEXTFromKeywordsError,
+        StdTEXTFromRawError, StdTEXTFromRawWarning, StdWriterError, TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
@@ -9484,6 +9698,7 @@ mod python {
     impl_pyreflow_err!(RelationalException, GatingMeasLinkError);
     impl_pyreflow_err!(RelationalException, CompParMismatchError);
     impl_pyreflow_err!(RelationalException, ScaleTransformError);
+    impl_pyreflow_err!(RelationalException, MissingTime);
 
     impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
     impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
@@ -9553,4 +9768,73 @@ mod python {
         Warn
     );
     impl_from_pyerr!(RawToLayoutError, New, Raw);
+
+    impl_from_pyerr!(
+        LookupMetarootWarning,
+        Trigger,
+        Comp2_0,
+        Comp3_0,
+        Timestamps2_0,
+        Timestamps3_0,
+        Timestamps3_1,
+        Datetimes,
+        Modified,
+        UnstainedCenter,
+        Mode3_2,
+        Mode,
+        Unicode,
+        Spillover,
+        Gate2_0,
+        Gate3_0,
+        Gate3_2,
+        Vol,
+        Abrt,
+        Lost,
+        Subset
+    );
+    impl_from_pyerr!(LookupMetarootError, Mode, Cyt3_2, Par, Warn);
+    impl_from_pyerr!(LookupSubsetError, Flags, Bits, Tot);
+    impl_from_pyerr!(LookupCSVFlagsError, Mode, Flag);
+    impl_from_pyerr!(LookupModifiedDataError, LastModTime, Originality);
+
+    impl_from_pyerr!(
+        LookupMeasurementWarning,
+        Temporal,
+        Optical,
+        Shortname,
+        MissingTime,
+        Pattern
+    );
+    impl_from_pyerr!(LookupMeasurementError, Temporal, Optical, Shortname, Warn);
+    impl_from_pyerr!(LookupShortnameError, Req, Opt);
+    impl_from_pyerr!(LookupTemporalError, TemporalScale, Timestep, Warn);
+    impl_from_pyerr!(LookupOpticalError, Xform, Scale, Warn);
+    impl_from_pyerr!(
+        LookupTemporalWarning,
+        TemporalScale,
+        TemporalGain,
+        TemporalType,
+        Display,
+        Peak
+    );
+    impl_from_pyerr!(
+        LookupOpticalWarning,
+        Scale,
+        TemporalScale,
+        Gain,
+        TemporalGain,
+        Feature,
+        Wavelengths,
+        Wavelength,
+        Calibration3_1,
+        Calibration3_2,
+        TemporalType,
+        OpticalType,
+        Display,
+        Power,
+        PercentEmitted,
+        DetectorVoltage,
+        Peak
+    );
+    impl_from_pyerr!(LookupPeakError, Bin, Index);
 }

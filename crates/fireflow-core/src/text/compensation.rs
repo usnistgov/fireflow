@@ -1,13 +1,11 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::logging::{
-    DeferredSwitchableErrors, LogResult, ResultExt as _, WarningsAndErrorsResult,
-};
+use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::parser::{FromStrDelim, FromStrWith, OptKeyError_, ParseKeyError};
+use super::parser::{FromStrDelim, FromStrWith, ParseKeyError};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
@@ -62,7 +60,7 @@ impl Compensation2_0 {
                 let k = SpecificKey::new_i2(c.into(), r.into());
                 match lookup_dfc(kws, k) {
                     Ok(x) => (x, None),
-                    Err(w) => (None, Some(LookupComp2_0Error::Dfc(w.into()))),
+                    Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
             })
             .unzip();
@@ -277,7 +275,7 @@ impl fmt::Display for Compensation {
 pub(crate) fn lookup_dfc(
     kws: &mut StdKeywords,
     k: SpecificKey<Dfc, BiIndex>,
-) -> Result<Option<f32>, OptKeyError_<ParseFloatError, Dfc, BiIndex>> {
+) -> Result<Option<f32>, ParseKeyError<ParseFloatError, Dfc, BiIndex>> {
     kws.remove(&k.as_std()).map_or(Ok(None), |v| {
         v.parse::<f32>()
             .map_err(|e| ParseKeyError::new(e, k, v.clone()))
@@ -287,7 +285,7 @@ pub(crate) fn lookup_dfc(
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupComp2_0Error {
-    Dfc(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
+    Dfc(ParseKeyError<ParseFloatError, Dfc, BiIndex>),
     Matrix(NewCompError),
 }
 

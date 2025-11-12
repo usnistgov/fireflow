@@ -12,23 +12,22 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
-use super::compensation::{Compensation3_0, LookupComp2_0Error, NewCompError};
+use super::byteord::Width;
+use super::compensation::{Compensation3_0, LookupComp2_0Error};
 use super::datetimes::LookupDatetimesError;
 use super::gating::{
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error, Region,
 };
 use super::index::{IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
-    Abrt, AlphaNumType, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag,
-    Calibration3_1, Calibration3_2, Cyt3_2, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Endanalysis, Enddata, Feature, Gain, GateDetectorType, GateDetectorVoltage,
-    GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale, GateShortname, Gating,
-    LastModified, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, NumType, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Range, RegionGateIndex, RegionWindow, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters, Vol,
-    Wavelength, Wavelengths, Wellid,
+    Abrt, Analyte, Beginanalysis, Begindata, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
+    Calibration3_2, Cyt3_2, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endanalysis,
+    Enddata, Feature, Gain, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname,
+    GatePercentEmitted, GateRange, GateScale, GateShortname, Gating, LastModified, Longname,
+    LookupTemporalGain, Lost, Mode, Mode3_2, NumType, OpticalType, Originality, Par, PeakBin,
+    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Range,
+    RegionGateIndex, RegionWindow, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
+    Tot, Trigger, Unicode, UnstainedCenters, Vol, Wavelength, Wavelengths, Wellid,
 };
 use super::optional::DisplayMaybe;
 use super::scale::Scale;
@@ -48,7 +47,6 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 use std::mem::take;
-use std::num::ParseFloatError;
 use std::str::FromStr;
 
 #[cfg(feature = "python")]
@@ -600,50 +598,12 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T, I> = Result<T, ReqKeyError_<<T as FromStr>::Err, T, I>>;
 
-pub(crate) type LookupResult<V> =
-    WarningsAndErrorsResult<V, (), LookupKeysWarning, LookupKeysError>;
-
-/// Errors when looking up any key.
-///
-/// This is to be used in the error slot of any result-like types.
-///
-/// Includes errors from a variety of sources (relational vs local, optional vs
-/// required, etc). It also includes all errors which may also be warnings
-/// if configuration permits.
-#[derive(From, Display, Debug, Error)]
-pub enum LookupKeysError {
-    Parse(ParseReqKeyError),
-    InvalidScale(ScaleTransformError),
-    WarnAsError(LookupKeysWarning),
-}
-
-/// Warnings when looking up keys.
-///
-/// This is separate from `LookupKeysError` since the latter includes errors
-/// which are always fatal and this includes errors which are sometimes
-/// non-fatal (aka warnings).
-///
-/// Generally, these are non-fatal because they apply to keys which can be
-/// dropped on failure and become fatal if dropping is forbidden.
-#[derive(From, Display, Debug, Error)]
-pub enum LookupKeysWarning {
-    Parse(ParseOptKeyError),
-    Comp(NewCompError),
-    MissingTime(MissingTime),
-    Dep(DepValueWarning),
-}
-
 pub type LookupMetarootResult<V> =
     WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupMetarootError {
-    // AlphaNumType(ReqKeyError<AlphaNumType>),
     Mode(ReqKeyError<Mode>),
-    // ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
-    // ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
-    // Width(ReqIndexedKeyError<Width>),
-    // Range(ReqIndexedKeyError<Range>),
     Cyt3_2(ReqKeyError<Cyt3_2>),
     Par(ReqKeyError<Par>),
     Warn(LookupMetarootWarning),
@@ -757,68 +717,6 @@ pub enum LookupTemporalWarning {
     TemporalGain(LookupTemporalGain),
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),
-    Peak(LookupPeakError),
-}
-
-/// Error encountered when parsing a required key from a string
-#[derive(From, Display, Debug, Error)]
-pub enum ParseReqKeyError {
-    AlphaNumType(ReqKeyError<AlphaNumType>),
-    Scale(ReqIndexedKeyError<Scale>),
-    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
-    Mode(ReqKeyError<Mode>),
-    ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
-    ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
-    Shortname(ReqIndexedKeyError<Shortname>),
-    Width(ReqIndexedKeyError<Width>),
-    Range(ReqIndexedKeyError<Range>),
-    Cyt3_2(ReqKeyError<Cyt3_2>),
-    Par(ReqKeyError<Par>),
-    Timestepe(ReqKeyError<Timestep>),
-}
-
-/// Error encountered when parsing an optional key from a string
-#[derive(From, Display, Debug, Error)]
-pub enum ParseOptKeyError {
-    NumType(OptIndexedKeyError<NumType>),
-    Trigger(OptKeyStError<Trigger>),
-    Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
-    Comp2_0(OptKeyError_<ParseFloatError, Dfc, BiIndex>),
-    Comp3_0(OptKeyError<Compensation3_0>),
-    Gain(OptIndexedKeyError<Gain>),
-    TemporalGain(LookupTemporalGain),
-    Feature(OptIndexedKeyError<Feature>),
-    Wavelengths(OptIndexedKeyStError<Wavelengths>),
-    Wavelength(OptIndexedKeyError<Wavelength>),
-    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
-    Date(OptKeyStError<FCSDate>),
-    Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
-    Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
-    Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
-    Datetimes(LookupDatetimesError),
-    Modified(LookupModifiedDataError),
-    UnstainedCenter(OptKeyStError<UnstainedCenters>),
-    Mode3_2(OptKeyError<Mode3_2>),
-    TemporalType(OptIndexedKeyError<TemporalType>),
-    OpticalType(OptIndexedKeyError<OpticalType>),
-    Shortname(OptIndexedKeyError<Shortname>),
-    Display(OptIndexedKeyError<Display>),
-    Unicode(OptKeyStError<Unicode>),
-    Spillover(OptKeyStError<Spillover>),
-    Gate2_0(LookupAppliedGates2_0Error),
-    Gate3_0(LookupAppliedGates3_0Error),
-    Gate3_2(LookupAppliedGates3_2Error),
-    Vol(OptKeyError<Vol>),
-    Power(OptIndexedKeyError<Power>),
-    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
-    Abrt(OptKeyError<Abrt>),
-    Lost(OptKeyError<Lost>),
-    CSV(LookupCSVFlagsError),
-    CSVBits(OptKeyError<CSVBits>),
-    CSTot(OptKeyError<CSTot>),
     Peak(LookupPeakError),
 }
 
@@ -1117,16 +1015,16 @@ pub enum LookupModifiedDataError {
 #[error("Could not find time measurement matching {0}")]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
-/// Error/warning triggered when encountering a key value which is deprecated
-#[derive(Debug, Error)]
-pub enum DepValueWarning {
-    #[error("$DATATYPE=A is deprecated")]
-    DatatypeASCII,
-    #[error("$MODE=C is deprecated")]
-    ModeCorrelated,
-    #[error("$MODE=U is deprecated")]
-    ModeUncorrelated,
-}
+// /// Error/warning triggered when encountering a key value which is deprecated
+// #[derive(Debug, Error)]
+// pub enum DepValueWarning {
+//     #[error("$DATATYPE=A is deprecated")]
+//     DatatypeASCII,
+//     #[error("$MODE=C is deprecated")]
+//     ModeCorrelated,
+//     #[error("$MODE=U is deprecated")]
+//     ModeUncorrelated,
+// }
 
 #[derive(Debug, Error)]
 pub enum DeprecatedModeWarning {
@@ -1350,12 +1248,12 @@ mod python {
     use crate::python::macros::{impl_from_pyerr, impl_pyreflow_err};
 
     use super::{
-        AnyDepKeyError, DepKeyWarning, DepValueWarning, DeprecatedModeWarning, LookupCSVFlagsError,
-        LookupKeysError, LookupKeysWarning, LookupMeasurementError, LookupMeasurementWarning,
-        LookupMetarootError, LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError,
-        LookupOpticalWarning, LookupPeakError, LookupShortnameError, LookupSubsetError,
-        LookupTemporalError, LookupTemporalWarning, MissingTime, ParseKeyError, ParseOptKeyError,
-        ParseReqKeyError, PseudostandardError, ReqKeyError_, UnusedStandardError,
+        AnyDepKeyError, DepKeyWarning, DeprecatedModeWarning, LookupCSVFlagsError,
+        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
+        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
+        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTemporalError,
+        LookupTemporalWarning, MissingTime, ParseKeyError, PseudostandardError, ReqKeyError_,
+        UnusedStandardError,
     };
 
     use pyo3::prelude::*;
@@ -1390,8 +1288,6 @@ mod python {
 
     impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
     impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
-    impl_pyreflow_err!(InvalidKeywordValueError, ParseReqKeyError);
-    impl_pyreflow_err!(InvalidKeywordValueError, ParseOptKeyError);
 
     // These are file layout errors despite being keywords since they contain
     // data pertaining to the byte layout of the file
@@ -1401,12 +1297,8 @@ mod python {
 
     impl_pyreflow_err!(RelationalException, MissingTime);
 
-    impl_pyreflow_err!(FCSDeprecatedError, DepValueWarning);
     impl_pyreflow_err!(FCSDeprecatedError, AnyDepKeyError);
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);
-
-    impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
-    impl_from_pyerr!(LookupKeysWarning, Parse, Comp, MissingTime, Dep);
 
     impl_from_pyerr!(
         LookupMetarootWarning,

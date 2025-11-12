@@ -9531,7 +9531,6 @@ mod python {
         ReqAnalysis,
         MismatchAnalysis
     );
-    impl_from_pyerr!(LookupLayoutError, New, Raw);
     impl_from_pyerr!(StdWriterError, Layout, Check, Overflow);
     impl_from_pyerr!(StdDatasetFromRawWarning, TEXT, Offsets, Layout);
     impl_from_pyerr!(

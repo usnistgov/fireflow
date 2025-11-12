@@ -1,6 +1,8 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::RemovedNamedLink;
-use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _};
+use crate::logging::{
+    DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _, WarningAndErrorResult,
+};
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
@@ -19,9 +21,8 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::parser::{
-    DepValueWarning, FromStrDelim, FromStrWith, LookupKeysError, LookupKeysWarning, LookupResult,
-    OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional, ParseReqKeyError, ReqIndexedKey,
-    ReqIndexedKeyError, ReqMetarootKey, Required,
+    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
+    ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use super::scale::{Scale, ScaleError};
@@ -368,18 +369,19 @@ pub enum AlphaNumType {
 }
 
 impl AlphaNumType {
-    pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
-        let mut d = Self::remove_metaroot_req(kws)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
-            .into_log();
-        d.eval_warning(|v| check_datatype_ascii(*v));
-        d
+    pub(crate) fn lookup_req_check_ascii(
+        kws: &mut StdKeywords,
+    ) -> WarningAndErrorResult<Self, (), DeprecatedDatatypeWarning, ReqKeyError<Self>> {
+        let res = Self::remove_metaroot_req(kws);
+        if let Ok(dt) = res
+            && dt == Self::Ascii
+        {
+            let w = Some(DeprecatedDatatypeWarning);
+            res.into_log().set_commutative_warnings(w)
+        } else {
+            res.into_log()
+        }
     }
-}
-
-fn check_datatype_ascii(datatype: AlphaNumType) -> Option<LookupKeysWarning> {
-    (datatype == AlphaNumType::Ascii).then(|| DepValueWarning::DatatypeASCII.into())
 }
 
 impl FromStr for AlphaNumType {
@@ -395,6 +397,10 @@ impl FromStr for AlphaNumType {
         }
     }
 }
+
+#[derive(Debug, Error)]
+#[error("$DATATYPE=A is deprecated")]
+pub struct DeprecatedDatatypeWarning;
 
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
@@ -2368,12 +2374,12 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2, Display, Feature,
-        FeatureError, GateRange, GateScale, GateShortname, IndexPair, LastModified,
-        LookupTemporalGain, Mode, Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError,
-        OpticalType, OpticalTypeError, Originality, OriginalityError, PrefixedMeasIndex, Range,
-        TemporalGainError, Timestep, Trigger, UniGate, Unicode, UnstainedCenters, Vertex, Vol,
-        Wavelength, Wavelengths,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2,
+        DeprecatedDatatypeWarning, Display, Feature, FeatureError, GateRange, GateScale,
+        GateShortname, IndexPair, LastModified, LookupTemporalGain, Mode, Mode3_2, Mode3_2Error,
+        ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
+        OriginalityError, PrefixedMeasIndex, Range, TemporalGainError, Timestep, Trigger, UniGate,
+        Unicode, UnstainedCenters, Vertex, Vol, Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2415,6 +2421,8 @@ mod python {
     impl_value_err!(OpticalTypeError);
 
     impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
+
+    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

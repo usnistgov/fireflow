@@ -74,11 +74,12 @@ use crate::text::byteord::{
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords::{AlphaNumType, IntRangeError, NumType, Par, Range, Tot};
+use crate::text::keywords::{
+    AlphaNumType, DeprecatedDatatypeWarning, IntRangeError, NumType, Par, Range, Tot,
+};
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::text::parser::{
-    LookupKeysError, LookupKeysWarning, LookupResult, OptIndexedKey as _, OptIndexedKeyError,
-    OptKeyError, ParseOptKeyError, ParseReqKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
+    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
     ReqKeyError, ReqMetarootKey as _,
 };
 
@@ -397,7 +398,7 @@ pub trait MeasDatatypeDef {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
@@ -409,7 +410,12 @@ pub trait MeasDatatypeDef {
         nonstd: &mut NonStdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<Vec<ColumnLayoutValues<Self::MeasDatatype>>> {
+    ) -> WarningsAndErrorsResult<
+        Vec<ColumnLayoutValues<Self::MeasDatatype>>,
+        (),
+        LookupMeasLayoutWarning,
+        LookupMeasLayoutError,
+    > {
         (0..par.0)
             .map(|i| Self::lookup_one(std, nonstd, i.into(), conf))
             .mappend_cmt()
@@ -433,28 +439,29 @@ pub trait MeasDatatypeDef {
             })
     }
 
-    // TODO why are width and range being put in lookup result which is
-    // used for a totally different type of lookup?
     fn lookup_one(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> LookupResult<ColumnLayoutValues<Self::MeasDatatype>> {
+    ) -> WarningsAndErrorsResult<
+        ColumnLayoutValues<Self::MeasDatatype>,
+        (),
+        LookupMeasLayoutWarning,
+        LookupMeasLayoutError,
+    > {
         let w = Width::remove_meas_req(std, i)
-            .map_err(ParseReqKeyError::from)
+            .map_err(LookupMeasLayoutError::from)
             .into_nowarn();
         let r = Range::remove_meas_req(std, i)
-            .map_err(ParseReqKeyError::from)
+            .map_err(LookupMeasLayoutError::from)
             .into_nowarn();
         w.zip_cmt(r)
-            .map_errors(LookupKeysError::from)
             .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {
                 Self::lookup_datatype(std, nonstd, i, conf)
-                    .map_fungible_errors(ParseOptKeyError::from)
-                    .map_fungible_errors(LookupKeysWarning::from)
                     .fungible_into_commutative()
+                    .map_errors(LookupMeasLayoutError::from)
                     .into_semigroup()
                     .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
                     .errors_into()
@@ -1223,7 +1230,7 @@ impl MeasDatatypeDef for NoMeasDatatype {
         _: &mut NonStdKeywords,
         _: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
     {
         LogResult::new_fungible_ok(NullMeasDatatype, conf.allow_optional_dropping)
     }
@@ -1245,9 +1252,10 @@ impl MeasDatatypeDef for HasMeasDatatype {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, OptIndexedKeyError<NumType>>
+    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
     {
         NumType::drop_meas_opt(std, nonstd, i, conf)
+            .map_fungible_errors(LookupMeasLayoutWarning::from)
     }
 
     // TODO what is this actually doing?
@@ -3605,16 +3613,16 @@ impl VersionedDataLayout for DataLayout3_2 {
             };
         }
 
-        let d = AlphaNumType::lookup_req_check_ascii(std);
+        let d = from!(AlphaNumType::lookup_req_check_ascii(std)).into_semigroup();
         let e = ByteOrd3_1::remove_metaroot_req(std)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
+            .map_err(LookupLayoutError::from)
             .into_log();
-        let cs = HasMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
+        let cs = from!(HasMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
 
-        from!(d.zip3_cmt(e, cs)).and_then_cmt(|(datatype, endian, columns)| {
-            from!(Self::try_new(datatype, endian, columns, conf.as_ref()))
-        })
+        d.zip3_cmt(e, cs)
+            .and_then_cmt(|(datatype, endian, columns)| {
+                from!(Self::try_new(datatype, endian, columns, conf.as_ref()))
+            })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
@@ -3848,19 +3856,18 @@ impl<T> AnyOrderedLayout<T> {
             };
         }
 
-        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
+        let cs = from!(NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
         let d = AlphaNumType::remove_metaroot_req(std)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
+            .map_err(LookupLayoutError::from)
             .into_log();
         let b = ByteOrd2_0::remove_metaroot_req(std)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
+            .map_err(LookupLayoutError::from)
             .into_log();
 
-        from!(d.zip3_cmt(b, cs)).and_then_cmt(|(datatype, byteord, columns)| {
-            from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
-        })
+        d.zip3_cmt(b, cs)
+            .and_then_cmt(|(datatype, byteord, columns)| {
+                from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
+            })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
@@ -4010,11 +4017,15 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref());
-        let d = AlphaNumType::lookup_req_check_ascii(std);
+        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref())
+            .map_commutative_warnings(LookupLayoutWarning::from)
+            .map_errors(LookupLayoutError::from);
+        let d = AlphaNumType::lookup_req_check_ascii(std)
+            .map_commutative_warnings(LookupLayoutWarning::from)
+            .map_errors(LookupLayoutError::from)
+            .into_semigroup();
         let n = ByteOrd3_1::remove_metaroot_req(std)
-            .map_err(ParseReqKeyError::from)
-            .map_err(LookupKeysError::from)
+            .map_err(LookupLayoutError::from)
             .into_log();
         d.zip3_cmt(n, cs)
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -4301,13 +4312,29 @@ type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning,
 #[derive(From, Display, Debug, Error)]
 pub enum LookupLayoutError {
     New(NewDataLayoutError),
-    Raw(LookupKeysError),
+    AlphaNumType(ReqKeyError<AlphaNumType>),
+    ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
+    ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
+    Meas(LookupMeasLayoutError),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
-    Raw(LookupKeysWarning),
+    Datatype(DeprecatedDatatypeWarning),
+    Meas(LookupMeasLayoutWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasLayoutError {
+    Width(ReqIndexedKeyError<Width>),
+    Range(ReqIndexedKeyError<Range>),
+    Warn(LookupMeasLayoutWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasLayoutWarning {
+    NumType(OptIndexedKeyError<NumType>),
 }
 
 type FromRawResult<T> = WarningsAndErrorsResult<T, (), RawToLayoutWarning, RawToLayoutError>;
@@ -4506,35 +4533,20 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_from_pyerr;
-    use crate::python::macros::impl_pyreflow_err;
-    use crate::text::float_decimal::FloatDecimal;
-    use crate::text::float_decimal::HasFloatBounds;
+    use crate::python::macros::{impl_from_pyerr, impl_pyreflow_err};
+    use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
 
-    use super::AnyLossError;
-    use super::AsciiToUintError;
-    use super::ColumnError;
-    use super::EventWidthError;
-    use super::LookupLayoutWarning;
-    use super::MeasLayoutLengthsError;
-    use super::MeasLayoutMismatchError;
-    use super::NewDataLayoutError;
-    use super::NewMixedTypeWarning;
-    use super::RawToLayoutWarning;
-    use super::ReadAsciiError;
-    use super::ReadDataframeError;
-    use super::ReadDataframeWarning;
-    use super::ReadDelimAsciiError;
-    use super::ReadDelimAsciiWithoutRowsError;
-    use super::ReadDelimWithRowsAsciiError;
-    use super::ReadFixedAsciiError;
-    use super::ScaleMismatchTransformError;
-    use super::TotEventMismatch;
-    use super::UnevenEventWidth;
-    use super::ZeroEventWidth;
-    use super::{AnyNullBitmask, FloatRange, NullMixedType};
+    use super::{
+        AnyLossError, AnyNullBitmask, AsciiToUintError, ColumnError, EventWidthError, FloatRange,
+        LookupLayoutError, LookupLayoutWarning, LookupMeasLayoutError, LookupMeasLayoutWarning,
+        MeasLayoutLengthsError, MeasLayoutMismatchError, NewDataLayoutError, NewMixedTypeWarning,
+        NullMixedType, RawToLayoutWarning, ReadAsciiError, ReadDataframeError,
+        ReadDataframeWarning, ReadDelimAsciiError, ReadDelimAsciiWithoutRowsError,
+        ReadDelimWithRowsAsciiError, ReadFixedAsciiError, ScaleMismatchTransformError,
+        TotEventMismatch, UnevenEventWidth, ZeroEventWidth,
+    };
 
     use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;
@@ -4630,7 +4642,17 @@ mod python {
     impl_pyreflow_err!(EventDataError, ReadDelimAsciiWithoutRowsError);
 
     impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
-    impl_from_pyerr!(LookupLayoutWarning, New, Raw);
+    impl_from_pyerr!(
+        LookupLayoutError,
+        New,
+        AlphaNumType,
+        ByteOrd2_0,
+        ByteOrd3_1,
+        Meas
+    );
+    impl_from_pyerr!(LookupLayoutWarning, New, Datatype, Meas);
+    impl_from_pyerr!(LookupMeasLayoutError, Width, Range, Warn);
+    impl_from_pyerr!(LookupMeasLayoutWarning, NumType);
     impl_from_pyerr!(ReadDataframeWarning, Uneven, Tot);
     impl_from_pyerr!(RawToLayoutWarning, New, Raw);
     impl_from_pyerr!(

@@ -1,4 +1,4 @@
-use crate::config::{ConfigFlag, ErrorFlag, SharedConfig};
+use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
     Applicative, Apply, ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid,
@@ -1121,8 +1121,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         Fe: FnOnce(&V) -> Option<M>,
         EC: Extend<E> + Default,
         WC: Extend<W> + Default,
-        M: Into<W>,
-        M: Into<E>,
+        M: Into<W> + Into<E>,
     {
         if flag.is_error() {
             self.eval_commutative_error(fv, fp, |v| fe(v).map(Into::into))

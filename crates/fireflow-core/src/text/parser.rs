@@ -3,12 +3,13 @@ use crate::config::{
 };
 use crate::core::ScaleTransformError;
 use crate::logging::{
-    DeferredFungibleError, DeferredWarningsAndErrors, ResultExt as _, WarningsAndErrorsResult,
+    DeferredFungibleError, DeferredWarningsAndErrors, ResultExt as _, WarningAndErrorResult,
+    WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey as _, IndexedKey, Key, Key0, Key1, MeasHeader, NonStdKeywords,
-    NonStdKeywordsExt as _, SpecificKey, StdKey, StdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasRegexError, SpecificKey, StdKey, StdKeywords,
 };
 use crate::validated::shortname::Shortname;
 
@@ -634,7 +635,83 @@ pub enum LookupKeysWarning {
     Dep(DepValueWarning),
 }
 
-// TODO break these up to be more context-specific (layout vs metaroot etc)
+pub type LookupMeasurementResult<V> =
+    WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasurementError {
+    Temporal(LookupTemporalError),
+    Optical(LookupOpticalError),
+    Shortname(LookupShortnameError),
+    Warn(LookupMeasurementWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupMeasurementWarning {
+    Temporal(LookupTemporalWarning),
+    Optical(LookupOpticalWarning),
+    Shortname(OptIndexedKeyError<Shortname>),
+    Pattern(NonStdMeasRegexError),
+}
+
+pub type LookupShortnameResult<V> =
+    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupShortnameError {
+    Req(ReqIndexedKeyError<Shortname>),
+    Opt(OptIndexedKeyError<Shortname>),
+}
+
+pub type LookupOpticalResult<V> =
+    WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupOpticalError {
+    Xform(ScaleTransformError),
+    Scale(ReqIndexedKeyError<Scale>),
+    Warn(LookupOpticalWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupOpticalWarning {
+    Scale(OptIndexedKeyStError<Scale>),
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    Gain(OptIndexedKeyError<Gain>),
+    TemporalGain(LookupTemporalGain),
+    Feature(OptIndexedKeyError<Feature>),
+    Wavelengths(OptIndexedKeyStError<Wavelengths>),
+    Wavelength(OptIndexedKeyError<Wavelength>),
+    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
+    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
+    TemporalType(OptIndexedKeyError<TemporalType>),
+    OpticalType(OptIndexedKeyError<OpticalType>),
+    Display(OptIndexedKeyError<Display>),
+    Power(OptIndexedKeyError<Power>),
+    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
+    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
+    Peak(LookupPeakError),
+}
+
+pub type LookupTemporalResult<V> =
+    WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalError {
+    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
+    Timestep(ReqKeyError<Timestep>),
+    Warn(LookupTemporalWarning),
+}
+
+#[derive(From, Display, Debug, Error)]
+pub enum LookupTemporalWarning {
+    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalGain(LookupTemporalGain),
+    TemporalType(OptIndexedKeyError<TemporalType>),
+    Display(OptIndexedKeyError<Display>),
+    Peak(LookupPeakError),
+}
+
 /// Error encountered when parsing a required key from a string
 #[derive(From, Display, Debug, Error)]
 pub enum ParseReqKeyError {
@@ -971,8 +1048,8 @@ where
 
 #[derive(From, Display, Debug, Error)]
 pub enum LookupPeakError {
-    PeakBin(OptIndexedKeyError<PeakBin>),
-    PeakIndex(OptIndexedKeyError<PeakIndex>),
+    Bin(OptIndexedKeyError<PeakBin>),
+    Index(OptIndexedKeyError<PeakIndex>),
 }
 
 #[derive(Display, Debug, Error)]
@@ -1317,13 +1394,17 @@ mod python {
             exceptions::FCSDeprecatedError,
             macros::{impl_from_pyerr, impl_pyreflow_err},
         },
-        text::keywords::{Nextdata, NumType, Par, Tot},
+        text::keywords::{Nextdata, NumType, Par, TemporalGainError, Tot},
+        validated::keys::SpecificKey,
     };
 
     use super::{
         AnyDepKeyError, DepKeyWarning, DepValueWarning, LookupKeysError, LookupKeysWarning,
-        MissingTime, OptIndexedKeyError, OptKeyError, ParseOptKeyError, ParseReqKeyError,
-        PseudostandardError, ReqKeyError, UnusedStandardError,
+        LookupMeasurementError, LookupMeasurementWarning, LookupOpticalError, LookupOpticalWarning,
+        LookupPeakError, LookupShortnameError, LookupTemporalError, LookupTemporalGain,
+        LookupTemporalWarning, MissingTime, OptIndexedKeyError, OptKeyError, ParseKeyError,
+        ParseOptKeyError, ParseReqKeyError, PseudostandardError, ReqKeyError, ReqKeyError_,
+        UnusedStandardError,
     };
 
     use pyo3::prelude::*;
@@ -1338,6 +1419,24 @@ mod python {
         }
     }
 
+    impl<E, T, I> From<ReqKeyError_<E, T, I>> for PyErr
+    where
+        ReqKeyError_<E, T, I>: Display,
+    {
+        fn from(value: ReqKeyError_<E, T, I>) -> Self {
+            FCSDeprecatedError::new_err(value.to_string())
+        }
+    }
+
+    impl<E, T, I> From<ParseKeyError<E, T, I>> for PyErr
+    where
+        ParseKeyError<E, T, I>: Display,
+    {
+        fn from(value: ParseKeyError<E, T, I>) -> Self {
+            FCSDeprecatedError::new_err(value.to_string())
+        }
+    }
+
     impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
     impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
     impl_pyreflow_err!(InvalidKeywordValueError, ParseReqKeyError);
@@ -1347,11 +1446,6 @@ mod python {
     // data pertaining to the byte layout of the file
     //
     //  TODO maybe...
-    impl_pyreflow_err!(FileLayoutError, ReqKeyError<Tot>);
-    impl_pyreflow_err!(FileLayoutError, OptKeyError<Tot>);
-    impl_pyreflow_err!(FileLayoutError, ReqKeyError<Par>);
-    impl_pyreflow_err!(FileLayoutError, OptKeyError<Nextdata>);
-    impl_pyreflow_err!(FileLayoutError, OptIndexedKeyError<NumType>);
     impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
     impl_pyreflow_err!(RelationalException, MissingTime);
@@ -1361,4 +1455,44 @@ mod python {
 
     impl_from_pyerr!(LookupKeysError, Parse, InvalidScale, WarnAsError);
     impl_from_pyerr!(LookupKeysWarning, Parse, Comp, MissingTime, Dep);
+    impl_from_pyerr!(
+        LookupMeasurementWarning,
+        Temporal,
+        Optical,
+        Shortname,
+        Pattern
+    );
+    impl_from_pyerr!(LookupMeasurementError, Temporal, Optical, Shortname, Warn);
+    impl_from_pyerr!(LookupShortnameError, Req, Opt);
+    impl_from_pyerr!(LookupTemporalError, TemporalScale, Timestep, Warn);
+    impl_from_pyerr!(LookupOpticalError, Xform, Scale, Warn);
+    impl_from_pyerr!(
+        LookupTemporalWarning,
+        TemporalScale,
+        TemporalGain,
+        TemporalType,
+        Display,
+        Peak
+    );
+    impl_from_pyerr!(
+        LookupOpticalWarning,
+        Scale,
+        TemporalScale,
+        Gain,
+        TemporalGain,
+        Feature,
+        Wavelengths,
+        Wavelength,
+        Calibration3_1,
+        Calibration3_2,
+        TemporalType,
+        OpticalType,
+        Display,
+        Power,
+        PercentEmitted,
+        DetectorVoltage,
+        Peak
+    );
+    impl_from_pyerr!(LookupPeakError, Bin, Index);
+    impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
 }

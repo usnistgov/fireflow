@@ -1,6 +1,6 @@
 use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
 use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::logging::{DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _};
+use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
@@ -92,7 +92,7 @@ impl Datetimes {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
         let b = BeginDateTime::transfer_metaroot_opt(std, nonstd, conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
@@ -115,7 +115,7 @@ impl Datetimes {
                     })
                     .into_semigroup()
             })
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {

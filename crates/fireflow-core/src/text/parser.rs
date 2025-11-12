@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::core::ScaleTransformError;
 use crate::logging::{
-    DeferredFungibleError, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
+    DeferredSwitchableError, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::validated::keys::{
@@ -247,7 +247,7 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
@@ -255,7 +255,7 @@ pub(crate) trait Optional: Sized {
         Self::transfer_opt(std, nonstd, k, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
-            .nowarn_into_fungible(conf.allow_optional_dropping)
+            .nowarn_into_switchable(conf.allow_optional_dropping)
     }
 
     fn drop_opt_with<I>(
@@ -264,7 +264,7 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -272,7 +272,7 @@ pub(crate) trait Optional: Sized {
         Self::transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
-            .nowarn_into_fungible(conf.allow_optional_dropping)
+            .nowarn_into_switchable(conf.allow_optional_dropping)
     }
 
     fn get_opt_inner<F, E, I>(
@@ -431,7 +431,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -443,7 +443,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
     where
         Self: FromStrWith,
     {
@@ -501,7 +501,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -514,7 +514,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::Outer, AllowOptionalDropping, OptIndexedKeyStError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyStError<Self>>
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,

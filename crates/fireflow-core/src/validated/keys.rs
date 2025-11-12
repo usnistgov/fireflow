@@ -1,5 +1,5 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
-use crate::logging::{FungibleErrorResult, FungibleErrorsResult, LogResult, WarningOrErrorResult};
+use crate::logging::{SwitchableErrorResult, SwitchableErrorsResult, LogResult, WarningOrErrorResult};
 use crate::text::index::IndexFromOne;
 use crate::text::parser::{OptIndexedKey, OptMetarootKey};
 
@@ -663,8 +663,8 @@ impl ParsedKeywords {
 
         let blank_err = || {
             let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            LogResult::new_deferred_fungible((), e, conf.allow_empty)
-                .fungible_into_non_commutative()
+            LogResult::new_deferred_switchable((), e, conf.allow_empty)
+                .switchable_into_non_commutative()
         };
 
         let vv = if conf.use_latin1 {
@@ -719,7 +719,7 @@ impl ParsedKeywords {
                         LogResult::new_ok(())
                     } else if to_nonstd.is_match(&kk) {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .fungible_into_non_commutative()
+                            .switchable_into_non_commutative()
                     } else {
                         let rk = renames.get(&kk).cloned().unwrap_or(kk);
                         let rv = if let Some(s) = subs.get(&rk) {
@@ -728,17 +728,17 @@ impl ParsedKeywords {
                             value
                         };
                         insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
-                            .fungible_into_non_commutative()
+                            .switchable_into_non_commutative()
                     }
                 } else {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
                     if to_std.is_match(&kk) {
                         insert_nonunique(&mut self.std, StdKey(kk), value, conf)
-                            .fungible_into_non_commutative()
+                            .switchable_into_non_commutative()
                     } else {
                         insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .fungible_into_non_commutative()
+                            .switchable_into_non_commutative()
                     }
                 }
             } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
@@ -761,7 +761,7 @@ impl ParsedKeywords {
         &mut self,
         new: &HashMap<KeyString, String>,
         flag: AllowNonunique,
-    ) -> FungibleErrorsResult<(), (), AllowNonunique, StdPresent> {
+    ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
         let es = new
             .iter()
             .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
@@ -771,7 +771,7 @@ impl ParsedKeywords {
                     None
                 }
             });
-        LogResult::new_fungible_ok((), flag).extend_deferred_fungible_errors(es)
+        LogResult::new_switchable_ok((), flag).extend_deferred_switchable_errors(es)
     }
 }
 
@@ -869,7 +869,7 @@ fn insert_nonunique<K>(
     k: K,
     value: String,
     conf: &ReadHeaderAndTEXTConfig,
-) -> FungibleErrorResult<(), (), AllowNonunique, KeywordInsertError>
+) -> SwitchableErrorResult<(), (), AllowNonunique, KeywordInsertError>
 where
     K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
@@ -879,7 +879,7 @@ where
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
             let err = KeyPresent { key, value };
-            LogResult::new_deferred_fungible((), err.into(), flag)
+            LogResult::new_deferred_switchable((), err.into(), flag)
         }
         Entry::Vacant(ent) => {
             let v = conf
@@ -888,7 +888,7 @@ where
                 .map(ToString::to_string)
                 .unwrap_or(value);
             ent.insert(v);
-            LogResult::new_fungible_ok((), flag)
+            LogResult::new_switchable_ok((), flag)
         }
     }
 }

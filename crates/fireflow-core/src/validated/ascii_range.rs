@@ -93,8 +93,8 @@ impl AsciiRange {
     ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
         let rng_res = range
             .into_uint()
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(NewAsciiRangeError::from)
             .repack::<_, _, Vec<_>>();
         let chars_res = Chars::try_from(width)

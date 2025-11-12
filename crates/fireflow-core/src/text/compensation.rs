@@ -1,6 +1,6 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::logging::{DeferredFungibleErrors, LogResult, ResultExt as _, WarningsAndErrorsResult};
+use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _, WarningsAndErrorsResult};
 use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
 
 use super::index::MeasIndex;
@@ -48,7 +48,7 @@ impl Compensation2_0 {
         kws: &mut StdKeywords,
         par: Par,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
+    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
@@ -65,16 +65,16 @@ impl Compensation2_0 {
             })
             .unzip();
         let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
-            LogResult::new_fungible_ok(None, flag)
+            LogResult::new_switchable_ok(None, flag)
         } else {
             let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
                 .map_err(LookupComp2_0Error::Matrix)
-                .into_deferred_fungible(flag)
+                .into_deferred_switchable(flag)
         };
-        res.extend_deferred_fungible_errors(warnings.into_iter().flatten())
+        res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
     #[must_use]

@@ -4,7 +4,7 @@ use crate::config::{
     ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::logging::{
-    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, FungibleErrorsResult, ImpureError,
+    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, SwitchableErrorsResult, ImpureError,
     LogResult, ResultExt as _, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
@@ -301,16 +301,16 @@ where
         match Self::with_req_pair(pair, st) {
             Ok(text_seg) => {
                 let (seg, warn) = default.unless(text_seg);
-                FungibleErrorsResult::new_fungible_maybe(seg, (), warn, *mismatch_flag)
-                    .map_fungible_errors(SegmentMismatchWarning::from)
-                    .fungible_into_commutative()
+                SwitchableErrorsResult::new_switchable_maybe(seg, (), warn, *mismatch_flag)
+                    .map_switchable_errors(SegmentMismatchWarning::from)
+                    .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
                     .map_errors(ReqSegmentWithDefaultError_::from)
             }
             Err((e0, e1)) => {
-                let mut res = FungibleErrorsResult::new_fungible((), (), e0, *missing_flag)
-                    .extend_deferred_fungible_errors(e1)
-                    .fungible_into_commutative()
+                let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
+                    .extend_deferred_switchable_errors(e1)
+                    .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
                     .map_errors(ReqSegmentWithDefaultError_::from)
                     .set_ok_value(header_seg);
@@ -433,16 +433,16 @@ where
                 None => LogResult::new_ok(header_seg),
                 Some(ts) => {
                     let (seg, warn) = default.unless(ts);
-                    FungibleErrorsResult::new_deferred_fungible_maybe(seg, warn, *mismatch_flag)
-                        .map_fungible_errors(OptSegmentWithDefaultWarning_::from)
-                        .fungible_into_commutative()
+                    SwitchableErrorsResult::new_deferred_switchable_maybe(seg, warn, *mismatch_flag)
+                        .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
+                        .switchable_into_commutative()
                 }
             },
-            Err((e0, e1)) => FungibleErrorsResult::new_deferred_fungible(header_seg, e0, drop_flag)
-                .extend_deferred_fungible_errors(e1)
-                .map_fungible_errors(OptSegmentError::from)
-                .map_fungible_errors(OptSegmentWithDefaultWarning_::from)
-                .fungible_into_commutative(),
+            Err((e0, e1)) => SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
+                .extend_deferred_switchable_errors(e1)
+                .map_switchable_errors(OptSegmentError::from)
+                .map_switchable_errors(OptSegmentWithDefaultWarning_::from)
+                .switchable_into_commutative(),
         }
     }
 

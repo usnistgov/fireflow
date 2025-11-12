@@ -1,7 +1,7 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::core::RemovedNamedLink;
 use crate::logging::{
-    DeferredError, DeferredFungibleErrors, LogResult, ResultExt as _, WarningAndErrorResult,
+    DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -70,15 +70,15 @@ impl Gain {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGain> {
+    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGain> {
         if conf.ignore_time_gain {
             nonstd.transfer_demoted(std, Self::std(i));
-            LogResult::new_fungible_ok(None, conf.allow_optional_dropping)
+            LogResult::new_switchable_ok(None, conf.allow_optional_dropping)
         } else {
             Self::drop_meas_opt(std, nonstd, i, conf)
-                .map_fungible_errors(LookupTemporalGain::from)
+                .map_switchable_errors(LookupTemporalGain::from)
                 .into_semigroup()
-                .eval_deferred_fungible_error(|gain| {
+                .eval_deferred_switchable_error(|gain| {
                     (!gain.is_none_or(|g| g.0.is_one())).then_some(TemporalGainError(i).into())
                 })
         }

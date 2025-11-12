@@ -44,11 +44,11 @@ pub type IOErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 // Results with errors which can also be warnings
 //
 
-pub type FungibleErrorResult<V, P, X, E> = FungibleResult<V, P, X, E, Nothing<E>>;
-pub type FungibleErrorsResult<V, P, X, E> = FungibleResult<V, P, X, E, Vec<E>>;
+pub type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
+pub type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
 
-pub type DeferredFungibleError<V, X, E> = FungibleErrorResult<V, V, X, E>;
-pub type DeferredFungibleErrors<V, X, E> = FungibleErrorsResult<V, V, X, E>;
+pub type DeferredSwitchableError<V, X, E> = SwitchableErrorResult<V, V, X, E>;
+pub type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V, X, E>;
 
 //
 // Results with warnings and errors of differing types which are not commutable
@@ -92,20 +92,18 @@ pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E
 // helper types for constructing the "complete" types above
 //
 
-pub type NowarnResult<V, P, E, EC> = CmtResult<V, P, Nothing<()>, E, EC>;
+pub(crate) type NowarnResult<V, P, E, EC> = CmtResult<V, P, Nothing<()>, E, EC>;
 
-pub type Deferred<V, WC, E, EC> = CmtResult<V, V, WC, E, EC>;
+pub(crate) type Deferred<V, WC, E, EC> = CmtResult<V, V, WC, E, EC>;
 
-pub type DeferredNowarn<V, E, EC> = NowarnResult<V, V, E, EC>;
+pub(crate) type CmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
 
-pub type CmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
+pub(crate) type NonCmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
 
-pub type NonCmtResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
+pub(crate) type SwitchableResult<V, P, X, E, EC> =
+    LogResult<V, P, <EC as SwitchableErrorContainer>::Warn, Nothing<()>, X, E, EC>;
 
-pub type FungibleResult<V, P, X, E, EC> =
-    LogResult<V, P, <EC as FungibleError>::Warn, Nothing<()>, X, E, EC>;
-
-pub type DeferredFungible<V, X, E, EC> = FungibleResult<V, V, X, E, EC>;
+pub(crate) type DeferredSwitchable<V, X, E, EC> = SwitchableResult<V, V, X, E, EC>;
 
 #[derive(Debug, PartialEq)]
 pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
@@ -173,7 +171,7 @@ pub trait Concatable {
     fn concat(self, other: Self) -> Self::Out;
 }
 
-pub trait FungibleError: Sized {
+pub trait SwitchableErrorContainer: Sized {
     type Inner;
     type Warn: Applicative<Self::Inner>;
 
@@ -279,7 +277,7 @@ impl<T> Concatable for Vec<T> {
     }
 }
 
-impl<E> FungibleError for Nothing<E> {
+impl<E> SwitchableErrorContainer for Nothing<E> {
     type Inner = E;
     type Warn = Option<E>;
 
@@ -292,7 +290,7 @@ impl<E> FungibleError for Nothing<E> {
     }
 }
 
-impl<E> FungibleError for Vec<E> {
+impl<E> SwitchableErrorContainer for Vec<E> {
     type Inner = E;
     type Warn = Self;
 
@@ -403,7 +401,7 @@ where
 }
 
 impl<V, WC> Success<V, (), WC> {
-    pub fn new_non_fungible(value: V) -> Self
+    pub fn new_non_switchable(value: V) -> Self
     where
         WC: Default,
     {
@@ -534,7 +532,7 @@ impl<V, X, WC> Success<V, X, WC> {
 
 impl<V> Success<V, (), Nothing<()>> {
     fn nowarn_into_warn<WC: Default>(self) -> Success<V, (), WC> {
-        Success::new_non_fungible(self.value)
+        Success::new_non_switchable(self.value)
     }
 
     pub(crate) fn set_warnings<WC>(self, ws: WC) -> Success<V, (), WC> {
@@ -815,7 +813,7 @@ pub trait ResultExt: Sized {
     {
         self.into_result().map_or_else(
             |e| Fail(Failure::new_from_one(e, ())),
-            |s| Succ(Success::new_non_fungible(s)),
+            |s| Succ(Success::new_non_switchable(s)),
         )
     }
 
@@ -831,13 +829,13 @@ pub trait ResultExt: Sized {
         self.into_result().map_err(ImpureError::IO).into_log()
     }
 
-    fn into_deferred_fungible<X, EC>(
+    fn into_deferred_switchable<X, EC>(
         self,
         flag: X,
-    ) -> DeferredFungible<Self::Ok, X, Self::Error, EC>
+    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
     where
         Self::Ok: Default,
-        EC: FungibleError<Inner = Self::Error> + Default,
+        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -854,30 +852,30 @@ pub trait ResultExt: Sized {
         }
     }
 
-    fn into_deferred_fungible_opt<X, EC>(
+    fn into_deferred_switchable_opt<X, EC>(
         self,
         flag: X,
-    ) -> DeferredFungible<Option<Self::Ok>, X, Self::Error, EC>
+    ) -> DeferredSwitchable<Option<Self::Ok>, X, Self::Error, EC>
     where
-        EC: FungibleError<Inner = Self::Error> + Default,
+        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
-        self.into_result().map(Some).into_deferred_fungible(flag)
+        self.into_result().map(Some).into_deferred_switchable(flag)
     }
 
-    fn into_deferred_fungible_def<X, EC>(
+    fn into_deferred_switchable_def<X, EC>(
         self,
         default: Self::Ok,
         flag: X,
-    ) -> DeferredFungible<Self::Ok, X, Self::Error, EC>
+    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
     where
-        EC: FungibleError<Inner = Self::Error> + Default,
+        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         self.into_result()
-            .into_deferred_fungible_opt(flag)
+            .into_deferred_switchable_opt(flag)
             .map_def_value(|v| v.unwrap_or(default))
     }
 
@@ -888,7 +886,7 @@ pub trait ResultExt: Sized {
     {
         let ret = self.into_result().map_or_else(
             |e| Success::new(Self::Ok::default(), (), LWC::pure(e)),
-            Success::new_non_fungible,
+            Success::new_non_switchable,
         );
         Succ(ret)
     }
@@ -947,23 +945,23 @@ impl<V, E> ResultExt for Result<V, E> {
     }
 }
 
-// fungible
-impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
+// switchable
+impl<V, P, X, E, EC> SwitchableResult<V, P, X, E, EC>
 where
-    EC: FungibleError,
+    EC: SwitchableErrorContainer,
 {
-    pub(crate) fn new_fungible_ok(value: V, flag: X) -> Self
+    pub(crate) fn new_switchable_ok(value: V, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         Succ(Success::new_flagged(value, flag))
     }
 
-    pub(crate) fn new_fungible(value: V, default: P, error: E, flag: X) -> Self
+    pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         X: ErrorFlag,
     {
         if flag.is_error() {
@@ -973,35 +971,35 @@ where
         }
     }
 
-    pub(crate) fn new_fungible_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
+    pub(crate) fn new_switchable_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         if is_ok {
-            Self::new_fungible_ok(value, flag)
+            Self::new_switchable_ok(value, flag)
         } else {
-            Self::new_fungible(value, default, error, flag)
+            Self::new_switchable(value, default, error, flag)
         }
     }
 
-    pub(crate) fn new_fungible_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
+    pub(crate) fn new_switchable_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         match error {
-            Some(e) => Self::new_fungible(value, default, e, flag),
-            None => Self::new_fungible_ok(value, flag),
+            Some(e) => Self::new_switchable(value, default, e, flag),
+            None => Self::new_switchable_ok(value, flag),
         }
     }
 
-    pub(crate) fn new_fungible_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
+    pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: FungibleError<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -1013,7 +1011,7 @@ where
                     Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
                 }
             }
-            None => Self::new_fungible_ok(value, flag),
+            None => Self::new_switchable_ok(value, flag),
         }
     }
 }
@@ -1148,7 +1146,7 @@ impl<V, P, WC, E, EC> CmtResult<V, P, WC, E, EC> {
         Fe: Fn(M) -> E,
         Fw: Fn(M) -> W,
         WC: Extend<W>,
-        EC: Extend<E> + Default + FungibleError<Inner = E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
         X: ErrorFlag,
     {
         if flag.is_error() {
@@ -1352,7 +1350,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         if let Some(e) = error {
             Fail(Failure::new_from_one(e, value))
         } else {
-            Succ(Success::new_non_fungible(value))
+            Succ(Success::new_non_switchable(value))
         }
     }
 
@@ -1362,7 +1360,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         EC: Default,
     {
         if is_ok {
-            Succ(Success::new_non_fungible(value))
+            Succ(Success::new_non_switchable(value))
         } else {
             Fail(Failure::new_from_one(error, value))
         }
@@ -1434,7 +1432,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    /// Push fungible error to a deferred Result based on its value.
+    /// Push switchable error to a deferred Result based on its value.
     ///
     /// If Result is Ok, the result will be converted to an error.
     ///
@@ -1445,7 +1443,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     where
         F: FnOnce(&V) -> Option<M>,
         M: Into<E> + Into<W>,
-        EC: Extend<E> + Default + FungibleError,
+        EC: Extend<E> + Default + SwitchableErrorContainer,
         WC: Extend<W>,
         X: ErrorFlag,
     {
@@ -1484,11 +1482,14 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         Vf: Default,
         F: FnOnce(V) -> Result<Vf, E>,
         WC: Semigroup + Default,
-        EC: Extend<E> + IntoIterator<Item = E> + FungibleError<Inner = E, Warn = WC> + Default,
+        EC: Extend<E>
+            + IntoIterator<Item = E>
+            + SwitchableErrorContainer<Inner = E, Warn = WC>
+            + Default,
     {
         self.and_then_def(|v| {
-            f(v).into_deferred_fungible(flag)
-                .fungible_into_commutative()
+            f(v).into_deferred_switchable(flag)
+                .switchable_into_commutative()
         })
     }
 }
@@ -1539,14 +1540,14 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
 
 // nowarn/deferred
 impl<V, E, EC> NowarnResult<V, V, E, EC> {
-    pub(crate) fn nowarn_into_fungible<X>(self, flag: X) -> FungibleResult<V, V, X, E, EC>
+    pub(crate) fn nowarn_into_switchable<X>(self, flag: X) -> SwitchableResult<V, V, X, E, EC>
     where
         X: ErrorFlag,
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
     {
         match self {
-            Succ(x) => FungibleResult::new_fungible_ok(x.value, flag),
+            Succ(x) => SwitchableResult::new_switchable_ok(x.value, flag),
             Fail(x) => {
                 if flag.is_error() {
                     Fail(Failure::new_from_many(x.errors, x.value))
@@ -1607,15 +1608,6 @@ impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
         self.map_err(Failure::nowarn_into_warn)
     }
 
-    // /// Convert warnings of a non-commutative Result
-    // pub(crate) fn non_cmt_warnings_into<W, Wf>(self) -> NonCmtResult<V, P, Sibling1<LWC, Wf>, E, EC>
-    // where
-    //     W: Into<Wf>,
-    //     LWC: Functor<W>,
-    // {
-    //     self.map_non_cmt_warnings(Into::into)
-    // }
-
     /// Map function over warnings of a non-commutative Result
     pub(crate) fn map_non_cmt_warnings<F, W, Wf>(
         self,
@@ -1627,23 +1619,6 @@ impl<V, P, LWC, E, EC> NonCmtResult<V, P, LWC, E, EC> {
     {
         self.map(|s| s.map_warnings(f))
     }
-
-    // /// Aggregate non-commutative/fungible errors into one error.
-    // pub(crate) fn aggregate_non_cmt_fung_errors<F, G>(
-    //     self,
-    //     f: F,
-    //     g: G,
-    // ) -> NonCmtFungibleResult<V, P, E, Nothing<E>>
-    // where
-    //     F: FnOnce(LWC) -> E,
-    //     G: FnOnce(GenNonEmpty<E, EC>) -> E,
-    //     EC: FungibleError<Inner = E>,
-    // {
-    //     match self {
-    //         Succ(s) => Succ(s.aggregate_warnings(f)),
-    //         Fail(e) => Fail(e.aggregate_errors(g)),
-    //     }
-    // }
 }
 
 // non-commutative/resolveable
@@ -1669,21 +1644,21 @@ impl<V, LWC, E> NonCmtResult<V, (), LWC, E, Nothing<E>> {
     }
 }
 
-// fungible
-impl<V, P, X, E, EC> FungibleResult<V, P, X, E, EC>
+// switchable
+impl<V, P, X, E, EC> SwitchableResult<V, P, X, E, EC>
 where
-    EC: FungibleError,
+    EC: SwitchableErrorContainer,
 {
-    /// Convert errors in non-commutative/fungible Results
+    /// Convert errors in non-commutative/switchable Results
     #[allow(clippy::type_complexity)]
-    pub(crate) fn map_fungible_errors<F, Ef>(
+    pub(crate) fn map_switchable_errors<F, Ef>(
         self,
         f: F,
     ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
-        EC: FungibleError<Inner = E> + Functor<E>,
-        <EC as FungibleError>::Warn: Functor<E>,
+        EC: SwitchableErrorContainer<Inner = E> + Functor<E>,
+        <EC as SwitchableErrorContainer>::Warn: Functor<E>,
     {
         match self {
             Succ(s) => Succ(s.map_warnings(f)),
@@ -1691,11 +1666,11 @@ where
         }
     }
 
-    pub(crate) fn fungible_into_non_commutative(self) -> NonCmtResult<V, P, EC::Warn, E, EC> {
+    pub(crate) fn switchable_into_non_commutative(self) -> NonCmtResult<V, P, EC::Warn, E, EC> {
         self.map(Success::remove_flag)
     }
 
-    pub(crate) fn fungible_into_commutative(self) -> CmtResult<V, P, EC::Warn, E, EC>
+    pub(crate) fn switchable_into_commutative(self) -> CmtResult<V, P, EC::Warn, E, EC>
     where
         EC::Warn: Default,
     {
@@ -1706,14 +1681,14 @@ where
     // TODO add error eval
 }
 
-// deferred/fungible
-impl<V, X, E, EC> DeferredFungible<V, X, E, EC>
+// deferred/switchable
+impl<V, X, E, EC> DeferredSwitchable<V, X, E, EC>
 where
-    EC: FungibleError,
+    EC: SwitchableErrorContainer,
 {
-    pub(crate) fn new_deferred_fungible(value: V, error: E, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable(value: V, error: E, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -1724,35 +1699,35 @@ where
         }
     }
 
-    pub(crate) fn new_deferred_fungible_ok_if(is_ok: bool, value: V, error: E, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_ok_if(is_ok: bool, value: V, error: E, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         if is_ok {
-            Self::new_fungible_ok(value, flag)
+            Self::new_switchable_ok(value, flag)
         } else {
-            Self::new_deferred_fungible(value, error, flag)
+            Self::new_deferred_switchable(value, error, flag)
         }
     }
 
-    pub(crate) fn new_deferred_fungible_maybe(value: V, error: Option<E>, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_maybe(value: V, error: Option<E>, flag: X) -> Self
     where
-        EC: FungibleError<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
         match error {
-            Some(e) => Self::new_deferred_fungible(value, e, flag),
-            None => Self::new_fungible_ok(value, flag),
+            Some(e) => Self::new_deferred_switchable(value, e, flag),
+            None => Self::new_switchable_ok(value, flag),
         }
     }
 
-    pub(crate) fn new_deferred_fungible_iter<I>(value: V, errors: I, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_iter<I>(value: V, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: FungibleError<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -1764,19 +1739,22 @@ where
                     Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
                 }
             }
-            None => Self::new_fungible_ok(value, flag),
+            None => Self::new_switchable_ok(value, flag),
         }
     }
 
-    /// Push fungible errors to a deferred Result.
+    /// Push switchable errors to a deferred Result.
     ///
     /// If Result is Ok, the result will be converted to an error.
     ///
     /// This must be deferred because the value type will be the same
     /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_fungible_errors(self, errors: impl IntoIterator<Item = E>) -> Self
+    pub(crate) fn extend_deferred_switchable_errors(
+        self,
+        errors: impl IntoIterator<Item = E>,
+    ) -> Self
     where
-        EC: Extend<E> + Default + FungibleError<Inner = E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
         EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
         X: ErrorFlag,
     {
@@ -1801,10 +1779,10 @@ where
         }
     }
 
-    pub(crate) fn eval_deferred_fungible_error<F>(self, f: F) -> Self
+    pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
     where
         F: FnOnce(&V) -> Option<E>,
-        EC: Extend<E> + Default + FungibleError,
+        EC: Extend<E> + Default + SwitchableErrorContainer,
         EC::Warn: Extend<E>,
         X: ErrorFlag,
     {
@@ -1865,7 +1843,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
     where
         LWC: Default,
     {
-        Succ(Success::new_non_fungible(value))
+        Succ(Success::new_non_switchable(value))
     }
 
     pub(crate) fn new_ok_default() -> Self
@@ -1883,7 +1861,7 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
         EC: Default,
     {
         if is_ok {
-            Succ(Success::new_non_fungible(value))
+            Succ(Success::new_non_switchable(value))
         } else {
             Fail(Failure::new_from_one(error, default))
         }
@@ -1977,11 +1955,11 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
 
     /// Convert errors in Result
     ///
-    /// This function will work on any Result type but may change a fungible
-    /// Result to non-fungible one, which is generally not a good idea.
+    /// This function will work on any Result type but may change a switchable
+    /// Result to non-switchable one, which is generally not a good idea.
     /// See [`*_fung_errors_into`] for functions that will map over warnings
     /// if they are the same type as errors.
-    // TODO this should always be non-fungible
+    // TODO this should always be non-switchable
     pub(crate) fn errors_into<Ef>(self) -> LogResult<V, P, LWC, RWC, X, Ef, Sibling1<EC, Ef>>
     where
         E: Into<Ef>,
@@ -1992,8 +1970,8 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
 
     /// Map function over errors in Result
     ///
-    /// This function will work on any Result type but may change a fungible
-    /// Result to non-fungible one, which is generally not a good idea.
+    /// This function will work on any Result type but may change a switchable
+    /// Result to non-switchable one, which is generally not a good idea.
     /// See [`map_*_fung_errors`] for functions that will map over warnings
     /// if they are the same type as errors.
     // ditto
@@ -2019,7 +1997,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
             .repack_errors()
     }
 
-    // TODO fungible version
+    // TODO switchable version
     pub(crate) fn into_semigroup<LWCf, RWCf>(self) -> LogResult<V, P, LWCf, RWCf, X, E, Vec<E>>
     where
         LWC: IntoNewCardinality<LWCf>,
@@ -2051,13 +2029,13 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.map_err(Failure::repack_errors)
     }
 
-    /// Aggregate non-fungible errors into one error.
+    /// Aggregate non-switchable errors into one error.
     pub(crate) fn aggregate_errors<Ef, F>(
         self,
         f: F,
     ) -> LogResult<V, P, LWC, RWC, X, Ef, Nothing<Ef>>
     where
-        // NOTE pretend there is a negative trait bound for "non-fungible"
+        // NOTE pretend there is a negative trait bound for "non-switchable"
         F: FnOnce(GenNonEmpty<E, EC>) -> Ef,
     {
         self.map_err(|e| e.aggregate_errors(f))

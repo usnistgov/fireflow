@@ -1,7 +1,7 @@
 use crate::config::{AllowLoss, AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
 use crate::core::{RemovedGateLink, RemovedGating, RemovedLink};
 use crate::logging::{
-    DeferredIter as _, DeferredWarningsAndErrors, FungibleErrorsResult, LogResult, ResultExt as _,
+    DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::ApplyOnce as _;
@@ -445,14 +445,14 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        let index_res = FungibleErrorsResult::new_fungible_ok((), flag)
-            .extend_deferred_fungible_errors(es.into_iter().map(AppliedGates3_0To2_0Error::Index))
-            .map_fungible_errors(AppliedGates3_0To2_0Error::from)
-            .fungible_into_commutative();
+        let index_res = SwitchableErrorsResult::new_switchable_ok((), flag)
+            .extend_deferred_switchable_errors(es.into_iter().map(AppliedGates3_0To2_0Error::Index))
+            .map_switchable_errors(AppliedGates3_0To2_0Error::from)
+            .switchable_into_commutative();
         let scheme_res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred_fungible::<_, Vec<_>>(drop_flag)
-            .map_fungible_errors(AppliedGates3_0To2_0Error::from)
-            .fungible_into_commutative();
+            .into_deferred_switchable::<_, Vec<_>>(drop_flag)
+            .map_switchable_errors(AppliedGates3_0To2_0Error::from)
+            .switchable_into_commutative();
         index_res
             .lift_f2_once(scheme_res, |(), scheme| scheme)
             .and_then_def_result(drop_flag, |scheme| {
@@ -477,13 +477,13 @@ impl AppliedGates3_0 {
             .into_iter()
             .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
             .partition_result();
-        FungibleErrorsResult::new_fungible_ok((), flag)
-            .extend_deferred_fungible_errors(es.into_iter().map(AppliedGates3_0To3_2Error::Index))
-            .eval_deferred_fungible_error(|()| {
+        SwitchableErrorsResult::new_switchable_ok((), flag)
+            .extend_deferred_switchable_errors(es.into_iter().map(AppliedGates3_0To3_2Error::Index))
+            .eval_deferred_switchable_error(|()| {
                 let n_gates = self.gated_measurements.0.len();
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
             })
-            .fungible_into_commutative()
+            .switchable_into_commutative()
             .and_then_def_result(drop_flag, |()| {
                 AppliedGates3_2::try_new(self.scheme.gating, regions)
                     .map_err(AppliedGates3_0To3_2Error::from)
@@ -554,8 +554,8 @@ impl GatedMeasurement {
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasError, LookupGatedMeasError> {
         macro_rules! go {
             ($x:expr) => {
-                $x.map_fungible_errors(LookupGatedMeasError::from)
-                    .fungible_into_commutative()
+                $x.map_switchable_errors(LookupGatedMeasError::from)
+                    .switchable_into_commutative()
                     .into_semigroup()
             };
         }
@@ -736,8 +736,8 @@ impl<I> GatingScheme<I> {
         let flag = conf.allow_optional_dropping;
         // TODO demote as necessary
         Gating::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupGatingSchemeError::Gating)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupGatingSchemeError::Gating)
+            .switchable_into_commutative()
             .into_semigroup()
             .and_then_def(|gating| {
                 gating
@@ -825,12 +825,12 @@ impl<I> Region<I> {
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
     {
         let index_res = RegionGateIndex::drop_meas_opt(std, nonstd, ri, conf)
-            .map_fungible_errors(LookupRegionError::Region)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupRegionError::Region)
+            .switchable_into_commutative()
             .into_semigroup();
         let window_res = RegionWindow::drop_meas_opt_with(std, nonstd, ri, (), conf)
-            .map_fungible_errors(LookupRegionError::Window)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupRegionError::Window)
+            .switchable_into_commutative()
             .into_semigroup();
         let flag = conf.allow_optional_dropping;
         index_res
@@ -1015,8 +1015,8 @@ impl GatedMeasurements {
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasurementsError, LookupGatedMeasurementsError>
     {
         Gate::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupGatedMeasurementsError::Gate)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupGatedMeasurementsError::Gate)
+            .switchable_into_commutative()
             .into_semigroup()
             .and_then_def(|maybe| {
                 if let Some(n) = maybe {

@@ -15,9 +15,9 @@ use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CmtResultIter as _, DeferredError, DeferredFungibleError, DeferredFungibleErrors,
-    DeferredIter as _, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, FungibleErrorResult,
-    FungibleErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
+    CmtResultIter as _, DeferredError, DeferredSwitchableError, DeferredSwitchableErrors,
+    DeferredIter as _, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, SwitchableErrorResult,
+    SwitchableErrorsResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _,
     SummaryResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOSummaryResult,
     WarningsAndSummaryResult, WarningsResult,
 };
@@ -1457,7 +1457,7 @@ pub trait VersionedMetaroot: Sized {
         old: (MeasIndex, Temporal<Self::Temporal>),
         new: (MeasIndex, Optical<Self::Optical>),
         flag: AllowLoss,
-    ) -> FungibleErrorResult<
+    ) -> SwitchableErrorResult<
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         (Temporal<Self::Temporal>, Optical<Self::Optical>),
         AllowLoss,
@@ -1490,7 +1490,7 @@ pub trait VersionedMetaroot: Sized {
             o_to_t_errs,
         );
 
-        FungibleErrorResult::new_deferred_fungible_maybe((tmp, opt), e, flag)
+        SwitchableErrorResult::new_deferred_switchable_maybe((tmp, opt), e, flag)
             .map_ok_value(|(t, o)| go(t, o))
     }
 
@@ -1567,7 +1567,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         data: Self::TData,
         flag: AllowLoss,
-    ) -> FungibleErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalError> {
+    ) -> SwitchableErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalError> {
         let opt_common_errs = opt.key_loss_errors(i);
         let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
         let scale_err = opt.specific.nonlinear_scale_error(i);
@@ -1575,7 +1575,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         let e =
             OpticalToTemporalError::try_new(i, scale_err, opt_common_errs.chain(opt_specific_errs));
 
-        FungibleErrorResult::new_deferred_fungible_maybe((opt, data), e, flag)
+        SwitchableErrorResult::new_deferred_switchable_maybe((opt, data), e, flag)
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
             .map_err_value(|(o, _)| o)
     }
@@ -1754,17 +1754,17 @@ impl<O> Optical<O> {
     {
         let filter = Filter::remove_meas_opt_nofail(std, i);
         let power = Power::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
         let perc_emit = PercentEmitted::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let det_volt = DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
@@ -1967,16 +1967,16 @@ where
         let sys = Sys::remove_metaroot_opt_nofail(std);
 
         let abrt_res = Abrt::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let lost_res = Lost::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let tr_res = Trigger::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
 
         let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
@@ -2312,14 +2312,14 @@ where
             n,
             |old, new| {
                 M::swap_optical_temporal(old, new, flag)
-                    .map_fungible_errors(SetTemporalError::from)
-                    .fungible_into_non_commutative()
+                    .map_switchable_errors(SetTemporalError::from)
+                    .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
                 M::Temporal::from_optical(old_o, i, timestep, flag)
-                    .map_fungible_errors(SetTemporalError::from)
-                    .fungible_into_non_commutative()
+                    .map_switchable_errors(SetTemporalError::from)
+                    .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
         )
@@ -2340,14 +2340,14 @@ where
             index,
             |old, new| {
                 M::swap_optical_temporal(old, new, flag)
-                    .map_fungible_errors(SetTemporalError::from)
-                    .fungible_into_non_commutative()
+                    .map_switchable_errors(SetTemporalError::from)
+                    .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
                 M::Temporal::from_optical(old_o, i, timestep, flag)
-                    .map_fungible_errors(SetTemporalError::from)
-                    .fungible_into_non_commutative()
+                    .map_switchable_errors(SetTemporalError::from)
+                    .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
         )
@@ -2393,7 +2393,7 @@ where
         // TODO ditto above
         self.measurements.unset_center(|i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
-                .fungible_into_non_commutative()
+                .switchable_into_non_commutative()
         })
     }
 
@@ -2486,7 +2486,7 @@ where
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
-                .fungible_into_non_commutative()
+                .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
                 .map_errors(ReplaceTemporalError::from)
         })
@@ -2535,7 +2535,7 @@ where
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
                 M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
-                    .fungible_into_non_commutative()
+                    .switchable_into_non_commutative()
                     .map_ok_value(|(x, _)| x)
                     .map_errors(ReplaceTemporalError::from)
             })
@@ -3148,7 +3148,7 @@ where
             .map_errors(ConvertError::Meta);
         let meas_res = self
             .measurements
-            .map_center_value(|v| v.value.convert(v.index, flag).fungible_into_commutative())
+            .map_center_value(|v| v.value.convert(v.index, flag).switchable_into_commutative())
             .set_err_value(())
             .map_errors(ConvertError::Temporal)
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -3268,7 +3268,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .push(r, flag)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| {
@@ -3293,7 +3293,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(InsertTemporalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -3313,7 +3313,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .push(r, flag)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(PushOpticalError::from)
             })
             .map_ok_value(|ret| {
@@ -3338,7 +3338,7 @@ where
             .and_cmt(|| {
                 self.layout
                     .insert_nocheck(i, r, flag)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(InsertOpticalError::from)
             })
             .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
@@ -4060,7 +4060,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         &mut self,
         dep_flag: DisallowDeprecated,
         xfer_flag: TransferDroppedOptional,
-    ) -> FungibleErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
+    ) -> SwitchableErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
     where
         Version: From<M::Ver>,
     {
@@ -4096,7 +4096,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 Element::NonCenter(o) => o.deprecated(i.into(), &mut es, keep, do_demote),
             }
         }
-        LogResult::new_fungible_iter((), (), es, dep_flag)
+        LogResult::new_switchable_iter((), (), es, dep_flag)
     }
 
     pub(crate) fn try_new(
@@ -4128,8 +4128,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .and_then_cmt(|ms| {
                 Self::check_relationships(&mut metaroot, &ms, &layout, drop_flag.is_set())
                     .map_errors(NewCoreWarning::from)
-                    .nowarn_into_fungible(drop_flag)
-                    .fungible_into_commutative()
+                    .nowarn_into_switchable(drop_flag)
+                    .switchable_into_commutative()
                     .map_errors(NewCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
@@ -4137,8 +4137,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         let xfer_flag = conf.transfer_dropped_optional;
                         let dep_flag = conf.disallow_deprecated;
                         ret.deprecated(dep_flag, xfer_flag)
-                            .map_fungible_errors(NewCoreWarning::from)
-                            .fungible_into_commutative()
+                            .map_switchable_errors(NewCoreWarning::from)
+                            .switchable_into_commutative()
                             .map_errors(NewCoreError::from)
                             .set_ok_value(ret)
                     })
@@ -5004,7 +5004,7 @@ impl UnstainedData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
         let i = UnstainedInfo::remove_metaroot_opt_nofail(std);
         UnstainedCenters::drop_metaroot_opt_with(std, nonstd, (), conf)
             .map_def_value(|c| Self::new(c, i))
@@ -5033,16 +5033,16 @@ impl SubsetData {
         conf: &StdTextReadConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
         let f = CSVFlags::lookup(kws, nonstd, conf)
-            .map_fungible_errors(LookupSubsetError::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupSubsetError::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let b = CSVBits::drop_metaroot_opt(kws, nonstd, conf)
-            .map_fungible_errors(LookupSubsetError::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupSubsetError::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let t = CSTot::drop_metaroot_opt(kws, nonstd, conf)
-            .map_fungible_errors(LookupSubsetError::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupSubsetError::from)
+            .switchable_into_commutative()
             .into_semigroup();
         f.lift_f3_once(b, t, |flags, bits, tot| Self::new(bits, tot, flags))
     }
@@ -5068,7 +5068,7 @@ impl CSVFlags {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
         let flag = conf.allow_optional_dropping;
         CSMode::transfer_metaroot_opt(std, nonstd, conf)
             .map_err(LookupCSVFlagsError::from)
@@ -5090,7 +5090,7 @@ impl CSVFlags {
                     .mappend_def()
             })
             .map_def_value(Self)
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5115,7 +5115,7 @@ impl ModificationData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
         let last_mod = LastModifier::remove_metaroot_opt_nofail(std);
         let last_mod_date = LastModified::transfer_metaroot_opt(std, nonstd, conf)
             .into_deferred_nowarn()
@@ -5126,7 +5126,7 @@ impl ModificationData {
         let flag = conf.allow_optional_dropping;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5211,12 +5211,12 @@ impl PeakData {
         conf: &StdTextReadConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
         let b = PeakBin::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupPeakError::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupPeakError::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let s = PeakIndex::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupPeakError::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupPeakError::from)
+            .switchable_into_commutative()
             .into_semigroup();
         b.lift_f2_once(s, Self::new)
     }
@@ -5314,8 +5314,8 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         ScaleTransform::try_convert_to_scale(value.scale, i)
             .map_errors(|e| AnyMeasKeyLossErrors(NonEmpty::new(e)))
             .map_errors(OpticalConvertWarning::from)
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
             .set_err_value(())
@@ -5347,8 +5347,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, value.peak))
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
     }
@@ -5385,8 +5385,8 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, PeakData::default()))
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
     }
@@ -5425,8 +5425,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_err)
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
             .map_ok_value(|w| Self::new(value.scale, w, value.peak))
@@ -5460,8 +5460,8 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_err)
-            .nowarn_into_fungible(flag)
-            .fungible_into_commutative()
+            .nowarn_into_switchable(flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
             .map_ok_value(|w| Self::new(value.scale, w, PeakData::default()))
@@ -5511,8 +5511,8 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .map(AnyMeasKeyLossErrors)
             .map(OpticalConvertWarning::from);
 
-        FungibleErrorsResult::new_deferred_fungible_maybe((), check_err, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), check_err, flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5538,8 +5538,8 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         let e = NonEmpty::collect(es)
             .map(AnyMeasKeyLossErrors)
             .map(OpticalConvertWarning::from);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .and_then_cmt(|()| {
                 value
@@ -5574,8 +5574,8 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         let e = NonEmpty::collect(es)
             .map(AnyMeasKeyLossErrors)
             .map(OpticalConvertWarning::from);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5603,8 +5603,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
         let e = NonEmpty::collect(es)
             .map(AnyMeasKeyLossErrors)
             .map(OpticalConvertWarning::from);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -5628,7 +5628,7 @@ type MetarootConvertResult<M> =
 type OpticalConvertResult<M> =
     WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
 
-type TemporalConvertResult<M> = DeferredFungibleErrors<M, AllowLoss, TemporalConvertError>;
+type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, TemporalConvertError>;
 
 pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
@@ -5905,8 +5905,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         let s = value.subset.loss_errors();
         let es = [c, u].into_iter().flatten().chain(s);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .and_then_cmt(|()| {
@@ -5947,8 +5947,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .chain(subset)
             .chain(modi);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .and_then_cmt(|()| {
@@ -5995,8 +5995,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .chain(carrier)
             .chain(us);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .eval_deferred_warning_or_error(flag, |()| {
@@ -6039,8 +6039,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         let vol = value.vol.root_key_convert_error();
         let es = vol.into_iter().chain(plate).chain(modi);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
@@ -6079,8 +6079,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .chain(carrier)
             .chain(us);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
@@ -6105,8 +6105,8 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
     ) -> MetarootConvertResult<Self> {
         let is_ok = value.comp.is_none();
         let e = Comp2_0TransferError;
-        FungibleErrorsResult::new_deferred_fungible_ok_if(is_ok, (), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_ok_if(is_ok, (), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
@@ -6135,8 +6135,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         let us = value.unicode.root_key_convert_error();
         let es = [comp, us].into_iter().flatten();
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
@@ -6167,8 +6167,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         let flow = value.flowrate.root_key_convert_error();
         let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
@@ -6202,8 +6202,8 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             });
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .fungible_into_commutative()
+            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
@@ -6245,8 +6245,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         let subset = value.subset.loss_errors();
         let es = [uni, comp].into_iter().flatten().chain(subset);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        let check_res = FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
@@ -6256,8 +6256,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .fungible_into_commutative()
+            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6295,8 +6295,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
     ) -> MetarootConvertResult<Self> {
         let es = value.subset.loss_errors();
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        let check_res = FungibleErrorsResult::new_deferred_fungible_maybe((), e, flag)
-            .fungible_into_commutative()
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
@@ -6306,8 +6306,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
-            .into_deferred_fungible_opt::<_, Vec<_>>(flag)
-            .fungible_into_commutative()
+            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let cyt_res = value
@@ -6362,8 +6362,8 @@ impl ScaleTransform {
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
         Gain::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .map_errors(LookupOpticalError::from)
             .into_semigroup()
             .set_err_value(())
@@ -6451,7 +6451,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
     ) -> TemporalConvertResult<Self> {
         let e = value.timestep.loss_error().map(TemporalConvertError::from);
         let v = Self::new(true, value.peak);
-        FungibleErrorsResult::new_deferred_fungible_maybe(v, e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_maybe(v, e, flag)
     }
 }
 
@@ -6470,7 +6470,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
             .map(TemporalConvertError::from);
         let es = [t, d].into_iter().flatten();
         let v = Self::new(true, value.peak);
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6491,7 +6491,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
             .map(TemporalConvertError::Timestep);
         let v = Self::new(true, PeakData::default());
         let es = [check_err, t].into_iter().flatten();
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6501,7 +6501,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
         _: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_fungible_ok(Self::new(Timestep::default(), value.peak), flag)
+        LogResult::new_switchable_ok(Self::new(Timestep::default(), value.peak), flag)
     }
 }
 
@@ -6518,7 +6518,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, value.peak);
-        LogResult::new_deferred_fungible_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe(v, e, flag)
     }
 }
 
@@ -6534,7 +6534,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, PeakData::default());
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6544,7 +6544,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
         _: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_fungible_ok(Self::new(Timestep::default(), None, value.peak), flag)
+        LogResult::new_switchable_ok(Self::new(Timestep::default(), None, value.peak), flag)
     }
 }
 
@@ -6554,7 +6554,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
         _: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        LogResult::new_fungible_ok(Self::new(value.timestep, None, value.peak), flag)
+        LogResult::new_switchable_ok(Self::new(value.timestep, None, value.peak), flag)
     }
 }
 
@@ -6571,7 +6571,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, value.display, PeakData::default());
-        LogResult::new_deferred_fungible_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe(v, e, flag)
     }
 }
 
@@ -6585,7 +6585,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::from);
         let v = Self::new(Timestep::default(), None, TemporalType::default());
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6599,7 +6599,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, None, TemporalType::default());
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6613,7 +6613,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
             .map(AnyMeasKeyLossErrors)
             .map(TemporalConvertError::Xfer);
         let v = Self::new(value.timestep, value.display, TemporalType::default());
-        LogResult::new_deferred_fungible_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
 
@@ -6760,12 +6760,12 @@ impl LookupOptical for InnerOptical2_0 {
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
         let scale = Scale::drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupOpticalWarning::from)
@@ -6785,8 +6785,8 @@ impl LookupOptical for InnerOptical3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
         let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupOpticalWarning::from)
@@ -6807,16 +6807,16 @@ impl LookupOptical for InnerOptical3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
         let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let cal = Calibration3_1::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupOpticalWarning::from)
@@ -6838,26 +6838,26 @@ impl LookupOptical for InnerOptical3_2 {
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
         let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let cal = Calibration3_2::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
         let meas = OpticalType::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let feat = Feature::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupOpticalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupOpticalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let anal = Analyte::remove_meas_opt_nofail(std, i);
         wave.zip_f3_once(cal, dpy)
@@ -6882,8 +6882,8 @@ impl LookupTemporal for InnerTemporal2_0 {
             LogResult::new_ok(true.into())
         } else {
             TemporalScale2_0::drop_meas_opt(std, nonstd, i, conf)
-                .map_fungible_errors(LookupTemporalWarning::from)
-                .fungible_into_commutative()
+                .map_switchable_errors(LookupTemporalWarning::from)
+                .switchable_into_commutative()
                 .into_semigroup()
         };
         let peak = PeakData::lookup(std, nonstd, i, conf)
@@ -6905,8 +6905,8 @@ impl LookupTemporal for InnerTemporal3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupTemporalResult<Self> {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative();
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupTemporalWarning::from)
             .map_commutative_warnings(LookupTemporalWarning::from);
@@ -6936,11 +6936,11 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &StdTextReadConfig,
     ) -> LookupTemporalResult<Self> {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative();
         let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_errors(LookupTemporalWarning::from)
@@ -6971,15 +6971,15 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &StdTextReadConfig,
     ) -> LookupTemporalResult<Self> {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative();
         let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let meas = TemporalType::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupTemporalWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         gain.zip3_cmt(dpy, meas)
@@ -7544,7 +7544,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
         tmp: Temporal<InnerTemporal3_2>,
         i: MeasIndex,
         flag: AllowLoss,
-    ) -> FungibleErrorResult<
+    ) -> SwitchableErrorResult<
         (Optical<Self>, Self::TData),
         Temporal<InnerTemporal3_2>,
         AllowLoss,
@@ -7552,7 +7552,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     > {
         tmp.specific
             .can_convert_to_optical(i)
-            .into_deferred_fungible::<_, Nothing<_>>(flag)
+            .into_deferred_switchable::<_, Nothing<_>>(flag)
             .set_def_value(tmp)
             .map_ok_value(Self::from_temporal_unchecked)
     }
@@ -7618,7 +7618,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
-            .fungible_into_commutative()
+            .switchable_into_commutative()
             .map_errors(LookupShortnameError::from)
     }
 
@@ -7630,12 +7630,12 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     ) -> LookupMetarootResult<Self> {
         let par = Par(ms.0.len());
         let comp = Compensation2_0::lookup(std, par, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
@@ -7659,7 +7659,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
-            .fungible_into_commutative()
+            .switchable_into_commutative()
             .map_errors(LookupShortnameError::from)
     }
 
@@ -7670,8 +7670,8 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         conf: &StdTextReadConfig,
     ) -> LookupMetarootResult<Self> {
         let comp = Compensation3_0::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
@@ -7679,11 +7679,11 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let uni = Unicode::drop_metaroot_opt_with(std, nonstd, (), conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
@@ -7725,9 +7725,9 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::List => None,
             };
             let flag = conf.disallow_deprecated;
-            FungibleErrorsResult::new_fungible_iter(mode, (), err, flag)
-                .map_fungible_errors(LookupMetarootWarning::from)
-                .fungible_into_commutative()
+            SwitchableErrorsResult::new_switchable_iter(mode, (), err, flag)
+                .map_switchable_errors(LookupMetarootWarning::from)
+                .switchable_into_commutative()
                 .map_errors(LookupMetarootError::from)
         };
 
@@ -7737,23 +7737,23 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .collect();
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let subset = SubsetData::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
             .map_commutative_warnings(LookupMetarootWarning::from);
         let modif = ModificationData::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let plate = PlateData::lookup(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)
@@ -7797,32 +7797,32 @@ impl LookupMetaroot for InnerMetaroot3_2 {
                 .collect();
         let carrier = CarrierData::lookup(std);
         let dt = Datetimes::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let flow = Flowrate::remove_metaroot_opt_nofail(std);
         let modif = ModificationData::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let mode = Mode3_2::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let plate = PlateData::lookup(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative();
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative();
         let us = UnstainedData::lookup(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
-            .map_fungible_errors(LookupMetarootWarning::from)
-            .fungible_into_commutative()
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
             .into_semigroup();
         let ag = AppliedGates3_2::lookup(std, nonstd, conf)
             .map_errors(LookupMetarootWarning::from)

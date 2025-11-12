@@ -54,9 +54,9 @@ use crate::config::{
 };
 use crate::core::{AsScaleTransform, LayoutConvertResult, Measurements, ScaleTransform};
 use crate::logging::{
-    CmtResultIter as _, DeferredErrors, DeferredFungibleError, DeferredFungibleErrors,
+    CmtResultIter as _, DeferredErrors, DeferredSwitchableError, DeferredSwitchableErrors,
     DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
-    FungibleErrorResult, FungibleErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError,
+    SwitchableErrorResult, SwitchableErrorsResult, IOResult, IOWarningsAndErrorsResult, ImpureError,
     LogResult, ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult,
     WarningsResult,
 };
@@ -398,7 +398,7 @@ pub trait MeasDatatypeDef {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>;
+    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
@@ -460,7 +460,7 @@ pub trait MeasDatatypeDef {
             .nowarn_into_warn()
             .and_then_cmt(|(width, range)| {
                 Self::lookup_datatype(std, nonstd, i, conf)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(LookupMeasLayoutError::from)
                     .into_semigroup()
                     .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
@@ -509,12 +509,12 @@ pub trait TotDefinition {
         total_events: u64,
         tot: Self::Tot,
         flag: AllowTotMismatch,
-    ) -> FungibleErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
         Self::with_tot(
             (),
             tot,
             |(), t| Self::check_tot_inner(total_events, t, flag),
-            |()| LogResult::new_fungible_ok((), flag),
+            |()| LogResult::new_switchable_ok((), flag),
         )
     }
 
@@ -523,11 +523,11 @@ pub trait TotDefinition {
         total_events: u64,
         tot: Tot,
         flag: AllowTotMismatch,
-    ) -> FungibleErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
         let i = TotEventMismatch { tot, total_events };
-        LogResult::new_fungible_ok_if(tot.0 == count, (), (), i, flag)
+        LogResult::new_switchable_ok_if(tot.0 == count, (), (), i, flag)
     }
 }
 
@@ -638,13 +638,13 @@ pub trait InterLayoutOps<D> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
 
     fn push(
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError>;
 
     fn clear(&mut self);
 }
@@ -784,7 +784,7 @@ trait FromRange: Sized {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error>;
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error>;
 }
 
 /// A type which has a width that may vary
@@ -1230,9 +1230,9 @@ impl MeasDatatypeDef for NoMeasDatatype {
         _: &mut NonStdKeywords,
         _: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
+    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
     {
-        LogResult::new_fungible_ok(NullMeasDatatype, conf.allow_optional_dropping)
+        LogResult::new_switchable_ok(NullMeasDatatype, conf.allow_optional_dropping)
     }
 
     fn lookup_datatype_ro(
@@ -1252,10 +1252,10 @@ impl MeasDatatypeDef for HasMeasDatatype {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredFungibleError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
+    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
     {
         NumType::drop_meas_opt(std, nonstd, i, conf)
-            .map_fungible_errors(LookupMeasLayoutWarning::from)
+            .map_switchable_errors(LookupMeasLayoutWarning::from)
     }
 
     // TODO what is this actually doing?
@@ -2050,7 +2050,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
                 if usize::from(u8::from(bytes)) == LEN {
                     Self::from_range(range, flag)
                         .set_err_value(())
-                        .fungible_into_commutative()
+                        .switchable_into_commutative()
                         .map_errors(FloatWidthError::from)
                 } else {
                     let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN));
@@ -2142,7 +2142,7 @@ impl AnyNullBitmask {
             .and_then_cmt(|bytes| {
                 Self::new1(bytes, range, flag)
                     .set_err_value(())
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_errors(NewUintTypeError::from)
             })
     }
@@ -2152,7 +2152,7 @@ impl AnyNullBitmask {
         width: Bytes,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, BitmaskError> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, BitmaskError> {
         match width {
             Bytes::B1 => Bitmask08::from_range(range, flag).map_def_value(Into::into),
             Bytes::B2 => Bitmask16::from_range(range, flag).map_def_value(Into::into),
@@ -2354,7 +2354,7 @@ where
             .unzip();
         let ws: Vec<_> = warnings.into_iter().flatten().collect();
         let ret = FCSDataFrame::try_new(columns).unwrap();
-        Success::new_non_fungible(ret).set_warnings(ws)
+        Success::new_non_switchable(ret).set_warnings(ws)
     }
 }
 
@@ -2372,11 +2372,11 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
             .into_uint()
-            .nowarn_into_fungible(flag)
-            .map_fungible_errors(AnyRangeError::from)
+            .nowarn_into_switchable(flag)
+            .map_switchable_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.insert(index.into(), r))
             .set_err_value(())
             .repack()
@@ -2386,11 +2386,11 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         range
             .into_uint()
-            .nowarn_into_fungible(flag)
-            .map_fungible_errors(AnyRangeError::from)
+            .nowarn_into_switchable(flag)
+            .map_switchable_errors(AnyRangeError::from)
             .map_ok_value(|r| self.ranges.push(r))
             .set_err_value(())
             .repack()
@@ -2613,7 +2613,7 @@ where
             .repack()
             .and_then_cmt(|n| {
                 let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
-                    .fungible_into_commutative()
+                    .switchable_into_commutative()
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .map_errors(ReadDataframeError::from)
                     .map_errors(ImpureError::Pure)
@@ -2711,7 +2711,7 @@ where
             .filter_map(|(i, e)| e.map(|f| ColumnError::new(i, f)))
             .collect();
         let ret = FCSDataFrame::try_new(new_columns).unwrap();
-        Success::new_non_fungible(ret).set_warnings(ws)
+        Success::new_non_switchable(ret).set_warnings(ws)
     }
 }
 
@@ -2738,9 +2738,9 @@ where
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         C::from_range(range, flag)
-            .map_fungible_errors(AnyRangeError::from)
+            .map_switchable_errors(AnyRangeError::from)
             .map_ok_value(|col| self.insert_column(index, col))
             .set_err_value(())
     }
@@ -2749,9 +2749,9 @@ where
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         C::from_range(range, flag)
-            .map_fungible_errors(AnyRangeError::from)
+            .map_switchable_errors(AnyRangeError::from)
             .map_ok_value(|col| self.push_column(col))
             .set_err_value(())
     }
@@ -2907,8 +2907,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             let is_ok = remainder == 0;
             let e = UnevenEventWidth::new(w, n, remainder);
             let flag = conf.allow_uneven_event_width;
-            FungibleErrorResult::new_fungible_ok_if(is_ok, total_events, (), e, flag)
-                .fungible_into_non_commutative()
+            SwitchableErrorResult::new_switchable_ok_if(is_ok, total_events, (), e, flag)
+                .switchable_into_non_commutative()
                 .map_errors(EventWidthError::from)
         }
     }
@@ -2920,7 +2920,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
+    ) -> DeferredSwitchableErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
@@ -2943,7 +2943,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
         mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
+    ) -> DeferredSwitchableErrors<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
@@ -3061,7 +3061,7 @@ where
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint()
@@ -3072,7 +3072,7 @@ where
                     .map_errors(BitmaskError::from)
                     .repack_errors::<Vec<_>>()
             })
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
     }
 }
 
@@ -3085,11 +3085,11 @@ where
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error> {
         range
             .into_float()
             .map_def_value(Self::new)
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
             .repack()
     }
 }
@@ -3104,11 +3104,11 @@ impl FromRange for AsciiRange {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error> {
         range
             .into_uint::<u64>()
             .map_def_value(Self::from)
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
             .repack()
     }
 }
@@ -3123,12 +3123,12 @@ impl FromRange for AnyNullBitmask {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error> {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint()
             .map_def_value(|x: u64| Self::from(x))
-            .nowarn_into_fungible(flag)
+            .nowarn_into_switchable(flag)
             .repack()
     }
 }
@@ -3146,11 +3146,11 @@ impl FromRange for NullMixedType {
     fn from_range(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<Self, DisallowRangeTrunc, Self::Error> {
+    ) -> DeferredSwitchableErrors<Self, DisallowRangeTrunc, Self::Error> {
         if range.0.is_integer() {
             AnyBitmask::from_range(range, flag)
                 .map_def_value(Self::Uint)
-                .map_fungible_errors(AnyRangeError::from)
+                .map_switchable_errors(AnyRangeError::from)
         } else {
             FloatDecimal::<f32>::try_from(range.0)
                 .map_or_else(
@@ -3166,10 +3166,10 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = Self::F64(FloatRange::new(m));
-                        FungibleErrorsResult::new_deferred_fungible(f, e, flag)
-                            .map_fungible_errors(AnyRangeError::from)
+                        SwitchableErrorsResult::new_deferred_switchable(f, e, flag)
+                            .map_switchable_errors(AnyRangeError::from)
                     },
-                    |x| FungibleErrorsResult::new_fungible_ok(x, flag),
+                    |x| SwitchableErrorsResult::new_switchable_ok(x, flag),
                 )
         }
     }
@@ -3370,7 +3370,7 @@ impl<T> AnyOrderedUintLayout<T> {
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |c| {
                     Bitmask::from_range(c.range, notrunc)
-                        .fungible_into_commutative()
+                        .switchable_into_commutative()
                         .map_errors(IntOrderedColumnError::from)
                 })
                 .set_err_value(())
@@ -3419,8 +3419,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .map(|(i, c)| {
                     c.range
                         .into_uint::<u64>()
-                        .nowarn_into_fungible(flag)
-                        .fungible_into_commutative()
+                        .nowarn_into_switchable(flag)
+                        .switchable_into_commutative()
                         .map_commutative_warnings(|e| ColumnError::new(i, e))
                         .map_errors(NewAsciiRangeError::from)
                         .map_errors(|e| ColumnError::new(i, e))
@@ -3724,7 +3724,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         index: MeasIndex,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> FungibleErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
+    ) -> SwitchableErrorsResult<(), (), DisallowRangeTrunc, AnyRangeError> {
         match mem::replace(self, Self::mixed_dummy()) {
             // If layout is mixed, interpret range as a mixed type
             Self::Mixed(mut x) => x
@@ -3752,7 +3752,7 @@ impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
         &mut self,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredFungibleErrors<(), DisallowRangeTrunc, AnyRangeError> {
+    ) -> DeferredSwitchableErrors<(), DisallowRangeTrunc, AnyRangeError> {
         match mem::replace(self, Self::mixed_dummy()) {
             Self::Mixed(mut x) => x.push(range, flag).set_def_value(Self::Mixed(x)),
             Self::NonMixed(x) => match x {

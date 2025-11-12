@@ -17,7 +17,7 @@ use crate::header::{
 };
 use crate::logging::{
     CmtResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, FungibleErrorResult, FungibleErrorsResult, IOSummaryResult,
+    DeferredWarningsAndErrors, SwitchableErrorResult, SwitchableErrorsResult, IOSummaryResult,
     ImpureError, LogResult, ResultExt as _, WarningAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOSummaryResult,
 };
@@ -769,9 +769,9 @@ where
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                .map_fungible_errors(KeywordInsertError::from)
-                .map_fungible_errors(ParseKeywordsIssue::from)
-                .fungible_into_commutative()
+                .map_switchable_errors(KeywordInsertError::from)
+                .map_switchable_errors(ParseKeywordsIssue::from)
+                .switchable_into_commutative()
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParsePrimaryTEXTError::from)
                 .map_errors(ParseRawTEXTError::from)
@@ -839,8 +839,8 @@ fn split_first_delim<'a>(
         let is_ok = (1..=126).contains(delim);
         let e = DelimCharError(*delim);
         let flag = conf.allow_non_ascii_delim;
-        FungibleErrorResult::new_fungible_ok_if(is_ok, (*delim, rest), (), e, flag)
-            .fungible_into_commutative()
+        SwitchableErrorResult::new_switchable_ok_if(is_ok, (*delim, rest), (), e, flag)
+            .switchable_into_commutative()
             .map_errors(DelimVerifyError::from)
     } else {
         LogResult::new_err1(EmptyTEXTError.into())
@@ -946,17 +946,17 @@ fn split_raw_text_literal_delim(
     // is not the case, the number of words was not even.
     let uneven_err = UnevenWordsError(tk).into();
     let uneven_res =
-        LogResult::new_fungible_ok_if(prev_was_key, (), (), uneven_err, conf.allow_odd)
-            .fungible_into_commutative();
+        LogResult::new_switchable_ok_if(prev_was_key, (), (), uneven_err, conf.allow_odd)
+            .switchable_into_commutative();
 
     // If the last word was not a blank, we did not end on a delimiter.
 
     let delim_flag = conf.allow_missing_final_delim;
     let final_delim_res =
-        check_final_delimiter(prev_word, tk, delim_flag).fungible_into_commutative();
+        check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative();
 
-    let blank_res = LogResult::new_fungible_iter((), (), blank_errors, conf.allow_empty)
-        .fungible_into_commutative();
+    let blank_res = LogResult::new_switchable_iter((), (), blank_errors, conf.allow_empty)
+        .switchable_into_commutative();
 
     // TODO this is one instance where it could be inefficient to chain together
     // lots of options, which are stack allocated but need to be converted to
@@ -1077,21 +1077,21 @@ fn split_raw_text_escaped_delim(
         None
     };
 
-    let uneven_res = LogResult::new_fungible_maybe((), (), uneven_err, conf.allow_odd)
-        .fungible_into_commutative();
+    let uneven_res = LogResult::new_switchable_maybe((), (), uneven_err, conf.allow_odd)
+        .switchable_into_commutative();
 
     // NOTE this is the same flag used for when the delimiter is missing
     // entirely since this is the net result of escaping an even number of
     // delimiters
     let delim_flag = conf.allow_missing_final_delim;
-    let even_delim_res = LogResult::new_fungible_maybe((), (), even_delim_err, delim_flag)
-        .fungible_into_commutative();
+    let even_delim_res = LogResult::new_switchable_maybe((), (), even_delim_err, delim_flag)
+        .switchable_into_commutative();
     let final_delim_res =
-        check_final_delimiter(lastbuf, tk, delim_flag).fungible_into_commutative();
+        check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative();
 
     let boundary_res =
-        LogResult::new_fungible_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
-            .fungible_into_commutative();
+        LogResult::new_switchable_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
+            .switchable_into_commutative();
 
     insert_results
         .into_iter()
@@ -1105,11 +1105,11 @@ fn check_final_delimiter(
     buf: &[u8],
     tk: TEXTKind,
     flag: AllowMissingFinalDelim,
-) -> FungibleErrorsResult<(), (), AllowMissingFinalDelim, ParseKeywordsIssue> {
+) -> SwitchableErrorsResult<(), (), AllowMissingFinalDelim, ParseKeywordsIssue> {
     let e = NonEmpty::from_slice(buf)
         .map(|bs| FinalDelimError::new(tk, bs))
         .map(ParseKeywordsIssue::from);
-    LogResult::new_fungible_maybe((), (), e, flag)
+    LogResult::new_switchable_maybe((), (), e, flag)
 }
 
 fn lookup_stext_offsets<C>(
@@ -1136,9 +1136,9 @@ where
                 Ok(seg) => LogResult::new_ok(Some(seg)),
                 Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
-                    FungibleErrorsResult::new_deferred_fungible(None, e0, flag)
-                        .extend_deferred_fungible_errors(e1)
-                        .fungible_into_commutative()
+                    SwitchableErrorsResult::new_deferred_switchable(None, e0, flag)
+                        .extend_deferred_switchable_errors(e1)
+                        .switchable_into_commutative()
                         .map_errors(STextSegmentError::from)
                         .map_commutative_warnings(STextSegmentWarning::from)
                 }
@@ -1162,8 +1162,8 @@ where
             if seg.same_coords(&text_segment) {
                 let flag = conf.allow_duplicated_supp_text;
                 // TODO why return None?
-                FungibleErrorsResult::new_deferred_fungible(None, DuplicatedSuppTEXT, flag)
-                    .fungible_into_commutative()
+                SwitchableErrorsResult::new_deferred_switchable(None, DuplicatedSuppTEXT, flag)
+                    .switchable_into_commutative()
                     .map_errors(STextSegmentError::from)
                     .map_commutative_warnings(STextSegmentWarning::from)
             } else {

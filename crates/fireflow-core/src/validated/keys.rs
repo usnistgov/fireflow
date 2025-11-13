@@ -915,7 +915,7 @@ const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{KeyPatterns, KeyString, KeyStringPairs, NonStdKey, StdKey};
+    use super::{KeyPatterns, KeyString, KeyStringPairs};
 
     use pyo3::prelude::*;
     use std::collections::HashMap;

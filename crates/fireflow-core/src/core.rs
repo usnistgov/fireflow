@@ -9344,7 +9344,7 @@ mod python {
     use crate::python::exceptions::ConversionException;
     use crate::text::ranged_float::PositiveFloat;
 
-    use super::{AnyTemporalToOpticalKeyLossError, ConvertError, ScaleTransform, SetTemporalError};
+    use super::{ConvertError, ScaleTransform};
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;

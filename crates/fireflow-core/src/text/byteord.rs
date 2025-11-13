@@ -579,7 +579,7 @@ pub type WidthToBytesError = WidthToFixedError<BytesError>;
 
 #[derive(Debug, Error)]
 pub enum WidthToFixedError<X> {
-    #[error("width is variable were fixed is needed")]
+    #[error("width is variable where fixed is needed")]
     Variable,
     #[error("error when converting fixed bits: {0}")]
     Fixed(X),

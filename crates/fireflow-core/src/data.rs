@@ -2138,8 +2138,8 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorsResult<Self, (), BitmaskError, NewUintTypeError> {
         width
             .try_into()
-            .into_log::<_, _, Vec<_>>()
-            .map_errors(NewUintTypeError::from)
+            .map_err(NewUintTypeError::from)
+            .into_log()
             .and_then_commutative(|bytes| {
                 Self::new1(bytes, range, flag)
                     .set_err_value(())
@@ -4020,23 +4020,21 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        let cs = NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref())
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from);
-        let d = AlphaNumType::lookup_req_check_ascii(std)
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
-            .into_semigroup();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_commutative_warnings(LookupLayoutWarning::from)
+                    .map_errors(LookupLayoutError::from)
+                    .into_semigroup()
+            };
+        }
+        let cs = go!(NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
+        let d = go!(AlphaNumType::lookup_req_check_ascii(std));
         let n = ByteOrd3_1::remove_metaroot_req(std)
             .map_err(LookupLayoutError::from)
             .into_log();
         d.zip3_commutative(n, cs)
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
             .and_then_commutative(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord.0, columns, conf.as_ref())
-                    .map_commutative_warnings(LookupLayoutWarning::from)
-                    .map_errors(LookupLayoutError::from)
+                go!(Self::try_new(datatype, byteord.0, columns, conf.as_ref()))
             })
     }
 

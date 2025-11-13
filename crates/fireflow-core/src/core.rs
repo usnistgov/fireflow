@@ -5540,27 +5540,24 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         let e = NonEmpty::collect(es)
             .map(AnyMeasKeyLossErrors)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
-            .map_errors(OpticalConvertError::from)
-            .and_then_commutative(|()| {
-                value
-                    .scale
-                    .ok_or(NoScaleError(i).into())
-                    .map(|s| {
-                        Self::new(
-                            s,
-                            wave,
-                            None,
-                            None,
-                            Analyte::default(),
-                            None,
-                            OpticalType::default(),
-                            Tag::default(),
-                            DetectorName::default(),
-                        )
-                    })
-                    .into_log()
+            .map_errors(OpticalConvertError::from);
+        let scale_res = value.scale.ok_or(NoScaleError(i).into()).into_log();
+        check_res
+            .zip_commutative(scale_res)
+            .map_ok_value(|((), s)| {
+                Self::new(
+                    s,
+                    wave,
+                    None,
+                    None,
+                    Analyte::default(),
+                    None,
+                    OpticalType::default(),
+                    Tag::default(),
+                    DetectorName::default(),
+                )
             })
     }
 }

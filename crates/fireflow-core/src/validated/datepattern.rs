@@ -3,7 +3,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromPyString, IntoBuiltinPyErr};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
 /// A String that matches a date.
 ///
@@ -43,7 +43,7 @@ impl FromStr for DatePattern {
     "date pattern must contain specifier for year (%y or %Y), \
      month (%m, %b, or %B), and day (%d or %e), got {0}"
 )]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct DatePatternError(String);
 
 // TODO property tests would likely be useful here

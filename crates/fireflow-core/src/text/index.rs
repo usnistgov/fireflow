@@ -8,7 +8,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr},
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
     pyo3::prelude::*,
 };
 
@@ -86,7 +86,7 @@ pub struct IndexError {
 
 #[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyIndexError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
     pub len: usize,

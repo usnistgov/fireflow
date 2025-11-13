@@ -21,7 +21,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr, IntoPyErr};
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
 /// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
@@ -258,7 +258,7 @@ pub enum ParseCompError {
 }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum NewCompError {
     #[error("compensation matrix must be square")]
     NotSquare,
@@ -290,7 +290,7 @@ pub(crate) fn lookup_dfc(
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupComp2_0Error {
     Dfc(ParseKeyError<ParseFloatError, Dfc, BiIndex>),
     Matrix(NewCompError),

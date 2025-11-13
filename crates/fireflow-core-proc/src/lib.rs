@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Visibility, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, Path, Visibility, parse_macro_input, parse_quote};
 
-#[proc_macro_derive(IntoPyErr)]
+#[proc_macro_derive(AllIntoPyErr)]
 pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
@@ -37,24 +37,35 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     ret.into()
 }
 
-#[proc_macro_derive(IntoBuiltinPyErr, attributes(pyerr))]
+/// Convert Rust type to PyErr using Display
+///
+/// The exception type is determined by the pyerr attribute. If not path is
+/// supplied, it is assumed to be from pyo3::exceptions (example, PyValueError).
+#[proc_macro_derive(DisplayAsPyErr, attributes(pyerr))]
 pub fn derive_into_builtin_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
 
-    let ename = parsed
+    let epath: Path = parsed
         .attrs
         .iter()
         .find_map(|a| {
-            let m = a.meta.require_list().unwrap();
-            (m.path.get_ident().unwrap() == "pyerr").then_some(&m.tokens)
+            let m = a.meta.require_list().ok()?;
+            let x = (m.path.get_ident().unwrap() == "pyerr").then_some(&m.tokens)?;
+            Some(parse_quote!(#x))
         })
         .expect("could not find 'pyerr' attribute");
+
+    let full_epath: Path = if epath.segments.len() == 1 {
+        parse_quote!(pyo3::exceptions::#epath)
+    } else {
+        epath
+    };
 
     let ret = quote! {
         impl From<#name> for pyo3::PyErr {
             fn from(value: #name) -> Self {
-                pyo3::exceptions::#ename::new_err(value.to_string())
+                #full_epath::new_err(value.to_string())
             }
         }
     };

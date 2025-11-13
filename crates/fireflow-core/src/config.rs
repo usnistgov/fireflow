@@ -39,7 +39,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromInnerPyObject, FromPyString, IntoBuiltinPyErr},
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
     pyo3::prelude::*,
 };
 
@@ -864,7 +864,7 @@ impl FromStr for TemporalOpticalKey {
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
      'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
 )]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {

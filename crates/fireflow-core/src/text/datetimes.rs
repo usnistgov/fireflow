@@ -17,7 +17,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromInnerPyObject, IntoPyErr};
+use {
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+};
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Default, AsRef, PartialEq)]
@@ -141,6 +144,8 @@ impl Datetimes {
 
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct ReversedDatetimesError;
 
 impl FromStr for FCSDateTime {
@@ -187,7 +192,7 @@ pub enum FCSDateTimeError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDatetimesError {
     Begindatetime(OptKeyError<BeginDateTime>),
     Enddatetime(OptKeyError<EndDateTime>),
@@ -235,12 +240,4 @@ mod tests {
             "2112-01-01T00:00:00+00:01",
         );
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::ReversedDatetimesError;
-    use crate::python::macros::impl_pyreflow_err;
-
-    impl_pyreflow_err!(RelationalException, ReversedDatetimesError);
 }

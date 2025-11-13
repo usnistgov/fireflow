@@ -27,7 +27,10 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr};
+use {
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+};
 
 use Ordering::{Equal, Greater, Less};
 
@@ -1897,7 +1900,7 @@ impl<K, U, V> SplitVec<K, U, V> {
 }
 
 #[derive(Debug, Display, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
     Index(BoundaryIndexError),
     NonUnique(NonUniqueKeyError),
@@ -1910,42 +1913,42 @@ pub enum RenameError {
 }
 
 #[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
     Present(CenterPresentError),
     Insert(InsertError),
 }
 
 #[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetKeysError {
     Names(SetNamesError),
     MissingCenter(MissingCenterError),
 }
 
 #[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamesError {
     Length(InputLengthError),
     NonUnique(NonUniqueKeysError),
 }
 
 #[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetCenterError {
     Index(ElementIndexError),
     NoName(NoNameError),
 }
 
 #[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewNamedVecError {
     NonUnique(NonUniqueKeysError),
     MultiCenter(CenterPresentError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetElementsError {
     Length(InputLengthError),
     Mismatch(ColumnError<OpticalMismatchError>),
@@ -1953,33 +1956,43 @@ pub enum SetElementsError {
 
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct CenterPresentError;
 
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NoNameError;
 
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct MissingCenterError;
 
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NonUniqueKeysError;
 
 #[derive(Debug, Error)]
 #[error("'{0}' matches no measurement")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyKeyError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
 pub struct KeyNotFoundError(pub Shortname);
 
 #[derive(Debug, Error)]
 #[error("'{name}' already present")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NonUniqueKeyError {
     name: Shortname,
 }
 
 #[derive(Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyIndexError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
@@ -2005,6 +2018,8 @@ impl fmt::Display for ElementIndexError {
     "input must be {this_len} ({c}including center) elements long, got {other_len}",
     c = if self.include_center { "" } else { "not " }
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,
@@ -2038,10 +2053,7 @@ impl fmt::Display for OpticalMismatchError {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{
-        CenterPresentError, Element, InputLengthError, MissingCenterError, NoNameError,
-        NonCenterElement, NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError,
-    };
+    use super::{Element, NonCenterElement, OpticalMismatchError};
     use crate::data::ColumnError;
     use crate::python::macros::impl_pyreflow_err;
     use pyo3::prelude::*;
@@ -2060,13 +2072,6 @@ mod python {
             Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
         }
     }
-
-    impl_pyreflow_err!(MeasurementException, NonUniqueKeysError);
-    impl_pyreflow_err!(MeasurementException, NonUniqueKeyError);
-    impl_pyreflow_err!(MeasurementException, InputLengthError);
-    impl_pyreflow_err!(MeasurementException, MissingCenterError);
-    impl_pyreflow_err!(MeasurementException, NoNameError);
-    impl_pyreflow_err!(MeasurementException, CenterPresentError);
 
     impl_pyreflow_err!(MeasurementException, ColumnError<OpticalMismatchError>);
 }

@@ -21,7 +21,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::FromInnerPyObject;
+use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
 
 /// A convenient bundle holding data/time keyword values.
 ///
@@ -238,6 +238,11 @@ impl Timestamps<FCSTime100> {
 
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(crate::python::exceptions::RelationalException)
+)]
 pub struct ReversedTimestampsError;
 
 type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
@@ -436,16 +441,11 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_pyreflow_err;
     use crate::text::lookup::ParseKeyError;
 
-    use super::{
-        Btim, Etim, FCSFixedTimeError, LookupTimestampsError, ReversedTimestampsError, Xtim,
-    };
+    use super::{Btim, Etim, FCSFixedTimeError, LookupTimestampsError, Xtim};
 
     use pyo3::prelude::*;
-
-    impl_pyreflow_err!(RelationalException, ReversedTimestampsError);
 
     impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
     where

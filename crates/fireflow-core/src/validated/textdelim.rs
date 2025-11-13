@@ -2,7 +2,7 @@ use derive_more::Into;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{IntoBuiltinPyErr, TryFromPyObject};
+use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
 /// The delimiter used when writing TEXT
 #[derive(Clone, Copy, Into)]
@@ -28,7 +28,7 @@ impl TryFrom<u8> for TEXTDelim {
 
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct TEXTDelimError(u8);
 
 #[cfg(test)]

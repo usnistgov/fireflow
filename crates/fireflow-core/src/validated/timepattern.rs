@@ -4,7 +4,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromPyString, IntoBuiltinPyErr};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
 /// A String that matches a time.
 ///
@@ -142,7 +142,7 @@ impl FromStr for TimePattern {
      %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
      corresponds to centiseconds; got {0}"
 )]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct TimePatternError(String);
 
 #[derive(From, Debug, Error)]

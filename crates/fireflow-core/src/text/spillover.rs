@@ -23,7 +23,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::DisplayAsPyErr;
 
 pub type Spillover = GenericSpillover<Shortname>;
 
@@ -219,7 +219,7 @@ impl FromStr for Spillover {
 }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum NewSpilloverError {
     #[error("Matrix is not square")]
     NonSquare,

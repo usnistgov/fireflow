@@ -115,7 +115,8 @@ use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromInnerPyObject, IntoPyErr},
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     pyo3::prelude::*,
 };
 
@@ -8453,7 +8454,7 @@ pub enum StdReaderError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(ColumnError<AnyLossError>),
@@ -8467,12 +8468,15 @@ pub enum StdWriterWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ExistingLinkError {
     Named(ExistingNamedLinkError),
     Index(ExistingIndexLinkError),
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub enum ExistingNamedLinkError {
     #[error("$TR depends on existing $PnN")]
     Trigger,
@@ -8483,6 +8487,8 @@ pub enum ExistingNamedLinkError {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub enum ExistingIndexLinkError {
     #[error("$COMP refers to existing measurement by index")]
     Comp,
@@ -8500,15 +8506,19 @@ pub enum SetSpilloverError {
 // which one's were not found?
 #[derive(Debug, Error)]
 #[error("all $SPILLOVER names must match a $PnN")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct SpilloverLinkError;
 
 // what PnN?
 #[derive(Debug, Error)]
 #[error("$TR measurement must match a $PnN")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct TriggerLinkError;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
@@ -8516,98 +8526,98 @@ pub enum SetMeasurementsError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetScalesError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalScaleError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTransformsError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalTransformError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ColumnsToDataframeError {
     New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsOnlyError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkError),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByIndexError {
     Link(ExistingLinkError),
     Index(ElementIndexError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalError {
     Insert(InsertError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalToDatasetError {
     Measurement(PushOpticalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
     Column(df::ColumnLengthError),
@@ -8615,6 +8625,8 @@ pub enum InsertOpticalInDatasetError {
 
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
@@ -8622,21 +8634,25 @@ pub struct MeasDataMismatchError {
 
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NonLinearTemporalScaleError;
 
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NonLinearTemporalTransformError;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromRawError),
     Warn(StdTEXTFromRawWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromRawError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
@@ -8648,7 +8664,7 @@ pub enum StdTEXTFromRawError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromRawWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
@@ -8660,7 +8676,7 @@ pub enum StdTEXTFromRawWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromRawError {
     TEXT(StdTEXTFromRawError),
     Dataframe(ReadDataframeError),
@@ -8669,7 +8685,7 @@ pub enum StdDatasetFromRawError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
@@ -8688,7 +8704,7 @@ pub enum StdDatasetFromRawWarning {
 pub struct NoScaleError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceTemporalError {
     ToOptical(AnyTemporalToOpticalKeyLossError),
     Set(SetCenterError),
@@ -8696,26 +8712,29 @@ pub enum ReplaceTemporalError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalByNameError {
     Inner(SetTemporalError),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalByIndexError {
     Inner(SetTemporalError),
     Set(SetCenterError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalError {
     Swap(SwapOpticalTemporalError),
     ToOptical(OpticalToTemporalError),
 }
 
 #[derive(From, Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct SwapOpticalTemporalError {
     opt_index: MeasIndex,
     tmp_index: MeasIndex,
@@ -8762,6 +8781,8 @@ impl fmt::Display for SwapOpticalTemporalError {
 }
 
 #[derive(From, Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct OpticalToTemporalError {
     opt_index: MeasIndex,
     nonlinear: Option<OpticalNonLinearError>,
@@ -8927,12 +8948,14 @@ pub enum AnyOpticalToTemporalKeyLossError {
 
 /// Error when a temporal keyword will be lost when converting to optical
 #[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub enum AnyTemporalToOpticalKeyLossError {
     TempType(IndexedKeyLossError<TemporalType>),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(RawToLayoutError),
@@ -8941,7 +8964,7 @@ pub enum LookupAndReadDataAnalysisError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
@@ -8949,7 +8972,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsWarning {
     Tot(OptKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -8958,7 +8981,7 @@ pub enum LookupTEXTOffsetsWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsError {
     Tot(ReqKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
@@ -8969,7 +8992,7 @@ pub enum LookupTEXTOffsetsError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreTEXTError {
     Core(NewCoreError),
     Timestamps(ReversedTimestampsError),
@@ -8977,14 +9000,14 @@ pub enum NewCoreTEXTError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
     Warn(NewCoreWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreWarning {
     Time(MissingTime),
     Relational(NewCoreRelationalError),
@@ -8992,7 +9015,7 @@ pub enum NewCoreWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreRelationalError {
     Link(AnyLinkError),
     Layout(MeasLayoutMismatchError),
@@ -9002,7 +9025,7 @@ pub type LookupMetarootResult<V> =
     WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootError {
     Mode(ReqKeyError<Mode>),
     Cyt3_2(ReqKeyError<Cyt3_2>),
@@ -9011,7 +9034,7 @@ pub enum LookupMetarootError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootWarning {
     Trigger(OptKeyStError<Trigger>),
     Comp2_0(LookupComp2_0Error),
@@ -9041,7 +9064,7 @@ pub type LookupMeasurementResult<V> =
     WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
     Optical(LookupOpticalError),
@@ -9050,7 +9073,7 @@ pub enum LookupMeasurementError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupOpticalWarning),
@@ -9063,7 +9086,7 @@ pub type LookupShortnameResult<V> =
     WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupShortnameError {
     Req(ReqIndexedKeyError<Shortname>),
     Opt(OptIndexedKeyError<Shortname>),
@@ -9073,7 +9096,7 @@ pub type LookupOpticalResult<V> =
     WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
     Xform(ScaleTransformError),
     Scale(ReqIndexedKeyError<Scale>),
@@ -9081,7 +9104,7 @@ pub enum LookupOpticalError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
@@ -9105,7 +9128,7 @@ pub type LookupTemporalResult<V> =
     WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalError {
     TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
@@ -9113,7 +9136,7 @@ pub enum LookupTemporalError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGain),
@@ -9123,14 +9146,14 @@ pub enum LookupTemporalWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupPeakError {
     Bin(OptIndexedKeyError<PeakBin>),
     Index(OptIndexedKeyError<PeakIndex>),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupSubsetError {
     Flags(LookupCSVFlagsError),
     Bits(OptKeyError<CSVBits>),
@@ -9138,14 +9161,14 @@ pub enum LookupSubsetError {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCSVFlagsError {
     Mode(OptKeyError<CSMode>),
     Flag(OptIndexedKeyError<CSVFlag>),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupModifiedDataError {
     LastModTime(OptKeyError<LastModified>),
     Originality(OptKeyError<Originality>),
@@ -9154,6 +9177,8 @@ pub enum LookupModifiedDataError {
 /// Error triggered when time measurement is missing but required.
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
 type LookupTEXTOffsetsResult<T> =
@@ -9185,6 +9210,8 @@ pub struct ColumnNumberError {
     "could not make scale transform with log scale \
      '{scale}' and non-unit gain '{gain}'"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
@@ -9192,6 +9219,8 @@ pub struct ScaleTransformError {
 
 #[derive(Debug, Error)]
 #[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
@@ -9199,6 +9228,8 @@ pub struct CompParMismatchError {
 
 #[derive(Debug, Error)]
 #[error("$RnI references non-existed measurements by index: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
 
 // #[derive(Debug, Error)]
@@ -9310,17 +9341,10 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::AnyRangeError;
     use crate::python::exceptions::ConversionException;
-    use crate::python::macros::impl_pyreflow_err;
     use crate::text::ranged_float::PositiveFloat;
 
-    use super::{
-        AnyTemporalToOpticalKeyLossError, CompParMismatchError, ConvertError, ExistingLinkError,
-        GatingMeasLinkError, MeasDataMismatchError, MissingTime, NonLinearTemporalScaleError,
-        NonLinearTemporalTransformError, ScaleTransform, ScaleTransformError, SetTemporalError,
-        SpilloverLinkError, TriggerLinkError,
-    };
+    use super::{AnyTemporalToOpticalKeyLossError, ConvertError, ScaleTransform, SetTemporalError};
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
@@ -9362,20 +9386,4 @@ mod python {
             ConversionException::new_err(value.to_string())
         }
     }
-
-    impl_pyreflow_err!(MeasurementException, NonLinearTemporalScaleError);
-    impl_pyreflow_err!(MeasurementException, NonLinearTemporalTransformError);
-    impl_pyreflow_err!(MeasurementException, AnyRangeError);
-    impl_pyreflow_err!(MeasurementException, MeasDataMismatchError);
-
-    impl_pyreflow_err!(ConversionException, AnyTemporalToOpticalKeyLossError);
-    impl_pyreflow_err!(ConversionException, SetTemporalError);
-
-    impl_pyreflow_err!(RelationalException, ExistingLinkError);
-    impl_pyreflow_err!(RelationalException, SpilloverLinkError);
-    impl_pyreflow_err!(RelationalException, TriggerLinkError);
-    impl_pyreflow_err!(RelationalException, GatingMeasLinkError);
-    impl_pyreflow_err!(RelationalException, CompParMismatchError);
-    impl_pyreflow_err!(RelationalException, ScaleTransformError);
-    impl_pyreflow_err!(RelationalException, MissingTime);
 }

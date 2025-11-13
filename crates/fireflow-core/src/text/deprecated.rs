@@ -21,6 +21,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::AllIntoPyErr;
+
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]
 #[error("deprecated key: {0}")]
@@ -30,6 +33,7 @@ pub type DepKey0<T> = DepKeyWarning<T, ()>;
 pub type DepKey1<T> = DepKeyWarning<T, IndexFromOne>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyDepKeyError {
     Gating(DepKey0<Gating>),
     RegionIndex(DepKey1<RegionGateIndex<PrefixedMeasIndex>>),
@@ -330,9 +334,8 @@ where
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::FCSDeprecatedError;
-    use crate::python::macros::impl_pyreflow_err;
 
-    use super::{AnyDepKeyError, DepKeyWarning};
+    use super::DepKeyWarning;
 
     use pyo3::prelude::*;
     use std::fmt::Display;
@@ -345,6 +348,4 @@ mod python {
             FCSDeprecatedError::new_err(value.to_string())
         }
     }
-
-    impl_pyreflow_err!(FCSDeprecatedError, AnyDepKeyError);
 }

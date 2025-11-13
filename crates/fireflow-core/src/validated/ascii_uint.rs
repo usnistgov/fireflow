@@ -17,7 +17,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr};
+use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
 
 /// An unsigned int which may only be 20 chars wide.
 ///
@@ -278,7 +278,7 @@ pub enum ParseUint8DigitError {
 
 #[derive(Debug, Error)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyOverflowError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyOverflowError))]
 pub struct Uint8DigitOverflow(u64);
 
 #[derive(Debug, Error)]

@@ -43,7 +43,7 @@ use nonempty::NonEmpty;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use fireflow_core_proc::AllIntoPyErr;
 
 /// An relational keyword that has been removed due having a broken reference.
 #[derive(From)]
@@ -106,7 +106,7 @@ pub struct RemovedGating {
 
 /// All possible relational errors
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyLinkError {
     Spillover(KeyToNameLinkError<Spillover>),
     Trigger(KeyToNameLinkError<Trigger>),

@@ -52,8 +52,9 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
+    crate::python::exceptions as px,
     fireflow_core_proc::{
-        FromInnerPyObject, FromPyString, IntoBuiltinPyErr, IntoPyErr, IntoPyString,
+        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
     },
     pyo3::prelude::*,
 };
@@ -89,7 +90,7 @@ impl Gain {
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalGain {
     Parse(OptIndexedKeyError<Gain>),
     HasGain(TemporalGainError),
@@ -98,6 +99,8 @@ pub enum LookupTemporalGain {
 /// Error triggered when time measurement has $PnG
 #[derive(Debug, Error)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
@@ -229,6 +232,8 @@ pub enum Mode {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FCSDeprecatedError))]
 pub enum DeprecatedModeWarning {
     #[error("$MODE=C is deprecated")]
     ModeCorrelated,
@@ -238,7 +243,7 @@ pub enum DeprecatedModeWarning {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'C', 'L', or 'U'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct ModeError;
 
 impl FromStr for Mode {
@@ -285,7 +290,7 @@ impl TryFrom<Mode> for Mode3_2 {
 
 #[derive(Debug, Error)]
 #[error("can only be 'L'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct Mode3_2Error;
 
 #[derive(Debug, Error)]
@@ -369,7 +374,7 @@ impl FromStr for NumType {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NumTypeError;
 
 /// The four allowed values for the $DATATYPE keyword.
@@ -419,11 +424,13 @@ impl FromStr for AlphaNumType {
 
 #[derive(Debug, Error)]
 #[error("$DATATYPE=A is deprecated")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FCSDeprecatedError))]
 pub struct DeprecatedDatatypeWarning;
 
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct AlphaNumTypeError;
 
 impl From<NumType> for AlphaNumType {
@@ -741,7 +748,7 @@ impl FromStr for Originality {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct OriginalityError;
 
 /// The value of the $UNICODE key (3.0 only)
@@ -809,7 +816,7 @@ pub struct OpticalType(pub OptionalString);
 
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct OpticalTypeError;
 
 const TIME: &str = "Time";
@@ -877,7 +884,7 @@ impl FromStr for Feature {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct FeatureError;
 
 /// The value of the $RnI key (all versions)
@@ -1000,7 +1007,7 @@ impl FromStr for MeasOrGateIndex {
 }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum MeasOrGateIndexError {
     #[error("{0}")]
     Int(ParseIntError),
@@ -1339,7 +1346,7 @@ enum GatingToken {
 }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum GatingError {
     #[error("gating string is empty")]
     Empty,
@@ -1816,11 +1823,15 @@ impl ExtraStdKeywords {
 /// Error denoting that pseudostandard keyword was found.
 #[derive(Debug, Error)]
 #[error("pseudostandard keyword found: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::InvalidKeywordValueError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that unused standard keyword was found.
 #[derive(Debug, Error)]
 #[error("unused standard keyword found: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::InvalidKeywordValueError))]
 pub struct UnusedStandardError(pub StdKey);
 
 macro_rules! newtype_string {
@@ -2489,26 +2500,15 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_pyreflow_err;
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
-        Calibration3_1, Calibration3_2, DeprecatedDatatypeWarning, DeprecatedModeWarning, Display,
-        IndexPair, PseudostandardError, TemporalGainError, Trigger, UniGate, Unicode,
-        UnusedStandardError, Vertex,
+        Calibration3_1, Calibration3_2, Display, IndexPair, Trigger, UniGate, Unicode, Vertex,
     };
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-
-    impl_pyreflow_err!(RelationalException, TemporalGainError);
-
-    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
-    impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);
-
-    impl_pyreflow_err!(InvalidKeywordValueError, PseudostandardError);
-    impl_pyreflow_err!(InvalidKeywordValueError, UnusedStandardError);
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

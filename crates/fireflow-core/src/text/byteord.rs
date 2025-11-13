@@ -14,7 +14,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::DisplayAsPyErr;
 
 use super::lookup::ReqMetarootKey;
 
@@ -528,7 +528,7 @@ pub enum ParseByteOrdError {
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NewByteOrdError(usize);
 
 #[derive(Debug, Error)]
@@ -560,7 +560,7 @@ pub struct ByteOrdToSizedError {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum VecToSizedError {
     Vec(VecToArrayError),
     New(NewByteOrdError),

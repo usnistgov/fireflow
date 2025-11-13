@@ -12,7 +12,10 @@ use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use {crate::validated::shortname::Shortname, polars::prelude::*};
+use {
+    crate::python::exceptions as px, crate::validated::shortname::Shortname,
+    fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
+};
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 #[derive(Clone, Default, PartialEq)]
@@ -177,10 +180,16 @@ impl AnyFCSColumn {
 
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
+// TODO not sure about this exception
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct NewDataframeError;
 
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
+// TODO not sure about this exception
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,
@@ -779,10 +788,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 pub(crate) mod python {
-    use super::{AnyFCSColumn, ColumnLengthError, FCSColumn, FCSDataFrame, NewDataframeError};
-    use crate::python::macros::impl_pyreflow_err;
+    use super::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 
-    use fireflow_core_proc::IntoBuiltinPyErr;
+    use fireflow_core_proc::DisplayAsPyErr;
 
     use polars::prelude::*;
     use polars_arrow::array::PrimitiveArray;
@@ -878,7 +886,7 @@ pub(crate) mod python {
         }
     }
 
-    #[derive(IntoBuiltinPyErr)]
+    #[derive(DisplayAsPyErr)]
     #[pyerr(PyValueError)]
     pub enum SeriesToColumnError {
         InvalidDatatype(PlSmallStr, DataType),
@@ -898,7 +906,4 @@ pub(crate) mod python {
             }
         }
     }
-
-    impl_pyreflow_err!(MeasurementException, ColumnLengthError);
-    impl_pyreflow_err!(MeasurementException, NewDataframeError);
 }

@@ -40,7 +40,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr, IntoPyString},
+    crate::python::exceptions as px,
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
 
@@ -468,6 +469,8 @@ impl str::FromStr for Version {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub enum HeaderError {
     #[error("{0}")]
     Segment(HeaderSegmentError),
@@ -490,7 +493,7 @@ pub enum HeaderValidationError {
 pub struct InHeaderError(GenericSegment);
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {
@@ -800,8 +803,7 @@ fn offsets_len() -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{HeaderError, HeaderSegments, UintSpacePad20};
-    use crate::python::macros::impl_pyreflow_err;
+    use super::{HeaderSegments, UintSpacePad20};
 
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
@@ -820,6 +822,4 @@ mod python {
             Ok(dict)
         }
     }
-
-    impl_pyreflow_err!(FileLayoutError, HeaderError);
 }

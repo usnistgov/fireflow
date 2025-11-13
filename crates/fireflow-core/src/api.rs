@@ -56,7 +56,10 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use {
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+};
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
@@ -350,14 +353,14 @@ pub struct RawTEXTParseData {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Raw(ParseRawTEXTWarning),
     Std(StdTEXTFromRawWarning),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
     Raw(HeaderOrRawError),
     Std(StdTEXTFromRawError),
@@ -365,14 +368,14 @@ pub enum StdTEXTError {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
     Raw(ParseRawTEXTWarning),
     Std(StdDatasetFromRawWarning),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
     Raw(HeaderOrRawError),
     Std(StdDatasetFromRawError),
@@ -380,14 +383,14 @@ pub enum StdDatasetError {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetWarning {
     Raw(ParseRawTEXTWarning),
     Read(LookupAndReadDataAnalysisWarning),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetError {
     Raw(HeaderOrRawError),
     Read(LookupAndReadDataAnalysisError),
@@ -395,7 +398,7 @@ pub enum RawDatasetError {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
     Keywords(ParseKeywordsIssue),
@@ -405,7 +408,7 @@ pub enum ParseRawTEXTWarning {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrRawError {
     Header(HeaderError),
     RawTEXT(ParseRawTEXTError),
@@ -413,28 +416,28 @@ pub enum HeaderOrRawError {
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawToReaderError {
     Layout(RawToLayoutError),
     Reader(NewDataReaderError),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawToReaderWarning {
     Layout(RawToLayoutWarning),
     Reader(NewDataReaderWarning),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     Dup(DuplicatedSuppTEXT),
 }
 
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentWarning {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     OptSegment(OptSegmentError<Beginstext, Endstext>),
@@ -443,9 +446,13 @@ pub enum STextSegmentWarning {
 
 #[derive(Debug, Error)]
 #[error("primary and supplemental TEXT are duplicated")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub struct DuplicatedSuppTEXT;
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub enum ParseRawTEXTError {
     Delim(DelimVerifyError),
     Primary(ParsePrimaryTEXTError),
@@ -466,6 +473,8 @@ pub enum DelimVerifyError {
 
 #[derive(Debug, Error)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub struct DelimCharError(u8);
 
 #[derive(Debug, Error)]
@@ -515,6 +524,8 @@ pub enum ParsePrimaryTEXTError {
 }
 
 #[derive(Display, From, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
     BlankValue(BlankValueError),
@@ -554,6 +565,9 @@ pub struct NonUtf8KeywordError {
 
 #[derive(Debug, Clone, Error)]
 #[error("nonstandard keywords detected")]
+// TODO use better error class here
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub struct NonstandardError;
 
 #[allow(clippy::type_complexity)]
@@ -1354,21 +1368,4 @@ mod tests {
         assert!(es.is_empty(), "errors: {es:?}");
         assert!(ws.is_empty(), "warnings: {ws:?}");
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::macros::impl_pyreflow_err;
-
-    use super::{
-        DelimCharError, DuplicatedSuppTEXT, NonstandardError, ParseKeywordsIssue, ParseRawTEXTError,
-    };
-
-    impl_pyreflow_err!(FileLayoutError, ParseRawTEXTError);
-    impl_pyreflow_err!(FileLayoutError, DelimCharError);
-    impl_pyreflow_err!(FileLayoutError, ParseKeywordsIssue);
-    impl_pyreflow_err!(FileLayoutError, DuplicatedSuppTEXT);
-
-    // TODO what should this really be?
-    impl_pyreflow_err!(FileLayoutError, NonstandardError);
 }

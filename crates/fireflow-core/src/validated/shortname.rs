@@ -9,7 +9,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr},
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString},
     pyo3::prelude::*,
 };
 
@@ -69,7 +69,7 @@ impl From<MeasIndex> for Shortname {
 // }
 
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum ShortnameError {
     #[error("commas are not allowed in name '{0}'")]
     Commas(String),

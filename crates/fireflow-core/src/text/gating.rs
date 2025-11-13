@@ -35,7 +35,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use {
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -1076,10 +1079,12 @@ pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
 #[derive(Debug, Error)]
 #[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
     Scheme(DependentKeyError<Gating>),
@@ -1111,6 +1116,8 @@ pub struct AppliedGates2_0To3_2Error;
 pub struct AppliedGates3_2To2_0Error;
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub enum IndexWindowMismatchError {
     #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
     Both(RegionIndex),
@@ -1161,14 +1168,14 @@ pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
 >;
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasurementsError {
     Gate(OptKeyError<Gate>),
     Meas(LookupGatedMeasError),
 }
 
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoPyErr))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasError {
     Scale(OptIndexedKeyError<GateScale>),
     Shortname(OptIndexedKeyError<GateShortname>),
@@ -1179,17 +1186,9 @@ pub enum LookupGatedMeasError {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_pyreflow_err;
-
-    use super::{
-        GateMeasurementLinkError, IndexWindowMismatchError, LookupAppliedGatesError,
-        LookupGatingSchemeError, LookupRegionError,
-    };
+    use super::{LookupAppliedGatesError, LookupGatingSchemeError, LookupRegionError};
 
     use pyo3::prelude::*;
-
-    impl_pyreflow_err!(RelationalException, GateMeasurementLinkError);
-    impl_pyreflow_err!(RelationalException, IndexWindowMismatchError);
 
     impl<E0, E1> From<LookupGatingSchemeError<E0, E1>> for PyErr
     where

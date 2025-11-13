@@ -4,7 +4,7 @@ use regex::Regex;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::DisplayAsPyErr;
 
 /// Pattern to match a sed-like substitution operation.
 #[derive(Clone)]
@@ -83,7 +83,7 @@ impl SubPattern {
 
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct SubPatternError {
     from: Regex,
     to: String,

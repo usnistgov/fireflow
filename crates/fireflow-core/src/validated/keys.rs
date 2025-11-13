@@ -27,7 +27,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr, IntoPyString},
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
 
@@ -785,7 +785,7 @@ impl ParsedKeywords {
 }
 
 #[derive(Debug, Display, From, PartialEq, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum KeyOrStringPatternsError {
     Regexp(regex::Error),
     Ascii(AsciiStringError),
@@ -822,7 +822,7 @@ pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 #[derive(PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),
@@ -831,7 +831,7 @@ pub enum AsciiStringError {
 }
 
 #[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum StdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -842,7 +842,7 @@ pub enum StdKeyError {
 }
 
 #[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum NonStdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -855,14 +855,14 @@ pub enum NonStdKeyError {
     "non standard measurement pattern must not \
      start with '$' and should have one '%n', found '{0}'"
 )]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NonStdMeasPatternError(String);
 
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 // TODO this error is weird because it pertains to the downstream value
 // of a regex given in the config
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]
@@ -871,7 +871,7 @@ pub struct NonStdMeasRegexError {
 
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
-#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 fn is_printable_ascii(xs: &[u8]) -> bool {

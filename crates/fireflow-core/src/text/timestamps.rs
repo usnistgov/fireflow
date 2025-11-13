@@ -4,10 +4,9 @@ use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
+use super::deprecated::DeprecatedTimestampsRef;
 use super::optional::KeywordPairMaybe;
-use super::parser::{
-    DeprecatedTimestampsRef, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
-};
+use super::parser::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};

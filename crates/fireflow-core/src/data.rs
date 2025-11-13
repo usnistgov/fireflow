@@ -4545,7 +4545,7 @@ mod python {
         AnyLossError, AnyNullBitmask, AsciiToUintError, ColumnError, EventWidthError, FloatRange,
         LookupLayoutError, LookupLayoutWarning, LookupMeasLayoutError, LookupMeasLayoutWarning,
         MeasLayoutLengthsError, MeasLayoutMismatchError, NewDataLayoutError, NewMixedTypeWarning,
-        NullMixedType, RawToLayoutWarning, ReadAsciiError, ReadDataframeError,
+        NullMixedType, RawParsedError, RawToLayoutWarning, ReadAsciiError, ReadDataframeError,
         ReadDataframeWarning, ReadDelimAsciiError, ReadDelimAsciiWithoutRowsError,
         ReadDelimWithRowsAsciiError, ReadFixedAsciiError, ScaleMismatchTransformError,
         TotEventMismatch, UnevenEventWidth, ZeroEventWidth,
@@ -4629,6 +4629,12 @@ mod python {
     // These are relational because how Range is parsed depends on the value
     // of BYTEORD, DATATYPE, etc.
     impl_pyreflow_err!(RelationalException, ColumnError<NewMixedTypeWarning>);
+
+    // These are file layout errors despite being keywords since they contain
+    // data pertaining to the byte layout of the file
+    //
+    //  TODO maybe...
+    impl_pyreflow_err!(FileLayoutError, RawParsedError);
 
     // TODO this feels sloppy
     impl_pyreflow_err!(FileLayoutError, NewDataLayoutError);

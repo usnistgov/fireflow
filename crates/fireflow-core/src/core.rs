@@ -36,6 +36,10 @@ use crate::text::compensation::{
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
 };
+use crate::text::deprecated::{
+    AnyDepKeyError, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
+    IndexedDepRef, IsDeprecated as _,
+};
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
     AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error, GateToMeasIndexError,
@@ -65,10 +69,8 @@ use crate::text::optional::{
     CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
 };
 use crate::text::parser::{
-    AnyDepKeyError, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
-    IndexedDepRef, IsDeprecated as _, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError,
-    OptKeyError, OptKeyStError, OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError,
-    ReqKeyError, ReqMetarootKey as _,
+    OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
+    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::scale::{LogScale, Scale};

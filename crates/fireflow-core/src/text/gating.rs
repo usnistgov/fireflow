@@ -4,16 +4,15 @@ use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
+use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{
     IndexedKey as _, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 
+use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{
-    DepGatedMeasRef, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
-    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey,
-};
+use super::parser::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
 
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::keywords::{

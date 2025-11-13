@@ -427,7 +427,6 @@ impl AppliedGates3_0 {
             .chain(gate.map(|x| OptMetarootKey::metaroot_pair(&x)))
     }
 
-    // TODO use flag to control optional dropping
     pub(crate) fn try_into_2_0(
         self,
         flag: AllowLoss,
@@ -436,7 +435,6 @@ impl AppliedGates3_0 {
         AppliedGates3_0To2_0Error,
         AppliedGates3_0To2_0Error,
     > {
-        let drop_flag = AllowOptionalDropping(true);
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -449,12 +447,12 @@ impl AppliedGates3_0 {
             .map_switchable_errors(AppliedGates3_0To2_0Error::from)
             .switchable_into_commutative();
         let scheme_res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred_switchable::<_, Vec<_>>(drop_flag)
+            .into_deferred_switchable::<_, Vec<_>>(flag)
             .map_switchable_errors(AppliedGates3_0To2_0Error::from)
             .switchable_into_commutative();
         index_res
             .lift_f2_once(scheme_res, |(), scheme| scheme)
-            .and_then_def_result(drop_flag, |scheme| {
+            .and_then_def_result(flag, |scheme| {
                 AppliedGates2_0::try_new(self.gated_measurements.0, scheme)
                     .map_err(AppliedGates3_0To2_0Error::from)
             })
@@ -468,7 +466,6 @@ impl AppliedGates3_0 {
         AppliedGates3_0To3_2Error,
         AppliedGates3_0To3_2Error,
     > {
-        let drop_flag = AllowOptionalDropping(true);
         // ASSUME region indices will still be unique in new hash table
         let (regions, es): (HashMap<_, _>, Vec<_>) = self
             .scheme
@@ -483,7 +480,7 @@ impl AppliedGates3_0 {
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
             })
             .switchable_into_commutative()
-            .and_then_def_result(drop_flag, |()| {
+            .and_then_def_result(flag, |()| {
                 AppliedGates3_2::try_new(self.scheme.gating, regions)
                     .map_err(AppliedGates3_0To3_2Error::from)
             })

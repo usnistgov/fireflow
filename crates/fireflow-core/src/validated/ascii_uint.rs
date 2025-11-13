@@ -16,6 +16,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// An unsigned int which may only be 20 chars wide.
 ///
 /// This will always be formatted as a right-aligned 0-padded integer 20 chars
@@ -272,6 +275,7 @@ pub enum ParseUint8DigitError {
 
 #[derive(Debug, Error)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyOverflowError))]
 pub struct Uint8DigitOverflow(u64);
 
 #[derive(Debug, Error)]
@@ -304,11 +308,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Uint8DigitOverflow, UintSpacePad8, UintSpacePad20, UintZeroPad20};
-    use crate::python::macros::{impl_from_py_transparent, impl_overflow_err, impl_try_from_py};
+    use super::{UintSpacePad8, UintSpacePad20, UintZeroPad20};
+    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py};
 
     impl_from_py_transparent!(UintZeroPad20);
     impl_from_py_transparent!(UintSpacePad20);
     impl_try_from_py!(UintSpacePad8, u64);
-    impl_overflow_err!(Uint8DigitOverflow);
 }

@@ -10,6 +10,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
@@ -66,6 +69,7 @@ impl From<MeasIndex> for Shortname {
 // }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum ShortnameError {
     #[error("commas are not allowed in name '{0}'")]
     Commas(String),
@@ -86,9 +90,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Shortname, ShortnameError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use super::Shortname;
+    use crate::python::macros::impl_from_py_via_fromstr;
 
     impl_from_py_via_fromstr!(Shortname);
-    impl_value_err!(ShortnameError);
 }

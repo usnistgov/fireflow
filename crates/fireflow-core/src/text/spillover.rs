@@ -22,6 +22,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 pub type Spillover = GenericSpillover<Shortname>;
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
@@ -216,6 +219,7 @@ impl FromStr for Spillover {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum NewSpilloverError {
     #[error("Matrix is not square")]
     NonSquare,
@@ -284,15 +288,12 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_value_err;
     use crate::validated::shortname::Shortname;
 
-    use super::{NewSpilloverError, Spillover};
+    use super::Spillover;
 
     use numpy::{PyReadonlyArray2, ToPyArray as _};
     use pyo3::{prelude::*, types::PyTuple};
-
-    impl_value_err!(NewSpilloverError);
 
     impl<'py> FromPyObject<'py> for Spillover {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

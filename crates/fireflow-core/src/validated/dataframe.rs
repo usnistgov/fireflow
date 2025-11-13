@@ -12,10 +12,7 @@ use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use polars::prelude::*;
-
-#[cfg(feature = "python")]
-use crate::validated::shortname::Shortname;
+use {crate::validated::shortname::Shortname, polars::prelude::*};
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 #[derive(Clone, Default, PartialEq)]
@@ -783,7 +780,9 @@ mod tests {
 #[cfg(feature = "python")]
 pub(crate) mod python {
     use super::{AnyFCSColumn, ColumnLengthError, FCSColumn, FCSDataFrame, NewDataframeError};
-    use crate::python::macros::{impl_pyreflow_err, impl_value_err};
+    use crate::python::macros::impl_pyreflow_err;
+
+    use fireflow_core_proc::IntoBuiltinPyErr;
 
     use polars::prelude::*;
     use polars_arrow::array::PrimitiveArray;
@@ -879,6 +878,8 @@ pub(crate) mod python {
         }
     }
 
+    #[derive(IntoBuiltinPyErr)]
+    #[pyerr(PyValueError)]
     pub enum SeriesToColumnError {
         InvalidDatatype(PlSmallStr, DataType),
         HasNull(PlSmallStr),
@@ -897,8 +898,6 @@ pub(crate) mod python {
             }
         }
     }
-
-    impl_value_err!(SeriesToColumnError);
 
     impl_pyreflow_err!(MeasurementException, ColumnLengthError);
     impl_pyreflow_err!(MeasurementException, NewDataframeError);

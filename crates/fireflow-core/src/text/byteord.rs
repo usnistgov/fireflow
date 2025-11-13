@@ -13,6 +13,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 use super::lookup::ReqMetarootKey;
 
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
@@ -525,6 +528,7 @@ pub enum ParseByteOrdError {
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct NewByteOrdError(usize);
 
 #[derive(Debug, Error)]
@@ -556,6 +560,7 @@ pub struct ByteOrdToSizedError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum VecToSizedError {
     Vec(VecToArrayError),
     New(NewByteOrdError),
@@ -664,8 +669,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
-    use crate::python::macros::impl_value_err;
+    use super::{ByteOrd2_0, Endian, SizedByteOrd, VecToSizedError};
 
     use pyo3::{IntoPyObjectExt as _, exceptions::PyValueError, prelude::*, types::PyString};
     use std::convert::Infallible;
@@ -743,7 +747,4 @@ mod python {
             }
         }
     }
-
-    impl_value_err!(NewByteOrdError);
-    impl_value_err!(VecToSizedError);
 }

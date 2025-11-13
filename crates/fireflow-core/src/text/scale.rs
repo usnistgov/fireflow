@@ -12,6 +12,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
@@ -120,6 +123,7 @@ pub enum ScaleError {
 
 #[derive(Debug, Error, new)]
 #[error("decades/offset must both be positive, got '{decades},{offset}'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct LogRangeError {
     decades: f32,
     offset: f32,
@@ -163,8 +167,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{LogRangeError, Scale};
-    use crate::python::macros::impl_value_err;
+    use super::Scale;
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::prelude::*;
@@ -195,6 +198,4 @@ mod python {
             }
         }
     }
-
-    impl_value_err!(LogRangeError);
 }

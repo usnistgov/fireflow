@@ -39,7 +39,7 @@ use std::str;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
+use {fireflow_core_proc::IntoBuiltinPyErr, pyo3::prelude::*};
 
 /// The length of the HEADER.
 ///
@@ -486,6 +486,7 @@ pub enum HeaderValidationError {
 pub struct InHeaderError(GenericSegment);
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {
@@ -795,9 +796,9 @@ fn offsets_len() -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{HeaderError, HeaderSegments, UintSpacePad20, Version, VersionError};
+    use super::{HeaderError, HeaderSegments, UintSpacePad20, Version};
     use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
+        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display,
     };
 
     use pyo3::prelude::*;
@@ -820,7 +821,6 @@ mod python {
 
     impl_to_py_via_display!(Version);
     impl_from_py_via_fromstr!(Version);
-    impl_value_err!(VersionError);
 
     impl_pyreflow_err!(FileLayoutError, HeaderError);
 }

@@ -8,6 +8,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 #[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
@@ -27,13 +30,13 @@ impl FromStr for NonEmptyString {
 
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct NonEmptyStringError;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{NonEmptyString, NonEmptyStringError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use super::NonEmptyString;
+    use crate::python::macros::impl_from_py_via_fromstr;
 
-    impl_value_err!(NonEmptyStringError);
     impl_from_py_via_fromstr!(NonEmptyString);
 }

@@ -38,10 +38,10 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use crate::python::macros::impl_from_py_transparent;
+use {
+    crate::python::macros::impl_from_py_transparent, fireflow_core_proc::IntoBuiltinPyErr,
+    pyo3::prelude::*,
+};
 
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
@@ -866,6 +866,7 @@ impl FromStr for TemporalOpticalKey {
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
      'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
 )]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {
@@ -933,16 +934,15 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use crate::python::macros::impl_from_py_via_fromstr;
     use crate::segment::OffsetCorrection;
 
-    use super::{ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern};
+    use super::{TemporalOpticalKey, TimeMeasNamePattern};
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     impl_from_py_via_fromstr!(TemporalOpticalKey);
-    impl_value_err!(ParseTemporalOpticalKeyError);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

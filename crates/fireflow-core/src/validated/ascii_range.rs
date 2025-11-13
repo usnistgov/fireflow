@@ -12,6 +12,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// The type of an ASCII column in all versions
 ///
 /// Fields are private to guarantee they are always in sync.
@@ -179,6 +182,7 @@ impl TryFrom<u8> for OtherWidth {
 
 #[derive(Debug, Error)]
 #[error("bits must be <= 20 to be used as number of characters, got {0}")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct CharsError(u8);
 
 #[derive(Display, From, Debug, Error)]
@@ -214,10 +218,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Chars, CharsError, OtherWidth};
-    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
+    use super::{Chars, OtherWidth};
+    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py};
 
     impl_from_py_transparent!(OtherWidth);
     impl_try_from_py!(Chars, u8);
-    impl_value_err!(CharsError);
 }

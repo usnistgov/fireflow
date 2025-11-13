@@ -7,10 +7,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use crate::python::macros::impl_from_py_transparent;
+use {
+    crate::python::macros::impl_from_py_transparent, fireflow_core_proc::IntoBuiltinPyErr,
+    pyo3::prelude::*,
+};
 
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr, Hash)]
@@ -89,6 +89,7 @@ pub struct IndexError {
 
 #[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyIndexError))]
 pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
     pub len: usize,
@@ -111,13 +112,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{BoundaryIndexError, IndexFromOne};
-    use crate::python::macros::impl_index_err;
+    use super::IndexFromOne;
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
     use std::convert::Infallible;
-
-    impl_index_err!(BoundaryIndexError);
 
     impl<'py> FromPyObject<'py> for IndexFromOne {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

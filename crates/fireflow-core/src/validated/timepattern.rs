@@ -3,6 +3,9 @@ use derive_more::{AsRef, From};
 use std::str::FromStr;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// A String that matches a time.
 ///
 /// To be used when parsing time using [`NaiveTime::parse_from_str`].
@@ -138,6 +141,7 @@ impl FromStr for TimePattern {
      %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
      corresponds to centiseconds; got {0}"
 )]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct TimePatternError(String);
 
 #[derive(From, Debug, Error)]
@@ -166,9 +170,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{TimePattern, TimePatternError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use super::TimePattern;
+    use crate::python::macros::impl_from_py_via_fromstr;
 
     impl_from_py_via_fromstr!(TimePattern);
-    impl_value_err!(TimePatternError);
 }

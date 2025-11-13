@@ -1180,9 +1180,9 @@ pub enum LookupGatedMeasError {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
+        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display,
     };
-    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
+    use crate::text::keywords::{Gating, MeasOrGateIndex};
 
     use super::{
         GateMeasurementLinkError, IndexWindowMismatchError, LookupAppliedGatesError,
@@ -1196,9 +1196,6 @@ mod python {
 
     impl_from_py_via_fromstr!(MeasOrGateIndex);
     impl_to_py_via_display!(MeasOrGateIndex);
-
-    impl_value_err!(GatingError);
-    impl_value_err!(MeasOrGateIndexError);
 
     impl_pyreflow_err!(RelationalException, GateMeasurementLinkError);
     impl_pyreflow_err!(RelationalException, IndexWindowMismatchError);

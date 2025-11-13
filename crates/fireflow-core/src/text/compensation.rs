@@ -21,7 +21,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr};
 
 /// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
@@ -256,6 +256,7 @@ pub enum ParseCompError {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum NewCompError {
     #[error("compensation matrix must be square")]
     NotSquare,
@@ -336,15 +337,13 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_transparent, impl_value_err};
+    use crate::python::macros::impl_from_py_transparent;
 
-    use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
+    use super::{Compensation, Compensation2_0, Compensation3_0};
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
     use std::convert::Infallible;
-
-    impl_value_err!(NewCompError);
 
     impl<'py> FromPyObject<'py> for Compensation {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

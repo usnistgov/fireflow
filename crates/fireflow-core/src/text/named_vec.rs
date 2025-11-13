@@ -27,7 +27,7 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr};
 
 use Ordering::{Equal, Greater, Less};
 
@@ -1969,6 +1969,7 @@ pub struct NonUniqueKeysError;
 
 #[derive(Debug, Error)]
 #[error("'{0}' matches no measurement")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyKeyError))]
 pub struct KeyNotFoundError(pub Shortname);
 
 #[derive(Debug, Error)]
@@ -1978,6 +1979,7 @@ pub struct NonUniqueKeyError {
 }
 
 #[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
@@ -2037,13 +2039,11 @@ impl fmt::Display for OpticalMismatchError {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        CenterPresentError, Element, ElementIndexError, InputLengthError, KeyNotFoundError,
-        MissingCenterError, NoNameError, NonCenterElement, NonUniqueKeyError, NonUniqueKeysError,
-        OpticalMismatchError,
+        CenterPresentError, Element, InputLengthError, MissingCenterError, NoNameError,
+        NonCenterElement, NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError,
     };
     use crate::data::ColumnError;
-    use crate::python::macros::{impl_index_err, impl_pyreflow_err};
-    use pyo3::exceptions::PyKeyError;
+    use crate::python::macros::impl_pyreflow_err;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
@@ -2058,14 +2058,6 @@ mod python {
                 return Ok(Self(Element::Center(())));
             }
             Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
-        }
-    }
-
-    impl_index_err!(ElementIndexError);
-
-    impl From<KeyNotFoundError> for PyErr {
-        fn from(value: KeyNotFoundError) -> Self {
-            PyKeyError::new_err(value.to_string())
         }
     }
 

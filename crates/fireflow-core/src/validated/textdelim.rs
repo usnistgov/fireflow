@@ -1,6 +1,9 @@
 use derive_more::Into;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// The delimiter used when writing TEXT
 #[derive(Clone, Copy, Into)]
 pub struct TEXTDelim(u8);
@@ -24,16 +27,14 @@ impl TryFrom<u8> for TEXTDelim {
 
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct TEXTDelimError(u8);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_try_from_py, impl_value_err};
+    use crate::python::macros::impl_try_from_py;
 
-    use super::{TEXTDelim, TEXTDelimError};
-
-    impl_value_err!(TEXTDelimError);
-    impl_try_from_py!(TEXTDelim, u8);
+    impl_try_from_py!(super::TEXTDelim, u8);
 }
 
 #[cfg(test)]

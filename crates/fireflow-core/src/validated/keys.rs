@@ -28,6 +28,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// A standard key.
 ///
 /// These may only contain ASCII and must start with "$". The "$" is not
@@ -778,6 +781,7 @@ impl ParsedKeywords {
 }
 
 #[derive(Debug, Display, From, PartialEq, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum KeyOrStringPatternsError {
     Regexp(regex::Error),
     Ascii(AsciiStringError),
@@ -814,6 +818,7 @@ pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 #[derive(PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),
@@ -822,6 +827,7 @@ pub enum AsciiStringError {
 }
 
 #[derive(From, PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum StdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -832,6 +838,7 @@ pub enum StdKeyError {
 }
 
 #[derive(From, PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum NonStdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -844,10 +851,14 @@ pub enum NonStdKeyError {
     "non standard measurement pattern must not \
      start with '$' and should have one '%n', found '{0}'"
 )]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct NonStdMeasPatternError(String);
 
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
+// TODO this error is weird because it pertains to the downstream value
+// of a regex given in the config
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]
@@ -856,6 +867,7 @@ pub struct NonStdMeasRegexError {
 
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 fn is_printable_ascii(xs: &[u8]) -> bool {
@@ -899,36 +911,22 @@ const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{
-        AsciiStringError, KeyOrStringPatternsError, KeyPatterns, KeyString, KeyStringPairs,
-        KeyStringPairsError, NonStdKey, NonStdKeyError, NonStdMeasPattern, NonStdMeasPatternError,
-        NonStdMeasRegexError, StdKey, StdKeyError,
-    };
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+    use super::{KeyPatterns, KeyString, KeyStringPairs, NonStdKey, NonStdMeasPattern, StdKey};
+    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display};
 
     use pyo3::prelude::*;
     use std::collections::HashMap;
 
     impl_from_py_via_fromstr!(NonStdMeasPattern);
-    impl_value_err!(NonStdMeasPatternError);
 
     impl_from_py_via_fromstr!(StdKey);
     impl_to_py_via_display!(StdKey);
-    impl_value_err!(StdKeyError);
 
     impl_from_py_via_fromstr!(NonStdKey);
     impl_to_py_via_display!(NonStdKey);
-    impl_value_err!(NonStdKeyError);
 
     impl_from_py_via_fromstr!(KeyString);
     impl_to_py_via_display!(KeyString);
-    impl_value_err!(AsciiStringError);
-
-    impl_value_err!(KeyOrStringPatternsError);
-
-    // TODO this error is weird because it pertains to the downstream value
-    // of a regex given in the config
-    impl_value_err!(NonStdMeasRegexError);
 
     // pass keypatterns via config as a tuple like ([String], [String]) where the
     // first member is literal strings and the second is regex patterns
@@ -950,8 +948,6 @@ mod python {
             Ok(ret)
         }
     }
-
-    impl_value_err!(KeyStringPairsError);
 }
 
 #[cfg(feature = "serde")]

@@ -114,10 +114,7 @@ use std::path::PathBuf;
 use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _};
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use {fireflow_core_proc::IntoPyErr, pyo3::prelude::*};
 
 /// Represents the minimal data required to write an FCS file.
 ///

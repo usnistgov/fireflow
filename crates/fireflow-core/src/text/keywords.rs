@@ -51,13 +51,11 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use crate::python::macros::impl_from_py_transparent;
-
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use {
+    crate::python::macros::impl_from_py_transparent,
+    fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr},
+    pyo3::prelude::*,
+};
 
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
@@ -800,6 +798,7 @@ pub struct OpticalType(pub OptionalString);
 
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct OpticalTypeError;
 
 const TIME: &str = "Time";
@@ -987,6 +986,7 @@ impl FromStr for MeasOrGateIndex {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum MeasOrGateIndexError {
     #[error("{0}")]
     Int(ParseIntError),
@@ -1324,6 +1324,7 @@ enum GatingToken {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum GatingError {
     #[error("gating string is empty")]
     Empty,
@@ -2496,10 +2497,10 @@ mod python {
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2,
         DeprecatedDatatypeWarning, DeprecatedModeWarning, Display, Feature, FeatureError,
         GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error,
-        ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
-        OriginalityError, PrefixedMeasIndex, PseudostandardError, Range, TemporalGainError,
-        Timestep, Trigger, UniGate, Unicode, UnstainedCenters, UnusedStandardError, Vertex, Vol,
-        Wavelength, Wavelengths,
+        ModeError, NumType, NumTypeError, OpticalType, Originality, OriginalityError,
+        PrefixedMeasIndex, PseudostandardError, Range, TemporalGainError, Timestep, Trigger,
+        UniGate, Unicode, UnstainedCenters, UnusedStandardError, Vertex, Vol, Wavelength,
+        Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2538,7 +2539,6 @@ mod python {
     impl_from_py_transparent!(Wavelengths);
 
     impl_from_py_via_fromstr!(OpticalType);
-    impl_value_err!(OpticalTypeError);
 
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);

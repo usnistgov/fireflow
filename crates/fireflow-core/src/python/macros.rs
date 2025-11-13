@@ -11,30 +11,6 @@ macro_rules! impl_value_err {
 
 pub(crate) use impl_value_err;
 
-macro_rules! impl_overflow_err {
-    ($t:ident) => {
-        impl From<$t> for pyo3::prelude::PyErr {
-            fn from(value: $t) -> Self {
-                pyo3::exceptions::PyOverflowError::new_err(value.to_string())
-            }
-        }
-    };
-}
-
-pub(crate) use impl_overflow_err;
-
-macro_rules! impl_index_err {
-    ($t:ident) => {
-        impl From<$t> for pyo3::prelude::PyErr {
-            fn from(value: $t) -> Self {
-                pyo3::exceptions::PyIndexError::new_err(value.to_string())
-            }
-        }
-    };
-}
-
-pub(crate) use impl_index_err;
-
 macro_rules! impl_pyreflow_err {
     ($e:ident, $t:path) => {
         impl From<$t> for pyo3::PyErr {
@@ -48,7 +24,7 @@ macro_rules! impl_pyreflow_err {
 pub(crate) use impl_pyreflow_err;
 
 macro_rules! impl_try_from_py {
-    ($t:ident, $inner:ident) => {
+    ($t:path, $inner:ident) => {
         impl<'py> pyo3::FromPyObject<'py> for $t {
             fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
                 let x: $inner = pyo3::prelude::PyAnyMethods::extract(ob)?;

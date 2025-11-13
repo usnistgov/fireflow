@@ -11,6 +11,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// A non-negative float
 #[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -58,6 +61,7 @@ impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },
@@ -100,10 +104,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{NonNegFloat, PositiveFloat, RangedFloatError};
-    use crate::python::macros::{impl_try_from_py, impl_value_err};
+    use super::{NonNegFloat, PositiveFloat};
+    use crate::python::macros::impl_try_from_py;
 
-    impl_value_err!(RangedFloatError);
     impl_try_from_py!(PositiveFloat, f32);
     impl_try_from_py!(NonNegFloat, f32);
 }

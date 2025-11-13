@@ -2,6 +2,9 @@ use derive_more::{AsRef, Display};
 use std::str::FromStr;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoBuiltinPyErr;
+
 /// A String that matches a date.
 ///
 /// To be used when parsing date using [`NaiveDate::parse_from_str`].
@@ -39,6 +42,7 @@ impl FromStr for DatePattern {
     "date pattern must contain specifier for year (%y or %Y), \
      month (%m, %b, or %B), and day (%d or %e), got {0}"
 )]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct DatePatternError(String);
 
 // TODO property tests would likely be useful here
@@ -57,9 +61,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{DatePattern, DatePatternError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use super::DatePattern;
+    use crate::python::macros::impl_from_py_via_fromstr;
 
     impl_from_py_via_fromstr!(DatePattern);
-    impl_value_err!(DatePatternError);
 }

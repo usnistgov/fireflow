@@ -525,6 +525,26 @@ pub trait ResultExt: Sized {
         let Ok(x) = self.into_result();
         x
     }
+
+    fn zip<V, LWC, RWC>(
+        self,
+        a: Result<V, Self::Error>,
+    ) -> LogResult<(Self::Ok, V), (), LWC, RWC, (), Self::Error, Vec<Self::Error>>
+    where
+        LWC: Default,
+        RWC: Default,
+    {
+        match (self.into_result(), a) {
+            (Ok(x0), Ok(x1)) => LogResult::new_ok((x0, x1)),
+            (Ok(_), Err(e)) => LogResult::new_err(e),
+            (Err(e), Ok(_)) => LogResult::new_err(e),
+            (Err(e0), Err(e1)) => {
+                let mut ret = Failure::new_from_one(e0, ());
+                ret.extend_errors(iter::once(e1));
+                Fail(ret)
+            }
+        }
+    }
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1223,6 +1243,19 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
     {
         self.map(|s| s.map_warnings(&f))
             .map_err(|e| e.map_warnings(f))
+    }
+
+    /// Map function over warnings of commutative Result
+    pub(crate) fn map_warnings_and_errors<F, Ef>(
+        self,
+        f: F,
+    ) -> CommutativeResult<V, P, Sibling1<WC, Ef>, Ef, Sibling1<EC, Ef>>
+    where
+        F: Fn(E) -> Ef,
+        WC: Functor<E>,
+        EC: Functor<E>,
+    {
+        self.map_commutative_warnings(&f).map_errors(f)
     }
 
     pub(crate) fn commutative_warnings_to_errors<F, W>(

@@ -1751,27 +1751,24 @@ impl<O> Optical<O> {
         O: LookupOptical,
         Version: From<O::Ver>,
     {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupOpticalWarning::from)
+                    .switchable_into_commutative()
+                    .map_errors(LookupOpticalError::from)
+                    .into_semigroup()
+            };
+        }
         let filter = Filter::remove_meas_opt_nofail(std, i);
-        let power = Power::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let power = go!(Power::drop_meas_opt(std, &mut nonstd, i, conf));
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit = PercentEmitted::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let det_volt = DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let perc_emit = go!(PercentEmitted::drop_meas_opt(std, &mut nonstd, i, conf));
+        let det_volt = go!(DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf));
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         power
-            .zip3_commutative(perc_emit, det_volt)
-            .map_errors(LookupOpticalError::from)
-            .zip_commutative(specific)
-            .map_ok_value(|((p, e, v), s)| Self::new(common, filter, p, det_type, e, v, s))
+            .zip4_commutative(perc_emit, det_volt, specific)
+            .map_ok_value(|(p, e, v, s)| Self::new(common, filter, p, det_type, e, v, s))
     }
 
     fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)>
@@ -1954,6 +1951,14 @@ where
     where
         M: LookupMetaroot,
     {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupMetarootWarning::from)
+                    .switchable_into_commutative()
+                    .map_errors(LookupMetarootError::from)
+                    .into_semigroup()
+            };
+        }
         let com = Com::remove_metaroot_opt_nofail(std);
         let cells = Cells::remove_metaroot_opt_nofail(std);
         let exp = Exp::remove_metaroot_opt_nofail(std);
@@ -1965,26 +1970,15 @@ where
         let src = Src::remove_metaroot_opt_nofail(std);
         let sys = Sys::remove_metaroot_opt_nofail(std);
 
-        let abrt_res = Abrt::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let lost_res = Lost::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let tr_res = Trigger::drop_metaroot_opt(std, &mut nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let abrt_res = go!(Abrt::drop_metaroot_opt(std, &mut nonstd, conf));
+        let lost_res = go!(Lost::drop_metaroot_opt(std, &mut nonstd, conf));
+        let tr_res = go!(Trigger::drop_metaroot_opt(std, &mut nonstd, conf));
 
         let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
 
         abrt_res
-            .zip3_commutative(lost_res, tr_res)
-            .map_errors(LookupMetarootError::from)
-            .zip_commutative(spec_res)
-            .map_ok_value(|((abrt, lost, tr), specific)| {
+            .zip4_commutative(lost_res, tr_res, spec_res)
+            .map_ok_value(|(abrt, lost, tr, specific)| {
                 Self::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                     nonstd,
@@ -6369,18 +6363,19 @@ impl ScaleTransform {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        Gain::drop_meas_opt(std, nonstd, i, conf)
+        let gain = Gain::drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .map_errors(LookupOpticalError::from)
-            .into_semigroup()
-            .set_err_value(())
-            .and_then_commutative(|g| {
-                Scale::remove_meas_req_with(std, i, (), conf)
-                    .map_err(LookupOpticalError::from)
-                    .and_then(|s| Self::try_from((s, g)).map_err(LookupOpticalError::from))
-                    .into_log()
-            })
+            .into_semigroup();
+        let scale = Scale::remove_meas_req_with(std, i, (), conf)
+            .map_err(LookupOpticalError::from)
+            .into_log();
+        gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
+            Self::try_from((s, g))
+                .map_err(LookupOpticalError::from)
+                .into_log()
+        })
     }
 
     fn req_suffixes(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)> {
@@ -6779,8 +6774,7 @@ impl LookupOptical for InnerOptical2_0 {
             .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupOpticalWarning::from)
-            .map_commutative_warnings(LookupOpticalWarning::from);
+            .map_warnings_and_errors(LookupOpticalWarning::from);
         scale
             .zip3_commutative(wave, peak)
             .map_errors(LookupOpticalError::from)
@@ -6800,13 +6794,12 @@ impl LookupOptical for InnerOptical3_0 {
             .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupOpticalWarning::from)
-            .map_commutative_warnings(LookupOpticalWarning::from);
+            .map_warnings_and_errors(LookupOpticalWarning::from);
+        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
-            .and_then_commutative(|(wi, pi)| {
-                ScaleTransform::lookup(std, nonstd, i, conf).map_ok_value(|s| Self::new(s, wi, pi))
-            })
+            .zip_commutative(scale)
+            .map_ok_value(|((w, p), s)| Self::new(s, w, p))
     }
 }
 
@@ -6817,27 +6810,23 @@ impl LookupOptical for InnerOptical3_1 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let cal = Calibration3_1::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupOpticalWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            };
+        }
+        let wave = go!(Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf));
+        let cal = go!(Calibration3_1::drop_meas_opt(std, nonstd, i, conf));
+        let dpy = go!(Display::drop_meas_opt(std, nonstd, i, conf));
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupOpticalWarning::from)
-            .map_commutative_warnings(LookupOpticalWarning::from);
+            .map_warnings_and_errors(LookupOpticalWarning::from);
+        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
         wave.zip4_commutative(cal, dpy, peak)
             .map_errors(LookupOpticalError::from)
-            .and_then_commutative(|(wi, ci, di, pi)| {
-                ScaleTransform::lookup(std, nonstd, i, conf)
-                    .map_ok_value(|scale| Self::new(scale, wi, ci, di, pi))
-            })
+            .zip_commutative(scale)
+            .map_ok_value(|((w, c, d, p), s)| Self::new(s, w, c, d, p))
     }
 }
 
@@ -6848,36 +6837,29 @@ impl LookupOptical for InnerOptical3_2 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        let wave = Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let cal = Calibration3_2::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupOpticalWarning::from)
+                    .switchable_into_commutative()
+                    .map_errors(LookupOpticalError::from)
+                    .into_semigroup()
+            };
+        }
+
+        let wave = go!(Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf));
+        let cal = go!(Calibration3_2::drop_meas_opt(std, nonstd, i, conf));
+        let dpy = go!(Display::drop_meas_opt(std, nonstd, i, conf));
+        let meas = go!(OpticalType::drop_meas_opt(std, nonstd, i, conf));
+        let feat = go!(Feature::drop_meas_opt(std, nonstd, i, conf));
+
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
-        let meas = OpticalType::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let feat = Feature::drop_meas_opt(std, nonstd, i, conf)
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
         let anal = Analyte::remove_meas_opt_nofail(std, i);
-        wave.zip_f3_once(cal, dpy)
-            .zip3_commutative(meas, feat)
-            .map_errors(LookupOpticalError::from)
-            .and_then_commutative(|((w, c, d), m, f)| {
-                ScaleTransform::lookup(std, nonstd, i, conf)
-                    .map_ok_value(|s| Self::new(s, w, c, d, anal, f, m, tag, det_name))
-            })
+
+        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
+
+        wave.zip6_commutative(cal, dpy, meas, feat, scale)
+            .map_ok_value(|(w, c, d, m, f, s)| Self::new(s, w, c, d, anal, f, m, tag, det_name))
     }
 }
 
@@ -6898,8 +6880,7 @@ impl LookupTemporal for InnerTemporal2_0 {
                 .into_semigroup()
         };
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupTemporalWarning::from)
-            .map_commutative_warnings(LookupTemporalWarning::from);
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
         scale
             .zip_commutative(peak)
@@ -6919,23 +6900,16 @@ impl LookupTemporal for InnerTemporal3_0 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupTemporalWarning::from)
-            .map_commutative_warnings(LookupTemporalWarning::from);
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
+        let scale =
+            TemporalScale3_0::lookup(std, i, nonstd, conf).map_err(LookupTemporalError::from);
+        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let req_res = scale.zip(timestep);
         gain.zip_commutative(peak)
             .map_errors(LookupTemporalError::from)
-            .and_then_commutative(|(_, p)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                let timestep = Timestep::remove_metaroot_req(std)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                scale
-                    .zip_commutative(timestep)
-                    .nowarn_into_warn()
-                    .map_ok_value(|((), t)| Self::new(t, p))
-            })
+            .zip_commutative(req_res)
+            .map_ok_value(|((_, p), ((), t))| Self::new(t, p))
     }
 }
 
@@ -6954,23 +6928,16 @@ impl LookupTemporal for InnerTemporal3_1 {
             .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf)
-            .map_errors(LookupTemporalWarning::from)
-            .map_commutative_warnings(LookupTemporalWarning::from);
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
+        let scale =
+            TemporalScale3_0::lookup(std, i, nonstd, conf).map_err(LookupTemporalError::from);
+        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let req_res = scale.zip(timestep);
         gain.zip3_commutative(dpy, peak)
             .map_errors(LookupTemporalError::from)
-            .and_then_commutative(|(_, d, p)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                let timestep = Timestep::remove_metaroot_req(std)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                scale
-                    .zip_commutative(timestep)
-                    .nowarn_into_warn()
-                    .map_ok_value(|((), t)| Self::new(t, d, p))
-            })
+            .zip_commutative(req_res)
+            .map_ok_value(|((_, d, p), ((), t))| Self::new(t, d, p))
     }
 }
 
@@ -6993,20 +6960,14 @@ impl LookupTemporal for InnerTemporal3_2 {
             .switchable_into_commutative()
             .into_semigroup();
         TemporalOpticalKey::remove_keys(&conf.ignore_time_optical_keys, std, nonstd, i);
+        let scale =
+            TemporalScale3_0::lookup(std, i, nonstd, conf).map_err(LookupTemporalError::from);
+        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let req_res = scale.zip(timestep);
         gain.zip3_commutative(dpy, meas)
             .map_errors(LookupTemporalError::from)
-            .and_then_commutative(|(_, d, m)| {
-                let scale = TemporalScale3_0::lookup(std, i, nonstd, conf)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                let timestep = Timestep::remove_metaroot_req(std)
-                    .map_err(LookupTemporalError::from)
-                    .into_nowarn();
-                scale
-                    .zip_commutative(timestep)
-                    .nowarn_into_warn()
-                    .map_ok_value(|((), t)| Self::new(t, d, m))
-            })
+            .zip_commutative(req_res)
+            .map_ok_value(|((_, d, m), ((), t))| Self::new(t, d, m))
     }
 }
 
@@ -7648,16 +7609,14 @@ impl LookupMetaroot for InnerMetaroot2_0 {
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let mode = Mode::remove_metaroot_req(std)
+            .map_err(LookupMetarootError::from)
+            .into_log();
         comp.zip3_commutative(ts, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_commutative(|(co, t, g)| {
-                Mode::remove_metaroot_req(std)
-                    .map(|mo| Self::new(mo, cyt, co, t, g))
-                    .map_err(LookupMetarootError::from)
-                    .into_log()
-            })
+            .zip_commutative(mode)
+            .map_ok_value(|((c, t, g), m)| Self::new(m, cyt, c, t, g))
     }
 }
 
@@ -7680,33 +7639,34 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         _: &TemporalsAndOpticals3_0,
         conf: &StdTextReadConfig,
     ) -> LookupMetarootResult<Self> {
-        let comp = Compensation3_0::drop_metaroot_opt(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupMetarootWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            };
+        }
+
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
+
+        let comp = go!(Compensation3_0::drop_metaroot_opt(std, nonstd, conf));
+        let ts = go!(Timestamps::lookup(std, nonstd, conf));
+        let uni = go!(Unicode::drop_metaroot_opt_with(std, nonstd, (), conf));
+
         let subset = SubsetData::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
-        let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
-        let uni = Unicode::drop_metaroot_opt_with(std, nonstd, (), conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+
+        let mode = Mode::remove_metaroot_req(std)
+            .map_err(LookupMetarootError::from)
+            .into_log();
+
         comp.zip5_commutative(subset, ts, uni, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_commutative(|(co, su, t, u, g)| {
-                Mode::remove_metaroot_req(std)
-                    .map(|mo| Self::new(mo, cyt, co, t, cytsn, u, su, g))
-                    .map_err(LookupMetarootError::from)
-                    .into_log()
-            })
+            .zip_commutative(mode)
+            .map_ok_value(|((co, su, t, u, g), m)| Self::new(m, cyt, co, t, cytsn, u, su, g))
     }
 }
 
@@ -7729,6 +7689,14 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         ms: &TemporalsAndOpticals3_1,
         conf: &StdTextReadConfig,
     ) -> LookupMetarootResult<Self> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupMetarootWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            };
+        }
+
         let process_mode = |mode| {
             let err = match &mode {
                 Mode::Correlated => Some(DeprecatedModeWarning::ModeCorrelated),
@@ -7746,39 +7714,37 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
+
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
-        let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
-        let subset = SubsetData::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
-        let modif = ModificationData::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
         let plate = PlateData::lookup(std);
-        let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
-        let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+
+        let modif = go!(ModificationData::lookup(std, nonstd, conf));
+        let ts = go!(Timestamps::lookup(std, nonstd, conf));
+        let vol = go!(Vol::drop_metaroot_opt(std, nonstd, conf));
+        let spill = go!(Spillover::drop_metaroot_opt_with(
+            std,
+            nonstd,
+            &ordered_names[..],
+            conf
+        ));
+
+        let subset = SubsetData::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+
+        let mode = Mode::remove_metaroot_req(std)
+            .map_err(LookupMetarootError::from)
+            .into_log()
+            .and_then_commutative(process_mode);
 
         spill
             .zip6_commutative(subset, modif, ts, vol, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_commutative(|(sp, su, md, t, v, g)| {
-                Mode::remove_metaroot_req(std)
-                    .map_err(LookupMetarootError::from)
-                    .into_log()
-                    .and_then_commutative(process_mode)
-                    .map_ok_value(|mo| Self::new(mo, cyt, t, cytsn, sp, md, plate, v, su, g))
+            .zip_commutative(mode)
+            .map_ok_value(|((sp, su, md, t, v, g), m)| {
+                Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g)
             })
     }
 }
@@ -7802,54 +7768,52 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         ms: &TemporalsAndOpticals3_2,
         conf: &StdTextReadConfig,
     ) -> LookupMetarootResult<Self> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupMetarootWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            };
+        }
+
         let ordered_names: Vec<_> =
             ms.0.iter()
                 .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
                 .collect();
-        let carrier = CarrierData::lookup(std);
-        let dt = Datetimes::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
+
         let flow = Flowrate::remove_metaroot_opt_nofail(std);
-        let modif = ModificationData::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
-        let mode = Mode3_2::drop_metaroot_opt(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let spill = Spillover::drop_metaroot_opt_with(std, nonstd, &ordered_names[..], conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
         let plate = PlateData::lookup(std);
-        let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
-        let us = UnstainedData::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let vol = Vol::drop_metaroot_opt(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let carrier = CarrierData::lookup(std);
+
+        let dt = go!(Datetimes::lookup(std, nonstd, conf));
+        let modif = go!(ModificationData::lookup(std, nonstd, conf));
+        let mode = go!(Mode3_2::drop_metaroot_opt(std, nonstd, conf));
+        let ts = go!(Timestamps::lookup(std, nonstd, conf));
+        let us = go!(UnstainedData::lookup(std, nonstd, conf));
+        let vol = go!(Vol::drop_metaroot_opt(std, nonstd, conf));
+        let spill = go!(Spillover::drop_metaroot_opt_with(
+            std,
+            nonstd,
+            &ordered_names[..],
+            conf
+        ));
+
         let ag = AppliedGates3_2::lookup(std, nonstd, conf)
-            .map_errors(LookupMetarootWarning::from)
-            .map_commutative_warnings(LookupMetarootWarning::from);
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+
+        let cyt = Cyt3_2::remove_metaroot_req(std)
+            .map_err(LookupMetarootError::from)
+            .into_log();
+
         dt.zip4_commutative(modif, mode, spill)
             .zip5_commutative(ts, us, vol, ag)
             .map_errors(LookupMetarootError::from)
-            .and_then_commutative(|((d_, md_, mo_, sp_), t_, u_, v_, ag_)| {
-                Cyt3_2::remove_metaroot_req(std)
-                    .map(|c_| {
-                        Self::new(
-                            mo_, t_, d_, c_, sp_, cytsn, md_, plate, v_, carrier, u_, flow, ag_,
-                        )
-                    })
-                    .map_err(LookupMetarootError::from)
-                    .into_log()
+            .zip_commutative(cyt)
+            .map_ok_value(|(((d_, md_, mo_, sp_), t_, u_, v_, ag_), c_)| {
+                Self::new(
+                    mo_, t_, d_, c_, sp_, cytsn, md_, plate, v_, carrier, u_, flow, ag_,
+                )
             })
     }
 }

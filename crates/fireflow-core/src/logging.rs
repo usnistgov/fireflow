@@ -526,6 +526,7 @@ pub trait ResultExt: Sized {
         x
     }
 
+    #[allow(clippy::type_complexity)]
     fn zip<V, LWC, RWC>(
         self,
         a: Result<V, Self::Error>,
@@ -536,8 +537,7 @@ pub trait ResultExt: Sized {
     {
         match (self.into_result(), a) {
             (Ok(x0), Ok(x1)) => LogResult::new_ok((x0, x1)),
-            (Ok(_), Err(e)) => LogResult::new_err(e),
-            (Err(e), Ok(_)) => LogResult::new_err(e),
+            (Ok(_), Err(e)) | (Err(e), Ok(_)) => LogResult::new_err(e),
             (Err(e0), Err(e1)) => {
                 let mut ret = Failure::new_from_one(e0, ());
                 ret.extend_errors(iter::once(e1));

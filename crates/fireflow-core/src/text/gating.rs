@@ -1,4 +1,4 @@
-use crate::config::{AllowLoss, AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::config::{AllowLoss, ConfigFlag as _, StdTextReadConfig};
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
@@ -33,6 +33,9 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -1076,6 +1079,7 @@ pub struct MeasToGateIndexError(PrefixedMeasIndex);
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
     Scheme(DependentKeyError<Gating>),
@@ -1157,12 +1161,14 @@ pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
 >;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupGatedMeasurementsError {
     Gate(OptKeyError<Gate>),
     Meas(LookupGatedMeasError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupGatedMeasError {
     Scale(OptIndexedKeyError<GateScale>),
     Shortname(OptIndexedKeyError<GateShortname>),
@@ -1174,15 +1180,13 @@ pub enum LookupGatedMeasError {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow_err, impl_to_py_via_display,
-        impl_value_err,
+        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
     use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
 
     use super::{
         GateMeasurementLinkError, IndexWindowMismatchError, LookupAppliedGatesError,
-        LookupGatedMeasError, LookupGatedMeasurementsError, LookupGatingSchemeError,
-        LookupRegionError, NewAppliedGatesWithSchemeError,
+        LookupGatingSchemeError, LookupRegionError,
     };
 
     use pyo3::prelude::*;
@@ -1198,8 +1202,6 @@ mod python {
 
     impl_pyreflow_err!(RelationalException, GateMeasurementLinkError);
     impl_pyreflow_err!(RelationalException, IndexWindowMismatchError);
-
-    impl_from_pyerr!(NewAppliedGatesWithSchemeError, Link, Scheme);
 
     impl<E0, E1> From<LookupGatingSchemeError<E0, E1>> for PyErr
     where
@@ -1240,14 +1242,4 @@ mod python {
             }
         }
     }
-
-    impl_from_pyerr!(LookupGatedMeasurementsError, Gate, Meas);
-    impl_from_pyerr!(
-        LookupGatedMeasError,
-        Scale,
-        Shortname,
-        PercentEmitted,
-        Range,
-        DetectorVoltage
-    );
 }

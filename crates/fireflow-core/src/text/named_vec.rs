@@ -26,6 +26,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 use Ordering::{Equal, Greater, Less};
 
 /// A list of potentially named values with an optional "center value".
@@ -1894,6 +1897,7 @@ impl<K, U, V> SplitVec<K, U, V> {
 }
 
 #[derive(Debug, Display, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertError {
     Index(BoundaryIndexError),
     NonUnique(NonUniqueKeyError),
@@ -1906,36 +1910,42 @@ pub enum RenameError {
 }
 
 #[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertCenterError {
     Present(CenterPresentError),
     Insert(InsertError),
 }
 
 #[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetKeysError {
     Names(SetNamesError),
     MissingCenter(MissingCenterError),
 }
 
 #[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetNamesError {
     Length(InputLengthError),
     NonUnique(NonUniqueKeysError),
 }
 
 #[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetCenterError {
     Index(ElementIndexError),
     NoName(NoNameError),
 }
 
 #[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewNamedVecError {
     NonUnique(NonUniqueKeysError),
     MultiCenter(CenterPresentError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetElementsError {
     Length(InputLengthError),
     Mismatch(ColumnError<OpticalMismatchError>),
@@ -2027,13 +2037,12 @@ impl fmt::Display for OpticalMismatchError {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        CenterPresentError, Element, ElementIndexError, InputLengthError, InsertCenterError,
-        InsertError, KeyNotFoundError, MissingCenterError, NewNamedVecError, NoNameError,
-        NonCenterElement, NonUniqueKeyError, NonUniqueKeysError, OpticalMismatchError,
-        SetCenterError, SetElementsError, SetKeysError, SetNamesError,
+        CenterPresentError, Element, ElementIndexError, InputLengthError, KeyNotFoundError,
+        MissingCenterError, NoNameError, NonCenterElement, NonUniqueKeyError, NonUniqueKeysError,
+        OpticalMismatchError,
     };
     use crate::data::ColumnError;
-    use crate::python::macros::{impl_from_pyerr, impl_index_err, impl_pyreflow_err};
+    use crate::python::macros::{impl_index_err, impl_pyreflow_err};
     use pyo3::exceptions::PyKeyError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
@@ -2068,12 +2077,4 @@ mod python {
     impl_pyreflow_err!(MeasurementException, CenterPresentError);
 
     impl_pyreflow_err!(MeasurementException, ColumnError<OpticalMismatchError>);
-
-    impl_from_pyerr!(SetNamesError, Length, NonUnique);
-    impl_from_pyerr!(SetKeysError, Names, MissingCenter);
-    impl_from_pyerr!(SetCenterError, Index, NoName);
-    impl_from_pyerr!(SetElementsError, Length, Mismatch);
-    impl_from_pyerr!(InsertError, Index, NonUnique);
-    impl_from_pyerr!(InsertCenterError, Present, Insert);
-    impl_from_pyerr!(NewNamedVecError, NonUnique, MultiCenter);
 }

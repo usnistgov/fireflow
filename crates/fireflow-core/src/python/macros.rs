@@ -47,18 +47,6 @@ macro_rules! impl_pyreflow_err {
 
 pub(crate) use impl_pyreflow_err;
 
-macro_rules! impl_from_pyerr {
-    ($t:ident, $($var:ident),*) => {
-        impl From<$t> for pyo3::PyErr {
-            fn from(value: $t) -> Self {
-                crate::macros::match_many_to_one!(value, $t, [$($var),*], x, { x.into() })
-            }
-        }
-    };
-}
-
-pub(crate) use impl_from_pyerr;
-
 macro_rules! impl_try_from_py {
     ($t:ident, $inner:ident) => {
         impl<'py> pyo3::FromPyObject<'py> for $t {

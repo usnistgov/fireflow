@@ -20,6 +20,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -284,6 +287,7 @@ pub(crate) fn lookup_dfc(
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupComp2_0Error {
     Dfc(ParseKeyError<ParseFloatError, Dfc, BiIndex>),
     Matrix(NewCompError),
@@ -332,9 +336,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_value_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_value_err};
 
-    use super::{Compensation, Compensation2_0, Compensation3_0, LookupComp2_0Error, NewCompError};
+    use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
@@ -361,6 +365,4 @@ mod python {
 
     impl_from_py_transparent!(Compensation2_0);
     impl_from_py_transparent!(Compensation3_0);
-
-    impl_from_pyerr!(LookupComp2_0Error, Dfc, Matrix);
 }

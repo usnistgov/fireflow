@@ -1213,11 +1213,12 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::FileLayoutError;
+    use crate::validated::keys::Key;
 
     use super::{
-        InnerSegment, NonEmptySegment, OptSegmentWithDefaultWarningInner,
-        ReqSegmentWithDefaultErrorInner, ReqSegmentWithDefaultWarning_, Segment,
-        SegmentMismatchWarning, Zero,
+        InnerSegment, NonEmptySegment, OptSegmentError, OptSegmentWithDefaultWarningInner,
+        ReqSegmentError, ReqSegmentWithDefaultErrorInner, ReqSegmentWithDefaultWarning_, Segment,
+        SegmentError, SegmentMismatchWarning, Zero,
     };
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -1297,6 +1298,35 @@ mod python {
     {
         fn from(value: SegmentMismatchWarning<I>) -> Self {
             FileLayoutError::new_err(value.to_string())
+        }
+    }
+
+    impl<T> From<SegmentError<T>> for PyErr
+    where
+        SegmentError<T>: Display,
+    {
+        fn from(value: SegmentError<T>) -> Self {
+            FileLayoutError::new_err(value.to_string())
+        }
+    }
+
+    impl<B: Key, E: Key> From<ReqSegmentError<B, E>> for PyErr {
+        fn from(value: ReqSegmentError<B, E>) -> Self {
+            match value {
+                ReqSegmentError::BeginKey(x) => x.into(),
+                ReqSegmentError::EndKey(x) => x.into(),
+                ReqSegmentError::Segment(x) => x.into(),
+            }
+        }
+    }
+
+    impl<B: Key, E: Key> From<OptSegmentError<B, E>> for PyErr {
+        fn from(value: OptSegmentError<B, E>) -> Self {
+            match value {
+                OptSegmentError::BeginKey(x) => x.into(),
+                OptSegmentError::EndKey(x) => x.into(),
+                OptSegmentError::Segment(x) => x.into(),
+            }
         }
     }
 }

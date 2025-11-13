@@ -716,6 +716,7 @@ dependencies = [
  "chrono",
  "derive-new",
  "derive_more",
+ "fireflow-core-proc",
  "itertools 0.14.0",
  "nalgebra",
  "nonempty",
@@ -731,6 +732,15 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
  "unicase",
+]
+
+[[package]]
+name = "fireflow-core-proc"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]

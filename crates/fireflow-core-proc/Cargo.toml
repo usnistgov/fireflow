@@ -1,0 +1,15 @@
+[package]
+name = "fireflow-core-proc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+syn = { version = "*", features = ["derive"] }
+quote = "*"
+proc-macro2 = "*"
+
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true

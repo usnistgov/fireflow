@@ -116,6 +116,9 @@ use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// Represents the minimal data required to write an FCS file.
 ///
 /// At minimum, this contains the TEXT keywords in a version-specific structure
@@ -8450,6 +8453,7 @@ pub enum StdReaderError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(ColumnError<AnyLossError>),
@@ -8504,6 +8508,7 @@ pub struct SpilloverLinkError;
 pub struct TriggerLinkError;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
     Link(ExistingLinkError),
@@ -8511,84 +8516,98 @@ pub enum SetMeasurementsError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetScalesError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalScaleError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetTransformsError {
     Layout(MeasLayoutMismatchError),
     Temporal(NonLinearTemporalTransformError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ColumnsToDataframeError {
     New(df::NewDataframeError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetMeasurementsOnlyError {
     Meas(SetMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkError),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RemoveMeasByIndexError {
     Link(ExistingLinkError),
     Index(ElementIndexError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertOpticalError {
     Insert(InsertError),
     Layout(AnyRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum PushTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertTemporalToDatasetError {
     Measurement(InsertTemporalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum PushOpticalToDatasetError {
     Measurement(PushOpticalError),
     Column(df::ColumnLengthError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
     Column(df::ColumnLengthError),
@@ -8610,12 +8629,14 @@ pub struct NonLinearTemporalScaleError;
 pub struct NonLinearTemporalTransformError;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromRawError),
     Warn(StdTEXTFromRawWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdTEXTFromRawError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
@@ -8627,6 +8648,7 @@ pub enum StdTEXTFromRawError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdTEXTFromRawWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
@@ -8638,6 +8660,7 @@ pub enum StdTEXTFromRawWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdDatasetFromRawError {
     TEXT(StdTEXTFromRawError),
     Dataframe(ReadDataframeError),
@@ -8646,6 +8669,7 @@ pub enum StdDatasetFromRawError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdDatasetFromRawWarning {
     TEXT(StdTEXTFromRawWarning),
     Offsets(LookupTEXTOffsetsWarning),
@@ -8664,6 +8688,7 @@ pub enum StdDatasetFromRawWarning {
 pub struct NoScaleError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReplaceTemporalError {
     ToOptical(AnyTemporalToOpticalKeyLossError),
     Set(SetCenterError),
@@ -8671,12 +8696,14 @@ pub enum ReplaceTemporalError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetTemporalByNameError {
     Inner(SetTemporalError),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum SetTemporalByIndexError {
     Inner(SetTemporalError),
     Set(SetCenterError),
@@ -8905,6 +8932,7 @@ pub enum AnyTemporalToOpticalKeyLossError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(RawToLayoutError),
@@ -8913,6 +8941,7 @@ pub enum LookupAndReadDataAnalysisError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(RawToLayoutWarning),
@@ -8920,6 +8949,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupTEXTOffsetsWarning {
     Tot(OptKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
@@ -8928,6 +8958,7 @@ pub enum LookupTEXTOffsetsWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupTEXTOffsetsError {
     Tot(ReqKeyError<Tot>),
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
@@ -8938,6 +8969,7 @@ pub enum LookupTEXTOffsetsError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewCoreTEXTError {
     Core(NewCoreError),
     Timestamps(ReversedTimestampsError),
@@ -8945,12 +8977,14 @@ pub enum NewCoreTEXTError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewCoreError {
     Meas(NewNamedVecError),
     Warn(NewCoreWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewCoreWarning {
     Time(MissingTime),
     Relational(NewCoreRelationalError),
@@ -8958,6 +8992,7 @@ pub enum NewCoreWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewCoreRelationalError {
     Link(AnyLinkError),
     Layout(MeasLayoutMismatchError),
@@ -8967,6 +9002,7 @@ pub type LookupMetarootResult<V> =
     WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMetarootError {
     Mode(ReqKeyError<Mode>),
     Cyt3_2(ReqKeyError<Cyt3_2>),
@@ -8975,6 +9011,7 @@ pub enum LookupMetarootError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMetarootWarning {
     Trigger(OptKeyStError<Trigger>),
     Comp2_0(LookupComp2_0Error),
@@ -9004,6 +9041,7 @@ pub type LookupMeasurementResult<V> =
     WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
     Optical(LookupOpticalError),
@@ -9012,6 +9050,7 @@ pub enum LookupMeasurementError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupOpticalWarning),
@@ -9024,6 +9063,7 @@ pub type LookupShortnameResult<V> =
     WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupShortnameError {
     Req(ReqIndexedKeyError<Shortname>),
     Opt(OptIndexedKeyError<Shortname>),
@@ -9033,6 +9073,7 @@ pub type LookupOpticalResult<V> =
     WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupOpticalError {
     Xform(ScaleTransformError),
     Scale(ReqIndexedKeyError<Scale>),
@@ -9040,6 +9081,7 @@ pub enum LookupOpticalError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
@@ -9063,6 +9105,7 @@ pub type LookupTemporalResult<V> =
     WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupTemporalError {
     TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
@@ -9070,6 +9113,7 @@ pub enum LookupTemporalError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupTemporalWarning {
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGain),
@@ -9079,12 +9123,14 @@ pub enum LookupTemporalWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupPeakError {
     Bin(OptIndexedKeyError<PeakBin>),
     Index(OptIndexedKeyError<PeakIndex>),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupSubsetError {
     Flags(LookupCSVFlagsError),
     Bits(OptKeyError<CSVBits>),
@@ -9092,12 +9138,14 @@ pub enum LookupSubsetError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupCSVFlagsError {
     Mode(OptKeyError<CSMode>),
     Flag(OptIndexedKeyError<CSVFlag>),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupModifiedDataError {
     LastModTime(OptKeyError<LastModified>),
     Originality(OptKeyError<Originality>),
@@ -9262,28 +9310,17 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::data::{AnyRangeError, RawToLayoutError};
+    use crate::data::AnyRangeError;
     use crate::python::exceptions::ConversionException;
-    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;
 
     use super::{
-        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
-        CompParMismatchError, ConvertError, ExistingLinkError, GatingMeasLinkError,
-        InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
-        InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupCSVFlagsError,
-        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
-        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
-        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTEXTOffsetsError,
-        LookupTEXTOffsetsWarning, LookupTemporalError, LookupTemporalWarning,
-        MeasDataMismatchError, MissingTime, NewCoreError, NewCoreRelationalError, NewCoreTEXTError,
-        NewCoreWarning, NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other,
-        Others, PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
-        RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
-        ScaleTransformError, SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError,
-        SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError, SetTransformsError,
-        SpilloverLinkError, StdDatasetFromRawWarning, StdTEXTFromKeywordsError,
-        StdTEXTFromRawError, StdTEXTFromRawWarning, StdWriterError, TriggerLinkError,
+        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, CompParMismatchError, ConvertError,
+        ExistingLinkError, GatingMeasLinkError, MeasDataMismatchError, MissingTime,
+        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
+        ScaleTransform, ScaleTransformError, SetTemporalError, SpilloverLinkError,
+        TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
@@ -9347,142 +9384,4 @@ mod python {
     impl_pyreflow_err!(RelationalException, CompParMismatchError);
     impl_pyreflow_err!(RelationalException, ScaleTransformError);
     impl_pyreflow_err!(RelationalException, MissingTime);
-
-    impl_from_pyerr!(ReplaceTemporalError, ToOptical, Set, Name);
-    impl_from_pyerr!(RemoveMeasByIndexError, Link, Index);
-    impl_from_pyerr!(RemoveMeasByNameError, Link, Name);
-    impl_from_pyerr!(SetTemporalByIndexError, Inner, Set);
-    impl_from_pyerr!(SetTemporalByNameError, Inner, Name);
-    impl_from_pyerr!(InsertOpticalError, Insert, Layout);
-    impl_from_pyerr!(PushOpticalError, Unique, Layout);
-    impl_from_pyerr!(InsertTemporalError, Center, Layout);
-    impl_from_pyerr!(SetMeasurementsError, New, Link, Layout);
-    impl_from_pyerr!(PushTemporalToDatasetError, Measurement, Column);
-    impl_from_pyerr!(InsertTemporalToDatasetError, Measurement, Column);
-    impl_from_pyerr!(PushOpticalToDatasetError, Measurement, Column);
-    impl_from_pyerr!(InsertOpticalInDatasetError, Measurement, Column);
-    impl_from_pyerr!(SetMeasurementsAndDataError, Meas, Mismatch);
-    impl_from_pyerr!(SetScalesError, Layout, Temporal);
-    impl_from_pyerr!(SetTransformsError, Layout, Temporal);
-    impl_from_pyerr!(ColumnsToDataframeError, New, Mismatch);
-    impl_from_pyerr!(NewCoreError, Meas, Warn);
-    impl_from_pyerr!(NewCoreWarning, Time, Deprecated, Relational);
-    impl_from_pyerr!(NewCoreRelationalError, Link, Layout);
-    impl_from_pyerr!(NewCoreTEXTError, Core, Timestamps, Datetimes);
-    impl_from_pyerr!(StdTEXTFromKeywordsError, Error, Warn);
-    impl_from_pyerr!(
-        StdTEXTFromRawError,
-        New,
-        Metaroot,
-        Meas,
-        Layout,
-        Offsets,
-        Pseudostandard,
-        Unused
-    );
-    impl_from_pyerr!(
-        StdTEXTFromRawWarning,
-        New,
-        Metaroot,
-        Meas,
-        Layout,
-        Offsets,
-        Pseudostandard,
-        Unused
-    );
-    impl_from_pyerr!(
-        LookupTEXTOffsetsError,
-        Tot,
-        ReqData,
-        ReqAnalysis,
-        MismatchData,
-        MismatchAnalysis,
-        MismatchAnalysisOpt
-    );
-    impl_from_pyerr!(
-        LookupTEXTOffsetsWarning,
-        Tot,
-        ReqData,
-        ReqAnalysis,
-        MismatchAnalysis
-    );
-    impl_from_pyerr!(StdWriterError, Layout, Check, Overflow);
-    impl_from_pyerr!(StdDatasetFromRawWarning, TEXT, Offsets, Layout);
-    impl_from_pyerr!(
-        LookupAndReadDataAnalysisError,
-        Offsets,
-        Layout,
-        Dataframe,
-        Warn
-    );
-    impl_from_pyerr!(RawToLayoutError, New, Raw);
-
-    impl_from_pyerr!(
-        LookupMetarootWarning,
-        Trigger,
-        Comp2_0,
-        Comp3_0,
-        Timestamps2_0,
-        Timestamps3_0,
-        Timestamps3_1,
-        Datetimes,
-        Modified,
-        UnstainedCenter,
-        Mode3_2,
-        Mode,
-        Unicode,
-        Spillover,
-        Gate2_0,
-        Gate3_0,
-        Gate3_2,
-        Vol,
-        Abrt,
-        Lost,
-        Subset
-    );
-    impl_from_pyerr!(LookupMetarootError, Mode, Cyt3_2, Par, Warn);
-    impl_from_pyerr!(LookupSubsetError, Flags, Bits, Tot);
-    impl_from_pyerr!(LookupCSVFlagsError, Mode, Flag);
-    impl_from_pyerr!(LookupModifiedDataError, LastModTime, Originality);
-
-    impl_from_pyerr!(
-        LookupMeasurementWarning,
-        Temporal,
-        Optical,
-        Shortname,
-        MissingTime,
-        Pattern
-    );
-    impl_from_pyerr!(LookupMeasurementError, Temporal, Optical, Shortname, Warn);
-    impl_from_pyerr!(LookupShortnameError, Req, Opt);
-    impl_from_pyerr!(LookupTemporalError, TemporalScale, Timestep, Warn);
-    impl_from_pyerr!(LookupOpticalError, Xform, Scale, Warn);
-    impl_from_pyerr!(
-        LookupTemporalWarning,
-        TemporalScale,
-        TemporalGain,
-        TemporalType,
-        Display,
-        Peak
-    );
-    impl_from_pyerr!(
-        LookupOpticalWarning,
-        Scale,
-        TemporalScale,
-        Gain,
-        TemporalGain,
-        Feature,
-        Wavelengths,
-        Wavelength,
-        Calibration3_1,
-        Calibration3_2,
-        TemporalType,
-        OpticalType,
-        Display,
-        Power,
-        PercentEmitted,
-        DetectorVoltage,
-        Peak
-    );
-    impl_from_pyerr!(LookupPeakError, Bin, Index);
 }

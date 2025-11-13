@@ -56,6 +56,9 @@ use crate::python::macros::impl_from_py_transparent;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub UintZeroPad20);
@@ -87,6 +90,7 @@ impl Gain {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupTemporalGain {
     Parse(OptIndexedKeyError<Gain>),
     HasGain(TemporalGainError),
@@ -2482,7 +2486,7 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_from_pyerr, impl_pyreflow_err,
+        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow_err,
         impl_to_py_via_display, impl_value_err,
     };
     use crate::text::ranged_float::PositiveFloat;
@@ -2491,11 +2495,11 @@ mod python {
     use super::{
         AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2,
         DeprecatedDatatypeWarning, DeprecatedModeWarning, Display, Feature, FeatureError,
-        GateRange, GateScale, GateShortname, IndexPair, LastModified, LookupTemporalGain, Mode,
-        Mode3_2, Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError,
-        Originality, OriginalityError, PrefixedMeasIndex, PseudostandardError, Range,
-        TemporalGainError, Timestep, Trigger, UniGate, Unicode, UnstainedCenters,
-        UnusedStandardError, Vertex, Vol, Wavelength, Wavelengths,
+        GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error,
+        ModeError, NumType, NumTypeError, OpticalType, OpticalTypeError, Originality,
+        OriginalityError, PrefixedMeasIndex, PseudostandardError, Range, TemporalGainError,
+        Timestep, Trigger, UniGate, Unicode, UnstainedCenters, UnusedStandardError, Vertex, Vol,
+        Wavelength, Wavelengths,
     };
 
     use pyo3::prelude::*;
@@ -2535,8 +2539,6 @@ mod python {
 
     impl_from_py_via_fromstr!(OpticalType);
     impl_value_err!(OpticalTypeError);
-
-    impl_from_pyerr!(LookupTemporalGain, Parse, HasGain);
 
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);

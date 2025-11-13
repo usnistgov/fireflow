@@ -119,6 +119,9 @@ use std::str;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
@@ -4229,6 +4232,7 @@ pub type DataReaderResult<T> =
     WarningsAndErrorsResult<T, (), NewDataReaderWarning, NewDataReaderError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewDataReaderError {
     TotMismatch(TotEventMismatch),
     ParseTot(ReqKeyError<Tot>),
@@ -4238,6 +4242,7 @@ pub enum NewDataReaderError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum NewDataReaderWarning {
     TotMismatch(TotEventMismatch),
     ParseTot(OptKeyError<Tot>),
@@ -4274,6 +4279,7 @@ pub struct ZeroEventWidth {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum EventWidthError {
     Zero(ZeroEventWidth),
     Uneven(UnevenEventWidth),
@@ -4311,6 +4317,7 @@ impl<E> ColumnError<E> {
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupLayoutError {
     New(NewDataLayoutError),
     AlphaNumType(ReqKeyError<AlphaNumType>),
@@ -4320,6 +4327,7 @@ pub enum LookupLayoutError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
     Datatype(DeprecatedDatatypeWarning),
@@ -4327,6 +4335,7 @@ pub enum LookupLayoutWarning {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMeasLayoutError {
     Width(ReqIndexedKeyError<Width>),
     Range(ReqIndexedKeyError<Range>),
@@ -4334,6 +4343,7 @@ pub enum LookupMeasLayoutError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupMeasLayoutWarning {
     NumType(OptIndexedKeyError<NumType>),
 }
@@ -4341,12 +4351,14 @@ pub enum LookupMeasLayoutWarning {
 type FromRawResult<T> = WarningsAndErrorsResult<T, (), RawToLayoutWarning, RawToLayoutError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawToLayoutError {
     New(NewDataLayoutError),
     Raw(RawParsedError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawToLayoutWarning {
     New(ColumnError<NewMixedTypeWarning>),
     Raw(OptIndexedKeyError<NumType>),
@@ -4363,6 +4375,7 @@ pub enum RawParsedError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
@@ -4374,12 +4387,14 @@ pub enum ReadDataframeError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReadAsciiError {
     Delim(ReadDelimAsciiError),
     Fixed(ReadFixedAsciiError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReadFixedAsciiError {
     Uneven(UnevenEventWidth),
     Tot(TotEventMismatch),
@@ -4387,12 +4402,14 @@ pub enum ReadFixedAsciiError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidth),
     Tot(TotEventMismatch),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
     NoRows(ReadDelimAsciiWithoutRowsError),
@@ -4505,6 +4522,7 @@ pub struct MixedToInnerError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum MeasLayoutMismatchError {
     Lengths(MeasLayoutLengthsError),
     Scale(ColumnError<ScaleMismatchTransformError>),
@@ -4534,19 +4552,16 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_pyerr, impl_pyreflow_err};
+    use crate::python::macros::impl_pyreflow_err;
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
-    use crate::text::keywords::AlphaNumType;
+    use crate::text::keywords::{AlphaNumType, IntRangeError};
     use crate::validated::ascii_range::AsciiRange;
 
     use super::{
-        AnyLossError, AnyNullBitmask, AsciiToUintError, ColumnError, EventWidthError, FloatRange,
-        LookupLayoutError, LookupLayoutWarning, LookupMeasLayoutError, LookupMeasLayoutWarning,
-        MeasLayoutLengthsError, MeasLayoutMismatchError, NewDataLayoutError, NewMixedTypeWarning,
-        NullMixedType, RawParsedError, RawToLayoutWarning, ReadAsciiError, ReadDataframeError,
-        ReadDataframeWarning, ReadDelimAsciiError, ReadDelimAsciiWithoutRowsError,
-        ReadDelimWithRowsAsciiError, ReadFixedAsciiError, ScaleMismatchTransformError,
-        TotEventMismatch, UnevenEventWidth, ZeroEventWidth,
+        AnyLossError, AnyNullBitmask, AsciiToUintError, ColumnError, FloatRange,
+        MeasLayoutLengthsError, NewDataLayoutError, NewMixedTypeWarning, NullMixedType,
+        RawParsedError, ReadDelimAsciiWithoutRowsError, ReadDelimWithRowsAsciiError,
+        ScaleMismatchTransformError, TotEventMismatch, UnevenEventWidth, ZeroEventWidth,
     };
 
     use bigdecimal::BigDecimal;
@@ -4643,36 +4658,9 @@ mod python {
     impl_pyreflow_err!(FileLayoutError, UnevenEventWidth);
     impl_pyreflow_err!(FileLayoutError, TotEventMismatch);
     impl_pyreflow_err!(FileLayoutError, ZeroEventWidth);
+    impl_pyreflow_err!(FileLayoutError, ColumnError<IntRangeError<()>>);
 
     impl_pyreflow_err!(EventDataError, AsciiToUintError);
     impl_pyreflow_err!(EventDataError, ReadDelimWithRowsAsciiError);
     impl_pyreflow_err!(EventDataError, ReadDelimAsciiWithoutRowsError);
-
-    impl_from_pyerr!(MeasLayoutMismatchError, Lengths, Scale);
-    impl_from_pyerr!(
-        LookupLayoutError,
-        New,
-        AlphaNumType,
-        ByteOrd2_0,
-        ByteOrd3_1,
-        Meas
-    );
-    impl_from_pyerr!(LookupLayoutWarning, New, Datatype, Meas);
-    impl_from_pyerr!(LookupMeasLayoutError, Width, Range, Warn);
-    impl_from_pyerr!(LookupMeasLayoutWarning, NumType);
-    impl_from_pyerr!(ReadDataframeWarning, Uneven, Tot);
-    impl_from_pyerr!(RawToLayoutWarning, New, Raw);
-    impl_from_pyerr!(
-        ReadDataframeError,
-        Ascii,
-        Width,
-        TotMismatch,
-        Delim,
-        DelimNoRows,
-        AlphaNum
-    );
-    impl_from_pyerr!(EventWidthError, Zero, Uneven);
-    impl_from_pyerr!(ReadAsciiError, Delim, Fixed);
-    impl_from_pyerr!(ReadDelimAsciiError, Rows, NoRows);
-    impl_from_pyerr!(ReadFixedAsciiError, Uneven, Tot, ToUint);
 }

@@ -55,6 +55,9 @@ use std::path::PathBuf;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &PathBuf,
@@ -347,12 +350,14 @@ pub struct RawTEXTParseData {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdTEXTWarning {
     Raw(ParseRawTEXTWarning),
     Std(StdTEXTFromRawWarning),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdTEXTError {
     Raw(HeaderOrRawError),
     Std(StdTEXTFromRawError),
@@ -360,12 +365,14 @@ pub enum StdTEXTError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdDatasetWarning {
     Raw(ParseRawTEXTWarning),
     Std(StdDatasetFromRawWarning),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum StdDatasetError {
     Raw(HeaderOrRawError),
     Std(StdDatasetFromRawError),
@@ -373,12 +380,14 @@ pub enum StdDatasetError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawDatasetWarning {
     Raw(ParseRawTEXTWarning),
     Read(LookupAndReadDataAnalysisWarning),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawDatasetError {
     Raw(HeaderOrRawError),
     Read(LookupAndReadDataAnalysisError),
@@ -386,6 +395,7 @@ pub enum RawDatasetError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
     Keywords(ParseKeywordsIssue),
@@ -395,6 +405,7 @@ pub enum ParseRawTEXTWarning {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum HeaderOrRawError {
     Header(HeaderError),
     RawTEXT(ParseRawTEXTError),
@@ -402,24 +413,28 @@ pub enum HeaderOrRawError {
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawToReaderError {
     Layout(RawToLayoutError),
     Reader(NewDataReaderError),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum RawToReaderWarning {
     Layout(RawToLayoutWarning),
     Reader(NewDataReaderWarning),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     Dup(DuplicatedSuppTEXT),
 }
 
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum STextSegmentWarning {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     OptSegment(OptSegmentError<Beginstext, Endstext>),
@@ -1343,41 +1358,17 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::{
-        core::{LookupAndReadDataAnalysisWarning, StdDatasetFromRawError},
-        python::macros::{impl_from_pyerr, impl_pyreflow_err},
-    };
+    use crate::python::macros::impl_pyreflow_err;
 
     use super::{
-        DelimCharError, HeaderOrRawError, NonstandardError, ParseKeywordsIssue, ParseRawTEXTError,
-        ParseRawTEXTWarning, RawDatasetError, RawDatasetWarning, STextSegmentWarning,
-        StdDatasetError, StdDatasetWarning, StdTEXTError, StdTEXTWarning,
+        DelimCharError, DuplicatedSuppTEXT, NonstandardError, ParseKeywordsIssue, ParseRawTEXTError,
     };
 
     impl_pyreflow_err!(FileLayoutError, ParseRawTEXTError);
     impl_pyreflow_err!(FileLayoutError, DelimCharError);
     impl_pyreflow_err!(FileLayoutError, ParseKeywordsIssue);
-    impl_pyreflow_err!(FileLayoutError, STextSegmentWarning);
+    impl_pyreflow_err!(FileLayoutError, DuplicatedSuppTEXT);
 
     // TODO what should this really be?
     impl_pyreflow_err!(FileLayoutError, NonstandardError);
-
-    impl_from_pyerr!(HeaderOrRawError, Header, RawTEXT, Warn);
-    impl_from_pyerr!(
-        ParseRawTEXTWarning,
-        Char,
-        Keywords,
-        SuppOffsets,
-        Nextdata,
-        Nonstandard
-    );
-
-    impl_from_pyerr!(StdTEXTError, Raw, Std, Warn);
-    impl_from_pyerr!(StdTEXTWarning, Raw, Std);
-    impl_from_pyerr!(RawDatasetError, Raw, Read, Warn);
-    impl_from_pyerr!(RawDatasetWarning, Raw, Read);
-    impl_from_pyerr!(LookupAndReadDataAnalysisWarning, Offsets, Layout, Data);
-    impl_from_pyerr!(StdDatasetError, Raw, Std, Warn);
-    impl_from_pyerr!(StdDatasetWarning, Raw, Std);
-    impl_from_pyerr!(StdDatasetFromRawError, TEXT, Dataframe, Offsets, Warn);
 }

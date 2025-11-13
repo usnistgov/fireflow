@@ -16,6 +16,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -181,6 +184,7 @@ pub enum FCSDateTimeError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum LookupDatetimesError {
     Begindatetime(OptKeyError<BeginDateTime>),
     Enddatetime(OptKeyError<EndDateTime>),
@@ -232,16 +236,12 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{
-        BeginDateTime, EndDateTime, FCSDateTime, LookupDatetimesError, ReversedDatetimesError,
-    };
-    use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
+    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
 
     impl_from_py_transparent!(FCSDateTime);
     impl_from_py_transparent!(BeginDateTime);
     impl_from_py_transparent!(EndDateTime);
 
     impl_pyreflow_err!(RelationalException, ReversedDatetimesError);
-
-    impl_from_pyerr!(LookupDatetimesError, Begindatetime, Enddatetime, Datetime);
 }

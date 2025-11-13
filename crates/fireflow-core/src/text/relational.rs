@@ -42,6 +42,9 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyErr;
+
 /// An relational keyword that has been removed due having a broken reference.
 #[derive(From)]
 pub enum RemovedLink {
@@ -103,6 +106,7 @@ pub struct RemovedGating {
 
 /// All possible relational errors
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(IntoPyErr))]
 pub enum AnyLinkError {
     Spillover(KeyToNameLinkError<Spillover>),
     Trigger(KeyToNameLinkError<Trigger>),
@@ -300,11 +304,10 @@ impl<I> RemovedGateLink<I> {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::RelationalException;
-    use crate::python::macros::impl_from_pyerr;
     use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
-        AnyLinkError, BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
+        BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
         IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
     };
 
@@ -345,17 +348,4 @@ mod python {
             RelationalException::new_err(value.to_string())
         }
     }
-
-    impl_from_pyerr!(
-        AnyLinkError,
-        Spillover,
-        Trigger,
-        UnstainedCenters,
-        Comp2_0,
-        Comp3_0,
-        Gating,
-        Region3_0,
-        Region3_2,
-        Window
-    );
 }

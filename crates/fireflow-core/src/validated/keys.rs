@@ -26,10 +26,10 @@ use unicase::Ascii;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use {
+    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr, IntoPyString},
+    pyo3::prelude::*,
+};
 
 /// A standard key.
 ///
@@ -37,6 +37,7 @@ use fireflow_core_proc::IntoBuiltinPyErr;
 /// actually stored but will be appended when converting to a [`String`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(KeyString, str)]
 #[display("${_0}")]
 pub struct StdKey(KeyString);
@@ -46,6 +47,7 @@ pub struct StdKey(KeyString);
 /// This cannot start with '$' and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(KeyString, str)]
 pub struct NonStdKey(KeyString);
 
@@ -54,6 +56,7 @@ pub struct NonStdKey(KeyString);
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
 /// case-insensitive.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
 
@@ -78,6 +81,7 @@ pub type KeyStringValues = HashMap<KeyString, String>;
 /// to match keywords.
 #[derive(Clone, AsRef, Display)]
 #[as_ref(str)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct NonStdMeasPattern(String);
 
 /// A list of patterns that match standard or non-standard keys.
@@ -911,22 +915,10 @@ const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{KeyPatterns, KeyString, KeyStringPairs, NonStdKey, NonStdMeasPattern, StdKey};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display};
+    use super::{KeyPatterns, KeyString, KeyStringPairs, NonStdKey, StdKey};
 
     use pyo3::prelude::*;
     use std::collections::HashMap;
-
-    impl_from_py_via_fromstr!(NonStdMeasPattern);
-
-    impl_from_py_via_fromstr!(StdKey);
-    impl_to_py_via_display!(StdKey);
-
-    impl_from_py_via_fromstr!(NonStdKey);
-    impl_to_py_via_display!(NonStdKey);
-
-    impl_from_py_via_fromstr!(KeyString);
-    impl_to_py_via_display!(KeyString);
 
     // pass keypatterns via config as a tuple like ([String], [String]) where the
     // first member is literal strings and the second is regex patterns

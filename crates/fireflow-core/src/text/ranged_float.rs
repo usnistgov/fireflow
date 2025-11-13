@@ -12,19 +12,19 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::{IntoBuiltinPyErr, TryFromPyObject};
 
 /// A non-negative float
 #[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
 #[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
 pub struct PositiveFloat(f32);
 
@@ -100,13 +100,4 @@ mod tests {
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());
         assert!(NonNegFloat::try_from(-1.0_f32).is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{NonNegFloat, PositiveFloat};
-    use crate::python::macros::impl_try_from_py;
-
-    impl_try_from_py!(PositiveFloat, f32);
-    impl_try_from_py!(NonNegFloat, f32);
 }

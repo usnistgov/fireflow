@@ -39,7 +39,10 @@ use std::str;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::IntoBuiltinPyErr, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr, IntoPyString},
+    pyo3::prelude::*,
+};
 
 /// The length of the HEADER.
 ///
@@ -52,6 +55,7 @@ pub const HEADER_LEN: u8 = 58;
 /// This appears as the first 6 bytes of any valid FCS file.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 pub enum Version {
     #[display("FCS2.0")]
     FCS2_0,
@@ -796,10 +800,8 @@ fn offsets_len() -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{HeaderError, HeaderSegments, UintSpacePad20, Version};
-    use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display,
-    };
+    use super::{HeaderError, HeaderSegments, UintSpacePad20};
+    use crate::python::macros::impl_pyreflow_err;
 
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
@@ -818,9 +820,6 @@ mod python {
             Ok(dict)
         }
     }
-
-    impl_to_py_via_display!(Version);
-    impl_from_py_via_fromstr!(Version);
 
     impl_pyreflow_err!(FileLayoutError, HeaderError);
 }

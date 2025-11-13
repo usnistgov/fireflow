@@ -4,7 +4,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::{FromPyString, IntoBuiltinPyErr};
 
 /// A String that matches a time.
 ///
@@ -18,6 +18,7 @@ use fireflow_core_proc::IntoBuiltinPyErr;
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (%f) and converted after parsing.
 #[derive(Clone, Debug, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct TimePattern {
     #[as_ref(str)]
     pat: String,
@@ -166,12 +167,4 @@ mod tests {
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());
         assert!("%H:%M".parse::<TimePattern>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::TimePattern;
-    use crate::python::macros::impl_from_py_via_fromstr;
-
-    impl_from_py_via_fromstr!(TimePattern);
 }

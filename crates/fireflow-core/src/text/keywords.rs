@@ -52,7 +52,9 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr, IntoPyErr},
+    fireflow_core_proc::{
+        FromInnerPyObject, FromPyString, IntoBuiltinPyErr, IntoPyErr, IntoPyString,
+    },
     pyo3::prelude::*,
 };
 
@@ -215,6 +217,7 @@ pub enum TriggerError {
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Default, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum Mode {
     #[default]
     #[display("L")]
@@ -235,6 +238,7 @@ pub enum DeprecatedModeWarning {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'C', 'L', or 'U'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct ModeError;
 
 impl FromStr for Mode {
@@ -253,6 +257,7 @@ impl FromStr for Mode {
 /// The value for the $MODE key, which can only contain 'L' (3.2)
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[display("L")]
 pub struct Mode3_2;
 
@@ -280,6 +285,7 @@ impl TryFrom<Mode> for Mode3_2 {
 
 #[derive(Debug, Error)]
 #[error("can only be 'L'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct Mode3_2Error;
 
 #[derive(Debug, Error)]
@@ -338,6 +344,7 @@ pub enum DisplayError {
 /// The three values for the $PnDATATYPE keyword (3.2+)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum NumType {
     #[display("I")]
     Integer,
@@ -362,11 +369,13 @@ impl FromStr for NumType {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'F', 'D', or 'A'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct NumTypeError;
 
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum AlphaNumType {
     #[display("A")]
     Ascii,
@@ -414,6 +423,7 @@ pub struct DeprecatedDatatypeWarning;
 
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct AlphaNumTypeError;
 
 impl From<NumType> for AlphaNumType {
@@ -703,6 +713,7 @@ pub struct LastModifiedError;
 /// The value for the $ORIGINALITY key (3.1+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum Originality {
     #[display("Original")]
     Original,
@@ -730,6 +741,7 @@ impl FromStr for Originality {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct OriginalityError;
 
 /// The value of the $UNICODE key (3.0 only)
@@ -792,7 +804,7 @@ pub enum UnicodeError {
 /// The value of the $PnTYPE key in optical channels (3.2+)
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 pub struct OpticalType(pub OptionalString);
 
 #[derive(Debug, Error)]
@@ -836,6 +848,7 @@ pub struct TemporalTypeError;
 /// The value of the $PnFEATURE key (3.2+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum Feature {
     #[display("{}", AREA)]
     Area,
@@ -864,6 +877,7 @@ impl FromStr for Feature {
 
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
+#[cfg_attr(feature = "python", derive(IntoBuiltinPyErr), pyerr(PyValueError))]
 pub struct FeatureError;
 
 /// The value of the $RnI key (all versions)
@@ -955,6 +969,7 @@ pub enum RegionGateIndexError<E> {
 
 #[derive(Clone, Copy, From, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum MeasOrGateIndex {
     #[display("P{_0}")]
     Meas(MeasIndex),
@@ -1157,6 +1172,7 @@ pub enum GatePairError {
 /// The value of the $GATING key (3.0-3.2)
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum Gating {
     #[display("R{_0}")]
     Region(RegionIndex),
@@ -2473,42 +2489,20 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
-    };
+    use crate::python::macros::impl_pyreflow_err;
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DeprecatedDatatypeWarning,
-        DeprecatedModeWarning, Display, Feature, FeatureError, IndexPair, Mode, Mode3_2,
-        Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, Originality, OriginalityError,
-        PseudostandardError, TemporalGainError, Trigger, UniGate, Unicode, UnusedStandardError,
-        Vertex,
+        Calibration3_1, Calibration3_2, DeprecatedDatatypeWarning, DeprecatedModeWarning, Display,
+        IndexPair, PseudostandardError, TemporalGainError, Trigger, UniGate, Unicode,
+        UnusedStandardError, Vertex,
     };
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
     impl_pyreflow_err!(RelationalException, TemporalGainError);
-
-    macro_rules! impl_str_py {
-        ($type:ident, $err:ident) => {
-            impl_from_py_via_fromstr!($type);
-            impl_to_py_via_display!($type);
-            impl_value_err!($err);
-        };
-    }
-
-    // these should all be interpreted as validated/literal python strings
-    impl_str_py!(Originality, OriginalityError);
-    impl_str_py!(AlphaNumType, AlphaNumTypeError);
-    impl_str_py!(NumType, NumTypeError);
-    impl_str_py!(Feature, FeatureError);
-    impl_str_py!(Mode, ModeError);
-    impl_str_py!(Mode3_2, Mode3_2Error);
-
-    impl_from_py_via_fromstr!(OpticalType);
 
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedDatatypeWarning);
     impl_pyreflow_err!(FCSDeprecatedError, DeprecatedModeWarning);

@@ -13,7 +13,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr};
+use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr, TryFromPyObject};
 
 /// The type of an ASCII column in all versions
 ///
@@ -35,6 +35,7 @@ pub struct AsciiRange {
 /// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(TryFromPyObject))]
 #[into(NonZeroU8, u8)]
 pub struct Chars(NonZeroU8);
 
@@ -215,12 +216,4 @@ mod tests {
         assert!(Chars::try_from(20_u8).is_ok());
         assert!(Chars::try_from(21_u8).is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::Chars;
-    use crate::python::macros::impl_try_from_py;
-
-    impl_try_from_py!(Chars, u8);
 }

@@ -8,17 +8,17 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use {
+    fireflow_core_proc::{FromPyString, IntoBuiltinPyErr},
+    pyo3::prelude::*,
+};
 
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
 #[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
 pub struct Shortname(String);
 
@@ -86,12 +86,4 @@ mod tests {
         assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
         assert!("Thunderfist,Chronicles".parse::<Shortname>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::Shortname;
-    use crate::python::macros::impl_from_py_via_fromstr;
-
-    impl_from_py_via_fromstr!(Shortname);
 }

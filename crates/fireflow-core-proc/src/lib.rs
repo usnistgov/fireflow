@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, parse_macro_input};
+use syn::{Data, DeriveInput, Fields, Visibility, parse_macro_input};
 
 #[proc_macro_derive(IntoPyErr)]
 pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
@@ -79,6 +79,85 @@ pub fn derive_from_py_transparent(input: TokenStream) -> TokenStream {
         impl<'py> pyo3::conversion::FromPyObject<'py> for #name {
             fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
                 Ok(Self(pyo3::prelude::PyAnyMethods::extract(ob)?))
+            }
+        }
+    };
+    ret.into()
+}
+
+/// Implement IntoPyObject to PyString via Display for the Rust type
+#[proc_macro_derive(IntoPyString)]
+pub fn derive_to_py_via_display(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+
+    let ret = quote! {
+        impl<'py> pyo3::conversion::IntoPyObject<'py> for #name {
+            type Target = pyo3::types::PyString;
+            type Output = pyo3::Bound<'py, Self::Target>;
+            type Error = std::convert::Infallible;
+
+            fn into_pyobject(
+                self,
+                py: pyo3::marker::Python<'py>,
+            ) -> Result<Self::Output, Self::Error> {
+                self.to_string().into_pyobject(py)
+            }
+        }
+    };
+    ret.into()
+}
+
+/// Implement FromPyObject from PyString via FromSrt for the Rust type
+#[proc_macro_derive(FromPyString)]
+pub fn derive_from_py_via_fromstr(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+
+    let ret = quote! {
+        impl<'py> pyo3::conversion::FromPyObject<'py> for #name {
+            fn extract_bound(ob: &pyo3::Bound<'py, pyo3::types::PyAny>) -> pyo3::PyResult<Self> {
+                let x: String = pyo3::prelude::PyAnyMethods::extract(ob)?;
+                let ret = x.parse()?;
+                Ok(ret)
+            }
+        }
+    };
+    ret.into()
+}
+
+/// Implement FromPyObject for a sealed newtype via TryFrom
+#[proc_macro_derive(TryFromPyObject)]
+pub fn derive_try_from_py(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+
+    let inner = if let Data::Struct(s) = &parsed.data {
+        let fs = match &s.fields {
+            Fields::Named(f) => &f.named,
+            Fields::Unnamed(f) => &f.unnamed,
+            Fields::Unit => panic!("must have one field"),
+        };
+        if fs.len() == 1 {
+            let f0 = fs.first().unwrap();
+            assert!(
+                f0.vis == Visibility::Inherited,
+                "inner field should be private"
+            );
+            &f0.ty
+        } else {
+            panic!("must have one field")
+        }
+    } else {
+        panic!("must be a struct")
+    };
+
+    let ret = quote! {
+        impl<'py> pyo3::FromPyObject<'py> for #name {
+            fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+                let x: #inner = pyo3::prelude::PyAnyMethods::extract(ob)?;
+                let y = x.try_into()?;
+                Ok(y)
             }
         }
     };

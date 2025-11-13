@@ -39,7 +39,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr},
+    fireflow_core_proc::{FromInnerPyObject, FromPyString, IntoBuiltinPyErr},
     pyo3::prelude::*,
 };
 
@@ -813,6 +813,7 @@ pub struct TimeMeasNamePattern(pub Regex);
 ///
 /// These can optionally be ignored via config.
 #[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TemporalOpticalKey {
     /// PnF
     Filter,
@@ -931,15 +932,12 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_from_py_via_fromstr;
     use crate::segment::OffsetCorrection;
 
-    use super::{TemporalOpticalKey, TimeMeasNamePattern};
+    use super::TimeMeasNamePattern;
 
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-
-    impl_from_py_via_fromstr!(TemporalOpticalKey);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

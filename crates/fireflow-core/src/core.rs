@@ -5907,27 +5907,24 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         let s = value.subset.loss_errors();
         let es = [c, u].into_iter().flatten().chain(s);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .and_then_commutative(|()| {
-                value
-                    .applied_gates
-                    .try_into_2_0(flag)
-                    .map_commutative_warnings(MetarootConvertWarning::from)
-                    .map_errors(MetarootConvertError::from)
-                    .set_err_value(())
-                    .map_ok_value(|ag| {
-                        Self::new(
-                            value.mode,
-                            value.cyt,
-                            value.comp.map(|x| x.0.into()),
-                            value.timestamps.map(Into::into),
-                            ag,
-                        )
-                    })
-            })
+            .map_errors(MetarootConvertError::from);
+        let ag_res = value
+            .applied_gates
+            .try_into_2_0(flag)
+            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_errors(MetarootConvertError::from);
+        check_res.zip_commutative(ag_res).map_ok_value(|((), ag)| {
+            Self::new(
+                value.mode,
+                value.cyt,
+                value.comp.map(|x| x.0.into()),
+                value.timestamps.map(Into::into),
+                ag,
+            )
+        })
     }
 }
 
@@ -5949,27 +5946,19 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .chain(subset)
             .chain(modi);
         let e = NonEmpty::collect(es).map(AnyMetarootKeyLossErrors);
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .and_then_commutative(|()| {
-                value
-                    .applied_gates
-                    .try_into_2_0(flag)
-                    .map_commutative_warnings(MetarootConvertWarning::from)
-                    .map_errors(MetarootConvertError::from)
-                    .set_err_value(())
-                    .map_ok_value(|applied_gates| {
-                        Self::new(
-                            value.mode,
-                            value.cyt,
-                            None,
-                            value.timestamps.map(Into::into),
-                            applied_gates,
-                        )
-                    })
-            })
+            .map_errors(MetarootConvertError::from);
+        let ag_res = value
+            .applied_gates
+            .try_into_2_0(flag)
+            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_errors(MetarootConvertError::from);
+        let ts = value.timestamps.map(Into::into);
+        check_res
+            .zip_commutative(ag_res)
+            .map_ok_value(|((), ag)| Self::new(value.mode, value.cyt, None, ts, ag))
     }
 }
 

@@ -13,7 +13,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr};
 
 /// The type of an ASCII column in all versions
 ///
@@ -43,6 +43,7 @@ pub struct Chars(NonZeroU8);
 /// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Into, From)]
 #[into(u8, Chars)]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct OtherWidth(pub Chars);
 
 const MAX_CHARS: u8 = 20;
@@ -218,9 +219,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Chars, OtherWidth};
-    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py};
+    use super::Chars;
+    use crate::python::macros::impl_try_from_py;
 
-    impl_from_py_transparent!(OtherWidth);
     impl_try_from_py!(Chars, u8);
 }

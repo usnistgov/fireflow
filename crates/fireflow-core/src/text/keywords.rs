@@ -52,8 +52,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::macros::impl_from_py_transparent,
-    fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr},
+    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr, IntoPyErr},
     pyo3::prelude::*,
 };
 
@@ -102,7 +101,7 @@ pub struct TemporalGainError(MeasIndex);
 /// The value of the $TIMESTEP keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Timestep(pub PositiveFloat);
 
@@ -127,7 +126,7 @@ pub struct TimestepLossError(Timestep);
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(NonNegFloat, f32)]
 pub struct Vol(pub NonNegFloat);
 
@@ -567,7 +566,7 @@ pub struct CalibrationFormat3_2;
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
 pub struct Wavelength(pub PositiveFloat);
 
@@ -578,7 +577,7 @@ impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
 /// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
 impl DisplayMaybe for Wavelengths {
@@ -664,7 +663,7 @@ pub enum WavelengthsError {
 /// correct format
 #[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[display("{}.{:02}", _0.format(DATETIME_FMT), _0.nanosecond() / 10_000_000)]
 pub struct LastModified(pub NaiveDateTime);
 
@@ -996,7 +995,7 @@ pub enum MeasOrGateIndexError {
 
 #[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(MeasIndex, usize)]
 #[into(MeasIndex, usize)]
 #[display("P{_0}")]
@@ -1345,7 +1344,7 @@ pub enum GatingError {
 /// The value of the $PnR key.
 #[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 pub struct Range(pub BigDecimal);
 
@@ -1483,13 +1482,13 @@ impl TryFrom<f64> for Range {
 /// The value of the $GmN key
 #[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
 #[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u64)]
 pub struct GateRange(pub Range);
 
@@ -1498,14 +1497,11 @@ macro_rules! impl_non_neg_float {
         $(#[$meta])*
         #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[into(NonNegFloat, f32)]
         pub struct $t(pub NonNegFloat);
 
         impl_newtype_try_from!($t, NonNegFloat, f32, RangedFloatError);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 
@@ -1537,7 +1533,7 @@ impl_non_neg_float! {
 /// The value of the $GmE key
 #[derive(Clone, Copy, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct GateScale(pub Scale);
 
 // use the same fix we use for PnE here
@@ -1556,7 +1552,7 @@ impl FromStrWith for GateScale {
 /// be empty.
 #[derive(Clone, Display, FromStr, PartialEq, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Cyt3_2(pub NonEmptyString);
 
 impl From<Cyt3_2> for Cyt {
@@ -1580,7 +1576,7 @@ pub struct NoCytError;
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
 #[derive(Clone, Into, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
 #[derive(Debug, Error)]
@@ -1839,11 +1835,8 @@ macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
         #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub $type);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 
@@ -1869,20 +1862,17 @@ macro_rules! newtype_opt_int {
     ($t:ident, $inner:ident) => {
         #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub OptionalInt<$inner>);
 
         impl_display_maybe_self!($t);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 
 macro_rules! newtype_opt_bool {
     ($t:ident, $inner:ident, $err:ident) => {
         #[derive(Clone, PartialEq, Debug, Default, From, Into)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
@@ -1899,9 +1889,6 @@ macro_rules! newtype_opt_bool {
         }
 
         impl_display_maybe_self!($t);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 
@@ -2487,20 +2474,17 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::macros::{
-        impl_from_py_transparent, impl_from_py_via_fromstr, impl_pyreflow_err,
-        impl_to_py_via_display, impl_value_err,
+        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
     };
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
-        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, Cyt3_2,
-        DeprecatedDatatypeWarning, DeprecatedModeWarning, Display, Feature, FeatureError,
-        GateRange, GateScale, GateShortname, IndexPair, LastModified, Mode, Mode3_2, Mode3_2Error,
-        ModeError, NumType, NumTypeError, OpticalType, Originality, OriginalityError,
-        PrefixedMeasIndex, PseudostandardError, Range, TemporalGainError, Timestep, Trigger,
-        UniGate, Unicode, UnstainedCenters, UnusedStandardError, Vertex, Vol, Wavelength,
-        Wavelengths,
+        AlphaNumType, AlphaNumTypeError, Calibration3_1, Calibration3_2, DeprecatedDatatypeWarning,
+        DeprecatedModeWarning, Display, Feature, FeatureError, IndexPair, Mode, Mode3_2,
+        Mode3_2Error, ModeError, NumType, NumTypeError, OpticalType, Originality, OriginalityError,
+        PseudostandardError, TemporalGainError, Trigger, UniGate, Unicode, UnusedStandardError,
+        Vertex,
     };
 
     use pyo3::prelude::*;
@@ -2523,20 +2507,6 @@ mod python {
     impl_str_py!(Feature, FeatureError);
     impl_str_py!(Mode, ModeError);
     impl_str_py!(Mode3_2, Mode3_2Error);
-
-    impl_from_py_transparent!(Cyt3_2);
-    impl_from_py_transparent!(UnstainedCenters);
-
-    impl_from_py_transparent!(Wavelength);
-    impl_from_py_transparent!(Vol);
-    impl_from_py_transparent!(Timestep);
-    impl_from_py_transparent!(LastModified);
-    impl_from_py_transparent!(Range);
-    impl_from_py_transparent!(GateRange);
-    impl_from_py_transparent!(GateScale);
-    impl_from_py_transparent!(GateShortname);
-    impl_from_py_transparent!(PrefixedMeasIndex);
-    impl_from_py_transparent!(Wavelengths);
 
     impl_from_py_via_fromstr!(OpticalType);
 

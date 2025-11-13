@@ -8,7 +8,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::macros::impl_from_py_transparent, fireflow_core_proc::IntoBuiltinPyErr,
+    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr},
     pyo3::prelude::*,
 };
 
@@ -33,15 +33,12 @@ macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
                  FromStr, Display, From, Into, Hash)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 

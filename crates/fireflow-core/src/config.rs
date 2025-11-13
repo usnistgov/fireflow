@@ -39,7 +39,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::macros::impl_from_py_transparent, fireflow_core_proc::IntoBuiltinPyErr,
+    fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr},
     pyo3::prelude::*,
 };
 
@@ -742,11 +742,8 @@ pub trait ErrorFlag: ConfigFlag {
 macro_rules! impl_config_flag {
     ($n:ident) => {
         #[derive(From, Clone, Copy, Default)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $n(pub bool);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($n);
 
         impl ConfigFlag for $n {
             fn is_set(&self) -> bool {

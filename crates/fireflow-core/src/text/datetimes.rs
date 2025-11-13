@@ -17,7 +17,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoPyErr;
+use fireflow_core_proc::{FromInnerPyObject, IntoPyErr};
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Default, AsRef, PartialEq)]
@@ -34,12 +34,14 @@ pub struct Datetimes {
 
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
@@ -47,6 +49,7 @@ pub struct EndDateTime(pub FCSDateTime);
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
@@ -236,12 +239,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
-
-    impl_from_py_transparent!(FCSDateTime);
-    impl_from_py_transparent!(BeginDateTime);
-    impl_from_py_transparent!(EndDateTime);
+    use super::ReversedDatetimesError;
+    use crate::python::macros::impl_pyreflow_err;
 
     impl_pyreflow_err!(RelationalException, ReversedDatetimesError);
 }

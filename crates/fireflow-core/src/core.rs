@@ -114,7 +114,10 @@ use std::path::PathBuf;
 use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _};
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::IntoPyErr, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{FromInnerPyObject, IntoPyErr},
+    pyo3::prelude::*,
+};
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -169,17 +172,17 @@ pub struct Core<A, D, O, M, T, P, N, L> {
 
 /// The ANALYSIS segment, which is just a string of bytes
 #[derive(Clone, From, PartialEq, Default)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Analysis(pub Vec<u8>);
 
 /// An OTHER segment, which is just a string of bytes
 #[derive(Clone, From, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Other(pub Vec<u8>);
 
 /// All OTHER segments
 #[derive(Clone, Default, From, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Others(pub Vec<Other>);
 
 /// Root of the metadata hierarchy.
@@ -1056,7 +1059,7 @@ pub struct SubsetData {
 /// Values of $CSVnFLAG if given, with length equal to $CSMODE
 #[derive(Clone, PartialEq, From, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct CSVFlags(pub Vec<Option<CSVFlag>>);
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
@@ -9309,26 +9312,20 @@ mod serialize {
 mod python {
     use crate::data::AnyRangeError;
     use crate::python::exceptions::ConversionException;
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use crate::python::macros::impl_pyreflow_err;
     use crate::text::ranged_float::PositiveFloat;
 
     use super::{
-        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, CompParMismatchError, ConvertError,
-        ExistingLinkError, GatingMeasLinkError, MeasDataMismatchError, MissingTime,
-        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
-        ScaleTransform, ScaleTransformError, SetTemporalError, SpilloverLinkError,
-        TriggerLinkError,
+        AnyTemporalToOpticalKeyLossError, CompParMismatchError, ConvertError, ExistingLinkError,
+        GatingMeasLinkError, MeasDataMismatchError, MissingTime, NonLinearTemporalScaleError,
+        NonLinearTemporalTransformError, ScaleTransform, ScaleTransformError, SetTemporalError,
+        SpilloverLinkError, TriggerLinkError,
     };
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use std::fmt::Display;
-
-    impl_from_py_transparent!(Analysis);
-    impl_from_py_transparent!(Other);
-    impl_from_py_transparent!(Others);
-    impl_from_py_transparent!(CSVFlags);
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {

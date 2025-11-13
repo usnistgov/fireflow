@@ -17,7 +17,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::IntoBuiltinPyErr;
+use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr};
 
 /// An unsigned int which may only be 20 chars wide.
 ///
@@ -45,6 +45,7 @@ use fireflow_core_proc::IntoBuiltinPyErr;
     Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
@@ -91,6 +92,7 @@ impl CheckedSub for UintZeroPad20 {
     Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(NonZeroU64, UintSpacePad8)]
@@ -165,6 +167,7 @@ impl HeaderString for UintSpacePad20 {
     Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
@@ -304,14 +307,4 @@ mod tests {
         assert!("99999999".parse::<UintSpacePad8>().is_ok());
         assert!("100000000".parse::<UintSpacePad8>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{UintSpacePad8, UintSpacePad20, UintZeroPad20};
-    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py};
-
-    impl_from_py_transparent!(UintZeroPad20);
-    impl_from_py_transparent!(UintSpacePad20);
-    impl_try_from_py!(UintSpacePad8, u64);
 }

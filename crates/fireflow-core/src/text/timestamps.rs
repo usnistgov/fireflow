@@ -20,6 +20,9 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::FromInnerPyObject;
+
 /// A convenient bundle holding data/time keyword values.
 ///
 /// The generic type parameter is meant to account for the fact that the time
@@ -78,6 +81,7 @@ where
 /// A date as used in the $DATE key
 #[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(FCS_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
@@ -278,6 +282,7 @@ pub struct FCSDateError;
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
 
@@ -309,6 +314,7 @@ pub struct FCSTimeError;
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime60(pub NaiveTime);
 
 impl FromStr for FCSTime60 {
@@ -350,6 +356,7 @@ pub struct FCSTime60Error;
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime100(pub NaiveTime);
 
 impl FromStr for FCSTime100 {
@@ -429,20 +436,14 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use crate::python::macros::impl_pyreflow_err;
     use crate::text::lookup::ParseKeyError;
 
     use super::{
-        Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime100,
-        LookupTimestampsError, ReversedTimestampsError, Xtim,
+        Btim, Etim, FCSFixedTimeError, LookupTimestampsError, ReversedTimestampsError, Xtim,
     };
 
     use pyo3::prelude::*;
-
-    impl_from_py_transparent!(FCSDate);
-    impl_from_py_transparent!(FCSTime);
-    impl_from_py_transparent!(FCSTime60);
-    impl_from_py_transparent!(FCSTime100);
 
     impl_pyreflow_err!(RelationalException, ReversedTimestampsError);
 

@@ -21,17 +21,19 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{IntoBuiltinPyErr, IntoPyErr};
+use fireflow_core_proc::{FromInnerPyObject, IntoBuiltinPyErr, IntoPyErr};
 
 /// The aggregated values of the $DFCiTOj keywords (2.0)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
 
 /// The value of the $COMP keyword (3.0)
 #[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
 
@@ -337,9 +339,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_from_py_transparent;
-
-    use super::{Compensation, Compensation2_0, Compensation3_0};
+    use super::Compensation;
 
     use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
@@ -361,7 +361,4 @@ mod python {
             Ok(self.matrix.to_pyarray(py))
         }
     }
-
-    impl_from_py_transparent!(Compensation2_0);
-    impl_from_py_transparent!(Compensation3_0);
 }

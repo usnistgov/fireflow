@@ -13,7 +13,7 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::parser::ReqMetarootKey;
+use super::lookup::ReqMetarootKey;
 
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
 ///

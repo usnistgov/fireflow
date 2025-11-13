@@ -4,8 +4,8 @@ use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultE
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
+use super::lookup::{OptKeyError, OptMetarootKey as _};
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{OptKeyError, OptMetarootKey as _};
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};

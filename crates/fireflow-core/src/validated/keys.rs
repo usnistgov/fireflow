@@ -3,7 +3,7 @@ use crate::logging::{
     LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
 };
 use crate::text::index::IndexFromOne;
-use crate::text::parser::{OptIndexedKey, OptMetarootKey};
+use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

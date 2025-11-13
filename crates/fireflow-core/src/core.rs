@@ -44,20 +44,23 @@ use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
     AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error, GateToMeasIndexError,
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
-    MeasToGateIndexError, Region, RegionToGateIndexError, RegionToMeasIndexError,
+    MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
 };
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName,
-    DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords, Feature, Fil,
-    Filter, Flowrate, Gain, Gating, Inst, IntRangeError, LastModified, LastModifier, Locationid,
-    Longname, LookupTemporalGain, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
-    Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range, RegionGateIndex,
-    RegionWindow, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
-    TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, UnusedStandardError,
-    Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    DetectorType, DetectorVoltage, Display, Endstext, Exp, ExtraStdKeywords, Feature, Fil, Filter,
+    Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname,
+    LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
+    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    Proj, PseudostandardError, Range, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
+    TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+};
+use crate::text::lookup::{
+    OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
+    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
@@ -65,14 +68,9 @@ use crate::text::named_vec::{
     NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
     SetElementsError, SetKeysError, SetNamesError,
 };
-use crate::text::optional::{
-    CheckMaybe as _, DisplayMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing,
-};
-use crate::text::parser::{
-    OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
-    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
-};
+use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
+use crate::text::relational::{AnyLinkError, RemovedLink};
 use crate::text::scale::{LogScale, Scale};
 use crate::text::spillover::{NewSpilloverError, Spillover};
 use crate::text::timestamps::{
@@ -80,19 +78,17 @@ use crate::text::timestamps::{
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
 use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
-
-use crate::validated::keys::{BiIndex, NonStdMeasRegexError, SpecificKey, StdKey};
-use crate::validated::{
-    ascii_uint::{HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20},
-    dataframe as df,
-    dataframe::{AnyFCSColumn, FCSDataFrame},
-    keys::{
-        BiIndexedKey as _, IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords,
-        NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
-    },
-    shortname::Shortname,
-    textdelim::TEXTDelim,
+use crate::validated::ascii_uint::{
+    HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
 };
+use crate::validated::dataframe as df;
+use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use crate::validated::keys::{
+    IndexedKey, Key, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
+    NonStdMeasRegexError, StdKeywords, ValidKeywords,
+};
+use crate::validated::shortname::Shortname;
+use crate::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsMut, AsRef, Display, From};
@@ -8522,254 +8518,6 @@ pub enum ExistingLinkError {
     Index(ExistingIndexLinkError),
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum AnyLinkError {
-    Spillover(KeyToNameLinkError<Spillover>),
-    Trigger(KeyToNameLinkError<Trigger>),
-    UnstainedCenters(KeyToNameLinkError<UnstainedCenters>),
-    Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
-    Comp3_0(KeyToIndexLinkError<Compensation3_0>),
-    Gating(DependentKeyError<Gating>),
-    Region3_0(DependentIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
-    Region3_2(DependentIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
-    Window(IndexedKeyToIndexLinkError<RegionWindow>),
-}
-
-#[derive(From)]
-pub enum RemovedLink {
-    GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
-    GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
-    Gating(RemovedGating),
-    Comp2_0(NonEmpty<RemovedComp2_0Cell>),
-    Comp3_0(RemovedIndexLink<Compensation3_0>),
-    Spillover(RemovedNamedLink<Spillover>),
-    UnstainedCenters(RemovedNamedLink<UnstainedCenters>),
-    Trigger(RemovedNamedLink<Trigger>),
-}
-
-#[derive(new)]
-pub struct RemovedComp2_0Cell {
-    row: MeasIndex,
-    col: MeasIndex,
-    value: f32,
-    missing: Comp2_0Missing,
-}
-
-pub(crate) enum Comp2_0Missing {
-    Row,
-    Col,
-    Both,
-}
-
-#[derive(new)]
-pub struct RemovedNamedLink<T> {
-    key: T,
-    names: NonEmpty<Shortname>,
-}
-
-#[derive(new)]
-pub struct RemovedIndexLink<T> {
-    key: T,
-    indices: NonEmpty<MeasIndex>,
-}
-
-#[derive(new)]
-pub struct RemovedGateLink<I> {
-    pub(crate) region_index: RegionIndex,
-    pub(crate) region: Region<I>,
-    // TODO this will always either be 1 or 2
-    pub(crate) meas_indices: NonEmpty<MeasIndex>,
-}
-
-#[derive(new)]
-pub struct RemovedGating {
-    pub(crate) region_indices: NonEmpty<RegionIndex>,
-    pub(crate) gating: Gating,
-}
-
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} references non-existent $PnN: {bad}",
-    bad = self.names.iter().join(", ")
-)]
-pub struct NameLinkError<T, I> {
-    names: NonEmpty<Shortname>,
-    key: SpecificKey<T, I>,
-}
-
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} references non-existent measurement indices: {bad}",
-    bad = self.indices.iter().join(", ")
-)]
-pub struct IndexLinkError<T, I> {
-    indices: NonEmpty<MeasIndex>,
-    key: SpecificKey<T, I>,
-}
-
-pub type KeyToNameLinkError<T> = NameLinkError<T, ()>;
-
-impl<T> NameLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
-        Self::new(js, SpecificKey::default())
-    }
-}
-
-impl<T> IndexLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<MeasIndex>) -> Self {
-        Self::new(js, SpecificKey::default())
-    }
-}
-
-pub type KeyToIndexLinkError<T> = IndexLinkError<T, ()>;
-pub type IndexedKeyToIndexLinkError<T> = IndexLinkError<T, IndexFromOne>;
-pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
-
-/// Error for key which depends on another key.
-#[derive(Debug, Display, Error, new)]
-#[display(
-    "{key} depends on other keys which do not exist: {bad}",
-    bad = self.deps.iter().join(", "),
-
-)]
-pub struct DependentKeyErrorInner<T, I> {
-    deps: NonEmpty<StdKey>,
-    key: SpecificKey<T, I>,
-}
-
-// TODO move this stuff to its own module to keep this from being more bloated
-// than it already is
-pub type DependentKeyError<T> = DependentKeyErrorInner<T, ()>;
-pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
-
-impl<T> DependentKeyError<T> {
-    pub(crate) fn new1(deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::default())
-    }
-}
-
-impl<T> DependentIndexedKeyError<T> {
-    pub(crate) fn new2(i: IndexFromOne, deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::new_i1(i))
-    }
-}
-
-impl RemovedLink {
-    fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
-        macro_rules! go_gate {
-            ($kws:expr, $x:expr) => {{
-                for (k, v) in $x.region.opt_keywords_std($x.region_index) {
-                    $kws.insert_demoted(k, v);
-                }
-            }};
-        }
-        match self {
-            Self::GatingRegion3_0(x) => go_gate!(kws, x),
-            Self::GatingRegion3_2(x) => go_gate!(kws, x),
-            Self::Gating(x) => kws.insert_demoted_metaroot(&x.gating),
-            Self::Comp2_0(xs) => {
-                for x in xs {
-                    let (k, v) = x.as_keyval();
-                    kws.insert_demoted(k, v);
-                }
-            }
-            Self::Comp3_0(x) => kws.insert_demoted_metaroot(&x.key),
-            Self::Spillover(x) => kws.insert_demoted_metaroot(&x.key),
-            Self::UnstainedCenters(x) => {
-                if let Some(v) = x.key.display_maybe() {
-                    kws.insert_demoted_as::<UnstainedCenters>(v);
-                }
-            }
-            Self::Trigger(x) => kws.insert_demoted_metaroot(&x.key),
-        }
-    }
-
-    fn push_errors(self, es: &mut Vec<AnyLinkError>) {
-        macro_rules! go_gate {
-            ($es:expr, $x:expr) => {{
-                for e in $x.into_errors() {
-                    $es.push(e);
-                }
-            }};
-        }
-        match self {
-            Self::GatingRegion3_0(x) => go_gate!(es, x),
-            Self::GatingRegion3_2(x) => go_gate!(es, x),
-            Self::Gating(x) => {
-                let ks = x
-                    .region_indices
-                    .map(|ri| {
-                        // GateIndex is a dummy here, each index type should
-                        // produce the same std key
-                        let k0 = RegionGateIndex::<GateIndex>::std(ri);
-                        let k1 = RegionWindow::std(ri);
-                        (k0, vec![k1])
-                    })
-                    .map(NonEmpty::from);
-                let e = DependentKeyError::<Gating>::new1(NonEmpty::flatten(ks));
-                es.push(e.into());
-            }
-            Self::Comp2_0(xs) => {
-                for x in xs {
-                    es.push(x.as_error().into());
-                }
-            }
-            Self::Comp3_0(x) => es.push(x.into_error().into()),
-            Self::Spillover(x) => es.push(x.into_error().into()),
-            Self::UnstainedCenters(x) => es.push(x.into_error().into()),
-            Self::Trigger(x) => es.push(x.into_error().into()),
-        }
-    }
-}
-
-impl RemovedComp2_0Cell {
-    fn as_keyval(&self) -> (StdKey, String) {
-        // NOTE col is first
-        let k = Dfc::std(self.col, self.row);
-        (k, self.value.to_string())
-    }
-
-    fn as_error(&self) -> BiIndexedKeyToIndexLinkError<Dfc> {
-        let xs = match self.missing {
-            Comp2_0Missing::Row => NonEmpty::new(self.row),
-            Comp2_0Missing::Col => NonEmpty::new(self.col),
-            Comp2_0Missing::Both => {
-                let mut xs = NonEmpty::new(self.col);
-                xs.push(self.row);
-                xs
-            }
-        };
-        let k = SpecificKey::new_i2(self.col.into(), self.row.into());
-        BiIndexedKeyToIndexLinkError::new(xs, k)
-    }
-}
-
-impl<T: Key> RemovedNamedLink<T> {
-    fn into_error(self) -> KeyToNameLinkError<T> {
-        KeyToNameLinkError::new_i0(self.names)
-    }
-}
-
-impl<T: Key> RemovedIndexLink<T> {
-    fn into_error(self) -> KeyToIndexLinkError<T> {
-        KeyToIndexLinkError::new_i0(self.indices)
-    }
-}
-
-impl<I> RemovedGateLink<I> {
-    fn into_errors(self) -> impl Iterator<Item = AnyLinkError>
-    where
-        AnyLinkError: From<DependentIndexedKeyError<RegionGateIndex<I>>>,
-    {
-        let i = self.region_index;
-        let window_key = RegionWindow::std(i);
-        let k = SpecificKey::new_i1(i.into());
-        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
-        let e1 = DependentIndexedKeyError::new2(i.into(), NonEmpty::new(window_key));
-        [e0.into(), e1.into()].into_iter()
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum ExistingNamedLinkError {
     #[error("$TR depends on existing $PnN")]
@@ -9565,25 +9313,22 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use crate::data::{AnyRangeError, RawToLayoutError};
-    use crate::python::exceptions::{ConversionException, RelationalException};
+    use crate::python::exceptions::ConversionException;
     use crate::python::macros::{impl_from_py_transparent, impl_from_pyerr, impl_pyreflow_err};
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
-        Analysis, AnyLinkError, AnyTemporalToOpticalKeyLossError, BiIndexedKeyToIndexLinkError,
-        CSVFlags, ColumnsToDataframeError, CompParMismatchError, ConvertError,
-        DependentIndexedKeyError, DependentKeyError, ExistingLinkError, GatingMeasLinkError,
-        IndexedKeyToIndexLinkError, InsertOpticalError, InsertOpticalInDatasetError,
-        InsertTemporalError, InsertTemporalToDatasetError, KeyToIndexLinkError, KeyToNameLinkError,
-        LookupAndReadDataAnalysisError, LookupCSVFlagsError, LookupMeasurementError,
-        LookupMeasurementWarning, LookupMetarootError, LookupMetarootWarning,
-        LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning, LookupPeakError,
-        LookupShortnameError, LookupSubsetError, LookupTEXTOffsetsError, LookupTEXTOffsetsWarning,
-        LookupTemporalError, LookupTemporalWarning, MeasDataMismatchError, MissingTime,
-        NewCoreError, NewCoreRelationalError, NewCoreTEXTError, NewCoreWarning,
-        NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other, Others,
-        PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
+        Analysis, AnyTemporalToOpticalKeyLossError, CSVFlags, ColumnsToDataframeError,
+        CompParMismatchError, ConvertError, ExistingLinkError, GatingMeasLinkError,
+        InsertOpticalError, InsertOpticalInDatasetError, InsertTemporalError,
+        InsertTemporalToDatasetError, LookupAndReadDataAnalysisError, LookupCSVFlagsError,
+        LookupMeasurementError, LookupMeasurementWarning, LookupMetarootError,
+        LookupMetarootWarning, LookupModifiedDataError, LookupOpticalError, LookupOpticalWarning,
+        LookupPeakError, LookupShortnameError, LookupSubsetError, LookupTEXTOffsetsError,
+        LookupTEXTOffsetsWarning, LookupTemporalError, LookupTemporalWarning,
+        MeasDataMismatchError, MissingTime, NewCoreError, NewCoreRelationalError, NewCoreTEXTError,
+        NewCoreWarning, NonLinearTemporalScaleError, NonLinearTemporalTransformError, Other,
+        Others, PushOpticalError, PushOpticalToDatasetError, PushTemporalToDatasetError,
         RemoveMeasByIndexError, RemoveMeasByNameError, ReplaceTemporalError, ScaleTransform,
         ScaleTransformError, SetMeasurementsAndDataError, SetMeasurementsError, SetScalesError,
         SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError, SetTransformsError,
@@ -9636,55 +9381,6 @@ mod python {
             ConversionException::new_err(value.to_string())
         }
     }
-
-    impl<T: Key> From<DependentKeyError<T>> for PyErr {
-        fn from(value: DependentKeyError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: IndexedKey> From<DependentIndexedKeyError<T>> for PyErr {
-        fn from(value: DependentIndexedKeyError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: Key> From<KeyToNameLinkError<T>> for PyErr {
-        fn from(value: KeyToNameLinkError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: Key> From<KeyToIndexLinkError<T>> for PyErr {
-        fn from(value: KeyToIndexLinkError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: IndexedKey> From<IndexedKeyToIndexLinkError<T>> for PyErr {
-        fn from(value: IndexedKeyToIndexLinkError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: BiIndexedKey> From<BiIndexedKeyToIndexLinkError<T>> for PyErr {
-        fn from(value: BiIndexedKeyToIndexLinkError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl_from_pyerr!(
-        AnyLinkError,
-        Spillover,
-        Trigger,
-        UnstainedCenters,
-        Comp2_0,
-        Comp3_0,
-        Gating,
-        Region3_0,
-        Region3_2,
-        Window
-    );
 
     impl_pyreflow_err!(MeasurementException, NonLinearTemporalScaleError);
     impl_pyreflow_err!(MeasurementException, NonLinearTemporalTransformError);

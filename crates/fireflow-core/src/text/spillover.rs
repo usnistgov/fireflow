@@ -1,10 +1,10 @@
 use crate::config::StdTextReadConfig;
-use crate::core::{KeyToIndexLinkError, RemovedNamedLink};
+use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
+use super::lookup::FromStrWith;
 use super::named_vec::NameMapping;
-use super::parser::FromStrWith;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

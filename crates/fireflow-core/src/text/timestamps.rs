@@ -5,8 +5,8 @@ use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use super::deprecated::DeprecatedTimestampsRef;
+use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 use super::optional::KeywordPairMaybe;
-use super::parser::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -429,13 +429,12 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use crate::text::lookup::ParseKeyError;
+
     use super::{
         Btim, Etim, FCSDate, FCSFixedTimeError, FCSTime, FCSTime60, FCSTime100,
         LookupTimestampsError, ReversedTimestampsError, Xtim,
-    };
-    use crate::{
-        python::macros::{impl_from_py_transparent, impl_pyreflow_err},
-        text::parser::ParseKeyError,
     };
 
     use pyo3::prelude::*;

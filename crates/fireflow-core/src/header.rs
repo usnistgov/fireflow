@@ -12,7 +12,7 @@ use crate::segment::{
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
-use crate::text::parser::ReqMetarootKey as _;
+use crate::text::lookup::ReqMetarootKey as _;
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20, UintZeroPad20,

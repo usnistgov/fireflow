@@ -28,7 +28,7 @@ use crate::segment::{
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
-use crate::text::parser::{
+use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
 use crate::type_families::ApplyOnce as _;

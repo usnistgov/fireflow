@@ -1,5 +1,4 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
-use crate::core::RemovedNamedLink;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -16,15 +15,16 @@ use super::compensation::Compensation3_0;
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::index::{GateIndex, MeasIndex, RegionIndex};
+use super::lookup::{
+    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
+    ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+};
 use super::named_vec::NameMapping;
 use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
-use super::parser::{
-    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
-};
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use super::relational::RemovedNamedLink;
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};

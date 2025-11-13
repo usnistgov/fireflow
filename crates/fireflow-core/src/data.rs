@@ -79,11 +79,11 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     AlphaNumType, DeprecatedDatatypeWarning, IntRangeError, NumType, Par, Range, Tot,
 };
-use crate::text::optional::KeywordPairMaybe as _;
-use crate::text::parser::{
+use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
     ReqKeyError, ReqMetarootKey as _,
 };
+use crate::text::optional::KeywordPairMaybe as _;
 
 use crate::validated::keys::NonStdKeywords;
 use crate::validated::{

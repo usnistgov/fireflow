@@ -1,11 +1,11 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
-use crate::core::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
+use crate::text::relational::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
 use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::parser::{FromStrDelim, FromStrWith, ParseKeyError};
+use super::lookup::{FromStrDelim, FromStrWith, ParseKeyError};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;

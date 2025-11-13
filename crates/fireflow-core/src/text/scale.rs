@@ -1,5 +1,5 @@
 use crate::config::StdTextReadConfig;
-use crate::text::parser::{FromStrDelim, FromStrWith};
+use crate::text::lookup::{FromStrDelim, FromStrWith};
 use crate::text::ranged_float::PositiveFloat;
 
 use derive_more::Display;

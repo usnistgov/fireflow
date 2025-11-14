@@ -70,9 +70,8 @@ use crate::segment::{
 };
 
 use crate::text::byteord::{
-    BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedEndianError, ByteOrdToSizedError, Bytes,
-    Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1, OrderedToEndianError, SizedByteOrd, Width,
-    WidthToBytesError,
+    BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd,
+    NoByteOrd3_1, OrderedToEndianError, SizedByteOrd, Width, WidthToBytesError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -4151,7 +4150,6 @@ pub enum NewFixedIntLayoutError {
 #[derive(From, Display, Debug, Error)]
 pub enum IntOrderedColumnError {
     Order(ByteOrdToSizedError),
-    Endian(ByteOrdToSizedEndianError),
     Size(BitmaskError),
 }
 

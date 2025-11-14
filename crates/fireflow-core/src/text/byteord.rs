@@ -542,12 +542,6 @@ pub struct NewEndianError;
 )]
 pub struct BytesError(u8);
 
-#[derive(From, Display, Debug, Error)]
-pub enum ByteOrdToSizedEndianError {
-    Ordered(OrderedToEndianError),
-    ToSized(ByteOrdToSizedError),
-}
-
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 pub struct OrderedToEndianError;

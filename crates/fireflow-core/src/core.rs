@@ -3240,17 +3240,14 @@ where
         ),
         RemoveMeasByNameError,
     > {
-        self.measurement_named_indices()
-            .get(name)
-            .and_then(|&index| {
-                let ns = HashSet::from([name]).into();
-                let js = HashSet::from([index]).into();
-                let es = self
-                    .metaroot
-                    .meas_has_existing_links_with(self.par(), &ns, &js);
-                ExistingLinkErrors::try_new(es)
-            })
-            .map_or(Ok(()), Err)?;
+        if let Some(&index) = self.measurement_named_indices().get(name) {
+            let ns = HashSet::from([name]).into();
+            let js = HashSet::from([index]).into();
+            let es = self
+                .metaroot
+                .meas_has_existing_links_with(self.par(), &ns, &js);
+            ExistingLinkErrors::try_new(es)?;
+        }
         let ret = self.measurements.remove_name(name)?;
         self.layout.remove_nocheck(ret.0);
         Ok(ret)
@@ -3264,17 +3261,14 @@ where
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         RemoveMeasByIndexError,
     > {
-        self.measurement_indexed_names()
-            .get(&index)
-            .and_then(|&name| {
-                let ns = HashSet::from([name]).into();
-                let js = HashSet::from([index]).into();
-                let es = self
-                    .metaroot
-                    .meas_has_existing_links_with(self.par(), &ns, &js);
-                ExistingLinkErrors::try_new(es)
-            })
-            .map_or(Ok(()), Err)?;
+        if let Some(&name) = self.measurement_indexed_names().get(&index) {
+            let ns = HashSet::from([name]).into();
+            let js = HashSet::from([index]).into();
+            let es = self
+                .metaroot
+                .meas_has_existing_links_with(self.par(), &ns, &js);
+            ExistingLinkErrors::try_new(es)?;
+        }
         let ret = self.measurements.remove_index(index)?;
         self.layout.remove_nocheck(index);
         Ok(ret)
@@ -3435,15 +3429,16 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let link_err = self
+        let link_res = self
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
-            .map(SetMeasurementsError::from);
+            .map_err(SetMeasurementsError::from)
+            .into_log();
         let vec_res = NamedVec::try_new(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        vec_res
-            .extend_errors(link_err, |_| (), |()| ())
-            .and_then_commutative(|ms| {
+        link_res
+            .zip_commutative(vec_res)
+            .and_then_commutative(|((), ms)| {
                 layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3465,15 +3460,16 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let link_err = self
+        let link_res = self
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
-            .map(SetMeasurementsError::from);
+            .map_err(SetMeasurementsError::from)
+            .into_log();
         let vec_res = NamedVec::try_new(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        vec_res
-            .extend_errors(link_err, |_| (), |()| ())
-            .and_then_commutative(|ms| {
+        link_res
+            .zip_commutative(vec_res)
+            .and_then_commutative(|((), ms)| {
                 self.layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3488,7 +3484,7 @@ where
         let p = self.par();
         let (js, ns) = self.measurement_indices_and_names();
         let es = self.metaroot.meas_has_existing_links_with(p, &ns, &js);
-        ExistingLinkErrors::try_new(es).map_or(Ok(()), Err)?;
+        ExistingLinkErrors::try_new(es)?;
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
@@ -3790,7 +3786,7 @@ where
         measurements: &Eithers<M::Name, X, Y>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Option<ExistingLinkErrors> {
+    ) -> Result<(), ExistingLinkErrors> {
         let (js, ns) = self.measurement_indices_and_names();
         if allow_shared_names {
             let meas_ns = MeasNamesNoTime(measurements.non_center_names().collect());

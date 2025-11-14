@@ -264,15 +264,17 @@ pub struct ErrorSummary<E, S> {
 }
 
 impl<E, S> ErrorSummary<E, S> {
-    pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Option<Self>
+    pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Result<(), Self>
     where
         S: Default,
     {
         Self::try_new_with(S::default(), es)
     }
 
-    pub(crate) fn try_new_with(s: S, es: impl IntoIterator<Item = E>) -> Option<Self> {
-        GenNonEmpty::collect(es).map(|xs| Self::new(s, xs))
+    pub(crate) fn try_new_with(s: S, es: impl IntoIterator<Item = E>) -> Result<(), Self> {
+        GenNonEmpty::collect(es)
+            .map(|xs| Self::new(s, xs))
+            .map_or(Ok(()), Err)
     }
 }
 

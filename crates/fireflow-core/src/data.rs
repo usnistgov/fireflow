@@ -384,7 +384,7 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
-pub trait MeasDatatypeDef: Sized {
+pub trait IsMeasDatatype: Sized {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -488,7 +488,7 @@ pub trait MeasDatatypeDef: Sized {
 }
 
 /// Methods for a type which may or may not have $TOT
-pub trait TotDefinition: Sized {
+pub trait IsTot: Sized {
     fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
@@ -555,7 +555,7 @@ pub trait LayoutOps<'a, T>: Sized {
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
     where
-        T: TotDefinition;
+        T: IsTot;
 
     fn check_writer(&self, df: &'a FCSDataFrame)
     -> ErrorsResult<(), (), ColumnError<AnyLossError>>;
@@ -651,11 +651,11 @@ pub trait OrderedLayoutOps: Sized {
 /// A version-specific data layout
 pub trait VersionedDataLayout
 where
-    for<'a> Self: Sized + LayoutOps<'a, Self::TotDef> + InterLayoutOps<Self::MeasDTDef>,
+    for<'a> Self: Sized + LayoutOps<'a, Self::Tot> + InterLayoutOps<Self::MeasDatatype>,
 {
     type ByteLayout;
-    type MeasDTDef: MeasDatatypeDef;
-    type TotDef: TotDefinition;
+    type MeasDatatype: IsMeasDatatype;
+    type Tot: IsTot;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -673,14 +673,14 @@ where
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: Vec<ColumnLayoutValues<Self::MeasDTDef>>,
+        columns: Vec<ColumnLayoutValues<Self::MeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::TotDef,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError> {
@@ -1211,7 +1211,7 @@ impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
     }
 }
 
-impl MeasDatatypeDef for NullMeasDatatype {
+impl IsMeasDatatype for NullMeasDatatype {
     fn lookup_datatype(
         _: &mut StdKeywords,
         _: &mut NonStdKeywords,
@@ -1229,7 +1229,7 @@ impl MeasDatatypeDef for NullMeasDatatype {
     }
 }
 
-impl MeasDatatypeDef for Option<NumType> {
+impl IsMeasDatatype for Option<NumType> {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -1250,7 +1250,7 @@ impl MeasDatatypeDef for Option<NumType> {
     }
 }
 
-impl TotDefinition for Option<Tot> {
+impl IsTot for Option<Tot> {
     fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
@@ -1264,7 +1264,7 @@ impl TotDefinition for Option<Tot> {
     }
 }
 
-impl TotDefinition for Identity<Tot> {
+impl IsTot for Identity<Tot> {
     fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, _: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
@@ -1845,7 +1845,7 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
     where
-        D: MeasDatatypeDef,
+        D: IsMeasDatatype,
     {
         Self::try_new(cs, e, |c| {
             AnyBitmask::from_width_and_range(c.width, c.range, flag)
@@ -2183,7 +2183,7 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
 
 impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
 where
-    T: TotDefinition,
+    T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
     <NoByteOrd<ORD> as HasByteOrd>::ByteOrd: fmt::Display,
 {
@@ -2524,8 +2524,8 @@ impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
 
 impl<'a, C, S, T, D> LayoutOps<'a, T> for FixedLayout<C, S, T, D>
 where
-    D: MeasDatatypeDef,
-    T: TotDefinition,
+    D: IsMeasDatatype,
+    T: IsTot,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
     S::ByteOrd: fmt::Display,
@@ -2580,7 +2580,7 @@ where
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
     where
-        T: TotDefinition,
+        T: IsTot,
     {
         self.compute_nrows(seg, conf)
             .map_non_commutative_warnings(ReadDataframeWarning::from)
@@ -2696,7 +2696,7 @@ where
 
 impl<'a, C, S, T, D> InterLayoutOps<D> for FixedLayout<C, S, T, D>
 where
-    T: TotDefinition,
+    T: IsTot,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
     for<'c> Range: From<&'c C>,
@@ -2776,7 +2776,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         new_col_f: F,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<W>, ColumnError<E>>
     where
-        D: MeasDatatypeDef,
+        D: IsMeasDatatype,
         F: Fn(ColumnLayoutValues<D>) -> WarningsAndErrorsResult<C, P, W, E>,
     {
         cs.into_iter()
@@ -3390,7 +3390,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         ColumnError<NewAsciiRangeError>,
     >
     where
-        D: MeasDatatypeDef,
+        D: IsMeasDatatype,
     {
         if cs.iter().all(|c| c.width == Width::Variable) {
             cs.into_iter()
@@ -3459,8 +3459,8 @@ where
 
 impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd2_0;
-    type MeasDTDef = NullMeasDatatype;
-    type TotDef = Option<Tot>;
+    type MeasDatatype = NullMeasDatatype;
+    type Tot = Option<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3485,7 +3485,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: Vec<ColumnLayoutValues<Self::MeasDTDef>>,
+        columns: Vec<ColumnLayoutValues<Self::MeasDatatype>>,
         conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<NewMixedTypeWarning>, NewDataLayoutError>
     {
@@ -3497,8 +3497,8 @@ impl VersionedDataLayout for DataLayout2_0 {
 
 impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd2_0;
-    type MeasDTDef = NullMeasDatatype;
-    type TotDef = Identity<Tot>;
+    type MeasDatatype = NullMeasDatatype;
+    type Tot = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3535,8 +3535,8 @@ impl VersionedDataLayout for DataLayout3_0 {
 
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
-    type MeasDTDef = NullMeasDatatype;
-    type TotDef = Identity<Tot>;
+    type MeasDatatype = NullMeasDatatype;
+    type Tot = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3573,8 +3573,8 @@ impl VersionedDataLayout for DataLayout3_1 {
 
 impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = ByteOrd3_1;
-    type MeasDTDef = Option<NumType>;
-    type TotDef = Identity<Tot>;
+    type MeasDatatype = Option<NumType>;
+    type Tot = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,

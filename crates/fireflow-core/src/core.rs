@@ -9,7 +9,7 @@ use crate::data::{
     DataLayout3_1, DataLayout3_2, InterLayoutOps as _, LayoutOps as _, LookupLayoutError,
     LookupLayoutWarning, MeasLayoutMismatchError, MixedToNonMixedLayoutError,
     MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError, RawToLayoutError,
-    RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
+    RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, IsTot,
     VersionedDataLayout,
 };
 use crate::header::{
@@ -1306,7 +1306,7 @@ pub trait AsScaleTransform {
 
 pub trait Versioned {
     type Layout: VersionedDataLayout;
-    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::TotDef>;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn fcs_version() -> Version;
 
@@ -1627,7 +1627,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 }
 
 pub trait VersionedTEXTOffsets: Sized {
-    type TotDef: TotDefinition;
+    type TotDef: IsTot;
 
     fn lookup<C>(
         kws: &mut StdKeywords,

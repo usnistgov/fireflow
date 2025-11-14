@@ -257,10 +257,23 @@ pub struct Failure<P, WC, E, EC> {
 }
 
 /// A group of errors with a summary
-#[derive(new)]
+#[derive(Debug, Error, new)]
 pub struct ErrorSummary<E, S> {
     pub summary: S,
     pub errors: GenNonEmpty<E, Vec<E>>,
+}
+
+impl<E, S> ErrorSummary<E, S> {
+    pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Option<Self>
+    where
+        S: Default,
+    {
+        Self::try_new_with(S::default(), es)
+    }
+
+    pub(crate) fn try_new_with(s: S, es: impl IntoIterator<Item = E>) -> Option<Self> {
+        GenNonEmpty::collect(es).map(|xs| Self::new(s, xs))
+    }
 }
 
 impl<E, S> fmt::Display for ErrorSummary<E, S>
@@ -1388,6 +1401,36 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
     }
 
     #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn extend_errors<Fv, Fp>(
+        self,
+        errors: impl IntoIterator<Item = E>,
+        fv: Fv,
+        fp: Fp,
+    ) -> Self
+    where
+        Fv: FnOnce(V) -> P,
+        Fp: FnOnce(P) -> P,
+        EC: Extend<E> + Default,
+    {
+        let mut it = errors.into_iter();
+        match self {
+            Succ(succ) => {
+                if let Some(e0) = it.by_ref().next() {
+                    let mut es_ = GenNonEmpty::new1(e0);
+                    es_.extend(it);
+                    Fail(succ.fail(es_).fmap_once(fv))
+                } else {
+                    Succ(succ)
+                }
+            }
+            Fail(mut err) => {
+                err.extend_errors(it);
+                Fail(err.fmap_once(fp))
+            }
+        }
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn extend_warnings_or_errors<X, M, W, Fv, Fp, Fw, Fe>(
         mut self,
         errors: impl IntoIterator<Item = M>,
@@ -1407,22 +1450,7 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         X: ErrorFlag,
     {
         if flag.is_error() {
-            let mut it = errors.into_iter().map(fe);
-            match self {
-                Succ(succ) => {
-                    if let Some(e0) = it.by_ref().next() {
-                        let mut es_ = GenNonEmpty::new1(e0);
-                        es_.extend(it);
-                        Fail(succ.fail(es_).fmap_once(fv))
-                    } else {
-                        Succ(succ)
-                    }
-                }
-                Fail(mut err) => {
-                    err.extend_errors(it);
-                    Fail(err.fmap_once(fp))
-                }
-            }
+            self.extend_errors(errors.into_iter().map(fe), fv, fp)
         } else {
             self.extend_commutative_warnings(errors.into_iter().map(fw));
             self.map_err_value(fp)
@@ -2472,10 +2500,9 @@ mod python {
             // summary and the second being a "sequence" (ie a list/iterator
             // thing). The 'new_err' method only takes one arg, so these two
             // args need to be wrapped in a tuple. If this is incorrect then
-            // python will simply produce a 'fail to normalize' exception will
+            // python will simply produce a 'fail to normalize' exception when
             // trying to make the real exception.
             PyBaseExceptionGroup::new_err((s, es))
-            // PyreflowException::new_err(value.to_string())
         }
     }
 

@@ -70,7 +70,7 @@ use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, Mi
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError,
-    ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError,
+    ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors,
     ExistingNamedLinkError, KeyToNameLinkError, MeasIndicesNoTime, MeasNamesNoTime, NamedLinkError,
     RemovedLink,
 };
@@ -3233,67 +3233,51 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         name: &Shortname,
-    ) -> ErrorsResult<
+    ) -> Result<
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        (),
         RemoveMeasByNameError,
     > {
         self.measurement_named_indices()
             .get(name)
-            .map_or(ErrorsResult::new_ok(()), |&index| {
+            .and_then(|&index| {
                 let ns = HashSet::from([name]).into();
                 let js = HashSet::from([index]).into();
                 let es = self
                     .metaroot
-                    .meas_has_existing_links_with(self.par(), &ns, &js)
-                    .map(RemoveMeasByNameError::from);
-                LogResult::new_err_from_iter(es, ())
+                    .meas_has_existing_links_with(self.par(), &ns, &js);
+                ExistingLinkErrors::try_new(es)
             })
-            .and_then_commutative(|()| {
-                self.measurements
-                    .remove_name(name)
-                    .map_err(RemoveMeasByNameError::from)
-                    .into_log()
-            })
-            .map_ok_value(|ret| {
-                self.layout.remove_nocheck(ret.0);
-                ret
-            })
+            .map_or(Ok(()), Err)?;
+        let ret = self.measurements.remove_name(name)?;
+        self.layout.remove_nocheck(ret.0);
+        Ok(ret)
     }
 
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> ErrorsResult<
+    ) -> Result<
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        (),
         RemoveMeasByIndexError,
     > {
         self.measurement_indexed_names()
             .get(&index)
-            .map_or(ErrorsResult::new_ok(()), |&name| {
+            .and_then(|&name| {
                 let ns = HashSet::from([name]).into();
                 let js = HashSet::from([index]).into();
                 let es = self
                     .metaroot
-                    .meas_has_existing_links_with(self.par(), &ns, &js)
-                    .map(RemoveMeasByIndexError::from);
-                LogResult::new_err_from_iter(es, ())
+                    .meas_has_existing_links_with(self.par(), &ns, &js);
+                ExistingLinkErrors::try_new(es)
             })
-            .and_then_commutative(|()| {
-                self.measurements
-                    .remove_index(index)
-                    .map_err(RemoveMeasByIndexError::from)
-                    .into_log()
-            })
-            .map_ok_value(|ret| {
-                self.layout.remove_nocheck(index);
-                ret
-            })
+            .map_or(Ok(()), Err)?;
+        let ret = self.measurements.remove_index(index)?;
+        self.layout.remove_nocheck(index);
+        Ok(ret)
     }
 
     fn push_temporal_inner(
@@ -3451,15 +3435,15 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let check_res = self
+        let link_err = self
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
-            .map_errors(SetMeasurementsError::from);
+            .map(SetMeasurementsError::from);
         let vec_res = NamedVec::try_new(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        check_res
-            .zip_commutative(vec_res)
-            .and_then_commutative(|((), ms)| {
+        vec_res
+            .extend_errors(link_err, |_| (), |()| ())
+            .and_then_commutative(|ms| {
                 layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3481,15 +3465,15 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let check_res = self
+        let link_err = self
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
-            .map_errors(SetMeasurementsError::from);
+            .map(SetMeasurementsError::from);
         let vec_res = NamedVec::try_new(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        check_res
-            .zip_commutative(vec_res)
-            .and_then_commutative(|((), ms)| {
+        vec_res
+            .extend_errors(link_err, |_| (), |()| ())
+            .and_then_commutative(|ms| {
                 self.layout
                     .check_measurement_vector(&ms)
                     .map_errors(SetMeasurementsError::from)
@@ -3500,15 +3484,14 @@ where
             })
     }
 
-    fn unset_measurements_inner(&mut self) -> ErrorsResult<(), (), ExistingLinkError> {
+    fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
         let p = self.par();
-        // TODO this will include the time measurement
         let (js, ns) = self.measurement_indices_and_names();
         let es = self.metaroot.meas_has_existing_links_with(p, &ns, &js);
-        ErrorsResult::new_err_from_iter(es, ()).when_ok(|| {
-            self.measurements = NamedVec::default();
-            self.layout.clear();
-        })
+        ExistingLinkErrors::try_new(es).map_or(Ok(()), Err)?;
+        self.measurements = NamedVec::default();
+        self.layout.clear();
+        Ok(())
     }
 
     fn header_and_raw_keywords<T>(
@@ -3807,26 +3790,27 @@ where
         measurements: &Eithers<M::Name, X, Y>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> ErrorsResult<(), (), ExistingLinkError> {
+    ) -> Option<ExistingLinkErrors> {
         let (js, ns) = self.measurement_indices_and_names();
-        let name_res = if allow_shared_names {
+        if allow_shared_names {
             let meas_ns = MeasNamesNoTime(measurements.non_center_names().collect());
-            let es = self.metaroot.meas_has_existing_named_links_with(&meas_ns);
-            ErrorsResult::new_err_from_iter(es, ())
+            let es = self
+                .metaroot
+                .meas_has_existing_named_links_with(&meas_ns)
+                .map(ExistingLinkError::from);
+            ExistingLinkErrors::try_new(es)?;
         } else {
-            let es = self.meas_has_any_existing_named_links(&ns);
-            ErrorsResult::new_err_from_iter(es, ())
-        };
-        name_res
-            .map_errors(ExistingLinkError::from)
-            .and_then_commutative(|()| {
-                let es = skip_index_check
-                    .then(|| self.meas_has_any_existing_index_links(&js))
-                    .into_iter()
-                    .flatten()
-                    .map(ExistingLinkError::from);
-                ErrorsResult::new_err_from_iter(es, ())
-            })
+            let es = self
+                .meas_has_any_existing_named_links(&ns)
+                .map(ExistingLinkError::from);
+            ExistingLinkErrors::try_new(es)?;
+        }
+        let es = skip_index_check
+            .then(|| self.meas_has_any_existing_index_links(&js))
+            .into_iter()
+            .flatten()
+            .map(ExistingLinkError::from);
+        ExistingLinkErrors::try_new(es)
     }
 }
 
@@ -3990,17 +3974,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> SummaryResult<
+    ) -> Result<
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
         RemoveMeasByNameError,
-        RemoveMeasByNameFailure,
     > {
         self.remove_measurement_by_name_inner(n)
-            .summarize_errors()
-            .resolve_nowarn()
     }
 
     /// Remove a measurement at a given position
@@ -4010,14 +3991,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> SummaryResult<
+    ) -> Result<
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         RemoveMeasByIndexError,
-        RemoveMeasByIndexFailure,
     > {
         self.remove_measurement_by_index_inner(index)
-            .summarize_errors()
-            .resolve_nowarn()
     }
 
     /// Add time measurement to the end of the measurement vector.
@@ -4084,12 +4062,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     }
 
     /// Remove measurements
-    pub fn unset_measurements(
-        &mut self,
-    ) -> SummaryResult<(), ExistingLinkError, UnsetMeasurementsFailure> {
+    pub fn unset_measurements(&mut self) -> Result<(), ExistingLinkErrors> {
         self.unset_measurements_inner()
-            .summarize_errors()
-            .resolve_nowarn()
     }
 
     /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
@@ -4474,11 +4448,10 @@ where
     }
 
     /// Remove all measurements and data
-    pub fn unset_data(&mut self) -> SummaryResult<(), ExistingLinkError, UnsetDataFailure> {
-        self.unset_measurements_inner()
-            .when_ok(|| self.data.clear())
-            .summarize_errors()
-            .resolve_nowarn()
+    pub fn unset_data(&mut self) -> Result<(), ExistingLinkErrors> {
+        self.unset_measurements_inner()?;
+        self.data.clear();
+        Ok(())
     }
 
     /// Coerce all values in DATA to fit within types specified in layout.
@@ -4513,21 +4486,16 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> SummaryResult<
+    ) -> Result<
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
         RemoveMeasByNameError,
-        RemoveMeasByNameFailure,
     > {
-        self.remove_measurement_by_name_inner(n)
-            .map_ok_value(|(i, x)| {
-                self.data.drop_in_place(i.into()).unwrap();
-                (i, x)
-            })
-            .summarize_errors()
-            .resolve_nowarn()
+        let (i, x) = self.remove_measurement_by_name_inner(n)?;
+        self.data.drop_in_place(i.into()).unwrap();
+        Ok((i, x))
     }
 
     /// Remove a measurement at a given position
@@ -4537,17 +4505,13 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> SummaryResult<
+    ) -> Result<
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         RemoveMeasByIndexError,
-        RemoveMeasByNameFailure,
     > {
-        self.remove_measurement_by_index_inner(index)
-            .when_ok(|| {
-                self.data.drop_in_place(index.into()).unwrap();
-            })
-            .summarize_errors()
-            .resolve_nowarn()
+        let ret = self.remove_measurement_by_index_inner(index)?;
+        self.data.drop_in_place(index.into()).unwrap();
+        Ok(ret)
     }
 
     /// Add time measurement to the end of the measurement vector.
@@ -8544,7 +8508,7 @@ pub enum StdWriterWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsError {
     New(NewNamedVecError),
-    Link(ExistingLinkError),
+    Link(ExistingLinkErrors),
     Layout(MeasLayoutMismatchError),
 }
 
@@ -8586,14 +8550,14 @@ pub enum SetMeasurementsOnlyError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
-    Link(ExistingLinkError),
+    Link(ExistingLinkErrors),
     Name(KeyNotFoundError),
 }
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByIndexError {
-    Link(ExistingLinkError),
+    Link(ExistingLinkErrors),
     Index(ElementIndexError),
 }
 
@@ -9292,20 +9256,6 @@ def_failure!(
 );
 
 def_failure!(SetMeasurementsFailure, "could not set measurements");
-
-def_failure!(UnsetMeasurementsFailure, "could not unset measurements");
-
-def_failure!(UnsetDataFailure, "could not unset data and measurements");
-
-def_failure!(
-    RemoveMeasByNameFailure,
-    "could not remove measurement by name"
-);
-
-def_failure!(
-    RemoveMeasByIndexFailure,
-    "could not remove measurement by index"
-);
 
 def_failure!(SetAppliedGatesFailure, "could not set gating keywords");
 

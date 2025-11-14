@@ -1,3 +1,4 @@
+use crate::logging::ErrorSummary;
 /// Enforce relational links between keywords.
 ///
 /// This amounts to two basic operations:
@@ -26,6 +27,7 @@
 /// to run this process when creating a new Core* struct and also when we read
 /// a file and parse keywords from a hash table. The former doesn't require
 /// demoting optional keywords.
+use crate::macros::def_failure;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex};
 use crate::text::optional::DisplayMaybe as _;
 use crate::validated::keys::{
@@ -61,6 +63,13 @@ pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
 //
 // Existential relational errors (do any links exist?)
 //
+
+def_failure!(
+    ExistingLinkFailure,
+    "could not continue without breaking existing links"
+);
+
+pub type ExistingLinkErrors = ErrorSummary<ExistingLinkError, ExistingLinkFailure>;
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]

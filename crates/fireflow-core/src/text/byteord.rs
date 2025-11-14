@@ -247,59 +247,11 @@ impl<const LEN: usize> Default for SizedByteOrd<LEN> {
     }
 }
 
-impl Default for ByteOrd2_0 {
-    fn default() -> Self {
-        Self::O4(SizedByteOrd::default())
-    }
-}
-
-impl From<NoByteOrd<true>> for ByteOrd2_0 {
-    fn from(_: NoByteOrd<true>) -> Self {
-        Self::default()
-    }
-}
-
-impl From<NoByteOrd<false>> for ByteOrd3_1 {
-    fn from(_: NoByteOrd<false>) -> Self {
-        Self::default()
-    }
-}
-
 impl SizedByteOrd<2> {
     #[must_use]
     pub fn endian(&self) -> Endian {
         let [x, y] = (*self).into();
         (y > x).into()
-    }
-}
-
-impl ByteOrd2_0 {
-    #[must_use]
-    pub fn nbytes(&self) -> Bytes {
-        match self {
-            Self::O1(_) => SizedByteOrd::<1>::nbytes(),
-            Self::O2(_) => SizedByteOrd::<2>::nbytes(),
-            Self::O3(_) => SizedByteOrd::<3>::nbytes(),
-            Self::O4(_) => SizedByteOrd::<4>::nbytes(),
-            Self::O5(_) => SizedByteOrd::<5>::nbytes(),
-            Self::O6(_) => SizedByteOrd::<6>::nbytes(),
-            Self::O7(_) => SizedByteOrd::<7>::nbytes(),
-            Self::O8(_) => SizedByteOrd::<8>::nbytes(),
-        }
-    }
-
-    #[must_use]
-    pub fn as_vec(&self) -> Vec<NonZeroU8> {
-        match self {
-            Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),
-            Self::O2(x) => <[NonZeroU8; 2]>::from(*x).to_vec(),
-            Self::O3(x) => <[NonZeroU8; 3]>::from(*x).to_vec(),
-            Self::O4(x) => <[NonZeroU8; 4]>::from(*x).to_vec(),
-            Self::O5(x) => <[NonZeroU8; 5]>::from(*x).to_vec(),
-            Self::O6(x) => <[NonZeroU8; 6]>::from(*x).to_vec(),
-            Self::O7(x) => <[NonZeroU8; 7]>::from(*x).to_vec(),
-            Self::O8(x) => <[NonZeroU8; 8]>::from(*x).to_vec(),
-        }
     }
 }
 
@@ -424,20 +376,6 @@ impl FromStr for Endian {
     }
 }
 
-impl FromStr for ByteOrd2_0 {
-    type Err = ParseByteOrdError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (pass, fail): (Vec<_>, Vec<_>) =
-            s.split(',').map(str::parse::<NonZeroU8>).partition_result();
-        if fail.is_empty() {
-            Self::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
-        } else {
-            Err(ParseByteOrdError::Digit(ByteordDigitError))
-        }
-    }
-}
-
 impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
 where
     [NonZeroU8; LEN]: From<Self>,
@@ -464,12 +402,6 @@ impl fmt::Display for Bytes {
     }
 }
 
-#[derive(From, Debug, Display, Error)]
-pub enum ParseByteOrdError {
-    Order(NewByteOrdError),
-    Digit(ByteordDigitError),
-}
-
 #[derive(Debug, Error)]
 pub enum WidthToFixedError<X> {
     #[error("width is variable where fixed is needed")]
@@ -480,10 +412,6 @@ pub enum WidthToFixedError<X> {
 
 pub type WidthToCharsError = WidthToFixedError<CharsError>;
 pub type WidthToBytesError = WidthToFixedError<BytesError>;
-
-#[derive(Debug, Error)]
-#[error("could not parse digits from byte order")]
-pub struct ByteordDigitError;
 
 #[derive(Debug, Error)]
 #[error("bits must be between 1 and 64, got {0}")]

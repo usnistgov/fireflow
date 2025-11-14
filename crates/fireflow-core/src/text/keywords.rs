@@ -10,7 +10,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{BitsOrChars, Endian, SizedByteOrd};
+use super::byteord::{BitsOrChars, Bytes, Endian, NewByteOrdError, NoByteOrd, SizedByteOrd};
 use super::compensation::Compensation3_0;
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -44,7 +44,7 @@ use std::any::type_name;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
-use std::num::{ParseFloatError, ParseIntError};
+use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -395,9 +395,69 @@ pub enum ByteOrd2_0 {
     O8(SizedByteOrd<8>),
 }
 
+impl FromStr for ByteOrd2_0 {
+    type Err = ParseByteOrdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (pass, fail): (Vec<_>, Vec<_>) =
+            s.split(',').map(str::parse::<NonZeroU8>).partition_result();
+        if fail.is_empty() {
+            Self::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
+        } else {
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
+        }
+    }
+}
+
+#[derive(From, Debug, Display, Error)]
+pub enum ParseByteOrdError {
+    Order(NewByteOrdError),
+    Digit(ByteordDigitError),
+}
+
+#[derive(Debug, Error)]
+#[error("could not parse digits from byte order")]
+pub struct ByteordDigitError;
+
+// Default $BYTEORD for FCS 2.0 is simply 32-bit little endian
+impl Default for ByteOrd2_0 {
+    fn default() -> Self {
+        Self::O4(SizedByteOrd::default())
+    }
+}
+
+impl From<NoByteOrd<true>> for ByteOrd2_0 {
+    fn from(_: NoByteOrd<true>) -> Self {
+        Self::default()
+    }
+}
+
+impl ByteOrd2_0 {
+    #[must_use]
+    pub fn nbytes(&self) -> Bytes {
+        match self {
+            Self::O1(_) => SizedByteOrd::<1>::nbytes(),
+            Self::O2(_) => SizedByteOrd::<2>::nbytes(),
+            Self::O3(_) => SizedByteOrd::<3>::nbytes(),
+            Self::O4(_) => SizedByteOrd::<4>::nbytes(),
+            Self::O5(_) => SizedByteOrd::<5>::nbytes(),
+            Self::O6(_) => SizedByteOrd::<6>::nbytes(),
+            Self::O7(_) => SizedByteOrd::<7>::nbytes(),
+            Self::O8(_) => SizedByteOrd::<8>::nbytes(),
+        }
+    }
+}
+
+/// The $BYTEORD field in FCS 3.1 and 3.2
 #[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ByteOrd3_1(pub Endian);
+
+impl From<NoByteOrd<false>> for ByteOrd3_1 {
+    fn from(_: NoByteOrd<false>) -> Self {
+        Self::default()
+    }
+}
 
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]

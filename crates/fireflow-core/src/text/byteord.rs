@@ -157,19 +157,6 @@ macro_rules! byteord_from_sized {
             }
         }
 
-        impl TryFrom<Vec<NonZeroU8>> for SizedByteOrd<$len> {
-            type Error = VecToSizedError;
-            fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
-                let xs: [NonZeroU8; $len] =
-                    value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
-                        vec_len: ys.len(),
-                        req_len: $len,
-                    })?;
-                let ret = xs.try_into()?;
-                Ok(ret)
-            }
-        }
-
         /// Convert array of length $len to byte order.
         ///
         /// Correct array will be from the set of {1..$len} and each number
@@ -483,7 +470,7 @@ impl FromStr for ByteOrd2_0 {
         if fail.is_empty() {
             Self::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {
-            Err(ParseByteOrdError::Format)
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
         }
     }
 }
@@ -514,17 +501,30 @@ impl fmt::Display for Bytes {
     }
 }
 
+#[derive(From, Debug, Display, Error)]
+pub enum ParseByteOrdError {
+    Order(NewByteOrdError),
+    Digit(ByteordDigitError),
+}
+
+#[derive(Debug, Error)]
+pub enum WidthToFixedError<X> {
+    #[error("width is variable where fixed is needed")]
+    Variable,
+    #[error("error when converting fixed bits: {0}")]
+    Fixed(X),
+}
+
+pub type WidthToCharsError = WidthToFixedError<CharsError>;
+pub type WidthToBytesError = WidthToFixedError<BytesError>;
+
+#[derive(Debug, Error)]
+#[error("could not parse digits from byte order")]
+pub struct ByteordDigitError;
+
 #[derive(Debug, Error)]
 #[error("bits must be between 1 and 64, got {0}")]
 pub struct BitsError(u8);
-
-#[derive(Debug, Error)]
-pub enum ParseByteOrdError {
-    #[error("{0}")]
-    Order(NewByteOrdError),
-    #[error("could not parse numbers in byte order")]
-    Format,
-}
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
@@ -536,10 +536,7 @@ pub struct NewByteOrdError(usize);
 pub struct NewEndianError;
 
 #[derive(Debug, Error)]
-#[error(
-    "bits must be multiple of 8 and between 8 and 64 \
-     to be used as byte width, got {0}"
-)]
+#[error("bits must be multiple of 8 and between 8 and 64, got {0}")]
 pub struct BytesError(u8);
 
 #[derive(Debug, Error)]
@@ -547,36 +544,10 @@ pub struct BytesError(u8);
 pub struct OrderedToEndianError;
 
 #[derive(Debug, Error)]
-#[error("$BYTEORD is {bytes} bytes, expected {length}")]
+#[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 pub struct ByteOrdToSizedError {
     bytes: Bytes,
     length: usize,
-}
-
-#[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
-pub enum VecToSizedError {
-    Vec(VecToArrayError),
-    New(NewByteOrdError),
-}
-
-#[derive(Debug, Error)]
-#[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
-pub struct VecToArrayError {
-    vec_len: usize,
-    req_len: usize,
-}
-
-pub type WidthToCharsError = WidthToFixedError<CharsError>;
-
-pub type WidthToBytesError = WidthToFixedError<BytesError>;
-
-#[derive(Debug, Error)]
-pub enum WidthToFixedError<X> {
-    #[error("width is variable where fixed is needed")]
-    Variable,
-    #[error("error when converting fixed bits: {0}")]
-    Fixed(X),
 }
 
 #[cfg(test)]
@@ -663,11 +634,55 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, Endian, SizedByteOrd, VecToSizedError};
+    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd};
 
+    use fireflow_core_proc::DisplayAsPyErr;
+
+    use derive_more::{Display, From};
     use pyo3::{IntoPyObjectExt as _, exceptions::PyValueError, prelude::*, types::PyString};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
+    use thiserror::Error;
+
+    #[derive(From, Display)]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+    pub enum VecToSizedError {
+        Vec(VecToArrayError),
+        New(NewByteOrdError),
+    }
+
+    #[derive(Debug, Error)]
+    #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
+    pub struct VecToArrayError {
+        vec_len: usize,
+        req_len: usize,
+    }
+
+    macro_rules! impl_vec_to_sized {
+        ($len:expr) => {
+            impl TryFrom<Vec<NonZeroU8>> for SizedByteOrd<$len> {
+                type Error = VecToSizedError;
+                fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
+                    let xs: [NonZeroU8; $len] =
+                        value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+                            vec_len: ys.len(),
+                            req_len: $len,
+                        })?;
+                    let ret = xs.try_into()?;
+                    Ok(ret)
+                }
+            }
+        };
+    }
+
+    impl_vec_to_sized!(1);
+    impl_vec_to_sized!(2);
+    impl_vec_to_sized!(3);
+    impl_vec_to_sized!(4);
+    impl_vec_to_sized!(5);
+    impl_vec_to_sized!(6);
+    impl_vec_to_sized!(7);
+    impl_vec_to_sized!(8);
 
     impl<'py> FromPyObject<'py> for Endian {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

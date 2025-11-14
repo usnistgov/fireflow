@@ -69,7 +69,7 @@ use crate::text::named_vec::{
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
-    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError,
+    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError, AnyLinkErrors,
     ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors,
     ExistingNamedLinkError, KeyToNameLinkError, MeasIndicesNoTime, MeasNamesNoTime, NamedLinkError,
     RemovedLink,
@@ -4216,16 +4216,16 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let (js_, ns_) = measurements.indexed_non_center_names().unzip();
         let js = MeasIndicesNoTime(js_);
         let ns = MeasNamesNoTime(ns_);
-        // Check for any invalid links; throw error if any are found
-        let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_dropping);
-        let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
         // Check that measurement and layout vectors are same length
         // and that transforms are valid for given datatype(s)
         let layout_res = layout
             .check_measurement_vector(measurements)
             .map_errors(NewCoreRelationalError::from);
-        link_res
+        // Check for any invalid links; throw error if any are found
+        let par = Par(measurements.len());
+        let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_dropping);
+        AnyLinkErrors::try_new(link_errs)
+            .into_nowarn()
             .map_errors(NewCoreRelationalError::from)
             .lift_f2_once(layout_res, |(), ()| ())
     }
@@ -9000,7 +9000,7 @@ pub enum NewCoreWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreRelationalError {
-    Link(AnyLinkError),
+    Link(AnyLinkErrors),
     Layout(MeasLayoutMismatchError),
 }
 

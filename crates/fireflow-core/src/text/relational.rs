@@ -121,6 +121,10 @@ pub struct ExistingIndexedLinkError<T, I> {
 // Comprehensive relational errors (are all links valid)
 //
 
+def_failure!(LinkFailure, "links are not satisfied");
+
+pub type AnyLinkErrors = ErrorSummary<AnyLinkError, LinkFailure>;
+
 /// A relational keyword that has been removed due having a broken reference.
 #[derive(From)]
 pub enum RemovedLink {

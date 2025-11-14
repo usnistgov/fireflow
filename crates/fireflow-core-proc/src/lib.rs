@@ -45,6 +45,7 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
 pub fn derive_into_builtin_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
+    let generics = &parsed.generics;
 
     let epath: Path = parsed
         .attrs
@@ -63,8 +64,8 @@ pub fn derive_into_builtin_pyerr(input: TokenStream) -> TokenStream {
     };
 
     let ret = quote! {
-        impl From<#name> for pyo3::PyErr {
-            fn from(value: #name) -> Self {
+        impl #generics From<#name #generics> for pyo3::PyErr {
+            fn from(value: #name #generics) -> Self {
                 #full_epath::new_err(value.to_string())
             }
         }

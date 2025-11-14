@@ -4,7 +4,6 @@ use fireflow_core::api::{
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
-use fireflow_core::logging::ErrorSummary;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
@@ -677,7 +676,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
             fcs_read_header(filepath, &conf.into())
-                .map_err(print_errors)
+                .map_err(|s| print_errors(&s))
                 .map(|h| print_json(&h))
         }
 
@@ -685,7 +684,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_raw_config(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_raw_text(filepath, &conf)
-                .resolve_commutative(print_warnings, print_errors);
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|raw| print_json(&raw))
         }
 
@@ -694,7 +693,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_std_text(filepath, &conf)
-                .resolve_commutative(print_warnings, print_errors);
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| core.print_comp_or_spillover_table(delim))
         }
 
@@ -703,7 +702,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_std_text(filepath, &conf)
-                .resolve_commutative(print_warnings, print_errors);
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| core.print_meas_table(delim))
         }
 
@@ -711,7 +710,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_std_config(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_std_text(filepath, &conf)
-                .resolve_commutative(print_warnings, print_errors);
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| print_json(&core))
         }
 
@@ -720,7 +719,7 @@ fn main() -> Result<(), ()> {
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_std_dataset(filepath, &conf)
-                .resolve_commutative(print_warnings, print_errors);
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| print_parsed_data(&core, delim))
         }
 
@@ -1050,50 +1049,15 @@ pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
     }
 }
 
-// fn handle_warnings<X, W>(t: Terminal<X, W>) -> X
-// where
-//     W: Display,
-// {
-//     t.resolve(print_warnings).0
-// }
-
 fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
     for w in ws {
         eprintln!("WARNING: {w}");
     }
 }
 
-// fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>)
-// where
-//     E: Display,
-//     T: Display,
-//     W: Display,
-// {
-//     f.resolve(print_warnings, print_errors);
-// }
-
-// fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>)
-// where
-//     E: Display,
-//     T: Display,
-// {
-//     f.resolve(|_| (), print_errors);
-// }
-
-// TODO this won't print the right level if errors are nested
-fn print_errors<E: Display, S: Display>(s: ErrorSummary<E, S>) {
-    eprintln!("TOPLEVEL ERROR: {}", s.summary);
-    for e in s.errors {
-        eprintln!("  ERROR: {e}");
-    }
+fn print_errors<E: Display>(e: &E) {
+    eprintln!("{e}");
 }
-
-// fn print_errors<E: Display, T: Display>(es: GenNonEmpty<E, VecFamily>, r: T) {
-//     eprintln!("TOPLEVEL ERROR: {r}");
-//     for e in es {
-//         eprintln!("  ERROR: {e}");
-//     }
-// }
 
 const SUBCMD_HEADER: &str = "header";
 

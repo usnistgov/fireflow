@@ -263,6 +263,29 @@ pub struct ErrorSummary<E, S> {
     pub errors: GenNonEmpty<E, Vec<E>>,
 }
 
+impl<E, S> fmt::Display for ErrorSummary<E, S>
+where
+    E: fmt::Display,
+    S: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        writeln!(f, "Error summary: {}", self.summary)?;
+        let es = &self.errors;
+        let mut es_it = iter::once(&es.head).chain(es.tail.iter()).peekable();
+        while let Some(e) = es_it.next() {
+            let s = e.to_string();
+            let mut s_it = s.lines().peekable();
+            while let Some(l) = s_it.next() {
+                write!(f, "  {l}")?;
+                if es_it.peek().is_some() || s_it.peek().is_some() {
+                    writeln!(f)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A non-empty container.
 ///
 /// The generic sub-container `C` may hold zero or more `X` values.
@@ -283,6 +306,22 @@ pub enum ImpureError<E> {
     IO(#[from] io::Error),
     #[error("{0}")]
     Pure(E),
+}
+
+impl<E> ImpureError<E> {
+    pub fn inner_into<F>(self) -> ImpureError<F>
+    where
+        F: From<E>,
+    {
+        self.map_inner(Into::into)
+    }
+
+    pub fn map_inner<F: FnOnce(E) -> X, X>(self, f: F) -> ImpureError<X> {
+        match self {
+            Self::IO(x) => ImpureError::IO(x),
+            Self::Pure(e) => ImpureError::Pure(f(e)),
+        }
+    }
 }
 
 /// Type family for `GenNonEmpty` where the container type is partially applied.
@@ -2395,42 +2434,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
                 (None, ws, es)
             }
         }
-    }
-}
-
-impl<E> ImpureError<E> {
-    pub fn inner_into<F>(self) -> ImpureError<F>
-    where
-        F: From<E>,
-    {
-        self.map_inner(Into::into)
-    }
-
-    pub fn map_inner<F, X>(self, f: F) -> ImpureError<X>
-    where
-        F: FnOnce(E) -> X,
-    {
-        match self {
-            Self::IO(x) => ImpureError::IO(x),
-            Self::Pure(e) => ImpureError::Pure(f(e)),
-        }
-    }
-}
-
-impl<E, S> fmt::Display for ErrorSummary<E, S>
-where
-    E: fmt::Display,
-    S: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        writeln!(f, "Toplevel Error: {}", self.summary)?;
-        let es = &self.errors;
-        for e in iter::once(&es.head).chain(es.tail.iter()) {
-            for l in e.to_string().lines() {
-                writeln!(f, "  {l}")?;
-            }
-        }
-        Ok(())
     }
 }
 

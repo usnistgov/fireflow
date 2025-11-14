@@ -419,6 +419,7 @@ pub struct BitsError(u8);
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
+// TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NewByteOrdError(usize);
 
@@ -480,7 +481,7 @@ mod tests {
 mod python {
     use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd};
 
-    use fireflow_core_proc::DisplayAsPyErr;
+    use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
     use derive_more::{Display, From};
     use pyo3::{IntoPyObjectExt as _, exceptions::PyValueError, prelude::*, types::PyString};
@@ -489,7 +490,7 @@ mod python {
     use thiserror::Error;
 
     #[derive(From, Display)]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+    #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
     pub enum VecToSizedError {
         Vec(VecToArrayError),
         New(NewByteOrdError),
@@ -497,6 +498,8 @@ mod python {
 
     #[derive(Debug, Error)]
     #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
+    // TODO not sure about this exception
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
     pub struct VecToArrayError {
         vec_len: usize,
         req_len: usize,

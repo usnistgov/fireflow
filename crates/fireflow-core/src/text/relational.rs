@@ -1,7 +1,14 @@
 /// Enforce relational links between keywords.
 ///
-/// The basic idea is that some keywords ($SPILLOVER for example) refer to
-/// measurements by $PnN. If any of these $PnN don't exist, the key should be
+/// This amounts to two basic operations:
+///
+/// 1) Checking if all links are valid: used when adding a new keyword which
+///    has links and ensuring this is valid.
+/// 2) Checking that a keyword has any links (presumed valid) at all: This is
+///    useful when attempting to removing a keyword which may break a link.
+///
+/// For (1), the basic idea is that some keywords ($SPILLOVER for example) refer
+/// to measurements by $PnN. If any of these $PnN don't exist, the key should be
 /// dropped since it is invalid and would produce a bad internal state.
 ///
 /// Specifically, there are two types of links to be enforced:
@@ -45,7 +52,58 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::AllIntoPyErr;
 
-/// An relational keyword that has been removed due having a broken reference.
+//
+// Existential relational errors (do any links exist?)
+//
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ExistingLinkError {
+    Named(AnyExistingNamedLinkError),
+    Index(AnyExistingIndexLinkError),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyExistingNamedLinkError {
+    Trigger(ExistingNamedLinkError<Trigger, ()>),
+    UnstainedCenters(ExistingNamedLinkError<UnstainedCenters, ()>),
+    Spillover(ExistingNamedLinkError<Spillover, ()>),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyExistingIndexLinkError {
+    Comp2_0(ExistingIndexedLinkError<Dfc, BiIndex>),
+    Comp3_0(ExistingIndexedLinkError<Compensation3_0, ()>),
+    GateRegion(ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>),
+}
+
+#[derive(Debug, Error, new)]
+#[error(
+    "{key} references existing $PnN: {xs}",
+    xs = self.names.iter().join(", ")
+)]
+pub struct ExistingNamedLinkError<T, I> {
+    pub key: SpecificKey<T, I>,
+    pub names: NonEmpty<Shortname>,
+}
+
+#[derive(Debug, Error, new)]
+#[error(
+    "{key} references existing $PnN: {xs}",
+    xs = self.names.iter().join(", ")
+)]
+pub struct ExistingIndexedLinkError<T, I> {
+    pub key: SpecificKey<T, I>,
+    pub names: NonEmpty<IndexFromOne>,
+}
+
+//
+// Comprehensive relational errors (are all links valid)
+//
+
+/// A relational keyword that has been removed due having a broken reference.
 #[derive(From)]
 pub enum RemovedLink {
     GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
@@ -125,7 +183,7 @@ pub enum AnyLinkError {
     "{key} references non-existent $PnN: {bad}",
     bad = self.names.iter().join(", ")
 )]
-pub struct NameLinkError<T, I> {
+pub struct NamedLinkError<T, I> {
     names: NonEmpty<Shortname>,
     key: SpecificKey<T, I>,
 }
@@ -152,7 +210,7 @@ pub struct DependentKeyErrorInner<T, I> {
     key: SpecificKey<T, I>,
 }
 
-pub type KeyToNameLinkError<T> = NameLinkError<T, ()>;
+pub type KeyToNameLinkError<T> = NamedLinkError<T, ()>;
 
 pub type KeyToIndexLinkError<T> = IndexLinkError<T, ()>;
 pub type IndexedKeyToIndexLinkError<T> = IndexLinkError<T, IndexFromOne>;
@@ -161,7 +219,7 @@ pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
 pub type DependentKeyError<T> = DependentKeyErrorInner<T, ()>;
 pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
 
-impl<T> NameLinkError<T, ()> {
+impl<T> NamedLinkError<T, ()> {
     pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
         Self::new(js, SpecificKey::default())
     }
@@ -304,47 +362,56 @@ impl<I> RemovedGateLink<I> {
 #[cfg(feature = "python")]
 mod python {
     use crate::python::exceptions::RelationalException;
-    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
     use super::{
-        BiIndexedKeyToIndexLinkError, DependentIndexedKeyError, DependentKeyError,
-        IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError,
+        DependentKeyErrorInner, ExistingIndexedLinkError, ExistingNamedLinkError, IndexLinkError,
+        NamedLinkError,
     };
 
     use pyo3::prelude::*;
+    use std::fmt::Display;
 
-    impl<T: Key> From<DependentKeyError<T>> for PyErr {
-        fn from(value: DependentKeyError<T>) -> Self {
+    impl<T, I> From<DependentKeyErrorInner<T, I>> for PyErr
+    where
+        DependentKeyErrorInner<T, I>: Display,
+    {
+        fn from(value: DependentKeyErrorInner<T, I>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }
 
-    impl<T: IndexedKey> From<DependentIndexedKeyError<T>> for PyErr {
-        fn from(value: DependentIndexedKeyError<T>) -> Self {
+    impl<T, I> From<NamedLinkError<T, I>> for PyErr
+    where
+        NamedLinkError<T, I>: Display,
+    {
+        fn from(value: NamedLinkError<T, I>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }
 
-    impl<T: Key> From<KeyToNameLinkError<T>> for PyErr {
-        fn from(value: KeyToNameLinkError<T>) -> Self {
+    impl<T, I> From<IndexLinkError<T, I>> for PyErr
+    where
+        IndexLinkError<T, I>: Display,
+    {
+        fn from(value: IndexLinkError<T, I>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }
 
-    impl<T: Key> From<KeyToIndexLinkError<T>> for PyErr {
-        fn from(value: KeyToIndexLinkError<T>) -> Self {
+    impl<T, I> From<ExistingNamedLinkError<T, I>> for PyErr
+    where
+        ExistingNamedLinkError<T, I>: Display,
+    {
+        fn from(value: ExistingNamedLinkError<T, I>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }
 
-    impl<T: IndexedKey> From<IndexedKeyToIndexLinkError<T>> for PyErr {
-        fn from(value: IndexedKeyToIndexLinkError<T>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: BiIndexedKey> From<BiIndexedKeyToIndexLinkError<T>> for PyErr {
-        fn from(value: BiIndexedKeyToIndexLinkError<T>) -> Self {
+    impl<T, I> From<ExistingIndexedLinkError<T, I>> for PyErr
+    where
+        ExistingIndexedLinkError<T, I>: Display,
+    {
+        fn from(value: ExistingIndexedLinkError<T, I>) -> Self {
             RelationalException::new_err(value.to_string())
         }
     }

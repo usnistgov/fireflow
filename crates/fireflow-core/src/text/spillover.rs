@@ -1,10 +1,12 @@
 use crate::config::StdTextReadConfig;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
+use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
 use super::named_vec::NameMapping;
+use super::relational::ExistingNamedLinkError;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -57,6 +59,14 @@ impl Spillover {
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.measurements.iter().filter(|n| !names.contains(n))
+    }
+
+    pub(crate) fn existing_link_error(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+        NonEmpty::collect(self.names_difference(names).cloned())
+            .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
     pub(crate) fn remove_invalid_link(

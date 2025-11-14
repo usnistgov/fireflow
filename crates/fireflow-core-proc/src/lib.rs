@@ -6,6 +6,7 @@ use syn::{Data, DeriveInput, Fields, Path, Visibility, parse_macro_input, parse_
 pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
+    let generics = &parsed.generics;
 
     let mut into_clauses = vec![];
 
@@ -26,8 +27,8 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     }
 
     let ret = quote! {
-        impl From<#name> for pyo3::PyErr {
-            fn from(value: #name) -> Self {
+        impl #generics From<#name #generics> for pyo3::PyErr {
+            fn from(value: #name #generics) -> Self {
                 match value {
                     #(#into_clauses),*
                 }

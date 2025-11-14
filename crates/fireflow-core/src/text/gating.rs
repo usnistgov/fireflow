@@ -7,19 +7,20 @@ use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
 use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{
-    IndexedKey as _, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
+    IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 
 use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
 use super::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
 use super::optional::KeywordPairMaybe as _;
 
-use super::index::{GateIndex, MeasIndex, RegionIndex};
+use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
     RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
+use super::relational::{ExistingIndexedLinkError, ExistingNamedLinkError};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -390,7 +391,7 @@ impl AppliedGates3_0 {
     pub(crate) fn indices_difference(
         &self,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = MeasIndex> {
+    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
         self.scheme.indices_difference(indices)
     }
 
@@ -399,6 +400,13 @@ impl AppliedGates3_0 {
         indices: &HashSet<MeasIndex>,
     ) -> impl Iterator<Item = RemovedLink> {
         self.scheme.remove_invalid_links(indices)
+    }
+
+    pub(crate) fn existing_link_errors(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+        self.scheme.existing_link_errors(indices)
     }
 
     pub(crate) fn lookup(
@@ -525,8 +533,15 @@ impl AppliedGates3_2 {
     pub(crate) fn indices_difference(
         &self,
         indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = MeasIndex> {
+    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
         self.0.indices_difference(indices)
+    }
+
+    pub(crate) fn existing_link_errors(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+        self.0.existing_link_errors(indices)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -661,11 +676,31 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    fn indices_difference(&self, indices: &HashSet<MeasIndex>) -> impl Iterator<Item = MeasIndex>
+    fn indices_difference(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
     where
         I: LinkedMeasIndex,
     {
-        self.meas_indices().filter(|i| !indices.contains(i))
+        self.meas_indices().filter(|(_, mi)| !indices.contains(mi))
+    }
+
+    pub(crate) fn existing_link_errors(
+        &self,
+        indices: &HashSet<MeasIndex>,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
+    where
+        I: LinkedMeasIndex,
+    {
+        // TODO this will print one error for every measurement index even in
+        // cases where one RnI keyword has a pair of indices. This isn't a huge
+        // deal but it means we could have twice as many error messages as
+        // otherwise.
+        self.indices_difference(indices).map(|(ri, mi)| {
+            let js = NonEmpty::new(mi.into());
+            ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
+        })
     }
 
     pub(crate) fn remove_invalid_links(
@@ -709,11 +744,13 @@ impl<I> GatingScheme<I> {
             .chain(gating.map(RemovedLink::Gating))
     }
 
-    fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>
+    fn meas_indices(&self) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
     where
         I: LinkedMeasIndex,
     {
-        self.regions.iter().flat_map(|(_, v)| v.meas_indices())
+        self.regions
+            .iter()
+            .flat_map(|(ri, v)| v.meas_indices().map(|mi| (*ri, mi)))
     }
 
     #[allow(clippy::type_complexity)]

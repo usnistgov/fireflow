@@ -1,11 +1,14 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::text::relational::{Comp2_0Missing, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink};
-use crate::validated::keys::{AnyKey as _, BiIndex, BiIndexedKey as _, SpecificKey, StdKeywords};
-
-use super::index::MeasIndex;
-use super::keywords::{Dfc, Par};
-use super::lookup::{FromStrDelim, FromStrWith, ParseKeyError};
+use crate::text::index::MeasIndex;
+use crate::text::keywords::{Dfc, Par};
+use crate::text::lookup::{FromStrDelim, FromStrWith, ParseKeyError};
+use crate::text::relational::{
+    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink,
+};
+use crate::validated::keys::{
+    AnyKey as _, BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords,
+};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
@@ -83,21 +86,24 @@ impl Compensation2_0 {
     }
 
     #[must_use]
-    pub fn opt_keywords(&self) -> Vec<(String, String)> {
+    pub fn non_zero_indices(&self) -> impl Iterator<Item = (MeasIndex, MeasIndex, f32)> {
         let m = &self.0.matrix;
-        let n = m.ncols();
-        m.iter()
-            .enumerate()
-            .filter_map(|(i, x)| {
-                if *x == 0.0 {
-                    None
-                } else {
-                    let row = i / n;
-                    let col = i % n;
-                    Some((Dfc::std(row, col).to_string(), x.to_string()))
-                }
-            })
-            .collect()
+        m.iter().enumerate().filter_map(|(i, &x)| {
+            let n = m.ncols();
+            if x == 0.0 {
+                None
+            } else {
+                let row = i / n;
+                let col = i % n;
+                Some((col.into(), row.into(), x))
+            }
+        })
+    }
+
+    #[must_use]
+    pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        self.non_zero_indices()
+            .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
     }
 
     // NOTE this shouldn't do anything for a freshly made comp matrix since
@@ -114,20 +120,14 @@ impl Compensation2_0 {
         // Scan through matrix and pull out all cells in rows/columns greater
         // or equal to cutoff and whose value is not zero. These are the keywords
         // to return.
-        let es = c.0.matrix.iter().enumerate().filter_map(|(i, &x)| {
-            if x == 0.0 {
-                None
-            } else {
-                let row = i / n;
-                let col = i % n;
-                let which = match (row >= cutoff, col >= cutoff) {
-                    (true, true) => Some(Comp2_0Missing::Both),
-                    (true, false) => Some(Comp2_0Missing::Row),
-                    (false, true) => Some(Comp2_0Missing::Col),
-                    (false, false) => None,
-                };
-                which.map(|b| RemovedComp2_0Cell::new(row.into(), col.into(), x, b))
-            }
+        let es = c.non_zero_indices().filter_map(|(col, row, value)| {
+            let which = match (usize::from(row) >= cutoff, usize::from(col) >= cutoff) {
+                (true, true) => Some(Comp2_0Missing::Both),
+                (true, false) => Some(Comp2_0Missing::Row),
+                (false, true) => Some(Comp2_0Missing::Col),
+                (false, false) => None,
+            };
+            which.map(|b| RemovedComp2_0Cell::new(row, col, value, b))
         });
         let ret = NonEmpty::collect(es).map(RemovedLink::Comp2_0);
         // If resulting matrix is less than 2x2, replace with None. Otherwise
@@ -138,6 +138,15 @@ impl Compensation2_0 {
             c.0.matrix = c.0.matrix.view((0, 0), (par.0, par.0)).into();
         }
         ret
+    }
+
+    pub(crate) fn existing_links(
+        &self,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
+        self.non_zero_indices().map(|(col, row, _)| {
+            let xs = NonEmpty::from((col.into(), vec![row.into()]));
+            ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
+        })
     }
 }
 

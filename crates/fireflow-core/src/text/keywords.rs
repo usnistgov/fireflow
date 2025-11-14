@@ -5,7 +5,7 @@ use crate::logging::{
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, Key0, NonStdKeywords, StdKeywords};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
@@ -24,7 +24,7 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use super::relational::RemovedNamedLink;
+use super::relational::{ExistingNamedLinkError, RemovedNamedLink};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
@@ -1636,6 +1636,14 @@ impl UnstainedCenters {
         names: &HashSet<&Shortname>,
     ) -> impl Iterator<Item = &Shortname> {
         self.0.keys().filter(|n| !names.contains(n))
+    }
+
+    pub(crate) fn existing_link_error(
+        &self,
+        names: &HashSet<&Shortname>,
+    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+        NonEmpty::collect(self.names_difference(names).cloned())
+            .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
     pub(crate) fn remove_invalid_links(

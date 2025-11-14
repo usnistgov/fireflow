@@ -151,7 +151,7 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
+pub struct DataLayout3_1(pub NonMixedEndianLayout<NullMeasDatatype>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
 ///
@@ -162,10 +162,10 @@ pub struct DataLayout3_1(pub NonMixedEndianLayout<NoMeasDatatype>);
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 pub enum DataLayout3_2 {
     Mixed(MixedLayout),
-    NonMixed(NonMixedEndianLayout<HasMeasDatatype>),
+    NonMixed(NonMixedEndianLayout<Option<NumType>>),
 }
 
-pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
+pub type MixedLayout = EndianLayout<NullMixedType, Option<NumType>>;
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -176,7 +176,7 @@ pub type MixedLayout = EndianLayout<NullMixedType, HasMeasDatatype>;
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum AnyOrderedLayout<T> {
-    Ascii(AnyAsciiLayout<T, NoMeasDatatype, true>),
+    Ascii(AnyAsciiLayout<T, NullMeasDatatype, true>),
     Integer(AnyOrderedUintLayout<T>),
     F32(OrderedLayout<F32Range, T>),
     F64(OrderedLayout<F64Range, T>),
@@ -219,7 +219,9 @@ pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByt
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     #[as_ref([u64])]
     ranges: Vec<u64>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<T>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<D>,
 }
 
@@ -230,7 +232,9 @@ pub struct FixedLayout<C, L, T, D> {
     columns: Vec<C>,
     #[as_ref(L)]
     byte_layout: L,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<T>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<D>,
 }
 
@@ -252,7 +256,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NoMeasDatatype>;
+pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, NullMeasDatatype>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 #[derive(Debug, PartialEq, Clone)]
@@ -374,17 +378,9 @@ pub struct MaybeTot;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct KnownTot;
 
-/// Marker type for layouts without $PnDATATYPE.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct NoMeasDatatype;
-
-/// Marker type for layouts with $PnDATATYPE.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct HasMeasDatatype;
-
 /// Marker type representing absence of column datatype.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NullMeasDatatype;
 
 /// A struct whose fields map 1-1 with keyword values in one data column
@@ -398,20 +394,18 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<NullMeasDatatype>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
-pub trait MeasDatatypeDef {
-    type MeasDatatype;
-
+pub trait MeasDatatypeDef: Sized {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>;
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, LookupMeasLayoutWarning>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>;
+    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, RawParsedError>;
 
     fn lookup_all(
         std: &mut StdKeywords,
@@ -419,7 +413,7 @@ pub trait MeasDatatypeDef {
         par: Par,
         conf: &StdTextReadConfig,
     ) -> WarningsAndErrorsResult<
-        Vec<ColumnLayoutValues<Self::MeasDatatype>>,
+        Vec<ColumnLayoutValues<Self>>,
         (),
         LookupMeasLayoutWarning,
         LookupMeasLayoutError,
@@ -432,7 +426,7 @@ pub trait MeasDatatypeDef {
     fn lookup_ro_all(
         kws: &StdKeywords,
     ) -> WarningsAndErrorsResult<
-        Vec<ColumnLayoutValues<Self::MeasDatatype>>,
+        Vec<ColumnLayoutValues<Self>>,
         (),
         OptIndexedKeyError<NumType>,
         RawParsedError,
@@ -453,7 +447,7 @@ pub trait MeasDatatypeDef {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> WarningsAndErrorsResult<
-        ColumnLayoutValues<Self::MeasDatatype>,
+        ColumnLayoutValues<Self>,
         (),
         LookupMeasLayoutWarning,
         LookupMeasLayoutError,
@@ -480,7 +474,7 @@ pub trait MeasDatatypeDef {
         kws: &StdKeywords,
         i: MeasIndex,
     ) -> WarningsAndErrorsResult<
-        ColumnLayoutValues<Self::MeasDatatype>,
+        ColumnLayoutValues<Self>,
         (),
         OptIndexedKeyError<NumType>,
         RawParsedError,
@@ -691,7 +685,7 @@ where
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: Vec<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<Self::MeasDTDef>>,
         conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
@@ -1229,38 +1223,31 @@ impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
     }
 }
 
-impl MeasDatatypeDef for NoMeasDatatype {
-    type MeasDatatype = NullMeasDatatype;
-
+impl MeasDatatypeDef for NullMeasDatatype {
     fn lookup_datatype(
         _: &mut StdKeywords,
         _: &mut NonStdKeywords,
         _: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
-    {
-        LogResult::new_switchable_ok(NullMeasDatatype, conf.allow_optional_dropping)
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, LookupMeasLayoutWarning> {
+        LogResult::new_switchable_ok(Self, conf.allow_optional_dropping)
     }
 
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
-    {
-        LogResult::new_ok(NullMeasDatatype)
+    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, RawParsedError> {
+        LogResult::new_ok(Self)
     }
 }
 
-impl MeasDatatypeDef for HasMeasDatatype {
-    type MeasDatatype = Option<NumType>;
-
+impl MeasDatatypeDef for Option<NumType> {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableError<Self::MeasDatatype, AllowOptionalDropping, LookupMeasLayoutWarning>
-    {
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, LookupMeasLayoutWarning> {
         NumType::drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupMeasLayoutWarning::from)
     }
@@ -1270,8 +1257,7 @@ impl MeasDatatypeDef for HasMeasDatatype {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self::MeasDatatype, OptIndexedKeyError<NumType>, RawParsedError>
-    {
+    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, RawParsedError> {
         NumType::get_meas_opt(kws, i).into_succ()
     }
 }
@@ -1870,7 +1856,7 @@ fn is_ascii_delim(x: u8) -> bool {
 
 impl<D> EndianLayout<AnyNullBitmask, D> {
     pub(crate) fn endian_uint_try_new(
-        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D>>,
         e: Endian,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
@@ -1940,7 +1926,7 @@ impl<D> EndianLayout<NullMixedType, D> {
 
     pub(crate) fn try_into_non_mixed(
         self,
-    ) -> ErrorsResult<NonMixedEndianLayout<NoMeasDatatype>, (), MixedToNonMixedLayoutError> {
+    ) -> ErrorsResult<NonMixedEndianLayout<NullMeasDatatype>, (), MixedToNonMixedLayoutError> {
         if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
             macro_rules! from_iter {
                 ($iter:expr, $head:expr, $byte_layout:expr) => {
@@ -2801,13 +2787,13 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 
     fn try_new<F, P, W, E>(
-        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D>>,
         byte_layout: S,
         new_col_f: F,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<W>, ColumnError<E>>
     where
         D: MeasDatatypeDef,
-        F: Fn(ColumnLayoutValues<D::MeasDatatype>) -> WarningsAndErrorsResult<C, P, W, E>,
+        F: Fn(ColumnLayoutValues<D>) -> WarningsAndErrorsResult<C, P, W, E>,
     {
         cs.into_iter()
             .enumerate()
@@ -2923,7 +2909,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 }
 
-impl<C> EndianLayout<C, HasMeasDatatype> {
+impl<C> EndianLayout<C, Option<NumType>> {
     fn insert_mixed(
         mut self,
         index: MeasIndex,
@@ -2933,7 +2919,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
-        NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
+        NonMixedEndianLayout<Option<NumType>>: From<Self>,
     {
         NullMixedType::from_range(range, flag).map_deferred_value(|col| match col.try_into() {
             Ok(c) => {
@@ -2956,7 +2942,7 @@ impl<C> EndianLayout<C, HasMeasDatatype> {
     where
         C: TryFrom<NullMixedType, Error = MixedToInnerError>,
         NullMixedType: From<C>,
-        NonMixedEndianLayout<HasMeasDatatype>: From<Self>,
+        NonMixedEndianLayout<Option<NumType>>: From<Self>,
     {
         NullMixedType::from_range(range, flag).map_deferred_value(|col| match col.try_into() {
             Ok(c) => {
@@ -3411,7 +3397,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     }
 
     pub(crate) fn try_new(
-        cs: Vec<ColumnLayoutValues<D::MeasDatatype>>,
+        cs: Vec<ColumnLayoutValues<D>>,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<
         Self,
@@ -3489,7 +3475,7 @@ where
 
 impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd2_0;
-    type MeasDTDef = NoMeasDatatype;
+    type MeasDTDef = NullMeasDatatype;
     type TotDef = MaybeTot;
 
     fn lookup<C>(
@@ -3515,7 +3501,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
-        columns: Vec<ColumnLayoutValues<<Self::MeasDTDef as MeasDatatypeDef>::MeasDatatype>>,
+        columns: Vec<ColumnLayoutValues<Self::MeasDTDef>>,
         conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<Self, (), ColumnError<NewMixedTypeWarning>, NewDataLayoutError>
     {
@@ -3527,7 +3513,7 @@ impl VersionedDataLayout for DataLayout2_0 {
 
 impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd2_0;
-    type MeasDTDef = NoMeasDatatype;
+    type MeasDTDef = NullMeasDatatype;
     type TotDef = KnownTot;
 
     fn lookup<C>(
@@ -3565,7 +3551,7 @@ impl VersionedDataLayout for DataLayout3_0 {
 
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
-    type MeasDTDef = NoMeasDatatype;
+    type MeasDTDef = NullMeasDatatype;
     type TotDef = KnownTot;
 
     fn lookup<C>(
@@ -3603,7 +3589,7 @@ impl VersionedDataLayout for DataLayout3_1 {
 
 impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = ByteOrd3_1;
-    type MeasDTDef = HasMeasDatatype;
+    type MeasDTDef = Option<NumType>;
     type TotDef = KnownTot;
 
     fn lookup<C>(
@@ -3626,7 +3612,12 @@ impl VersionedDataLayout for DataLayout3_2 {
         let e = ByteOrd3_1::remove_metaroot_req(std)
             .map_err(LookupLayoutError::from)
             .into_log();
-        let cs = from!(HasMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
+        let cs = from!(Option::<NumType>::lookup_all(
+            std,
+            nonstd,
+            par,
+            conf.as_ref()
+        ));
 
         d.zip3_commutative(e, cs)
             .and_then_commutative(|(datatype, endian, columns)| {
@@ -3650,7 +3641,7 @@ impl VersionedDataLayout for DataLayout3_2 {
 
         let d = from1!(AlphaNumType::get_metaroot_req(kws));
         let e = from1!(ByteOrd3_1::get_metaroot_req(kws));
-        let cs = HasMeasDatatype::lookup_ro_all(kws);
+        let cs = Option::<NumType>::lookup_ro_all(kws);
 
         from2!(d.zip3_commutative(e, cs)).and_then_commutative(|(datatype, endian, columns)| {
             from2!(Self::try_new(datatype, endian, columns, conf))
@@ -3687,7 +3678,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .map(|c| ColumnLayoutValues::new(c.width, c.range, NullMeasDatatype))
                     .collect();
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf)
-                    .map_ok_value(|x| Self::NonMixed(x.phantom_into::<HasMeasDatatype>()))
+                    .map_ok_value(|x| Self::NonMixed(x.phantom_into::<Option<NumType>>()))
                     .map_commutative_warnings(ColumnError::inner_into)
             }
             // has columns with 1+ datatypes, use mixed layout
@@ -3703,7 +3694,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
-impl InterLayoutOps<HasMeasDatatype> for DataLayout3_2 {
+impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![NumType::std_blank()]
     }
@@ -3865,7 +3856,12 @@ impl<T> AnyOrderedLayout<T> {
             };
         }
 
-        let cs = from!(NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
+        let cs = from!(NullMeasDatatype::lookup_all(
+            std,
+            nonstd,
+            par,
+            conf.as_ref()
+        ));
         let d = AlphaNumType::remove_metaroot_req(std)
             .map_err(LookupLayoutError::from)
             .into_log();
@@ -3895,7 +3891,7 @@ impl<T> AnyOrderedLayout<T> {
 
         let d = from1!(AlphaNumType::get_metaroot_req(kws));
         let b = from1!(ByteOrd2_0::get_metaroot_req(kws));
-        let cs = NoMeasDatatype::lookup_ro_all(kws);
+        let cs = NullMeasDatatype::lookup_ro_all(kws);
 
         from2!(d.zip3_commutative(b, cs)).and_then_commutative(|(datatype, byteord, columns)| {
             from2!(Self::try_new(datatype, byteord, columns, conf))
@@ -3919,7 +3915,7 @@ impl<T> AnyOrderedLayout<T> {
     ) -> Self
     where
         AnyOrderedUintLayout<T>:
-            From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T, NoMeasDatatype>>,
+            From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T, NullMeasDatatype>>,
     {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
@@ -4016,7 +4012,7 @@ impl<T> AnyOrderedLayout<T> {
     }
 }
 
-impl NonMixedEndianLayout<NoMeasDatatype> {
+impl NonMixedEndianLayout<NullMeasDatatype> {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -4033,7 +4029,12 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
                     .into_semigroup()
             };
         }
-        let cs = go!(NoMeasDatatype::lookup_all(std, nonstd, par, conf.as_ref()));
+        let cs = go!(NullMeasDatatype::lookup_all(
+            std,
+            nonstd,
+            par,
+            conf.as_ref()
+        ));
         let d = go!(AlphaNumType::lookup_req_check_ascii(std));
         let n = ByteOrd3_1::remove_metaroot_req(std)
             .map_err(LookupLayoutError::from)
@@ -4045,7 +4046,7 @@ impl NonMixedEndianLayout<NoMeasDatatype> {
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
-        let cs = NoMeasDatatype::lookup_ro_all(kws);
+        let cs = NullMeasDatatype::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_log();

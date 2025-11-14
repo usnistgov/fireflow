@@ -3206,7 +3206,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let range = format_ident!("F{:02}Range", nbits);
     let range_path: Path = parse_quote!(fireflow_core::data::#range);
 
-    let nomeasdt_path = quote!(fireflow_core::data::NoMeasDatatype);
+    let nomeasdt_path = quote!(fireflow_core::data::NullMeasDatatype);
     let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
 
@@ -3249,7 +3249,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let fixed = quote!(fireflow_core::data::FixedLayout);
     let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
-    let nomeasdt = quote!(fireflow_core::data::NoMeasDatatype);
+    let nomeasdt = quote!(fireflow_core::data::NullMeasDatatype);
     let endian_layout = quote!(fireflow_core::data::EndianLayout);
     let layout_path = parse_quote!(#endian_layout<#bitmask, #nomeasdt>);
 

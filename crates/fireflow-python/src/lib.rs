@@ -60,7 +60,7 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
+    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NonMixedEndianLayout, NullMeasDatatype,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -591,10 +591,10 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
 }
 
 // Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NullMeasDatatype, false>);
 
 // Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NullMeasDatatype, false>);
 
 // Implement __new__ and attributes for all PyOrderedUint*Layout structs
 impl_new_ordered_layout!(1, false);
@@ -690,23 +690,23 @@ pub enum PyOrderedLayout {
 pub enum PyNonMixedLayout {
     #[from(
         PyFixedAsciiLayout,
-        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+        FixedAsciiLayout<KnownTot, NullMeasDatatype, false>
     )]
     AsciiFixed(PyFixedAsciiLayout),
 
     #[from(
         PyDelimAsciiLayout,
-        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+        DelimAsciiLayout<KnownTot, NullMeasDatatype, false>
     )]
     AsciiDelim(PyDelimAsciiLayout),
 
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
+    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NullMeasDatatype>)]
     Uint(PyEndianUintLayout),
 
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
+    #[from(PyEndianF32Layout, EndianLayout<F32Range, NullMeasDatatype>)]
     F32(PyEndianF32Layout),
 
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
+    #[from(PyEndianF64Layout, EndianLayout<F64Range, NullMeasDatatype>)]
     F64(PyEndianF64Layout),
 }
 
@@ -814,8 +814,8 @@ impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
     }
 }
 
-impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+impl From<NonMixedEndianLayout<NullMeasDatatype>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<NullMeasDatatype>) -> Self {
         match value {
             NonMixedEndianLayout::Ascii(x) => match x {
                 AnyAsciiLayout::Fixed(y) => y.into(),
@@ -828,7 +828,7 @@ impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
     }
 }
 
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<NullMeasDatatype> {
     fn from(value: PyNonMixedLayout) -> Self {
         match value {
             PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),

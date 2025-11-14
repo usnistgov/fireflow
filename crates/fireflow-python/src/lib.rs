@@ -60,7 +60,7 @@ use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NonMixedEndianLayout, NullMeasDatatype,
+    F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout, NullMeasDatatype,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -70,6 +70,7 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::Eithers;
+use fireflow_core::text::optional::Identity;
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
 
@@ -591,10 +592,10 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
 }
 
 // Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NullMeasDatatype, false>);
+impl_new_fixed_ascii_layout!(FixedAsciiLayout<Identity<kws::Tot>, NullMeasDatatype, false>);
 
 // Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NullMeasDatatype, false>);
+impl_new_delim_ascii_layout!(DelimAsciiLayout<Identity<kws::Tot>, NullMeasDatatype, false>);
 
 // Implement __new__ and attributes for all PyOrderedUint*Layout structs
 impl_new_ordered_layout!(1, false);
@@ -690,13 +691,13 @@ pub enum PyOrderedLayout {
 pub enum PyNonMixedLayout {
     #[from(
         PyFixedAsciiLayout,
-        FixedAsciiLayout<KnownTot, NullMeasDatatype, false>
+        FixedAsciiLayout<Identity<kws::Tot>, NullMeasDatatype, false>
     )]
     AsciiFixed(PyFixedAsciiLayout),
 
     #[from(
         PyDelimAsciiLayout,
-        DelimAsciiLayout<KnownTot, NullMeasDatatype, false>
+        DelimAsciiLayout<Identity<kws::Tot>, NullMeasDatatype, false>
     )]
     AsciiDelim(PyDelimAsciiLayout),
 
@@ -772,7 +773,7 @@ impl From<DataLayout3_2> for PyLayout3_2 {
     }
 }
 
-impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
+impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
     fn from(value: PyOrderedLayout) -> Self {
         match value {
             PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
@@ -791,8 +792,8 @@ impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
     }
 }
 
-impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
+impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
+    fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
         match value {
             AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
                 AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),

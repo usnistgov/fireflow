@@ -83,7 +83,7 @@ use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
     ReqKeyError, ReqMetarootKey as _,
 };
-use crate::text::optional::KeywordPairMaybe as _;
+use crate::text::optional::{Identity, KeywordPairMaybe as _};
 
 use crate::validated::keys::NonStdKeywords;
 use crate::validated::{
@@ -133,14 +133,14 @@ use {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
+pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, T>, generics = "'a, T")]
 #[delegate(InterLayoutOps<D>, generics = "D")]
-pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
+pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
@@ -186,16 +186,16 @@ pub enum AnyOrderedLayout<T> {
 // vast majority of cases and make certain operations easier.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum NonMixedEndianLayout<D> {
-    Ascii(AnyAsciiLayout<KnownTot, D, false>),
+    Ascii(AnyAsciiLayout<Identity<Tot>, D, false>),
     Integer(EndianLayout<AnyNullBitmask, D>),
     F32(EndianLayout<F32Range, D>),
     F64(EndianLayout<F64Range, D>),
 }
 
-pub type EndianLayout<C, D> = FixedLayout<C, Endian, KnownTot, D>;
+pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
 
 /// Byte layouts for ASCII data.
 ///
@@ -368,16 +368,6 @@ impl<C, T, S> ColumnWriter<'_, C, T, S> {
     }
 }
 
-/// Marker type for layouts that might have $TOT
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct MaybeTot;
-
-/// Marker type for layouts that always have $TOT
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct KnownTot;
-
 /// Marker type representing absence of column datatype.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -498,17 +488,15 @@ pub trait MeasDatatypeDef: Sized {
 }
 
 /// Methods for a type which may or may not have $TOT
-pub trait TotDefinition {
-    type Tot;
-
-    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
+pub trait TotDefinition: Sized {
+    fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
         G: FnOnce(I) -> X;
 
     fn check_tot(
         total_events: u64,
-        tot: Self::Tot,
+        tot: Self,
         flag: AllowTotMismatch,
     ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
         Self::with_tot(
@@ -562,7 +550,7 @@ pub trait LayoutOps<'a, T>: Sized {
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
-        tot: <T as TotDefinition>::Tot,
+        tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
@@ -692,7 +680,7 @@ where
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
-        tot: <Self::TotDef as TotDefinition>::Tot,
+        tot: Self::TotDef,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError> {
@@ -1262,10 +1250,8 @@ impl MeasDatatypeDef for Option<NumType> {
     }
 }
 
-impl TotDefinition for MaybeTot {
-    type Tot = Option<Tot>;
-
-    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
+impl TotDefinition for Option<Tot> {
+    fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
         G: FnOnce(I) -> X,
@@ -1278,15 +1264,13 @@ impl TotDefinition for MaybeTot {
     }
 }
 
-impl TotDefinition for KnownTot {
-    type Tot = Tot;
-
-    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, _: G) -> X
+impl TotDefinition for Identity<Tot> {
+    fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, _: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
         G: FnOnce(I) -> X,
     {
-        tot_f(input, tot)
+        tot_f(input, tot.0)
     }
 }
 
@@ -2248,7 +2232,7 @@ where
         &self,
         h: &mut BufReader<R>,
         _: &mut Vec<u8>,
-        tot: T::Tot,
+        tot: T,
         seg: AnyDataSegment,
         _: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError> {
@@ -2591,7 +2575,7 @@ where
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
-        tot: T::Tot,
+        tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
@@ -3453,7 +3437,7 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
     }
 }
 
-impl<T, const LEN: usize, Tot> OrderedLayout<Bitmask<T, LEN>, Tot>
+impl<T, const LEN: usize, TC> OrderedLayout<Bitmask<T, LEN>, TC>
 where
     Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
@@ -3463,7 +3447,7 @@ where
     }
 }
 
-impl<T, const LEN: usize, Tot> OrderedLayout<FloatRange<T, LEN>, Tot>
+impl<T, const LEN: usize, TC> OrderedLayout<FloatRange<T, LEN>, TC>
 where
     FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
 {
@@ -3476,7 +3460,7 @@ where
 impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd2_0;
     type MeasDTDef = NullMeasDatatype;
-    type TotDef = MaybeTot;
+    type TotDef = Option<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3514,7 +3498,7 @@ impl VersionedDataLayout for DataLayout2_0 {
 impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd2_0;
     type MeasDTDef = NullMeasDatatype;
-    type TotDef = KnownTot;
+    type TotDef = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3552,7 +3536,7 @@ impl VersionedDataLayout for DataLayout3_0 {
 impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
     type MeasDTDef = NullMeasDatatype;
-    type TotDef = KnownTot;
+    type TotDef = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -3590,7 +3574,7 @@ impl VersionedDataLayout for DataLayout3_1 {
 impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = ByteOrd3_1;
     type MeasDTDef = Option<NumType>;
-    type TotDef = KnownTot;
+    type TotDef = Identity<Tot>;
 
     fn lookup<C>(
         std: &mut StdKeywords,

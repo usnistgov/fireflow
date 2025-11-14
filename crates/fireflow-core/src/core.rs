@@ -6,8 +6,8 @@ use crate::config::{
 };
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
-    DataLayout3_1, DataLayout3_2, InterLayoutOps as _, KnownTot, LayoutOps as _, LookupLayoutError,
-    LookupLayoutWarning, MaybeTot, MeasLayoutMismatchError, MixedToNonMixedLayoutError,
+    DataLayout3_1, DataLayout3_2, InterLayoutOps as _, LayoutOps as _, LookupLayoutError,
+    LookupLayoutWarning, MeasLayoutMismatchError, MixedToNonMixedLayoutError,
     MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError, RawToLayoutError,
     RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, TotDefinition,
     VersionedDataLayout,
@@ -1647,7 +1647,7 @@ pub trait VersionedTEXTOffsets: Sized {
     where
         C: AsRef<ReadTEXTOffsetsConfig>;
 
-    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot;
+    fn tot(&self) -> Self::TotDef;
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
@@ -7265,7 +7265,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets2_0 {
-    type TotDef = MaybeTot;
+    type TotDef = Option<Tot>;
 
     fn lookup<C>(
         kws: &mut StdKeywords,
@@ -7303,7 +7303,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             })
     }
 
-    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
+    fn tot(&self) -> Self::TotDef {
         self.0.tot
     }
 
@@ -7314,7 +7314,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_0 {
-    type TotDef = KnownTot;
+    type TotDef = Identity<Tot>;
 
     fn lookup<C>(
         kws: &mut StdKeywords,
@@ -7362,8 +7362,8 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
-    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
-        self.0.tot
+    fn tot(&self) -> Self::TotDef {
+        Identity(self.0.tot)
     }
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
@@ -7373,7 +7373,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets3_2 {
-    type TotDef = KnownTot;
+    type TotDef = Identity<Tot>;
 
     fn lookup<C>(
         kws: &mut StdKeywords,
@@ -7421,8 +7421,8 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
     }
 
-    fn tot(&self) -> <Self::TotDef as TotDefinition>::Tot {
-        self.0.tot
+    fn tot(&self) -> Self::TotDef {
+        Identity(self.0.tot)
     }
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {

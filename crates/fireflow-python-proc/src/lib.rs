@@ -3118,7 +3118,8 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             "I",
         )
     };
-    let known_tot_path = quote!(fireflow_core::data::KnownTot);
+    let tot_path = quote!(fireflow_core::text::keywords::Tot);
+    let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
     let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);

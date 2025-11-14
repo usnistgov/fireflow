@@ -76,8 +76,11 @@ pub enum AnyExistingNamedLinkError {
 pub enum AnyExistingIndexLinkError {
     Comp2_0(ExistingIndexedLinkError<Dfc, BiIndex>),
     Comp3_0(ExistingIndexedLinkError<Compensation3_0, ()>),
-    GateRegion(ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>),
+    GateRegion(ExistingGateRegionLinkError),
 }
+
+pub(crate) type ExistingGateRegionLinkError =
+    ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
 
 #[derive(Debug, Error, new)]
 #[error(

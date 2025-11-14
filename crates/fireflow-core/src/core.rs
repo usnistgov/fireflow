@@ -53,10 +53,9 @@ use crate::text::keywords::{
     Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname,
     LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
     OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    Proj, PseudostandardError, Range, RegionGateIndex, Smno, Src, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode,
-    UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Proj, PseudostandardError, Range, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
+    TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -71,8 +70,9 @@ use crate::text::named_vec::{
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
-    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError, ExistingIndexedLinkError,
-    ExistingLinkError, ExistingNamedLinkError, RemovedLink,
+    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError,
+    ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError,
+    ExistingNamedLinkError, RemovedLink,
 };
 use crate::text::scale::{LogScale, Scale};
 use crate::text::spillover::{NewSpilloverError, Spillover};
@@ -3087,36 +3087,42 @@ where
     pub fn set_applied_gates_3_0(
         &mut self,
         ag: AppliedGates3_0,
-    ) -> ErrorsResult<(), (), ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
+    ) -> SummaryResult<(), ExistingGateRegionLinkError, SetAppliedGatesFailure>
     where
         M: HasAppliedGates3_0,
     {
         let js = (0..self.par().0).map(MeasIndex::from).collect();
         let es = ag.existing_link_errors(&js);
-        ErrorsResult::new_err_from_iter(es, ()).when_ok(|| {
-            *self
-                .metaroot
-                .specific
-                .applied_gates3_0_mut(private::NoTouchy) = ag;
-        })
+        ErrorsResult::new_err_from_iter(es, ())
+            .when_ok(|| {
+                *self
+                    .metaroot
+                    .specific
+                    .applied_gates3_0_mut(private::NoTouchy) = ag;
+            })
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Set gating keywords (3.2)
     pub fn set_applied_gates_3_2(
         &mut self,
         ag: AppliedGates3_2,
-    ) -> ErrorsResult<(), (), ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
+    ) -> SummaryResult<(), ExistingGateRegionLinkError, SetAppliedGatesFailure>
     where
         M: HasAppliedGates3_2,
     {
         let js = (0..self.par().0).map(MeasIndex::from).collect();
         let es = ag.existing_link_errors(&js);
-        ErrorsResult::new_err_from_iter(es, ()).when_ok(|| {
-            *self
-                .metaroot
-                .specific
-                .applied_gates3_2_mut(private::NoTouchy) = ag;
-        })
+        ErrorsResult::new_err_from_iter(es, ())
+            .when_ok(|| {
+                *self
+                    .metaroot
+                    .specific
+                    .applied_gates3_2_mut(private::NoTouchy) = ag;
+            })
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Get reference to non-standard keywords.
@@ -3989,15 +3995,17 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> ErrorsResult<
+    ) -> SummaryResult<
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        (),
         RemoveMeasByNameError,
+        RemoveMeasByNameFailure,
     > {
         self.remove_measurement_by_name_inner(n)
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Remove a measurement at a given position
@@ -4007,12 +4015,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> ErrorsResult<
+    ) -> SummaryResult<
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        (),
         RemoveMeasByIndexError,
+        RemoveMeasByIndexFailure,
     > {
         self.remove_measurement_by_index_inner(index)
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Add time measurement to the end of the measurement vector.
@@ -4079,8 +4089,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     }
 
     /// Remove measurements
-    pub fn unset_measurements(&mut self) -> ErrorsResult<(), (), ExistingLinkError> {
+    pub fn unset_measurements(
+        &mut self,
+    ) -> SummaryResult<(), ExistingLinkError, UnsetMeasurementsFailure> {
         self.unset_measurements_inner()
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
@@ -4463,9 +4477,11 @@ where
     }
 
     /// Remove all measurements and data
-    pub fn unset_data(&mut self) -> ErrorsResult<(), (), ExistingLinkError> {
+    pub fn unset_data(&mut self) -> SummaryResult<(), ExistingLinkError, UnsetDataFailure> {
         self.unset_measurements_inner()
             .when_ok(|| self.data.clear())
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Coerce all values in DATA to fit within types specified in layout.
@@ -4500,19 +4516,21 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> ErrorsResult<
+    ) -> SummaryResult<
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ),
-        (),
         RemoveMeasByNameError,
+        RemoveMeasByNameFailure,
     > {
         self.remove_measurement_by_name_inner(n)
             .map_ok_value(|(i, x)| {
                 self.data.drop_in_place(i.into()).unwrap();
                 (i, x)
             })
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Remove a measurement at a given position
@@ -4522,14 +4540,17 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> ErrorsResult<
+    ) -> SummaryResult<
         EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        (),
         RemoveMeasByIndexError,
+        RemoveMeasByNameFailure,
     > {
-        self.remove_measurement_by_index_inner(index).when_ok(|| {
-            self.data.drop_in_place(index.into()).unwrap();
-        })
+        self.remove_measurement_by_index_inner(index)
+            .when_ok(|| {
+                self.data.drop_in_place(index.into()).unwrap();
+            })
+            .summarize_errors()
+            .resolve_nowarn()
     }
 
     /// Add time measurement to the end of the measurement vector.
@@ -9297,6 +9318,22 @@ def_failure!(
 );
 
 def_failure!(SetMeasurementsFailure, "could not set measurements");
+
+def_failure!(UnsetMeasurementsFailure, "could not unset measurements");
+
+def_failure!(UnsetDataFailure, "could not unset data and measurements");
+
+def_failure!(
+    RemoveMeasByNameFailure,
+    "could not remove measurement by name"
+);
+
+def_failure!(
+    RemoveMeasByIndexFailure,
+    "could not remove measurement by index"
+);
+
+def_failure!(SetAppliedGatesFailure, "could not set gating keywords");
 
 def_failure!(
     SetMeasurementsAndLayoutFailure,

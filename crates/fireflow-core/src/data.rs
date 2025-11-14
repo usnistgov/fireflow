@@ -1870,7 +1870,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .enumerate()
                     .map(|(i, c)| {
                         c.try_into()
-                            .map_err(|e| MixedColumnConvertError::new(i + 1, e))
+                            .map_err(|e| ColumnError::new(i + 1, e))
                             .into_log()
                     })
                     .mappend_commutative()
@@ -1885,7 +1885,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
-                    .map_errors(|(index, error)| MixedColumnConvertError::new(index, error)),
+                    .map_errors(|(index, error)| ColumnError::new(index, error)),
                 MixedType::Ascii(x) => from_columns!(cs)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
@@ -1930,7 +1930,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::F32(x) => from_iter!(it, x, byte_layout),
                 MixedType::F64(x) => from_iter!(it, x, byte_layout),
             }
-            .map_errors(|(i, error)| MixedColumnConvertError::new(i + 1, error))
+            .map_errors(|(i, error)| ColumnError::new(i + 1, error))
         } else {
             let l = FixedLayout::new(vec![], self.byte_layout);
             LogResult::new_ok(NonMixedEndianLayout::Integer(l))
@@ -4460,8 +4460,8 @@ pub struct ConvertWidthError {
     error: UintToUintError,
 }
 
-pub type MixedToOrderedLayoutError = MixedColumnConvertError<MixedToOrderedConvertError>;
-pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToInnerError>;
+pub type MixedToOrderedLayoutError = ColumnError<MixedToOrderedConvertError>;
+pub type MixedToNonMixedLayoutError = ColumnError<MixedToInnerError>;
 
 #[derive(From, Display, Debug, Error)]
 pub enum MixedToOrderedConvertError {
@@ -4476,15 +4476,6 @@ pub enum AnyRangeError {
     Ascii(IntRangeError<()>),
     Int(BitmaskError),
     Float(DecimalToFloatError),
-}
-
-#[derive(Debug, Error, new)]
-#[error("mixed conversion error in column {index}: {error}")]
-pub struct MixedColumnConvertError<E> {
-    #[new(into)]
-    index: MeasIndex,
-    #[new(into)]
-    error: E,
 }
 
 #[derive(From, Display, Debug, Error)]

@@ -24,7 +24,7 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use super::relational::{ExistingNamedLinkError, RemovedNamedLink};
+use super::relational::{ExistingNamedLinkError, MeasNamesNoTime, RemovedNamedLink};
 use super::scale::{Scale, ScaleError};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
@@ -160,10 +160,10 @@ impl Trigger {
 
     pub(crate) fn remove_invalid_links(
         src: &mut Option<Self>,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> Option<RemovedNamedLink<Self>> {
         let tr = src.as_ref()?;
-        if names.contains(&tr.measurement) {
+        if names.as_ref().contains(&tr.measurement) {
             None
         } else {
             // ASSUME this won't fail since we filter out None above with ?
@@ -1633,14 +1633,14 @@ impl UnstainedCenters {
 
     pub(crate) fn names_difference(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = &Shortname> {
-        self.0.keys().filter(|n| !names.contains(n))
+        self.0.keys().filter(|n| !names.as_ref().contains(n))
     }
 
     pub(crate) fn existing_link_error(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         NonEmpty::collect(self.names_difference(names).cloned())
             .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
@@ -1648,7 +1648,7 @@ impl UnstainedCenters {
 
     pub(crate) fn remove_invalid_links(
         &mut self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> Option<RemovedNamedLink<Self>> {
         let ns = self.names_difference(names).cloned();
         NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))

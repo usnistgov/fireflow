@@ -20,13 +20,13 @@ use super::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
     RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use super::relational::{ExistingIndexedLinkError, ExistingNamedLinkError};
+use super::relational::{ExistingIndexedLinkError, MeasIndicesNoTime};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
 use std::str::FromStr;
@@ -388,23 +388,23 @@ impl AppliedGates3_0 {
         self.scheme.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn indices_difference(
-        &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
-        self.scheme.indices_difference(indices)
-    }
+    // pub(crate) fn indices_difference(
+    //     &self,
+    //     indices: &MeasIndicesNoTime,
+    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
+    //     self.scheme.indices_difference(indices)
+    // }
 
     pub(crate) fn remove_invalid_links(
         &mut self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink> {
         self.scheme.remove_invalid_links(indices)
     }
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
         self.scheme.existing_link_errors(indices)
     }
@@ -530,16 +530,16 @@ impl AppliedGates3_2 {
         self.0.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn indices_difference(
-        &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
-        self.0.indices_difference(indices)
-    }
+    // pub(crate) fn indices_difference(
+    //     &self,
+    //     indices: &MeasIndicesNoTime,
+    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
+    //     self.0.indices_difference(indices)
+    // }
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
         self.0.existing_link_errors(indices)
     }
@@ -678,17 +678,18 @@ impl<I> GatingScheme<I> {
 
     fn indices_difference(
         &self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
     where
         I: LinkedMeasIndex,
     {
-        self.meas_indices().filter(|(_, mi)| !indices.contains(mi))
+        self.meas_indices()
+            .filter(|(_, mi)| !indices.as_ref().contains(mi))
     }
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
     where
         I: LinkedMeasIndex,
@@ -705,7 +706,7 @@ impl<I> GatingScheme<I> {
 
     pub(crate) fn remove_invalid_links(
         &mut self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink>
     where
         I: LinkedMeasIndex,
@@ -720,7 +721,7 @@ impl<I> GatingScheme<I> {
                 self.regions
                     .get(&rni)
                     .into_iter()
-                    .any(|rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
+                    .any(|rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
             });
             NonEmpty::collect(ys).map(|zs| {
                 // ASSUME this won't fail because we are inside an if let Some
@@ -734,9 +735,9 @@ impl<I> GatingScheme<I> {
         // Then remove any $RnI/$RnW keywords which reference measurements that
         // don't exist.
         self.regions
-            .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.contains(&x)))
+            .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
             .map(|(rni, rnw)| {
-                let bad_indices = rnw.meas_indices().filter(|x| !indices.contains(x));
+                let bad_indices = rnw.meas_indices().filter(|x| !indices.as_ref().contains(x));
                 // ASSUME this won't fail because we pre-filtered above
                 let js = NonEmpty::collect(bad_indices).unwrap();
                 RemovedLink::from(RemovedGateLink::new(rni, rnw, js))

@@ -6,7 +6,7 @@ use crate::validated::shortname::Shortname;
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
 use super::named_vec::NameMapping;
-use super::relational::ExistingNamedLinkError;
+use super::relational::{ExistingNamedLinkError, MeasNamesNoTime};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -56,14 +56,16 @@ impl Spillover {
 
     pub(crate) fn names_difference(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = &Shortname> {
-        self.measurements.iter().filter(|n| !names.contains(n))
+        self.measurements
+            .iter()
+            .filter(|n| !names.as_ref().contains(n))
     }
 
     pub(crate) fn existing_link_error(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         NonEmpty::collect(self.names_difference(names).cloned())
             .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
@@ -71,7 +73,7 @@ impl Spillover {
 
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> Option<RemovedNamedLink<Self>> {
         let s = src.as_ref()?;
         let ns = s.names_difference(names).cloned();

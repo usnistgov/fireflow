@@ -270,16 +270,17 @@ impl<K, U, V> NamedVec<K, U, V> {
         })
     }
 
-    // /// Return all existing non-center names in the vector with their indices
-    // pub(crate) fn indexed_non_center_names(
-    //     &self,
-    // ) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_ {
-    //     self.iter().flat_map(|(i, r)| {
-    //         r.non_center()
-    //             .and_then(|x| K::as_opt(&x.key))
-    //             .map(|x| (i, x))
-    //     })
-    // }
+    /// Return all existing non-center names in the vector with their indices
+    pub(crate) fn indexed_non_center_names(
+        &self,
+    ) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_
+    where
+        K: MightHave<Shortname>,
+    {
+        self.iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.both(|_| None, |x| x.key.as_opt()).map(|x| (i.into(), x)))
+    }
 
     /// Return iterator over key names with non-existent names as default.
     pub(crate) fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_

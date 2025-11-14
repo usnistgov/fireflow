@@ -43,14 +43,21 @@ use super::keywords::{
 };
 use super::spillover::Spillover;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
+use std::collections::HashSet;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::AllIntoPyErr;
+
+#[derive(AsRef, From)]
+pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
+
+#[derive(AsRef, From)]
+pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
 
 //
 // Existential relational errors (do any links exist?)
@@ -187,8 +194,8 @@ pub enum AnyLinkError {
     bad = self.names.iter().join(", ")
 )]
 pub struct NamedLinkError<T, I> {
-    names: NonEmpty<Shortname>,
     key: SpecificKey<T, I>,
+    names: NonEmpty<Shortname>,
 }
 
 /// Error for key which references a non-existent measurement index
@@ -224,7 +231,7 @@ pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
 
 impl<T> NamedLinkError<T, ()> {
     pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
-        Self::new(js, SpecificKey::default())
+        Self::new(SpecificKey::default(), js)
     }
 }
 

@@ -72,10 +72,11 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError,
     ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError,
-    ExistingNamedLinkError, RemovedLink,
+    ExistingNamedLinkError, KeyToNameLinkError, MeasIndicesNoTime, MeasNamesNoTime, NamedLinkError,
+    RemovedLink,
 };
 use crate::text::scale::{LogScale, Scale};
-use crate::text::spillover::{NewSpilloverError, Spillover};
+use crate::text::spillover::Spillover;
 use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
@@ -1416,8 +1417,8 @@ pub trait VersionedMetaroot: Sized {
     fn remove_invalid_links(
         &mut self,
         par: Par,
-        names: &HashSet<&Shortname>,
-        indices: &HashSet<MeasIndex>,
+        names: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink>;
 
     fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>>;
@@ -1425,13 +1426,14 @@ pub trait VersionedMetaroot: Sized {
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError>;
 
     /// Return error if any data in struct has index links.
     fn meas_has_existing_index_links_with_inner(
         &self,
-        indices: &HashSet<MeasIndex>,
+        par: Par,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError>;
 
     /// Rename any measurement references in keywords.
@@ -2036,14 +2038,14 @@ where
 
     fn meas_has_existing_named_links_with(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         let tr = self
             .tr
             .as_ref()
             .and_then(|tr| {
                 let n = &tr.measurement;
-                names.contains(n).then(|| tr.measurement.clone())
+                names.as_ref().contains(n).then(|| tr.measurement.clone())
             })
             .map(NonEmpty::new)
             .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
@@ -2055,14 +2057,15 @@ where
 
     fn meas_has_existing_links_with(
         &self,
-        names: &HashSet<&Shortname>,
-        indices: &HashSet<MeasIndex>,
+        par: Par,
+        names: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = ExistingLinkError> {
         let es = self
             .meas_has_existing_named_links_with(names)
             .map(ExistingLinkError::from);
         self.specific
-            .meas_has_existing_index_links_with_inner(indices)
+            .meas_has_existing_index_links_with_inner(par, indices)
             .map(ExistingLinkError::from)
             .chain(es)
     }
@@ -2073,16 +2076,15 @@ where
     fn remove_invalid_links(
         &mut self,
         par: Par,
-        indexed_names: &[(MeasIndex, &Shortname)],
+        names: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
         allow_dropping: bool,
     ) -> Vec<AnyLinkError> {
-        let ns: HashSet<_> = indexed_names.iter().map(|(_, n)| *n).collect();
-        let js: HashSet<_> = indexed_names.iter().map(|(i, _)| i).copied().collect();
-        let tr = Trigger::remove_invalid_links(&mut self.tr, &ns);
+        let tr = Trigger::remove_invalid_links(&mut self.tr, names);
         let mut es = vec![];
         for x in self
             .specific
-            .remove_invalid_links(par, &ns, &js)
+            .remove_invalid_links(par, names, indices)
             .chain(tr.map(RemovedLink::from))
         {
             if allow_dropping {
@@ -2254,10 +2256,13 @@ where
     /// Set the $TR keyword.
     ///
     /// Return error if supplied name is not a measurement name (a $PnN).
-    pub fn set_trigger(&mut self, tr: Option<Trigger>) -> Result<(), TriggerLinkError> {
-        let ns = self.measurement_names();
-        if tr.as_ref().is_some_and(|t| !ns.contains(&t.measurement)) {
-            return Err(TriggerLinkError);
+    pub fn set_trigger(&mut self, tr: Option<Trigger>) -> Result<(), KeyToNameLinkError<Trigger>> {
+        let (_, ns) = self.measurement_indices_and_names();
+        if let Some(t) = tr.as_ref()
+            && !ns.as_ref().contains(&t.measurement)
+        {
+            let n = t.measurement.clone();
+            return Err(NamedLinkError::new_i0(NonEmpty::new(n)));
         }
         self.metaroot.tr = tr;
         Ok(())
@@ -2940,16 +2945,17 @@ where
     }
 
     /// Set $SPILLOVER
-    pub fn set_spillover(&mut self, spillover: Option<Spillover>) -> Result<(), SpilloverLinkError>
+    pub fn set_spillover(
+        &mut self,
+        spillover: Option<Spillover>,
+    ) -> Result<(), KeyToNameLinkError<Spillover>>
     where
         M: HasSpillover,
     {
         if let Some(s) = spillover.as_ref() {
-            let current = self.all_shortnames();
-            let ms: &[Shortname] = s.as_ref();
-            let ns: HashSet<_> = ms.iter().collect();
-            if !ns.is_subset(&current.iter().collect()) {
-                return Err(SpilloverLinkError);
+            let (_, ns) = self.measurement_indices_and_names();
+            if let Some(es) = NonEmpty::collect(s.names_difference(&ns).cloned()) {
+                return Err(KeyToNameLinkError::new_i0(es));
             }
         }
         *self.metaroot.specific.spill_mut(private::NoTouchy) = spillover;
@@ -2962,25 +2968,19 @@ where
     pub fn set_unstained_centers(
         &mut self,
         us: UnstainedCenters,
-    ) -> SummaryResult<(), KeyNotFoundError, SetUnstainedFailure>
+    ) -> Result<(), KeyToNameLinkError<UnstainedCenters>>
     where
         M: HasUnstainedCenters,
     {
-        let ms = self.measurement_names();
-        let es =
-            us.0.keys()
-                .filter(|k| !ms.contains(k))
-                .cloned()
-                .map(KeyNotFoundError);
-        ErrorsResult::new_err_from_iter(es, ())
-            .when_ok(|| {
-                *self
-                    .metaroot
-                    .specific
-                    .unstainedcenters_mut(private::NoTouchy) = us;
-            })
-            .summarize_errors()
-            .resolve_nowarn()
+        let (_, ns) = self.measurement_indices_and_names();
+        NonEmpty::collect(us.names_difference(&ns).cloned())
+            .map(KeyToNameLinkError::new_i0)
+            .map_or(Ok(()), Err)?;
+        *self
+            .metaroot
+            .specific
+            .unstainedcenters_mut(private::NoTouchy) = us;
+        Ok(())
     }
 
     /// Return $PnE (2.0)
@@ -3091,7 +3091,7 @@ where
     where
         M: HasAppliedGates3_0,
     {
-        let js = (0..self.par().0).map(MeasIndex::from).collect();
+        let (js, _) = self.measurement_indices_and_names();
         let es = ag.existing_link_errors(&js);
         ErrorsResult::new_err_from_iter(es, ())
             .when_ok(|| {
@@ -3112,7 +3112,7 @@ where
     where
         M: HasAppliedGates3_2,
     {
-        let js = (0..self.par().0).map(MeasIndex::from).collect();
+        let (js, _) = self.measurement_indices_and_names();
         let es = ag.existing_link_errors(&js);
         ErrorsResult::new_err_from_iter(es, ())
             .when_ok(|| {
@@ -3246,11 +3246,11 @@ where
         self.measurement_named_indices()
             .get(name)
             .map_or(ErrorsResult::new_ok(()), |&index| {
-                let ns = HashSet::from([name]);
-                let js = HashSet::from([index]);
+                let ns = HashSet::from([name]).into();
+                let js = HashSet::from([index]).into();
                 let es = self
                     .metaroot
-                    .meas_has_existing_links_with(&ns, &js)
+                    .meas_has_existing_links_with(self.par(), &ns, &js)
                     .map(RemoveMeasByNameError::from);
                 LogResult::new_err_from_iter(es, ())
             })
@@ -3278,11 +3278,11 @@ where
         self.measurement_indexed_names()
             .get(&index)
             .map_or(ErrorsResult::new_ok(()), |&name| {
-                let ns = HashSet::from([name]);
-                let js = HashSet::from([index]);
+                let ns = HashSet::from([name]).into();
+                let js = HashSet::from([index]).into();
                 let es = self
                     .metaroot
-                    .meas_has_existing_links_with(&ns, &js)
+                    .meas_has_existing_links_with(self.par(), &ns, &js)
                     .map(RemoveMeasByIndexError::from);
                 LogResult::new_err_from_iter(es, ())
             })
@@ -3503,9 +3503,10 @@ where
     }
 
     fn unset_measurements_inner(&mut self) -> ErrorsResult<(), (), ExistingLinkError> {
+        let p = self.par();
         // TODO this will include the time measurement
         let (js, ns) = self.measurement_indices_and_names();
-        let es = self.metaroot.meas_has_existing_links_with(&ns, &js);
+        let es = self.metaroot.meas_has_existing_links_with(p, &ns, &js);
         ErrorsResult::new_err_from_iter(es, ()).when_ok(|| {
             self.measurements = NamedVec::default();
             self.layout.clear();
@@ -3762,29 +3763,25 @@ where
             .collect()
     }
 
-    fn measurement_names(&self) -> HashSet<&Shortname> {
-        self.measurements.indexed_names().map(|(_, x)| x).collect()
-    }
-
-    fn measurement_indices_and_names(&self) -> (HashSet<MeasIndex>, HashSet<&Shortname>) {
-        self.measurements.indexed_names().unzip()
+    fn measurement_indices_and_names(&self) -> (MeasIndicesNoTime, MeasNamesNoTime<'_>) {
+        let (js, ns): (HashSet<_>, HashSet<_>) = self.measurements.indexed_names().unzip();
+        (js.into(), ns.into())
     }
 
     fn meas_has_any_existing_named_links(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         self.metaroot.meas_has_existing_named_links_with(names)
     }
 
     fn meas_has_any_existing_index_links(
         &self,
-        indices: &HashSet<MeasIndex>,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
-        // let indices: HashSet<_> = (0..self.par().0).map(MeasIndex::from).collect();
         self.metaroot
             .specific
-            .meas_has_existing_index_links_with_inner(indices)
+            .meas_has_existing_index_links_with_inner(self.par(), indices)
     }
 
     /// Check that links will not be broken when setting new measurement names.
@@ -3815,7 +3812,7 @@ where
     ) -> ErrorsResult<(), (), ExistingLinkError> {
         let (js, ns) = self.measurement_indices_and_names();
         let name_res = if allow_shared_names {
-            let meas_ns = measurements.non_center_names().collect();
+            let meas_ns = MeasNamesNoTime(measurements.non_center_names().collect());
             let es = self.metaroot.meas_has_existing_named_links_with(&meas_ns);
             ErrorsResult::new_err_from_iter(es, ())
         } else {
@@ -4248,10 +4245,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M::Optical: AsScaleTransform,
     {
-        let ns: Vec<_> = measurements.indexed_names().collect();
+        let (js_, ns_) = measurements.indexed_non_center_names().unzip();
+        let js = MeasIndicesNoTime(js_);
+        let ns = MeasNamesNoTime(ns_);
         // Check for any invalid links; throw error if any are found
         let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_dropping);
+        let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_dropping);
         let link_res = ErrorsResult::new_err_from_iter(link_errs, ());
         // Check that measurement and layout vectors are same length
         // and that transforms are valid for given datatype(s)
@@ -7901,8 +7900,8 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     fn remove_invalid_links(
         &mut self,
         par: Par,
-        _: &HashSet<&Shortname>,
-        _: &HashSet<MeasIndex>,
+        _: &MeasNamesNoTime,
+        _: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink> {
         Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
     }
@@ -7913,14 +7912,15 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn meas_has_existing_named_links_with_inner(
         &self,
-        _: &HashSet<&Shortname>,
+        _: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         empty()
     }
 
     fn meas_has_existing_index_links_with_inner(
         &self,
-        _: &HashSet<MeasIndex>,
+        _: Par,
+        _: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         // don't check specific indices for $COMP since this keyword links
         // all indices
@@ -7975,8 +7975,8 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     fn remove_invalid_links(
         &mut self,
         par: Par,
-        _: &HashSet<&Shortname>,
-        indices: &HashSet<MeasIndex>,
+        _: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink> {
         let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
         let ag = self.applied_gates.remove_invalid_links(indices);
@@ -7989,18 +7989,19 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn meas_has_existing_named_links_with_inner(
         &self,
-        _: &HashSet<&Shortname>,
+        _: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         empty()
     }
 
     fn meas_has_existing_index_links_with_inner(
         &self,
-        indices: &HashSet<MeasIndex>,
+        par: Par,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         // don't check specific indices for $COMP since this keyword links
         // all indices
-        let comp = NonEmpty::collect(indices.iter().copied().map(IndexFromOne::from))
+        let comp = NonEmpty::collect((0..par.0).map(IndexFromOne::from))
             .map(|js| ExistingIndexedLinkError::new(Key0::default(), js))
             .map(AnyExistingIndexLinkError::from);
         let ag = self
@@ -8056,8 +8057,8 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     fn remove_invalid_links(
         &mut self,
         _: Par,
-        names: &HashSet<&Shortname>,
-        indices: &HashSet<MeasIndex>,
+        names: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink> {
         let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
         self.applied_gates
@@ -8072,7 +8073,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn meas_has_existing_named_links_with_inner(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         self.spillover
             .as_ref()
@@ -8083,7 +8084,8 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn meas_has_existing_index_links_with_inner(
         &self,
-        indices: &HashSet<MeasIndex>,
+        _: Par,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         self.applied_gates
             .existing_link_errors(indices)
@@ -8145,8 +8147,8 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     fn remove_invalid_links(
         &mut self,
         _: Par,
-        names: &HashSet<&Shortname>,
-        indices: &HashSet<MeasIndex>,
+        names: &MeasNamesNoTime,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = RemovedLink> {
         let uc = self.unstained.unstainedcenters.remove_invalid_links(names);
         let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
@@ -8171,7 +8173,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn meas_has_existing_named_links_with_inner(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
         let spill = self
             .spillover
@@ -8188,7 +8190,8 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn meas_has_existing_index_links_with_inner(
         &self,
-        indices: &HashSet<MeasIndex>,
+        _: Par,
+        indices: &MeasIndicesNoTime,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         self.applied_gates
             .existing_link_errors(indices)
@@ -8538,26 +8541,6 @@ pub enum StdWriterWarning {
     Column(ColumnError<IntRangeError<()>>),
     Check(ColumnError<AnyLossError>),
 }
-
-#[derive(From, Display, Debug, Error)]
-pub enum SetSpilloverError {
-    New(NewSpilloverError),
-    Link(SpilloverLinkError),
-}
-
-// which one's were not found?
-#[derive(Debug, Error)]
-#[error("all $SPILLOVER names must match a $PnN")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
-pub struct SpilloverLinkError;
-
-// what PnN?
-#[derive(Debug, Error)]
-#[error("$TR measurement must match a $PnN")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
-pub struct TriggerLinkError;
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -9268,13 +9251,6 @@ pub struct CompParMismatchError {
     comp: usize,
 }
 
-// TODO replace this with existing key errors we have already
-#[derive(Debug, Error)]
-#[error("$RnI references non-existed measurements by index: {}", .0.iter().join(","))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
-pub struct GatingMeasLinkError(NonEmpty<MeasIndex>);
-
 // #[derive(Debug, Error)]
 // #[error("$CSVnFLAGS must not be empty")]
 // pub struct NewCSVFlagsError;
@@ -9344,8 +9320,6 @@ def_failure!(
     SetMeasurementsAndDataFailure,
     "could not set measurements and data"
 );
-
-def_failure!(SetUnstainedFailure, "could not set $UNSTAINEDCENTERS");
 
 def_failure!(WriteDatasetFailure, "could not write FCS file");
 

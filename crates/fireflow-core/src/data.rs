@@ -70,13 +70,14 @@ use crate::segment::{
 };
 
 use crate::text::byteord::{
-    BitsOrChars, ByteOrd2_0, ByteOrd3_1, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd,
-    NoByteOrd3_1, OrderedToEndianError, SizedByteOrd, Width, WidthToBytesError,
+    BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
+    OrderedToEndianError, SizedByteOrd, WidthToBytesError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, DeprecatedDatatypeWarning, IntRangeError, NumType, Par, Range, Tot,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, IntRangeError, NumType, Par,
+    Range, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,

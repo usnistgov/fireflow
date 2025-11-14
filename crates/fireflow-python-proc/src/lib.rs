@@ -6617,7 +6617,7 @@ impl DocArgParam {
     }
 
     fn new_integer_byteord_override_param() -> Self {
-        let path = parse_quote!(fireflow_core::text::byteord::ByteOrd2_0);
+        let path = keyword_path("ByteOrd2_0");
         let exc = PyException::new_value_error().desc(
             "if %x is not a list of integers including all from 1 to ``N`` \
              where ``N`` is the length of the list (up to 8)",

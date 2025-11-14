@@ -1,7 +1,8 @@
 use crate::macros::match_many_to_one;
+use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{Display, From, Into};
 use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fmt;
@@ -18,31 +19,18 @@ use fireflow_core_proc::DisplayAsPyErr;
 
 use super::lookup::ReqMetarootKey;
 
-/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
-///
-/// This must be a list of integers belonging to the unordered set {1..N} where
-/// N is the total number of bytes. The numbers will be stored as one less the
-/// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum ByteOrd2_0 {
-    O1(SizedByteOrd<1>),
-    O2(SizedByteOrd<2>),
-    O3(SizedByteOrd<3>),
-    O4(SizedByteOrd<4>),
-    O5(SizedByteOrd<5>),
-    O6(SizedByteOrd<6>),
-    O7(SizedByteOrd<7>),
-    O8(SizedByteOrd<8>),
+/// Byte order with known size in bytes
+#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
+pub enum SizedByteOrd<const LEN: usize> {
+    /// Either big or little endian
+    #[from]
+    Endian(Endian),
+
+    /// The byte order if mixed (not monotonically increasing/decreasing)
+    Order([u8; LEN]),
 }
 
-#[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct ByteOrd3_1(pub Endian);
-
-/// Endianness
-///
-/// This is also stored in the $BYTEORD key in 3.1+
+/// Endianness (big or little)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
@@ -63,24 +51,6 @@ pub struct NoByteOrd<const ORD: bool>;
 pub type NoByteOrd2_0 = NoByteOrd<true>;
 
 pub type NoByteOrd3_1 = NoByteOrd<false>;
-
-/// The value for the $PnB key (all versions)
-///
-/// The $PnB key actually stores bits. However, this library only supports
-/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
-/// actually stores the number of bytes indicated by $PnB.
-///
-/// This may also be '*' which means "delimited ASCII" which is only valid when
-/// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[from(Chars)]
-pub enum Width {
-    #[display("{_0}")]
-    Fixed(BitsOrChars),
-    #[display("*")]
-    Variable,
-}
 
 /// The number of bytes for a numeric measurement
 #[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
@@ -107,14 +77,7 @@ pub enum Bytes {
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(NonZeroU8);
 
-/// $BYTEORD (ordered) with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
-pub enum SizedByteOrd<const LEN: usize> {
-    #[from]
-    Endian(Endian),
-    Order([u8; LEN]),
-}
-
+/// Relate types corresponding to keywords to those storing byte layout.
 pub(crate) trait HasByteOrd: Sized {
     type ByteOrd: From<Self> + ReqMetarootKey;
 }

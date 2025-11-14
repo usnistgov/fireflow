@@ -14,7 +14,6 @@ use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::byteord::ByteOrd2_0;
 use crate::text::index::MeasIndex;
 use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
@@ -691,7 +690,7 @@ pub struct ReadLayoutConfig {
     /// Obviously this must match the actual layout of the numbers in DATA. If
     /// $PnB is also incorrect, use [`integer_widths_from_byteord`] to override
     /// those values as well.
-    pub integer_byteord_override: Option<ByteOrd2_0>,
+    pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///

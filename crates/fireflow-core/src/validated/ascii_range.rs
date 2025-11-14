@@ -2,8 +2,8 @@
 
 use crate::config::DisallowRangeTrunc;
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
-use crate::text::byteord::{Width, WidthToCharsError};
-use crate::text::keywords::{IntRangeError, Range};
+use crate::text::byteord::WidthToCharsError;
+use crate::text::keywords::{IntRangeError, Range, Width};
 
 use derive_more::{Display, From, Into};
 use std::num::{NonZero, NonZeroU8};

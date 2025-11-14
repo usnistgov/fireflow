@@ -6,7 +6,7 @@ use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::logging::ErrorSummary;
 use fireflow_core::segment::HeaderCorrection;
-use fireflow_core::text::byteord::ByteOrd2_0;
+use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{
     KeyOrStringPatterns, KeyOrStringPatternsError, KeyString, NonStdMeasPattern,

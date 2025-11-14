@@ -10,7 +10,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{ByteOrd2_0, ByteOrd3_1, Width};
+use super::byteord::{BitsOrChars, Endian, SizedByteOrd};
 use super::compensation::Compensation3_0;
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -41,7 +41,7 @@ use thiserror::Error;
 
 use derive_new::new;
 use std::any::type_name;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
 use std::num::{ParseFloatError, ParseIntError};
@@ -376,6 +376,28 @@ impl FromStr for NumType {
 #[error("must be one of 'F', 'D', or 'A'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NumTypeError;
+
+/// The $BYTEORD field in FCS 2.0 and 3.0
+///
+/// This must be a list of integers belonging to the unordered set {1..N} where
+/// N is the total number of bytes. The numbers will be stored as one less the
+/// displayed integers to make array indexing easier.
+#[derive(Clone, Copy, From, Display, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum ByteOrd2_0 {
+    O1(SizedByteOrd<1>),
+    O2(SizedByteOrd<2>),
+    O3(SizedByteOrd<3>),
+    O4(SizedByteOrd<4>),
+    O5(SizedByteOrd<5>),
+    O6(SizedByteOrd<6>),
+    O7(SizedByteOrd<7>),
+    O8(SizedByteOrd<8>),
+}
+
+#[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct ByteOrd3_1(pub Endian);
 
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
@@ -1362,6 +1384,24 @@ pub enum GatingError {
     MissingParen,
     #[error("gating contains invalid bytes")]
     NonAscii,
+}
+
+/// The value for the $PnB key (all versions)
+///
+/// The $PnB key actually stores bits. However, this library only supports
+/// widths that are multiples of 8 (ie bytes). Therefore, this key actually
+/// stores the number of bytes indicated by $PnB.
+///
+/// This may also be '*' which means "delimited ASCII" which is only valid when
+/// $DATATYPE=A.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[from(Chars)]
+pub enum Width {
+    #[display("{_0}")]
+    Fixed(BitsOrChars),
+    #[display("*")]
+    Variable,
 }
 
 /// The value of the $PnR key.

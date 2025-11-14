@@ -11,7 +11,7 @@ use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
 use super::byteord::{BitsOrChars, Bytes, Endian, NewByteOrdError, NoByteOrd, SizedByteOrd};
-use super::compensation::Compensation3_0;
+use super::compensation::{Compensation, NewCompError};
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::index::{GateIndex, MeasIndex, RegionIndex};
@@ -24,8 +24,9 @@ use super::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use super::relational::{ExistingNamedLinkError, MeasNamesNoTime, RemovedNamedLink};
-use super::scale::{Scale, ScaleError};
+use super::relational::{
+    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
+};
 use super::spillover::Spillover;
 use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 
@@ -36,10 +37,11 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
-use num_traits::identities::One as _;
+use num_traits::identities::{One as _, Zero as _};
 use thiserror::Error;
 
 use derive_new::new;
+use nalgebra::DMatrix;
 use std::any::type_name;
 use std::collections::HashMap;
 use std::fmt;
@@ -62,6 +64,136 @@ use {
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display)]
 pub struct Nextdata(pub UintZeroPad20);
+
+/// The value for the $PnE key (all versions).
+///
+/// Format is assumed to be 'f1,f2'
+#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum Scale {
+    /// Linear scale (ie '0,0')
+    #[display("0,0")]
+    Linear,
+
+    /// Log scale, where both numbers are positive
+    #[display("{_0}")]
+    Log(LogScale),
+}
+
+#[derive(Clone, Copy, PartialEq, Debug, Display, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("{decades},{offset}")]
+pub struct LogScale {
+    pub decades: PositiveFloat,
+    pub offset: PositiveFloat,
+}
+
+impl Scale {
+    pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
+        (decades, offset).try_into().map(Self::Log)
+    }
+}
+
+impl TryFrom<(f32, f32)> for LogScale {
+    type Error = LogRangeError;
+
+    fn try_from(value: (f32, f32)) -> Result<Self, Self::Error> {
+        let (d0, o0) = value;
+        if let (Ok(decades), Ok(offset)) =
+            (PositiveFloat::try_from(d0), PositiveFloat::try_from(o0))
+        {
+            Ok(Self::new(decades, offset))
+        } else {
+            Err(LogRangeError::new(d0, o0))
+        }
+    }
+}
+
+impl FromStrWith for Scale {
+    type Err = ScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
+        if conf.fix_log_scale_offsets {
+            res.or_else(|e| {
+                if let ScaleError::LogRange(le) = e {
+                    le.try_fix_offset()
+                        .map(Scale::Log)
+                        .map_err(ScaleError::LogRange)
+                } else {
+                    Err(e)
+                }
+            })
+        } else {
+            res
+        }
+    }
+}
+
+impl FromStr for Scale {
+    type Err = ScaleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Scale {
+    type Err = ScaleError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
+        match &xs[..] {
+            [ds, os] => {
+                let f1 = ds.parse().map_err(ScaleError::FloatError)?;
+                let f2 = os.parse().map_err(ScaleError::FloatError)?;
+                match (f1, f2) {
+                    (0.0, 0.0) => Ok(Self::Linear),
+                    (decades, offset) => {
+                        Self::try_new_log(decades, offset).map_err(ScaleError::LogRange)
+                    }
+                }
+            }
+            _ => Err(ScaleError::WrongFormat),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ScaleError {
+    #[error("{0}")]
+    FloatError(ParseFloatError),
+    #[error("{0}")]
+    LogRange(LogRangeError),
+    #[error("must be like 'f1,f2'")]
+    WrongFormat,
+}
+
+#[derive(Debug, Error, new)]
+#[error("decades/offset must both be positive, got '{decades},{offset}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+pub struct LogRangeError {
+    decades: f32,
+    offset: f32,
+}
+
+impl LogRangeError {
+    /// Try to 'fix' log scales which are 'X,0' where X is positive.
+    ///
+    /// The 'recommended' way to fix these is to make the 0 and 1, which is
+    /// what this does. This is a heuristic hack to get some files to work
+    /// which didn't write $PnE correctly.
+    pub(crate) fn try_fix_offset(self) -> Result<LogScale, Self> {
+        if self.offset.is_zero()
+            && let Ok(decades) = PositiveFloat::try_from(self.decades)
+        {
+            return Ok(LogScale::new(decades, PositiveFloat::one()));
+        }
+        Err(self)
+    }
+}
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
@@ -832,6 +964,94 @@ impl FromStr for Originality {
 #[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct OriginalityError;
+
+/// The value of the $COMP keyword (3.0 only)
+#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+#[as_ref(DMatrix<f32>, Compensation)]
+pub struct Compensation3_0(pub Compensation);
+
+// TODO check that nrows/columns = PAR
+impl FromStrWith for Compensation3_0 {
+    type Err = ParseCompError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStr for Compensation3_0 {
+    type Err = ParseCompError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, false)
+    }
+}
+
+impl FromStrDelim for Compensation3_0 {
+    type Err = ParseCompError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        if let Some(first) = iter.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = first;
+            let nn = n * n;
+            let values: Vec<_> = iter.by_ref().take(nn).collect();
+            let remainder = iter.by_ref().count();
+            let total = values.len() + remainder;
+            if total == nn {
+                if let Ok(fvalues) = values
+                    .into_iter()
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
+                    Ok(Compensation::try_from(matrix).map(Self)?)
+                } else {
+                    Err(ParseCompError::BadFloat)
+                }
+            } else {
+                Err(ParseCompError::WrongLength {
+                    expected: nn,
+                    total,
+                })
+            }
+        } else {
+            Err(ParseCompError::BadLength)
+        }
+    }
+}
+
+impl Compensation3_0 {
+    pub(crate) fn remove_invalid_link(
+        src: &mut Option<Self>,
+        par: Par,
+    ) -> Option<RemovedIndexLink<Self>> {
+        let c = src.as_ref()?;
+        let m: &DMatrix<_> = c.as_ref();
+        let js = (par.0..m.nrows()).map(MeasIndex::from);
+        NonEmpty::collect(js).map(|xs| {
+            // ASSUME this won't fail because it should be some if we were able
+            // to get indices out
+            let v = take(src).unwrap();
+            RemovedIndexLink::new(v, xs)
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ParseCompError {
+    #[error("Expected {expected} entries, found {total}")]
+    WrongLength { total: usize, expected: usize },
+    #[error("Could not determine length")]
+    BadLength,
+    #[error("Float could not be parsed")]
+    BadFloat,
+    #[error("{0}")]
+    New(#[from] NewCompError),
+}
 
 /// The value of the $UNICODE key (3.0 only)
 ///
@@ -2604,6 +2824,85 @@ mod tests {
     fn unstained_centers_nonunique() {
         assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
     }
+
+    #[test]
+    fn str_compensation() {
+        assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
+        assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
+        assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
+    }
+
+    #[test]
+    fn str_compensation_too_small() {
+        assert!("1,0".parse::<Compensation3_0>().is_err());
+    }
+
+    #[test]
+    fn str_compensation_mismatch() {
+        assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
+    }
+
+    #[test]
+    fn str_compensation_badfloats() {
+        assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_byteord_valid() {
+        assert_from_to_str::<ByteOrd2_0>("1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
+        assert_from_to_str::<ByteOrd2_0>("3,4,2,1");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3,4,5,6,7,8");
+    }
+
+    #[test]
+    fn str_to_byteord_tolong() {
+        assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_byteord_bad_digits() {
+        assert!("0".parse::<ByteOrd2_0>().is_err());
+        assert!("2".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_byteord_skipped() {
+        assert!("1,3".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_byteord_repeat() {
+        assert!("1,1".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_byteord_garbage() {
+        assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
+        assert!("".parse::<ByteOrd2_0>().is_err());
+        assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
+    }
+
+    #[test]
+    fn str_to_endian() {
+        assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
+        assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
+        assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
+        assert!("5,4,3,2,1".parse::<ByteOrd3_1>().is_err());
+    }
+
+    #[test]
+    fn scale() {
+        assert_from_to_str::<Scale>("0,0");
+        assert_from_to_str::<Scale>("4.5,0.01");
+    }
+
+    #[test]
+    fn scale_invalid() {
+        assert!("4.5,0".parse::<Scale>().is_err());
+    }
 }
 
 #[cfg(feature = "python")]
@@ -2612,11 +2911,39 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        Calibration3_1, Calibration3_2, Display, IndexPair, Trigger, UniGate, Unicode, Vertex,
+        Calibration3_1, Calibration3_2, Display, IndexPair, Scale, Trigger, UniGate, Unicode,
+        Vertex,
     };
 
+    use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+
+    // $PnE (2.0) as either () or (f32, f32) tuples in python
+    impl<'py> FromPyObject<'py> for Scale {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
+                Ok(Self::Linear)
+            } else {
+                let (decades, offset): (f32, f32) = ob.extract()?;
+                let ret = Self::try_new_log(decades, offset)?;
+                Ok(ret)
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Scale {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Linear => Ok(PyTuple::empty(py).into_any()),
+                Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
+    }
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {

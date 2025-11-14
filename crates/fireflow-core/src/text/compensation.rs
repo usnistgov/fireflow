@@ -2,9 +2,9 @@ use crate::config::{AllowOptionalDropping, StdTextReadConfig};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
-use crate::text::lookup::{FromStrDelim, FromStrWith, ParseKeyError};
+use crate::text::lookup::ParseKeyError;
 use crate::text::relational::{
-    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedIndexLink, RemovedLink,
+    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
 use crate::validated::keys::{
     AnyKey as _, BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords,
@@ -15,9 +15,7 @@ use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use std::fmt;
-use std::mem::take;
 use std::num::ParseFloatError;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -26,19 +24,12 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-/// The aggregated values of the $DFCiTOj keywords (2.0)
+/// The aggregated values of the $DFCiTOj keywords (2.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
-
-/// The value of the $COMP keyword (3.0)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[as_ref(DMatrix<f32>, Compensation)]
-pub struct Compensation3_0(pub Compensation);
 
 /// A compensation matrix.
 ///
@@ -85,7 +76,6 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
-    #[must_use]
     pub fn non_zero_indices(&self) -> impl Iterator<Item = (MeasIndex, MeasIndex, f32)> {
         let m = &self.0.matrix;
         m.iter().enumerate().filter_map(|(i, &x)| {
@@ -100,7 +90,6 @@ impl Compensation2_0 {
         })
     }
 
-    #[must_use]
     pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.non_zero_indices()
             .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
@@ -150,22 +139,6 @@ impl Compensation2_0 {
     }
 }
 
-impl Compensation3_0 {
-    pub(crate) fn remove_invalid_link(
-        src: &mut Option<Self>,
-        par: Par,
-    ) -> Option<RemovedIndexLink<Self>> {
-        let c = src.as_ref()?;
-        let js = (par.0..c.0.matrix.nrows()).map(MeasIndex::from);
-        NonEmpty::collect(js).map(|xs| {
-            // ASSUME this won't fail because it should be some if we were able
-            // to get indices out
-            let v = take(src).unwrap();
-            RemovedIndexLink::new(v, xs)
-        })
-    }
-}
-
 impl TryFrom<DMatrix<f32>> for Compensation {
     type Error = NewCompError;
 
@@ -200,70 +173,6 @@ impl Compensation {
         new[(i, i)] = 1.0;
         self.matrix = new;
     }
-}
-
-// TODO check that nrows/columns = PAR
-impl FromStrWith for Compensation3_0 {
-    type Err = ParseCompError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-impl FromStr for Compensation3_0 {
-    type Err = ParseCompError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
-    }
-}
-
-impl FromStrDelim for Compensation3_0 {
-    type Err = ParseCompError;
-    const DELIM: char = ',';
-
-    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(first) = iter.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = first;
-            let nn = n * n;
-            let values: Vec<_> = iter.by_ref().take(nn).collect();
-            let remainder = iter.by_ref().count();
-            let total = values.len() + remainder;
-            if total == nn {
-                if let Ok(fvalues) = values
-                    .into_iter()
-                    .map(str::parse::<f32>)
-                    .collect::<Result<Vec<_>, _>>()
-                {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                    Ok(Compensation::try_from(matrix).map(Self)?)
-                } else {
-                    Err(ParseCompError::BadFloat)
-                }
-            } else {
-                Err(ParseCompError::WrongLength {
-                    expected: nn,
-                    total,
-                })
-            }
-        } else {
-            Err(ParseCompError::BadLength)
-        }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum ParseCompError {
-    #[error("Expected {expected} entries, found {total}")]
-    WrongLength { total: usize, expected: usize },
-    #[error("Could not determine length")]
-    BadLength,
-    #[error("Float could not be parsed")]
-    BadFloat,
-    #[error("{0}")]
-    New(#[from] NewCompError),
 }
 
 #[derive(Debug, Error)]
@@ -308,30 +217,7 @@ pub enum LookupComp2_0Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::*;
     use nalgebra::DMatrix;
-
-    #[test]
-    fn str_compensation() {
-        assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
-    }
-
-    #[test]
-    fn str_compensation_too_small() {
-        assert!("1,0".parse::<Compensation3_0>().is_err());
-    }
-
-    #[test]
-    fn str_compensation_mismatch() {
-        assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
-    }
-
-    #[test]
-    fn str_compensation_badfloats() {
-        assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
-    }
 
     #[test]
     fn str_compensation_not_finite() {

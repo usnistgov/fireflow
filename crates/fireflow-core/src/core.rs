@@ -29,9 +29,7 @@ use crate::segment::{
     SegmentMismatchWarning,
 };
 use crate::text::byteord::OrderedToEndianError;
-use crate::text::compensation::{
-    Compensation, Compensation2_0, Compensation3_0, LookupComp2_0Error,
-};
+use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
 };
@@ -48,14 +46,15 @@ use crate::text::gating::{
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-    Carrierid, Carriertype, Cells, Com, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName,
-    DetectorType, DetectorVoltage, Display, Endstext, Exp, ExtraStdKeywords, Feature, Fil, Filter,
-    Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier, Locationid, Longname,
-    LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
-    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    Proj, PseudostandardError, Range, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
-    TemporalType, Timestep, TimestepLossError, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
+    DetectorName, DetectorType, DetectorVoltage, Display, Endstext, Exp, ExtraStdKeywords, Feature,
+    Fil, Filter, Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier, Locationid,
+    LogScale, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata,
+    NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
+    Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
+    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
+    Unicode, UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -75,7 +74,6 @@ use crate::text::relational::{
     ExistingNamedLinkError, KeyToNameLinkError, MeasIndicesNoTime, MeasNamesNoTime, NamedLinkError,
     RemovedLink,
 };
-use crate::text::scale::{LogScale, Scale};
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,

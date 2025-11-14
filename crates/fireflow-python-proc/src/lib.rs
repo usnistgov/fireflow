@@ -5310,17 +5310,13 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_scale(is_gate: bool) -> Self {
-        let path = if is_gate {
-            keyword_path("GateScale")
-        } else {
-            parse_quote!(fireflow_core::text::scale::Scale)
-        };
+        let name = if is_gate { "GateScale" } else { "Scale" };
         let exc = PyException::new_value_error()
             .desc("if %x has log scale floats which are not both positive");
         Self::new2(
             PyTuple::default(),
             PyTuple::new2(vec![RsFloat::F32; 2]),
-            path,
+            keyword_path(name),
         )
         .exc(exc)
     }

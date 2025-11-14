@@ -142,12 +142,6 @@ impl Datetimes {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("$BEGINDATETIME is after $ENDDATETIME")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
-pub struct ReversedDatetimesError;
-
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
 
@@ -183,6 +177,12 @@ impl FromStr for FCSDateTime {
         }
     }
 }
+
+#[derive(Debug, Error)]
+#[error("$BEGINDATETIME is after $ENDDATETIME")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+pub struct ReversedDatetimesError;
 
 #[derive(Debug, Error)]
 #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]

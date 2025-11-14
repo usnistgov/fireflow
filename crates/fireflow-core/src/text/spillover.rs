@@ -13,7 +13,6 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
 use std::mem::take;
@@ -27,9 +26,14 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::DisplayAsPyErr;
 
+/// The $SPILLOVER keyword (3.1+)
 pub type Spillover = GenericSpillover<Shortname>;
 
-/// The spillover matrix from the $SPILLOVER keyword (3.1+)
+/// A generic spillover matrix which can include any type for the measurement vector.
+///
+/// This is to allow parsing indices or names; only the latter is used in the
+/// standard but many vendors use indices anyways. This structure allows both
+/// to be parsed.
 #[derive(Clone, AsRef, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GenericSpillover<T> {

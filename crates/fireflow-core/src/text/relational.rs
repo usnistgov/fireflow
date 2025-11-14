@@ -34,12 +34,11 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 
-use super::compensation::Compensation3_0;
 use super::gating::Region;
 use super::index::RegionIndex;
 use super::keywords::{
-    Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex, RegionWindow, Trigger,
-    UnstainedCenters,
+    Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
+    RegionWindow, Trigger, UnstainedCenters,
 };
 use super::spillover::Spillover;
 

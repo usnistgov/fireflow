@@ -11,6 +11,5 @@ pub mod named_vec;
 pub mod optional;
 pub mod ranged_float;
 pub mod relational;
-pub mod scale;
 pub mod spillover;
 pub mod timestamps;

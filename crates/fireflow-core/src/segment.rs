@@ -1,11 +1,12 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
-    IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadState,
+    HeaderConfigInner, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadState,
     ReadTEXTOffsetsConfig, TruncateOffsets,
 };
+use crate::header::HEADER_LEN;
 use crate::logging::{
-    DeferredErrors, DeferredWarningsAndErrors, ErrorsResult, ImpureError, LogResult,
-    ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
+    CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
+    ImpureError, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
@@ -25,11 +26,10 @@ use num_traits::ops::checked::CheckedSub;
 use thiserror::Error;
 
 use std::fmt;
-use std::io;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::iter::repeat;
 use std::marker::PhantomData;
-use std::num::NonZeroU64;
-use std::num::ParseIntError;
+use std::num::{NonZeroU64, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -790,6 +790,29 @@ impl<I, T> Segment<I, SegmentFromHeader, T> {
 }
 
 impl<I: Copy> HeaderSegment<I> {
+    pub(crate) fn h_read_primary<C, R>(
+        h: &mut BufReader<R>,
+        allow_blank: bool,
+        corr: HeaderCorrection<I>,
+        st: &ReadState<C>,
+    ) -> ErrorsResult<Self, (), ImpureError<HeaderSegmentError>>
+    where
+        R: Read,
+        C: AsRef<HeaderConfigInner>,
+        I: HasRegion + Copy,
+    {
+        let conf = st.conf.as_ref();
+        let seg_conf =
+            NewSegmentConfig::new(corr, st.file_len.try_into().ok(), conf.truncate_offsets);
+        Self::h_read_offsets(
+            h,
+            allow_blank,
+            conf.allow_negative,
+            conf.squish_offsets,
+            &seg_conf,
+        )
+    }
+
     pub(crate) fn h_read_offsets<R: Read>(
         h: &mut BufReader<R>,
         allow_blank: bool,
@@ -886,6 +909,59 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl OtherSegment20 {
+    pub(crate) fn h_read_other<C, R>(
+        h: &mut BufReader<R>,
+        text_begin: UintSpacePad8,
+        st: &ReadState<C>,
+    ) -> ErrorsResult<Vec<Self>, (), ImpureError<HeaderSegmentError>>
+    where
+        R: Read,
+        C: AsRef<HeaderConfigInner>,
+    {
+        // ASSUME this won't fail because we checked that each offset is greater
+        // than this
+        let conf = st.conf.as_ref();
+        let n = u64::from(text_begin) - u64::from(HEADER_LEN);
+        let w = u8::from(conf.other_width);
+        let mut buf0 = vec![];
+        let mut buf1 = vec![];
+        // ASSUME this will never fail, if it does I'll be impressed ;)
+        let n_segs = usize::try_from(n / (u64::from(w) * 2)).unwrap();
+
+        conf.other_corrections
+            .iter()
+            .copied()
+            .chain(repeat(OffsetCorrection::default()))
+            .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
+            .map(|corr| {
+                let seg_conf = NewSegmentConfig::new(
+                    corr,
+                    Some(UintSpacePad20(st.file_len)),
+                    conf.truncate_offsets,
+                );
+                let mut readbuf = |buf: &mut Vec<_>| {
+                    buf.clear();
+                    h.take(u64::from(w))
+                        .read_to_end(buf)
+                        .into_io_log::<_, _, _, Vec<_>>()
+                };
+                let res0 = readbuf(&mut buf0);
+                let res1 = readbuf(&mut buf1);
+                res0.zip_commutative(res1).and_then_nowarn_with_warn(|_| {
+                    // If any regions are entirely blank, just ignore them
+                    if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
+                        LogResult::new_ok(None)
+                    } else {
+                        Self::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
+                            .map_ok_value(Some)
+                            .map_errors(ImpureError::Pure)
+                    }
+                })
+            })
+            .mappend_commutative()
+            .map_ok_value(|os| os.into_iter().flatten().collect())
+    }
+
     pub(crate) fn parse_other(
         bs0: &[u8],
         bs1: &[u8],

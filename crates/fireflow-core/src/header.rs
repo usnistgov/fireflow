@@ -1,13 +1,12 @@
 use crate::config::{HeaderConfigInner, ReadState};
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError,
-    LogResult, ResultExt,
+    DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult, ResultExt,
 };
 use crate::segment::{
-    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
-    HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
-    OtherSegment, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
-    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment,
+    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    TEXTSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
@@ -15,7 +14,7 @@ use crate::text::keywords::{
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20, UintZeroPad20,
+    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
@@ -30,9 +29,7 @@ use std::iter::once;
 use thiserror::Error;
 
 use std::fmt;
-use std::io;
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::iter::repeat;
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::str;
 
 #[cfg(feature = "serde")]
@@ -262,7 +259,8 @@ impl Header {
                 .map(|(x, _)| x)
                 .min()
                 .map_or(LogResult::new_ok(vec![]), |earliest_begin| {
-                    h_read_other_segments(h, *earliest_begin, st)
+                    OtherSegment20::h_read_other(h, *earliest_begin, st)
+                        .map_errors(ImpureError::inner_into)
                 })
                 .map_ok_value(|other| {
                     Self::new(version, HeaderSegments::new(text, data, analysis, other))
@@ -301,9 +299,9 @@ where
         .map_errors(|e| e.map_inner(HeaderError::Version))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();
-    let text_res = h_read_primary_segment(h, false, conf.text_correction, st);
-    let data_res = h_read_primary_segment(h, true, conf.data_correction, st);
-    let anal_res = h_read_primary_segment(h, true, conf.analysis_correction, st);
+    let text_res = HeaderSegment::h_read_primary(h, false, conf.text_correction, st);
+    let data_res = HeaderSegment::h_read_primary(h, true, conf.data_correction, st);
+    let anal_res = HeaderSegment::h_read_primary(h, true, conf.analysis_correction, st);
     let offset_res = text_res
         .zip3_commutative(data_res, anal_res)
         .map_errors(|e| e.map_inner(HeaderError::Segment));
@@ -320,82 +318,6 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
     } else {
         Err(ImpureError::Pure(HeaderError::Space))
     }
-}
-
-fn h_read_primary_segment<C, R, I>(
-    h: &mut BufReader<R>,
-    allow_blank: bool,
-    corr: HeaderCorrection<I>,
-    st: &ReadState<C>,
-) -> ErrorsResult<HeaderSegment<I>, (), ImpureError<HeaderSegmentError>>
-where
-    R: Read,
-    C: AsRef<HeaderConfigInner>,
-    I: HasRegion + Copy,
-{
-    let conf = st.conf.as_ref();
-    let seg_conf = NewSegmentConfig::new(corr, st.file_len.try_into().ok(), conf.truncate_offsets);
-    HeaderSegment::<I>::h_read_offsets(
-        h,
-        allow_blank,
-        conf.allow_negative,
-        conf.squish_offsets,
-        &seg_conf,
-    )
-}
-
-fn h_read_other_segments<C, R>(
-    h: &mut BufReader<R>,
-    text_begin: UintSpacePad8,
-    st: &ReadState<C>,
-) -> ErrorsResult<Vec<OtherSegment20>, (), ImpureError<HeaderError>>
-where
-    R: Read,
-    C: AsRef<HeaderConfigInner>,
-{
-    // ASSUME this won't fail because we checked that each offset is greater
-    // than this
-    let conf = st.conf.as_ref();
-    let n = u64::from(text_begin) - u64::from(HEADER_LEN);
-    let w = u8::from(conf.other_width);
-    let mut buf0 = vec![];
-    let mut buf1 = vec![];
-    // ASSUME this will never fail, if it does I'll be impressed ;)
-    let n_segs = usize::try_from(n / (u64::from(w) * 2)).unwrap();
-
-    conf.other_corrections
-        .iter()
-        .copied()
-        .chain(repeat(OffsetCorrection::default()))
-        .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
-        .map(|corr| {
-            let seg_conf = NewSegmentConfig::new(
-                corr,
-                Some(UintSpacePad20(st.file_len)),
-                conf.truncate_offsets,
-            );
-            let mut readbuf = |buf: &mut Vec<_>| {
-                buf.clear();
-                h.take(u64::from(w))
-                    .read_to_end(buf)
-                    .into_io_log::<_, _, _, Vec<_>>()
-            };
-            let res0 = readbuf(&mut buf0);
-            let res1 = readbuf(&mut buf1);
-            res0.zip_commutative(res1).and_then_nowarn_with_warn(|_| {
-                // If any regions are entirely blank, just ignore them
-                if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                    LogResult::new_ok(None)
-                } else {
-                    OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
-                        .map_ok_value(Some)
-                        .map_errors(HeaderError::Segment)
-                        .map_errors(ImpureError::Pure)
-                }
-            })
-        })
-        .mappend_commutative()
-        .map_ok_value(|os| os.into_iter().flatten().collect())
 }
 
 impl Version {
@@ -468,7 +390,7 @@ impl str::FromStr for Version {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub enum HeaderError {

@@ -17,11 +17,11 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, SummaryResult,
+    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, GroupResult,
     SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOSummaryResult, WarningsAndSummaryResult, WarningsResult,
+    WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsAndGroupResult, WarningsResult,
 };
-use crate::macros::{def_failure, match_many_to_one};
+use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, OptSegmentWithDefaultWarning,
@@ -2702,7 +2702,7 @@ where
     pub fn set_optical<X>(
         &mut self,
         xs: Vec<NonCenterElement<X>>,
-    ) -> SummaryResult<(), SetElementsError, SetOpticalFailure>
+    ) -> GroupResult<(), SetElementsError, SetOpticalSummary>
     where
         Optical<M::Optical>: AsMut<X>,
     {
@@ -2747,7 +2747,7 @@ where
         &mut self,
         xs: Vec<Element<X, Y>>,
         // TODO failure struct could be more specific
-    ) -> SummaryResult<(), SetElementsError, SetOpticalFailure>
+    ) -> GroupResult<(), SetElementsError, SetOpticalSummary>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<Y>,
@@ -3008,7 +3008,7 @@ where
     pub fn set_scales(
         &mut self,
         scales: Vec<Option<Scale>>,
-    ) -> SummaryResult<(), SetScalesError, SetScalesFailure>
+    ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         M::Optical: HasScale,
     {
@@ -3050,7 +3050,7 @@ where
     pub fn set_transforms(
         &mut self,
         xforms: Vec<ScaleTransform>,
-    ) -> SummaryResult<(), SetTransformsError, SetTransformsFailure>
+    ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
         M::Optical: HasScaleTransform,
     {
@@ -3085,7 +3085,7 @@ where
     pub fn set_applied_gates_3_0(
         &mut self,
         ag: AppliedGates3_0,
-    ) -> SummaryResult<(), ExistingGateRegionLinkError, SetAppliedGatesFailure>
+    ) -> GroupResult<(), ExistingGateRegionLinkError, SetAppliedGatesSummary>
     where
         M: HasAppliedGates3_0,
     {
@@ -3106,7 +3106,7 @@ where
     pub fn set_applied_gates_3_2(
         &mut self,
         ag: AppliedGates3_2,
-    ) -> SummaryResult<(), ExistingGateRegionLinkError, SetAppliedGatesFailure>
+    ) -> GroupResult<(), ExistingGateRegionLinkError, SetAppliedGatesSummary>
     where
         M: HasAppliedGates3_2,
     {
@@ -3141,11 +3141,11 @@ where
     pub fn try_convert<ToM>(
         self,
         allow_loss: bool,
-    ) -> WarningsAndSummaryResult<
+    ) -> WarningsAndGroupResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
         VersionedConvertError<M::Name, ToM::Name>,
-        ConvertFailure,
+        ConvertSummary,
     >
     where
         Version: From<M::Ver> + From<ToM::Ver>,
@@ -3181,7 +3181,7 @@ where
             .nowarn_into_warn();
         let v0 = M::Ver::fcs_version();
         let v1 = ToM::Ver::fcs_version();
-        let summary = ConvertFailure::new(v0, v1);
+        let summary = ConvertSummary::new(v0, v1);
         root_res
             .zip3_commutative(meas_res, layout_res)
             .map_ok_value(|(metaroot, measurements, layout)| {
@@ -3379,7 +3379,7 @@ where
         xs: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> SummaryResult<(), SetMeasurementsError, SetMeasurementsFailure>
+    ) -> GroupResult<(), SetMeasurementsError, SetMeasurementsSummary>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3403,7 +3403,7 @@ where
     pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> SummaryResult<(), MeasLayoutMismatchError, SetLayoutFailure>
+    ) -> GroupResult<(), MeasLayoutMismatchError, SetLayoutSummary>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3425,7 +3425,7 @@ where
         layout: <M::Ver as Versioned>::Layout,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> SummaryResult<(), SetMeasurementsError, SetMeasurementsAndLayoutFailure>
+    ) -> GroupResult<(), SetMeasurementsError, SetMeasurementsAndLayoutSummary>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3854,11 +3854,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub fn new_from_keywords<C>(
         kws: ValidKeywords,
         conf: &C,
-    ) -> WarningsAndSummaryResult<
+    ) -> WarningsAndGroupResult<
         (Self, ExtraStdKeywords),
         StdTEXTFromRawWarning,
         StdTEXTFromKeywordsError,
-        CoreTEXTFromKeywordsFailure,
+        CoreTEXTFromKeywordsSummary,
     >
     where
         M: LookupMetaroot,
@@ -4003,7 +4003,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure>
+    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary>
     {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
@@ -4020,7 +4020,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<(), AnyRangeError, InsertTemporalError, InsertTemporalFailure>
+    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary>
     {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
@@ -4035,7 +4035,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalFailure>
+    ) -> WarningsAndGroupResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalSummary>
     {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
@@ -4051,7 +4051,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalFailure>
+    ) -> WarningsAndGroupResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalSummary>
     {
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .summarize_errors()
@@ -4251,11 +4251,11 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &C,
-    ) -> WarningsAndIOSummaryResult<
+    ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
-        StdDatasetWithKwsFailure,
+        StdDatasetWithKwsSummary,
     >
     where
         M: LookupMetaroot,
@@ -4341,7 +4341,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOSummaryResult<(), StdWriterWarning, StdWriterError, WriteDatasetFailure>
+    ) -> WarningsAndIOGroupResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
@@ -4520,7 +4520,7 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalFailure>
+    ) -> WarningsAndGroupResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushTemporalToDatasetError::from)
@@ -4545,11 +4545,11 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<
+    ) -> WarningsAndGroupResult<
         (),
         AnyRangeError,
         InsertTemporalToDatasetError,
-        InsertTemporalFailure,
+        InsertTemporalSummary,
     > {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertTemporalToDatasetError::from)
@@ -4573,11 +4573,11 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<
+    ) -> WarningsAndGroupResult<
         Shortname,
         AnyRangeError,
         PushOpticalToDatasetError,
-        PushOpticalFailure,
+        PushOpticalSummary,
     > {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(PushOpticalToDatasetError::from)
@@ -4601,11 +4601,11 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndSummaryResult<
+    ) -> WarningsAndGroupResult<
         Shortname,
         AnyRangeError,
         InsertOpticalInDatasetError,
-        InsertOpticalFailure,
+        InsertOpticalSummary,
     > {
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .map_errors(InsertOpticalInDatasetError::from)
@@ -4636,7 +4636,7 @@ where
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> SummaryResult<(), SetMeasurementsAndDataError, SetMeasurementsAndDataFailure>
+    ) -> GroupResult<(), SetMeasurementsAndDataError, SetMeasurementsAndDataSummary>
     where
         M::Optical: AsScaleTransform,
     {
@@ -9214,66 +9214,66 @@ pub struct CompParMismatchError {
 // pub struct NewCSVFlagsError;
 
 #[cfg(feature = "python")]
-def_failure!(NewCoreTEXTFailure, "could not make new CoreTEXT");
+def_group!(NewCoreTEXTSummary, "could not make new CoreTEXT");
 
 #[cfg(feature = "python")]
-def_failure!(NewCoreDatasetFailure, "could not make new CoreDataset");
+def_group!(NewCoreDatasetSummary, "could not make new CoreDataset");
 
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
-pub struct ConvertFailure {
+pub struct ConvertSummary {
     from: Version,
     to: Version,
 }
 
-def_failure!(SetLayoutFailure, "could not set data layout");
+def_group!(SetLayoutSummary, "could not set data layout");
 
-def_failure!(PushTemporalFailure, "could not push temporal measurement");
+def_group!(PushTemporalSummary, "could not push temporal measurement");
 
-def_failure!(
-    SetScalesFailure,
+def_group!(
+    SetScalesSummary,
     "could not set scales for optical measurements"
 );
 
-def_failure!(
-    SetTransformsFailure,
+def_group!(
+    SetTransformsSummary,
     "could not set scale transforms for optical measurements"
 );
 
-def_failure!(InsertTemporalFailure, "could not push temporal measurement");
+def_group!(InsertTemporalSummary, "could not push temporal measurement");
 
-def_failure!(PushOpticalFailure, "could not push optical measurement");
+def_group!(PushOpticalSummary, "could not push optical measurement");
 
-def_failure!(InsertOpticalFailure, "could not push optical measurement");
+def_group!(InsertOpticalSummary, "could not push optical measurement");
 
-def_failure!(
-    SetOpticalFailure,
+def_group!(
+    SetOpticalSummary,
     "could not set values for optical measurements"
 );
 
-def_failure!(SetMeasurementsFailure, "could not set measurements");
+def_group!(SetMeasurementsSummary, "could not set measurements");
 
-def_failure!(SetAppliedGatesFailure, "could not set gating keywords");
+def_group!(SetAppliedGatesSummary, "could not set gating keywords");
 
-def_failure!(
-    SetMeasurementsAndLayoutFailure,
+def_group!(
+    SetMeasurementsAndLayoutSummary,
     "could not set measurements and layout"
 );
 
-def_failure!(
-    SetMeasurementsAndDataFailure,
+def_group!(
+    SetMeasurementsAndDataSummary,
     "could not set measurements and data"
 );
 
-def_failure!(WriteDatasetFailure, "could not write FCS file");
+def_group!(WriteDatasetSummary, "could not write FCS file");
 
-def_failure!(
-    CoreTEXTFromKeywordsFailure,
+def_group!(
+    CoreTEXTFromKeywordsSummary,
     "could not create new CoreTEXT from keywords"
 );
 
-def_failure!(
-    StdDatasetWithKwsFailure,
+def_group!(
+    StdDatasetWithKwsSummary,
     "could not read standardized dataset from keywords"
 );
 

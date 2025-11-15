@@ -28,17 +28,16 @@ use std::vec;
 use thiserror::Error;
 
 //
-// Summarized Results to be used at library boundaries
+// Group Results to be used at library boundaries
 //
 
-pub type WarningsAndIOSummaryResult<V, W, E, S> = WarningsAndSummaryResult<V, W, ImpureError<E>, S>;
+pub type WarningsAndIOGroupResult<V, W, E, S> = WarningsAndGroupResult<V, W, ImpureError<E>, S>;
 
-pub type WarningsAndSummaryResult<V, W, E, S> =
-    WarningsAndErrorResult<V, (), W, ErrorSummary<E, S>>;
+pub type WarningsAndGroupResult<V, W, E, S> = WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
-pub type SummaryResult<V, E, S> = Result<V, ErrorSummary<E, S>>;
+pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
 
-pub type IOSummaryResult<V, E, S> = SummaryResult<V, ImpureError<E>, S>;
+pub type IOGroupResult<V, E, S> = GroupResult<V, ImpureError<E>, S>;
 
 //
 // Boring regular result which may have an IO error
@@ -258,27 +257,27 @@ pub struct Failure<P, WC, E, EC> {
 
 /// A group of errors with a summary
 #[derive(Debug, Error, new)]
-pub struct ErrorSummary<E, S> {
-    pub summary: S,
+pub struct ErrorGroup<E, G> {
+    pub summary: G,
     pub errors: GenNonEmpty<E, Vec<E>>,
 }
 
-impl<E, S> ErrorSummary<E, S> {
+impl<E, G> ErrorGroup<E, G> {
     pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Result<(), Self>
     where
-        S: Default,
+        G: Default,
     {
-        Self::try_new_with(S::default(), es)
+        Self::try_new_with(G::default(), es)
     }
 
-    pub(crate) fn try_new_with(s: S, es: impl IntoIterator<Item = E>) -> Result<(), Self> {
+    pub(crate) fn try_new_with(s: G, es: impl IntoIterator<Item = E>) -> Result<(), Self> {
         GenNonEmpty::collect(es)
             .map(|xs| Self::new(s, xs))
             .map_or(Ok(()), Err)
     }
 }
 
-impl<E, S> fmt::Display for ErrorSummary<E, S>
+impl<E, S> fmt::Display for ErrorGroup<E, S>
 where
     E: fmt::Display,
     S: fmt::Display,
@@ -2409,7 +2408,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn summarize_errors<S>(
         self,
-    ) -> LogResult<V, P, LWC, RWC, X, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, X, ErrorGroup<E, S>, Nothing<ErrorGroup<E, S>>>
     where
         EC: IntoNewCardinality<Vec<E>>,
         S: Default,
@@ -2422,13 +2421,13 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     pub fn summarize_errors_with<S>(
         self,
         s: S,
-    ) -> LogResult<V, P, LWC, RWC, X, ErrorSummary<E, S>, Nothing<ErrorSummary<E, S>>>
+    ) -> LogResult<V, P, LWC, RWC, X, ErrorGroup<E, S>, Nothing<ErrorGroup<E, S>>>
     where
         EC: IntoNewCardinality<Vec<E>>,
     {
         self.aggregate_errors(|es| {
             let xs = GenNonEmpty::new(es.head, es.tail.into_new_cardinality());
-            ErrorSummary::new(s, xs)
+            ErrorGroup::new(s, xs)
         })
     }
 
@@ -2471,7 +2470,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
 mod python {
     use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
-    use super::{CommutativeResult, ErrorSummary, ImpureError, NonCommutativeResult, Success};
+    use super::{CommutativeResult, ErrorGroup, ImpureError, NonCommutativeResult, Success};
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
@@ -2488,13 +2487,13 @@ mod python {
         }
     }
 
-    impl<E, S> From<ErrorSummary<E, S>> for PyErr
+    impl<E, S> From<ErrorGroup<E, S>> for PyErr
     where
         E: Into<Self>,
         S: Display,
     {
         // TODO check if we are on python <3.11 and do something different if so
-        fn from(value: ErrorSummary<E, S>) -> Self {
+        fn from(value: ErrorGroup<E, S>) -> Self {
             let s = value.summary.to_string();
             let es: Vec<_> = value.errors.into_iter().map(Into::into).collect();
             // NOTE this is not written in the docs or enforced; exception

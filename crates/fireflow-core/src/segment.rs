@@ -795,7 +795,7 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         corr: HeaderCorrection<I>,
         st: &ReadState<C>,
-    ) -> ErrorsResult<Self, (), ImpureError<HeaderSegmentError>>
+    ) -> ErrorsResult<Self, (), ImpureError<PrimarySegmentError>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -804,27 +804,10 @@ impl<I: Copy> HeaderSegment<I> {
         let conf = st.conf.as_ref();
         let seg_conf =
             NewSegmentConfig::new(corr, st.file_len.try_into().ok(), conf.truncate_offsets);
-        Self::h_read_offsets(
-            h,
-            allow_blank,
-            conf.allow_negative,
-            conf.squish_offsets,
-            &seg_conf,
-        )
-    }
 
-    pub(crate) fn h_read_offsets<R: Read>(
-        h: &mut BufReader<R>,
-        allow_blank: bool,
-        allow_negative: bool,
-        squish_offsets: bool,
-        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), ImpureError<HeaderSegmentError>>
-    where
-        I: HasRegion,
-    {
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
+
         h.read_exact(&mut buf0)
             .into_io_log()
             .and_then_commutative(|()| h.read_exact(&mut buf1).into_io_log())
@@ -833,22 +816,22 @@ impl<I: Copy> HeaderSegment<I> {
                     buf0,
                     buf1,
                     allow_blank,
-                    allow_negative,
-                    squish_offsets,
-                    conf,
+                    conf.allow_negative,
+                    conf.squish_offsets,
+                    &seg_conf,
                 )
                 .map_errors(ImpureError::Pure)
             })
     }
 
-    pub(crate) fn parse(
+    fn parse(
         bs0: [u8; 8],
         bs1: [u8; 8],
         allow_blank: bool,
         allow_negative: bool,
         squish_offsets: bool,
         conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), HeaderSegmentError>
+    ) -> ErrorsResult<Self, (), PrimarySegmentError>
     where
         I: HasRegion,
     {
@@ -864,7 +847,7 @@ impl<I: Copy> HeaderSegment<I> {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new_squish(begin, end, squish_offsets, conf)
-                    .map_err(HeaderSegmentError::from)
+                    .map_err(PrimarySegmentError::from)
                     .into_log()
             })
     }
@@ -913,7 +896,7 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> ErrorsResult<Vec<Self>, (), ImpureError<HeaderSegmentError>>
+    ) -> ErrorsResult<Vec<Self>, (), ImpureError<OtherSegmentError>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -962,12 +945,12 @@ impl OtherSegment20 {
             .map_ok_value(|os| os.into_iter().flatten().collect())
     }
 
-    pub(crate) fn parse_other(
+    fn parse_other(
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
         conf: &NewSegmentConfig<UintSpacePad20, OtherSegmentId, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), HeaderSegmentError> {
+    ) -> ErrorsResult<Self, (), OtherSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
@@ -980,7 +963,7 @@ impl OtherSegment20 {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new(begin, end, conf)
-                    .map_err(HeaderSegmentError::from)
+                    .map_err(OtherSegmentError::from)
                     .into_log()
             })
     }
@@ -1125,10 +1108,13 @@ impl<T> NonEmptySegment<T> {
     }
 }
 
+pub type PrimarySegmentError = HeaderSegmentError<UintSpacePad8>;
+
+pub type OtherSegmentError = HeaderSegmentError<UintSpacePad20>;
+
 #[derive(From, Display, Debug, Error)]
-pub enum HeaderSegmentError {
-    Standard(SegmentError<UintSpacePad8>),
-    Other(SegmentError<UintSpacePad20>),
+pub enum HeaderSegmentError<S> {
+    New(SegmentError<S>),
     Parse(ParseOffsetError),
 }
 

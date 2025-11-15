@@ -7,7 +7,7 @@ use crate::config::{
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
-    StdDatasetFromRawWarning, StdDatasetWithKwsFailure, StdDatasetWithKwsOutput,
+    StdDatasetFromRawWarning, StdDatasetWithKwsSummary, StdDatasetWithKwsOutput,
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
@@ -17,11 +17,11 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOSummaryResult, ImpureError, LogResult, ResultExt as _,
+    DeferredWarningsAndErrors, IOGroupResult, ImpureError, LogResult, ResultExt as _,
     SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOSummaryResult,
+    WarningsAndIOGroupResult,
 };
-use crate::macros::def_failure;
+use crate::macros::def_group;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
     OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
@@ -65,7 +65,7 @@ use {
 pub fn fcs_read_header(
     p: &PathBuf,
     conf: &ReadHeaderConfig,
-) -> IOSummaryResult<Header, HeaderError, HeaderFailure> {
+) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
         .into_log()
@@ -82,7 +82,7 @@ pub fn fcs_read_header(
 pub fn fcs_read_raw_text(
     p: &PathBuf,
     conf: &ReadRawTEXTConfig,
-) -> WarningsAndIOSummaryResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
+) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
 {
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, _)| x)
@@ -95,7 +95,7 @@ pub fn fcs_read_raw_text(
 pub fn fcs_read_std_text(
     p: &PathBuf,
     conf: &ReadStdTEXTConfig,
-) -> WarningsAndIOSummaryResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreTEXT, StdTEXTOutput),
     StdTEXTWarning,
     StdTEXTError,
@@ -119,7 +119,7 @@ pub fn fcs_read_std_text(
 pub fn fcs_read_raw_dataset(
     p: &PathBuf,
     conf: &ReadRawDatasetConfig,
-) -> WarningsAndIOSummaryResult<
+) -> WarningsAndIOGroupResult<
     RawDatasetOutput,
     RawDatasetWarning,
     RawDatasetError,
@@ -153,7 +153,7 @@ pub fn fcs_read_raw_dataset(
 pub fn fcs_read_std_dataset(
     p: &PathBuf,
     conf: &ReadStdDatasetConfig,
-) -> WarningsAndIOSummaryResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetOutput),
     StdDatasetWarning,
     StdDatasetError,
@@ -183,7 +183,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadRawDatasetFromKeywordsConfig,
-) -> WarningsAndIOSummaryResult<
+) -> WarningsAndIOGroupResult<
     RawDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
@@ -220,11 +220,11 @@ pub fn fcs_read_std_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadStdDatasetFromKeywordsConfig,
-) -> WarningsAndIOSummaryResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
     StdDatasetFromRawWarning,
     StdDatasetFromRawError,
-    StdDatasetWithKwsFailure,
+    StdDatasetWithKwsSummary,
 > {
     ReadState::open(p, conf)
         .map_err(ImpureError::IO)
@@ -1327,20 +1327,20 @@ impl fmt::Display for NonUtf8KeywordError {
     }
 }
 
-def_failure!(HeaderFailure, "could not parse HEADER");
+def_group!(HeaderFailure, "could not parse HEADER");
 
-def_failure!(RawTEXTFailure, "could not parse TEXT segment");
+def_group!(RawTEXTFailure, "could not parse TEXT segment");
 
-def_failure!(StdTEXTFailure, "could not standardize TEXT segment");
+def_group!(StdTEXTFailure, "could not standardize TEXT segment");
 
-def_failure!(
+def_group!(
     StdDatasetFailure,
     "could not read DATA with standardized TEXT"
 );
 
-def_failure!(RawDatasetFailure, "could not read DATA with raw TEXT");
+def_group!(RawDatasetFailure, "could not read DATA with raw TEXT");
 
-def_failure!(
+def_group!(
     RawDatasetWithKwsFailure,
     "could not read raw dataset from keywords"
 );

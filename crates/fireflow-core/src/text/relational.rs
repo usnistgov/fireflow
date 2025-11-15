@@ -1,4 +1,4 @@
-use crate::logging::ErrorSummary;
+use crate::logging::ErrorGroup;
 /// Enforce relational links between keywords.
 ///
 /// This amounts to two basic operations:
@@ -27,7 +27,7 @@ use crate::logging::ErrorSummary;
 /// to run this process when creating a new Core* struct and also when we read
 /// a file and parse keywords from a hash table. The former doesn't require
 /// demoting optional keywords.
-use crate::macros::def_failure;
+use crate::macros::def_group;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex};
 use crate::text::optional::DisplayMaybe as _;
 use crate::validated::keys::{
@@ -64,12 +64,12 @@ pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
 // Existential relational errors (do any links exist?)
 //
 
-def_failure!(
+def_group!(
     ExistingLinkFailure,
     "could not continue without breaking existing links"
 );
 
-pub type ExistingLinkErrors = ErrorSummary<ExistingLinkError, ExistingLinkFailure>;
+pub type ExistingLinkErrors = ErrorGroup<ExistingLinkError, ExistingLinkFailure>;
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -121,9 +121,9 @@ pub struct ExistingIndexedLinkError<T, I> {
 // Comprehensive relational errors (are all links valid)
 //
 
-def_failure!(LinkFailure, "links are not satisfied");
+def_group!(LinkFailure, "links are not satisfied");
 
-pub type AnyLinkErrors = ErrorSummary<AnyLinkError, LinkFailure>;
+pub type AnyLinkErrors = ErrorGroup<AnyLinkError, LinkFailure>;
 
 /// A relational keyword that has been removed due having a broken reference.
 #[derive(From)]

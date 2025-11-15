@@ -4,8 +4,8 @@ use crate::logging::{
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
-    SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
+    Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
     TEXTSegment,
 };
 use crate::text::keywords::{
@@ -296,7 +296,7 @@ where
     let conf = &st.conf.as_ref();
     let vers_res = Version::h_read(h)
         .into_nowarn1()
-        .map_errors(|e| e.map_inner(HeaderError::Version))
+        .map_errors(|e| e.map_inner(HeaderError::from))
         .repack();
     let space_res = h_read_spaces(h).into_nowarn1().repack();
     let text_res = HeaderSegment::h_read_primary(h, false, conf.text_correction, st);
@@ -304,7 +304,7 @@ where
     let anal_res = HeaderSegment::h_read_primary(h, true, conf.analysis_correction, st);
     let offset_res = text_res
         .zip3_commutative(data_res, anal_res)
-        .map_errors(|e| e.map_inner(HeaderError::Segment));
+        .map_errors(|e| e.map_inner(HeaderError::from));
     vers_res
         .zip3_commutative(space_res, offset_res)
         .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
@@ -395,7 +395,9 @@ impl str::FromStr for Version {
 #[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
 pub enum HeaderError {
     #[error("{0}")]
-    Segment(HeaderSegmentError),
+    Primary(PrimarySegmentError),
+    #[error("{0}")]
+    Other(OtherSegmentError),
     #[error("{0}")]
     Version(VersionError),
     #[error("{0}")]

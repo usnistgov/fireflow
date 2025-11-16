@@ -6,7 +6,8 @@ use crate::config::{
 use crate::header::HEADER_LEN;
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
-    ImpureError, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
+    IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorsResult,
+    WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
@@ -795,7 +796,7 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         corr: HeaderCorrection<I>,
         st: &ReadState<C>,
-    ) -> ErrorsResult<Self, (), ImpureError<PrimarySegmentError>>
+    ) -> Result<Self, IOErrorGroup<PrimarySegmentError, ()>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -808,20 +809,20 @@ impl<I: Copy> HeaderSegment<I> {
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
 
-        h.read_exact(&mut buf0)
-            .into_io_log()
-            .and_then_commutative(|()| h.read_exact(&mut buf1).into_io_log())
-            .and_then_commutative(|()| {
-                Self::parse(
-                    buf0,
-                    buf1,
-                    allow_blank,
-                    conf.allow_negative,
-                    conf.squish_offsets,
-                    &seg_conf,
-                )
-                .map_errors(ImpureError::Pure)
-            })
+        h.read_exact(&mut buf0)?;
+        h.read_exact(&mut buf1)?;
+
+        Self::parse(
+            buf0,
+            buf1,
+            allow_blank,
+            conf.allow_negative,
+            conf.squish_offsets,
+            &seg_conf,
+        )
+        .group()
+        .resolve_nowarn()
+        .map_err(IOErrorGroup::Pure)
     }
 
     fn parse(
@@ -892,11 +893,11 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl OtherSegment20 {
-    pub(crate) fn h_read_other<C, R>(
+    pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> ErrorsResult<Vec<Self>, (), ImpureError<OtherSegmentError>>
+    ) -> Result<Vec<Self>, IOErrorGroup<OtherSegmentError, ()>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -908,41 +909,39 @@ impl OtherSegment20 {
         let w = u8::from(conf.other_width);
         let mut buf0 = vec![];
         let mut buf1 = vec![];
-        // ASSUME this will never fail, if it does I'll be impressed ;)
-        let n_segs = usize::try_from(n / (u64::from(w) * 2)).unwrap();
+        let n_segs = usize::try_from(n / (u64::from(w) * 2)).expect("usize overflow");
 
-        conf.other_corrections
+        let mut results = vec![];
+
+        let corrs = conf
+            .other_corrections
             .iter()
             .copied()
             .chain(repeat(OffsetCorrection::default()))
-            .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
-            .map(|corr| {
-                let seg_conf = NewSegmentConfig::new(
-                    corr,
-                    Some(UintSpacePad20(st.file_len)),
-                    conf.truncate_offsets,
-                );
-                let mut readbuf = |buf: &mut Vec<_>| {
-                    buf.clear();
-                    h.take(u64::from(w))
-                        .read_to_end(buf)
-                        .into_io_log::<_, _, _, Vec<_>>()
-                };
-                let res0 = readbuf(&mut buf0);
-                let res1 = readbuf(&mut buf1);
-                res0.zip_commutative(res1).and_then_nowarn_with_warn(|_| {
-                    // If any regions are entirely blank, just ignore them
-                    if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                        LogResult::new_ok(None)
-                    } else {
-                        Self::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
-                            .map_ok_value(Some)
-                            .map_errors(ImpureError::Pure)
-                    }
-                })
-            })
+            .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
+
+        for corr in corrs {
+            let len = Some(UintSpacePad20(st.file_len));
+            let seg_conf = NewSegmentConfig::new(corr, len, conf.truncate_offsets);
+            buf0.clear();
+            buf1.clear();
+
+            h.take(u64::from(w)).read_to_end(&mut buf0)?;
+            h.take(u64::from(w)).read_to_end(&mut buf1)?;
+            // If any regions are entirely blank, just ignore them
+            if !buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
+            } else {
+                let r = Self::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf);
+                results.push(r);
+            }
+        }
+
+        results
+            .into_iter()
             .mappend_commutative()
-            .map_ok_value(|os| os.into_iter().flatten().collect())
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
     }
 
     fn parse_other(

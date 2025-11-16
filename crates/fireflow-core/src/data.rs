@@ -58,9 +58,9 @@ use crate::core::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
-    IOResult, IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, Success,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsResult,
+    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOErrorsResult, WarningsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -548,7 +548,7 @@ pub trait LayoutOps<'a, T>: Sized {
         tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
+    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot;
 
@@ -678,7 +678,7 @@ where
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError> {
+    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
         // It's passed down to each layer of the read stack to avoid making the
@@ -691,7 +691,8 @@ where
             LogResult::new_ok(FCSDataFrame::default()),
             |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
-                    .into_io_log()
+                    .map_err(IOErrorGroup::from)
+                    .into_log()
                     .and_then_nowarn_with_warn(|_| {
                         self.h_read_df_inner(h, &mut buf, tot, seg, conf)
                     })
@@ -704,7 +705,7 @@ where
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), ColumnError<AnyLossError>, io::Error>
+    ) -> WarningsAndErrorResult<(), (), ColumnError<AnyLossError>, io::Error>
     where
         W: Write,
     {
@@ -2230,7 +2231,7 @@ where
         tot: T,
         seg: AnyDataSegment,
         _: &ReaderConfig,
-    ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError> {
+    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         let rs = &self.ranges;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > platform pntr size");
         let res = T::with_tot(
@@ -2239,7 +2240,7 @@ where
             |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(ImpureError::inner_into),
             |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(ImpureError::inner_into),
         );
-        res.into_log()
+        res.map_err(IOErrorGroup::from).into_log()
     }
 
     fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), ColumnError<AnyLossError>> {
@@ -2573,28 +2574,32 @@ where
         tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IOWarningsAndErrorsResult<FCSDataFrame, (), ReadDataframeWarning, ReadDataframeError>
+    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot,
     {
         self.compute_nrows(seg, conf)
             .map_non_commutative_warnings(ReadDataframeWarning::from)
-            .map_errors(ReadDataframeError::from)
-            .map_errors(ImpureError::Pure)
             .non_commutative_into_commutative()
-            .repack()
+            .map_errors(ReadDataframeError::from)
+            .into_semigroup()
+            .group()
+            .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|n| {
-                let check_res = T::check_tot(n, tot, conf.allow_tot_mismatch)
+                T::check_tot(n, tot, conf.allow_tot_mismatch)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .map_errors(ReadDataframeError::from)
-                    .map_errors(ImpureError::Pure)
-                    .repack::<_, _, Vec<_>>();
+                    .into_semigroup()
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .set_ok_value(n)
+            })
+            .and_then_commutative(|n| {
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
-                let read_res = self.h_read_unchecked_df(h, nn, buf).into_log();
-                check_res
-                    .zip_commutative(read_res)
-                    .map_ok_value(|((), df)| df)
+                self.h_read_unchecked_df(h, nn, buf)
+                    .map_err(IOErrorGroup::from)
+                    .into_log()
             })
     }
 

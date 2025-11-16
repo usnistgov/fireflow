@@ -940,7 +940,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
                 let ret = #fun(#coretext_inner_args)
-                    .summarize_errors_with(fireflow_core::core::NewCoreTEXTFailure)
+                    .group_with(fireflow_core::core::NewCoreTEXTSummary)
                     .resolve_nowarn()?;
                 Ok(ret.into())
             }
@@ -952,7 +952,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> PyResult<Self> {
                 // TODO hide this in core.rs
                 let x = #fun(#coretext_inner_args)
-                    .summarize_errors_with(fireflow_core::core::NewCoreDatasetFailure)
+                    .group_with(fireflow_core::core::NewCoreDatasetSummary)
                     .resolve_nowarn()?;
                 Ok(x.into_coredataset(data.0.try_into()?, analysis, others)?.into())
             }
@@ -2163,7 +2163,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let conf = #core_conf { standard, layout, offsets, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
-                    path, kws, data_seg, analysis_seg, &other_segs[..], &conf
+                    &path, kws, data_seg, analysis_seg, &other_segs[..], &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }

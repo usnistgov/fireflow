@@ -21,7 +21,7 @@ use derive_new::new;
 use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
-use std::io;
+use std::io::Error as IOError;
 use std::iter;
 use std::marker::PhantomData;
 use std::vec;
@@ -31,13 +31,12 @@ use thiserror::Error;
 // Group Results to be used at library boundaries
 //
 
-pub type WarningsAndIOGroupResult<V, W, E, S> = WarningsAndGroupResult<V, W, ImpureError<E>, S>;
+pub type WarningsAndIOErrorsResult<V, W, E, G> =
+    WarningsAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
 pub type WarningsAndGroupResult<V, W, E, S> = WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
 pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
-
-pub type IOGroupResult<V, E, S> = GroupResult<V, ImpureError<E>, S>;
 
 //
 // Boring regular result which may have an IO error
@@ -57,9 +56,6 @@ pub type WarningsResult<V, W> = Success<V, (), Vec<W>>;
 
 pub type ErrorResult<V, P, E> = NowarnResult<V, P, E, Nothing<E>>;
 pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
-
-pub type IOErrorResult<V, P, E> = ErrorResult<V, P, ImpureError<E>>;
-pub type IOErrorsResult<V, P, E> = ErrorsResult<V, P, ImpureError<E>>;
 
 //
 // Results with errors which can also be warnings
@@ -89,20 +85,12 @@ pub type WarningsAndErrorResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E,
 pub type WarningAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Option<W>, E, Vec<E>>;
 pub type WarningsAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E, Vec<E>>;
 
-pub type IOWarningAndErrorResult<V, P, W, E> = WarningAndErrorResult<V, P, W, ImpureError<E>>;
-pub type IOWarningsAndErrorResult<V, P, W, E> = WarningsAndErrorResult<V, P, W, ImpureError<E>>;
-pub type IOWarningAndErrorsResult<V, P, W, E> = WarningAndErrorsResult<V, P, W, ImpureError<E>>;
-pub type IOWarningsAndErrorsResult<V, P, W, E> = WarningsAndErrorsResult<V, P, W, ImpureError<E>>;
-
 //
 // Deferred versions of the above types (ie the value on both sides is equal)
 //
 
 pub type DeferredError<V, E> = ErrorResult<V, V, E>;
 pub type DeferredErrors<V, E> = ErrorsResult<V, V, E>;
-
-pub type DeferredIOError<V, E> = DeferredError<V, ImpureError<E>>;
-pub type DeferredIOErrors<V, E> = DeferredErrors<V, ImpureError<E>>;
 
 pub type DeferredWarningAndError<V, W, E> = WarningAndErrorResult<V, V, W, E>;
 pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
@@ -113,18 +101,24 @@ pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E
 // helper types for constructing the "complete" types above
 //
 
-pub(crate) type NowarnResult<V, P, E, EC> = CommutativeResult<V, P, Nothing<()>, E, EC>;
+type NowarnResult<V, P, E, EC> = CommutativeResult<V, P, Nothing<()>, E, EC>;
 
-pub(crate) type Deferred<V, WC, E, EC> = CommutativeResult<V, V, WC, E, EC>;
+type Deferred<V, WC, E, EC> = CommutativeResult<V, V, WC, E, EC>;
 
 pub(crate) type CommutativeResult<V, P, WC, E, EC> = LogResult<V, P, WC, WC, (), E, EC>;
 
-pub(crate) type NonCommutativeResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
+type NonCommutativeResult<V, P, WC, E, EC> = LogResult<V, P, WC, Nothing<()>, (), E, EC>;
 
-pub(crate) type SwitchableResult<V, P, X, E, EC> =
+type SwitchableResult<V, P, X, E, EC> =
     LogResult<V, P, <EC as SwitchableErrorContainer>::Warn, Nothing<()>, X, E, EC>;
 
-pub(crate) type DeferredSwitchable<V, X, E, EC> = SwitchableResult<V, V, X, E, EC>;
+type DeferredSwitchable<V, X, E, EC> = SwitchableResult<V, V, X, E, EC>;
+
+type GroupLogResult<V, P, LWC, RWC, X, E, G> =
+    LogResult<V, P, LWC, RWC, X, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>>;
+
+type IOGroupLogResult<V, P, LWC, RWC, X, E, G> =
+    LogResult<V, P, LWC, RWC, X, IOErrorGroup<E, G>, Nothing<IOErrorGroup<E, G>>>;
 
 /// A result which may have many warnings, errors, and a value on the error side.
 ///
@@ -255,11 +249,90 @@ pub struct Failure<P, WC, E, EC> {
     value: P,
 }
 
+#[derive(Error, Debug)]
+pub enum IOErrorGroup<E, G> {
+    IO(IOError, Option<ErrorGroup<E, G>>),
+    Pure(ErrorGroup<E, G>),
+}
+
+impl<E, G> IOErrorGroup<E, G> {
+    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> IOErrorGroup<X, G> {
+        match self {
+            Self::IO(i, g) => IOErrorGroup::IO(i, g.map(|x| x.map(f))),
+            Self::Pure(g) => IOErrorGroup::Pure(g.map(f)),
+        }
+    }
+}
+
+impl<E> IOErrorGroup<E, ()> {
+    pub(crate) fn new_pure_one(e: E) -> Self {
+        Self::Pure(ErrorGroup::new((), GenNonEmpty::new1(e)))
+    }
+
+    pub(crate) fn deanonymize_as<G>(self, g: G) -> IOErrorGroup<E, G> {
+        match self {
+            Self::IO(i, e) => IOErrorGroup::IO(i, e.map(|x| x.deanonymize_as(g))),
+            Self::Pure(e) => IOErrorGroup::Pure(e.deanonymize_as(g)),
+        }
+    }
+
+    pub(crate) fn deanonymize<G: Default>(self) -> IOErrorGroup<E, G> {
+        self.deanonymize_as(G::default())
+    }
+}
+
+impl<E, G> From<IOError> for IOErrorGroup<E, G> {
+    fn from(value: IOError) -> Self {
+        Self::IO(value, None)
+    }
+}
+
+impl<E> From<ImpureError<E>> for IOAnonErrorGroup<E> {
+    fn from(value: ImpureError<E>) -> Self {
+        match value {
+            ImpureError::IO(e) => Self::IO(e, None),
+            ImpureError::Pure(e) => Self::new_pure_one(e),
+        }
+    }
+}
+
+impl<E, G> fmt::Display for IOErrorGroup<E, G>
+where
+    ErrorGroup<E, G>: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IO(i, x) => {
+                write!(f, "IO Error: {i}")?;
+                if let Some(g) = x {
+                    writeln!(f)?;
+                    g.fmt(f)?;
+                }
+                Ok(())
+            }
+            Self::Pure(g) => g.fmt(f),
+        }
+    }
+}
+
 /// A group of errors with a summary
 #[derive(Debug, Error, new)]
 pub struct ErrorGroup<E, G> {
     pub summary: G,
     pub errors: GenNonEmpty<E, Vec<E>>,
+}
+
+pub(crate) type AnonErrorGroup<E> = ErrorGroup<E, ()>;
+pub(crate) type IOAnonErrorGroup<E> = IOErrorGroup<E, ()>;
+
+impl<E> AnonErrorGroup<E> {
+    pub(crate) fn deanonymize_as<G>(self, g: G) -> ErrorGroup<E, G> {
+        ErrorGroup::new(g, self.errors)
+    }
+
+    pub(crate) fn deanonymize<G: Default>(self) -> ErrorGroup<E, G> {
+        self.deanonymize_as(G::default())
+    }
 }
 
 impl<E, G> ErrorGroup<E, G> {
@@ -274,6 +347,10 @@ impl<E, G> ErrorGroup<E, G> {
         GenNonEmpty::collect(es)
             .map(|xs| Self::new(s, xs))
             .map_or(Ok(()), Err)
+    }
+
+    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> ErrorGroup<X, G> {
+        ErrorGroup::new(self.summary, self.errors.fmap(f))
     }
 }
 
@@ -310,14 +387,10 @@ pub struct GenNonEmpty<X, C> {
 }
 
 /// Either a pure error or impure (IO) error.
-///
-/// This is a somewhat hacky way of encoding an IO monad from Haskell, although
-/// it obviously only handles the error context when used in a `Result` or
-///  `LogResult`.
 #[derive(Debug, Error)]
 pub enum ImpureError<E> {
     #[error("IO error: {0}")]
-    IO(#[from] io::Error),
+    IO(#[from] IOError),
     #[error("{0}")]
     Pure(E),
 }
@@ -473,7 +546,7 @@ pub trait ResultExt: Sized {
         self,
     ) -> LogResult<Self::Ok, (), LWC, RWC, (), ImpureError<Ef>, EC>
     where
-        Self: ResultExt<Error = io::Error>,
+        Self: ResultExt<Error = IOError>,
         EC: Default,
         LWC: Default,
         RWC: Default,
@@ -596,6 +669,16 @@ pub trait ResultExt: Sized {
                 ret.extend_errors(iter::once(e1));
                 Fail(ret)
             }
+        }
+    }
+
+    fn ungroup<E>(self) -> ErrorsResult<Self::Ok, (), E>
+    where
+        Self: ResultExt<Error = AnonErrorGroup<E>>,
+    {
+        match self.into_result() {
+            Ok(x) => LogResult::new_ok(x),
+            Err(g) => Fail(Failure::new_from_many(g.errors, ())),
         }
     }
 }
@@ -883,6 +966,18 @@ where
     }
 }
 
+impl<V, P, LWC, RWC, X, E, G> From<IOError>
+    for LogResult<V, P, LWC, RWC, X, IOErrorGroup<E, G>, Nothing<IOErrorGroup<E, G>>>
+where
+    RWC: Default,
+    P: Default,
+{
+    fn from(value: IOError) -> Self {
+        let e = IOErrorGroup::from(value);
+        Fail(Failure::new_from_one(e, P::default()))
+    }
+}
+
 impl<V, WC, E, EC> FunctorOnce<V> for Deferred<V, WC, E, EC> {
     fn fmap_once<F: FnOnce(V) -> Y, Y>(self, f: F) -> Sibling1<Self, Y> {
         match self {
@@ -959,6 +1054,12 @@ impl<X, C> GenNonEmpty<X, C> {
         C: IntoNewCardinality<Cf>,
     {
         GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
+    }
+}
+
+impl<X> GenNonEmpty<X, Nothing<X>> {
+    pub(crate) fn unwrap(self) -> X {
+        self.head
     }
 }
 
@@ -1128,6 +1229,45 @@ impl<P, E, EC> Failure<P, Nothing<()>, E, EC> {
 }
 
 //
+// Failure with single error
+//
+impl<P, WC, E> Failure<P, WC, E, Nothing<E>> {
+    pub(crate) fn map_error<F, Ef>(self, f: F) -> Failure<P, WC, Ef, Nothing<Ef>>
+    where
+        F: FnOnce(E) -> Ef,
+    {
+        let n = GenNonEmpty::new1(f(self.errors.head));
+        Failure::new(self.warnings, n, self.value)
+    }
+}
+
+//
+// Failure with error group
+//
+impl<P, WC, E, G> Failure<P, WC, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>> {
+    fn ungroup(self) -> Failure<P, WC, E, Vec<E>> {
+        Failure::new(self.warnings, self.errors.head.errors, self.value)
+    }
+}
+
+//
+// Failure with IO error group
+//
+impl<P, WC, E, G> Failure<P, WC, IOErrorGroup<E, G>, Nothing<IOErrorGroup<E, G>>> {
+    pub(crate) fn throw_io(
+        self,
+    ) -> Result<Failure<P, WC, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>>, Self> {
+        let ws = self.warnings;
+        let es = self.errors;
+        let v = self.value;
+        match es.head {
+            e @ IOErrorGroup::IO(_, _) => Err(Self::new(ws, GenNonEmpty::new1(e), v)),
+            IOErrorGroup::Pure(e) => Ok(Failure::new(ws, GenNonEmpty::new1(e), v)),
+        }
+    }
+}
+
+//
 // Fully generic Failure
 //
 impl<P, E, WC, EC> Failure<P, WC, E, EC> {
@@ -1172,7 +1312,7 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         Failure::new(self.warnings.fmap(f), self.errors, self.value)
     }
 
-    fn map_errors<F, Ef>(self, f: F) -> Failure<P, WC, Ef, Sibling1<EC, Ef>>
+    pub(crate) fn map_errors<F, Ef>(self, f: F) -> Failure<P, WC, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
         EC: Functor<E>,
@@ -2264,6 +2404,52 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
 }
 
 //
+// LogResult with one error
+//
+impl<V, P, LWC, RWC, X, E> LogResult<V, P, LWC, RWC, X, E, Nothing<E>> {
+    pub(crate) fn map_error<F, Ef>(self, f: F) -> LogResult<V, P, LWC, RWC, X, Ef, Nothing<Ef>>
+    where
+        F: FnOnce(E) -> Ef,
+    {
+        self.map_err(|e| e.map_error(f))
+    }
+}
+
+//
+// LogResult with error group
+//
+impl<V, P, LWC, RWC, X, E, G> GroupLogResult<V, P, LWC, RWC, X, E, G> {
+    pub(crate) fn ungroup(self) -> LogResult<V, P, LWC, RWC, X, E, Vec<E>> {
+        self.map_err(Failure::ungroup)
+    }
+}
+
+//
+// LogResult with IO error group
+//
+impl<V, P, LWC, RWC, X, E, G> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
+    pub(crate) fn map_pure_errors<F, Ef>(self, f: F) -> IOGroupLogResult<V, P, LWC, RWC, X, Ef, G>
+    where
+        F: Fn(E) -> Ef,
+    {
+        self.map_error(|e| e.map(f))
+    }
+}
+
+//
+// LogResult with anon IO error group
+//
+impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
+    pub(crate) fn deanonymize_as<G>(self, g: G) -> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
+        self.map_error(|e| e.deanonymize_as(g))
+    }
+
+    pub(crate) fn deanonymize<G: Default>(self) -> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
+        self.deanonymize_as(G::default())
+    }
+}
+
+//
 // Fully-generic LogResult
 //
 impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
@@ -2405,23 +2591,17 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.map_err(|e| e.aggregate_errors(f))
     }
 
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn summarize_errors<S>(
-        self,
-    ) -> LogResult<V, P, LWC, RWC, X, ErrorGroup<E, S>, Nothing<ErrorGroup<E, S>>>
+    pub(crate) fn group<G>(self) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
     where
         EC: IntoNewCardinality<Vec<E>>,
-        S: Default,
+        G: Default,
     {
-        self.summarize_errors_with(S::default())
+        self.group_with(G::default())
     }
 
     // TODO pub only needed for python interface
     #[allow(clippy::type_complexity)]
-    pub fn summarize_errors_with<S>(
-        self,
-        s: S,
-    ) -> LogResult<V, P, LWC, RWC, X, ErrorGroup<E, S>, Nothing<ErrorGroup<E, S>>>
+    pub fn group_with<G>(self, s: G) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
     where
         EC: IntoNewCardinality<Vec<E>>,
     {
@@ -2466,11 +2646,53 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     }
 }
 
+/// Split the IO error away from an impure result.
+///
+/// For results that have an IOErrorGroup, this will throw the entire group
+/// (similar to `?`) if an IO error is present, otherwise return a pure result
+/// with an `ErrorGroup` (ie no IO error).
+///
+/// In effect, this will short-circuit if an IO-error is present.
+macro_rules! split_io {
+    ($x:expr) => {
+        match $x {
+            Ok(x) => Ok(x),
+            Err(x) => match x {
+                e @ crate::logging::IOErrorGroup::IO(_, _) => {
+                    return Err(e.map(Into::into));
+                }
+                crate::logging::IOErrorGroup::Pure(e) => Err(e),
+            },
+        }
+    };
+}
+
+pub(crate) use split_io;
+
+/// Lift an IO error into a LogResult with an `IOErrorGroup`.
+///
+/// This is effectively a replacement for `?` since we can't implement `Try`
+/// on `LogResult`.
+macro_rules! io_to_log {
+    ($x:expr) => {
+        match $x {
+            Ok(x) => x,
+            Err(e) => {
+                return crate::logging::LogResult::new_err(IOErrorGroup::from(e));
+            }
+        }
+    };
+}
+
+pub(crate) use io_to_log;
+
 #[cfg(feature = "python")]
 mod python {
     use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
 
-    use super::{CommutativeResult, ErrorGroup, ImpureError, NonCommutativeResult, Success};
+    use super::{
+        CommutativeResult, ErrorGroup, IOErrorGroup, ImpureError, NonCommutativeResult, Success,
+    };
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
@@ -2483,6 +2705,26 @@ mod python {
                 ImpureError::Pure(e) => e.into(),
                 // This should be an OSError of some kind
                 ImpureError::IO(e) => e.into(),
+            }
+        }
+    }
+
+    impl<E, G> From<IOErrorGroup<E, G>> for PyErr
+    where
+        ErrorGroup<E, G>: Into<Self>,
+    {
+        fn from(value: IOErrorGroup<E, G>) -> Self {
+            match value {
+                // one OSError
+                IOErrorGroup::IO(e, None) => e.into(),
+                // one OSError with other non-OSErrors
+                IOErrorGroup::IO(e, Some(g)) => {
+                    let s = "IO error with non-IO errors";
+                    let es = vec![e.into(), g.into()];
+                    PyBaseExceptionGroup::new_err((s, es))
+                }
+                // non-OSErrors
+                IOErrorGroup::Pure(e) => e.into(),
             }
         }
     }

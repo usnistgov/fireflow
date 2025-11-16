@@ -7,7 +7,7 @@ use crate::config::{
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
-    StdDatasetFromRawWarning, StdDatasetWithKwsSummary, StdDatasetWithKwsOutput,
+    StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
@@ -17,9 +17,9 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOGroupResult, ImpureError, LogResult, ResultExt as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult,
+    DeferredWarningsAndErrors, IOErrorGroup, ImpureError, LogResult, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOErrorsResult, io_to_log,
 };
 use crate::macros::def_group;
 use crate::segment::{
@@ -65,16 +65,10 @@ use {
 pub fn fcs_read_header(
     p: &PathBuf,
     conf: &ReadHeaderConfig,
-) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
-    ReadState::open(p, conf)
-        .map_err(ImpureError::IO)
-        .into_log()
-        .and_then_commutative(|(st, file)| {
-            let mut reader = BufReader::new(file);
-            Header::h_read(&mut reader, &st)
-        })
-        .summarize_errors()
-        .resolve_nowarn()
+) -> Result<Header, IOErrorGroup<HeaderError, HeaderFailure>> {
+    let (st, file) = ReadState::open(p, conf)?;
+    let mut reader = BufReader::new(file);
+    Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file.
@@ -82,12 +76,19 @@ pub fn fcs_read_header(
 pub fn fcs_read_raw_text(
     p: &PathBuf,
     conf: &ReadRawTEXTConfig,
-) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
-{
+) -> WarningsAndErrorResult<
+    RawTEXTOutput,
+    (),
+    ParseRawTEXTWarning,
+    IOErrorGroup<HeaderOrRawError, RawTEXTFailure>,
+> {
+    // TODO put warnings into errors within IO context
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, _)| x)
-        .commutative_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(w.into()))
-        .summarize_errors()
+        .deanonymize()
+    // .commutative_warnings_to_errors(&conf.shared, HeaderOrRawError::from)
+    // .group()
+    // .map_errors(IOErrorGroup::Pure)
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
@@ -95,23 +96,27 @@ pub fn fcs_read_raw_text(
 pub fn fcs_read_std_text(
     p: &PathBuf,
     conf: &ReadStdTEXTConfig,
-) -> WarningsAndIOGroupResult<
+) -> WarningsAndErrorResult<
     (AnyCoreTEXT, StdTEXTOutput),
+    (),
     StdTEXTWarning,
-    StdTEXTError,
-    StdTEXTFailure,
+    IOErrorGroup<StdTEXTError, StdTEXTFailure>,
 > {
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .map_commutative_warnings(StdTEXTWarning::from)
-        .map_errors(ImpureError::inner_into)
+        .map_pure_errors(StdTEXTError::from)
         .and_then_commutative(|(raw, st)| {
             raw.into_std_text(&st)
                 .map_commutative_warnings(StdTEXTWarning::from)
-                .map_errors(|e| ImpureError::Pure(e.into()))
+                .map_errors(StdTEXTError::from)
+                .group()
+                .map_errors(IOErrorGroup::Pure)
         })
-        .commutative_warnings_to_errors(&conf.shared, |w| ImpureError::Pure(StdTEXTError::from(w)))
-        .summarize_errors()
+        .deanonymize()
+    // .commutative_warnings_to_errors(&conf.shared, StdTEXTError::from)
+    // .group()
+    // .map_errors(IOErrorGroup::Pure)
 }
 
 /// Read dataset from FCS file using standardized TEXT.
@@ -119,15 +124,15 @@ pub fn fcs_read_std_text(
 pub fn fcs_read_raw_dataset(
     p: &PathBuf,
     conf: &ReadRawDatasetConfig,
-) -> WarningsAndIOGroupResult<
+) -> WarningsAndIOErrorsResult<
     RawDatasetOutput,
     RawDatasetWarning,
     RawDatasetError,
     RawDatasetFailure,
 > {
     read_fcs_raw_text_inner(p, conf)
+        .map_pure_errors(RawDatasetError::from)
         .map_commutative_warnings(RawDatasetWarning::from)
-        .map_errors(ImpureError::inner_into)
         .and_then_commutative(|(raw, mut h, st)| {
             h_read_dataset_from_kws(
                 &mut h,
@@ -140,12 +145,12 @@ pub fn fcs_read_raw_dataset(
             )
             .map_ok_value(|dataset| RawDatasetOutput::new(raw, dataset))
             .map_commutative_warnings(RawDatasetWarning::from)
-            .map_errors(ImpureError::inner_into)
+            .map_pure_errors(RawDatasetError::from)
         })
-        .commutative_warnings_to_errors(&conf.shared, |w| {
-            ImpureError::Pure(RawDatasetError::from(w))
-        })
-        .summarize_errors()
+        .deanonymize()
+    // .ungroup()
+    // .commutative_warnings_to_errors(&conf.shared, RawDatasetError::from)
+    // .group()
 }
 
 /// Read dataset from FCS file using raw key/value pairs from TEXT.
@@ -153,7 +158,7 @@ pub fn fcs_read_raw_dataset(
 pub fn fcs_read_std_dataset(
     p: &PathBuf,
     conf: &ReadStdDatasetConfig,
-) -> WarningsAndIOGroupResult<
+) -> WarningsAndIOErrorsResult<
     (AnyCoreDataset, StdDatasetOutput),
     StdDatasetWarning,
     StdDatasetError,
@@ -161,16 +166,17 @@ pub fn fcs_read_std_dataset(
 > {
     read_fcs_raw_text_inner(p, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
-        .map_errors(ImpureError::inner_into)
+        .map_pure_errors(StdDatasetError::from)
         .and_then_commutative(|(raw, mut h, st)| {
             raw.into_std_dataset(&mut h, &st)
                 .map_commutative_warnings(StdDatasetWarning::from)
-                .map_errors(ImpureError::inner_into)
+                .map_pure_errors(StdDatasetError::from)
         })
-        .commutative_warnings_to_errors(&conf.shared, |w| {
-            ImpureError::Pure(StdDatasetError::from(w))
-        })
-        .summarize_errors()
+        .deanonymize()
+    // .commutative_warnings_to_errors(&conf.shared, |w| {
+    //     ImpureError::Pure(StdDatasetError::from(w))
+    // })
+    // .group()
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -183,14 +189,14 @@ pub fn fcs_read_raw_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadRawDatasetFromKeywordsConfig,
-) -> WarningsAndIOGroupResult<
+) -> WarningsAndIOErrorsResult<
     RawDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     RawDatasetWithKwsFailure,
 > {
     ReadState::open(p, conf)
-        .map_err(ImpureError::IO)
+        .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -204,10 +210,11 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 &st,
             )
         })
-        .commutative_warnings_to_errors(&conf.shared, |w| {
-            ImpureError::Pure(LookupAndReadDataAnalysisError::from(w))
-        })
-        .summarize_errors()
+        .deanonymize()
+    // .commutative_warnings_to_errors(&conf.shared, |w| {
+    //     ImpureError::Pure(LookupAndReadDataAnalysisError::from(w))
+    // })
+    // .group()
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
@@ -220,14 +227,14 @@ pub fn fcs_read_std_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadStdDatasetFromKeywordsConfig,
-) -> WarningsAndIOGroupResult<
+) -> WarningsAndIOErrorsResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
     StdDatasetFromRawWarning,
     StdDatasetFromRawError,
     StdDatasetWithKwsSummary,
 > {
     ReadState::open(p, conf)
-        .map_err(ImpureError::IO)
+        .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -241,10 +248,11 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &st,
             )
         })
-        .commutative_warnings_to_errors(&conf.shared, |w| {
-            ImpureError::Pure(StdDatasetFromRawError::from(w))
-        })
-        .summarize_errors()
+        .deanonymize()
+    // .commutative_warnings_to_errors(&conf.shared, |w| {
+    //     ImpureError::Pure(StdDatasetFromRawError::from(w))
+    // })
+    // .group()
 }
 
 /// Output from parsing the TEXT segment.
@@ -574,11 +582,11 @@ pub struct NonstandardError;
 fn read_fcs_raw_text_inner<C>(
     p: &PathBuf,
     conf: C,
-) -> WarningsAndErrorsResult<
+) -> WarningsAndErrorResult<
     (RawTEXTOutput, BufReader<fs::File>, ReadState<C>),
     (),
     ParseRawTEXTWarning,
-    ImpureError<HeaderOrRawError>,
+    IOErrorGroup<HeaderOrRawError, ()>,
 >
 where
     C: AsRef<ReadHeaderAndTEXTConfig>
@@ -587,7 +595,7 @@ where
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
     ReadState::open(p, conf)
-        .map_err(ImpureError::IO)
+        .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
@@ -603,26 +611,26 @@ fn h_read_dataset_from_kws<C, R>(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     st: &ReadState<C>,
-) -> WarningsAndErrorsResult<
+) -> WarningsAndIOErrorsResult<
     RawDatasetWithKwsOutput,
-    (),
     LookupAndReadDataAnalysisWarning,
-    ImpureError<LookupAndReadDataAnalysisError>,
+    LookupAndReadDataAnalysisError,
+    (),
 >
 where
     R: Read + Seek,
     C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
-        .map_errors(ImpureError::inner_into)
+        .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments)| {
             OthersReader::new(other_segs)
                 .h_read(h)
-                .map_err(ImpureError::IO)
-                .into_log()
-                .map_ok_value(|others| {
+                .map(|others| {
                     RawDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
                 })
+                .map_err(IOErrorGroup::from)
+                .into_log()
         })
 }
 
@@ -630,7 +638,7 @@ impl RawTEXTOutput {
     fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> WarningsAndErrorsResult<Self, (), ParseRawTEXTWarning, ImpureError<HeaderOrRawError>>
+    ) -> WarningsAndErrorResult<Self, (), ParseRawTEXTWarning, IOErrorGroup<HeaderOrRawError, ()>>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
@@ -639,14 +647,14 @@ impl RawTEXTOutput {
             + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
         Header::h_read(h, st)
-            .nowarn_into_warn()
-            .map_errors(ImpureError::inner_into)
+            .into_log()
+            .map_pure_errors(HeaderOrRawError::from)
             .and_then_commutative(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
                 if let Some(v) = conf.version_override {
                     header.version = v;
                 }
-                h_read_raw_text_from_header(h, header, st).map_errors(ImpureError::inner_into)
+                h_read_raw_text_from_header(h, header, st).map_pure_errors(HeaderOrRawError::from)
             })
     }
 
@@ -680,11 +688,11 @@ impl RawTEXTOutput {
         self,
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> WarningsAndErrorsResult<
+    ) -> WarningsAndIOErrorsResult<
         (AnyCoreDataset, StdDatasetOutput),
-        (),
         StdDatasetFromRawWarning,
-        ImpureError<StdDatasetFromRawError>,
+        StdDatasetFromRawError,
+        (),
     >
     where
         R: Read + Seek,
@@ -713,11 +721,11 @@ fn kws_to_df_analysis<C, R>(
     data: HeaderDataSegment,
     analysis: HeaderAnalysisSegment,
     st: &ReadState<C>,
-) -> WarningsAndErrorsResult<
+) -> WarningsAndIOErrorsResult<
     (FCSDataFrame, Analysis, DatasetSegments),
-    (),
     LookupAndReadDataAnalysisWarning,
-    ImpureError<LookupAndReadDataAnalysisError>,
+    LookupAndReadDataAnalysisError,
+    (),
 >
 where
     R: Read + Seek,
@@ -735,7 +743,7 @@ fn h_read_raw_text_from_header<C, R>(
     h: &mut BufReader<R>,
     header: Header,
     st: &ReadState<C>,
-) -> WarningsAndErrorsResult<RawTEXTOutput, (), ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>>
+) -> WarningsAndIOErrorsResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError, ()>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderAndTEXTConfig>
@@ -746,25 +754,22 @@ where
     let mut buf = vec![];
     let ptext_seg = header.segments.text;
 
-    let delim_res = ptext_seg
-        .h_read_contents(h, &mut buf)
-        .into_io_log()
-        .and_then_commutative(|()| {
-            // buffer is filled above by side effect, and this won't run if the
-            // read step has an error
-            split_first_delim(&buf, conf)
-                .map_errors(|e| ImpureError::Pure(e.into()))
-                .map_commutative_warnings(ParseRawTEXTWarning::from)
-                .repack()
-        });
+    io_to_log!(ptext_seg.h_read_contents(h, &mut buf));
+    let delim_res = split_first_delim(&buf, conf)
+        .map_errors(ParseRawTEXTError::from)
+        .map_commutative_warnings(ParseRawTEXTWarning::from)
+        .into_semigroup();
 
     delim_res
+        .group()
+        .map_error(IOErrorGroup::Pure)
         .and_then_commutative(|(delim, bytes)| {
             let mut kws = ParsedKeywords::default();
             split_raw_primary_text(&mut kws, delim, bytes, conf)
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParseRawTEXTError::from)
-                .map_errors(ImpureError::Pure)
+                .group()
+                .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|()| (kws, delim))
         })
         .and_then_commutative(|(mut kws, delim)| {
@@ -778,12 +783,14 @@ where
                 lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
                     .map_commutative_warnings(ParseRawTEXTWarning::from)
                     .map_errors(ParseRawTEXTError::from)
-                    .map_errors(ImpureError::Pure)
-                    .and_then_def(|seg| {
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .set_err_value(())
+                    .and_then_commutative(|seg| {
                         buf.clear();
                         h_read_raw_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
                             .map_commutative_warnings(ParseRawTEXTWarning::from)
-                            .map_errors(ImpureError::inner_into)
+                            .map_pure_errors(ParseRawTEXTError::from)
                             .map_ok_value(|()| (delim, kws, seg))
                     })
             }
@@ -792,8 +799,7 @@ where
             let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParseRawTEXTError::from)
-                .map_errors(ImpureError::Pure)
-                .repack();
+                .into_semigroup();
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
@@ -802,14 +808,15 @@ where
                 .switchable_into_commutative()
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
                 .map_errors(ParsePrimaryTEXTError::from)
-                .map_errors(ParseRawTEXTError::from)
-                .map_errors(ImpureError::Pure);
+                .map_errors(ParseRawTEXTError::from);
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
             nextdata_res
                 .zip_f2_once(repair_res)
                 .set_err_value(())
+                .group()
+                .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|(nextdata, ())| {
                     let parse = RawTEXTParseData::new(
                         header.segments,
@@ -834,7 +841,8 @@ where
             [na, be, os]
                 .into_iter()
                 .mappend_commutative()
-                .map_errors(ImpureError::Pure)
+                .group()
+                .map_errors(IOErrorGroup::Pure)
                 .nowarn_into_warn()
                 .map_ok_value(|_| raw)
         })
@@ -847,17 +855,13 @@ fn h_read_raw_supp_text<R: Read + Seek>(
     buf: &mut Vec<u8>,
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ImpureError<ParseSupplementalTEXTError>> {
+) -> WarningsAndIOErrorsResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError, ()> {
     if let Some(seg) = maybe_seg {
-        seg.h_read_contents(h, buf)
-            .into_io_log()
-            .and_then_commutative(|()| {
-                // buffer is read above by side effect
-                split_raw_supp_text(kws, delim, buf, conf)
-                    .map_errors(ImpureError::Pure)
-                    .map_commutative_warnings(ParseKeywordsIssue::from)
-                    .map_errors(ImpureError::inner_into)
-            })
+        io_to_log!(seg.h_read_contents(h, buf));
+        split_raw_supp_text(kws, delim, buf, conf)
+            .map_commutative_warnings(ParseKeywordsIssue::from)
+            .group()
+            .map_error(IOErrorGroup::Pure)
     } else {
         LogResult::new_ok(())
     }

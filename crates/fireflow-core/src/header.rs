@@ -1,7 +1,5 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::logging::{
-    DeferredErrors, DeferredIter as _, ErrorsResult, ImpureError, LogResult, ResultExt,
-};
+use crate::logging::{DeferredErrors, DeferredIter as _, IOErrorGroup, LogResult, ResultExt, split_io};
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
     OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
@@ -247,89 +245,94 @@ impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> ErrorsResult<Self, (), ImpureError<HeaderError>>
+    ) -> Result<Self, IOErrorGroup<HeaderError, ()>>
     where
         C: AsRef<HeaderConfigInner>,
         R: Read,
     {
-        h_read_required_header(h, st).and_then_commutative(|(version, text, data, analysis)| {
-            [text.try_coords(), data.try_coords(), analysis.try_coords()]
-                .iter()
-                .flatten()
-                .map(|(x, _)| x)
-                .min()
-                .map_or(LogResult::new_ok(vec![]), |earliest_begin| {
-                    OtherSegment20::h_read_other(h, *earliest_begin, st)
-                        .map_errors(ImpureError::inner_into)
-                })
-                .map_ok_value(|other| {
-                    Self::new(version, HeaderSegments::new(text, data, analysis, other))
-                })
-                .and_then_commutative(|hdr| {
-                    hdr.segments
-                        .validate()
-                        .map_errors(HeaderError::Validation)
-                        .map_errors(ImpureError::Pure)
-                        .map_ok_value(|()| hdr)
-                })
-        })
+        let (version, text, data, analysis) = h_read_required_header(h, st)?;
+        let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
+        let min_coord = coords.iter().flatten().map(|x| x.0).min();
+        let other_res = if let Some(m) = min_coord {
+            split_io!(OtherSegment20::h_read_others(h, m, st))
+        } else {
+            Ok(vec![])
+        };
+        other_res
+            .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
+            .ungroup()
+            .map_errors(HeaderError::from)
+            .and_then_commutative(|hdr| {
+                hdr.segments
+                    .validate()
+                    .map_errors(HeaderError::from)
+                    .map_ok_value(|()| hdr)
+            })
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
     }
 }
 
 fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> ErrorsResult<
+) -> Result<
     (
         Version,
         PrimaryTextSegment,
         HeaderDataSegment,
         HeaderAnalysisSegment,
     ),
-    (),
-    ImpureError<HeaderError>,
+    IOErrorGroup<HeaderError, ()>,
 >
 where
     R: Read,
     C: AsRef<HeaderConfigInner>,
 {
     let conf = &st.conf.as_ref();
-    let vers_res = Version::h_read(h)
-        .into_nowarn1()
-        .map_errors(|e| e.map_inner(HeaderError::from))
-        .repack();
-    let space_res = h_read_spaces(h).into_nowarn1().repack();
-    let text_res = HeaderSegment::h_read_primary(h, false, conf.text_correction, st);
-    let data_res = HeaderSegment::h_read_primary(h, true, conf.data_correction, st);
-    let anal_res = HeaderSegment::h_read_primary(h, true, conf.analysis_correction, st);
+    let text_cor = conf.text_correction;
+    let data_cor = conf.data_correction;
+    let anal_cor = conf.analysis_correction;
+
+    let vers_res = split_io!(Version::h_read(h)).ungroup();
+    let space_res = split_io!(h_read_spaces(h)).ungroup();
+    let text_res = split_io!(HeaderSegment::h_read_primary(h, false, text_cor, st)).ungroup();
+    let data_res = split_io!(HeaderSegment::h_read_primary(h, true, data_cor, st)).ungroup();
+    let anal_res = split_io!(HeaderSegment::h_read_primary(h, true, anal_cor, st)).ungroup();
+
     let offset_res = text_res
         .zip3_commutative(data_res, anal_res)
-        .map_errors(|e| e.map_inner(HeaderError::from));
+        .map_errors(HeaderError::from);
     vers_res
+        .map_errors(HeaderError::from)
         .zip3_commutative(space_res, offset_res)
         .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+        .group()
+        .resolve_nowarn()
+        .map_err(IOErrorGroup::Pure)
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {
+fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), IOErrorGroup<HeaderError, ()>> {
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
         Ok(())
     } else {
-        Err(ImpureError::Pure(HeaderError::Space))
+        Err(IOErrorGroup::new_pure_one(HeaderError::Space))
     }
 }
 
 impl Version {
-    fn h_read<R: Read>(h: &mut BufReader<R>) -> Result<Self, ImpureError<VersionError>> {
+    fn h_read<R: Read>(h: &mut BufReader<R>) -> Result<Self, IOErrorGroup<VersionError, ()>> {
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
             // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse().map_err(ImpureError::Pure)
+            s.parse().map_err(IOErrorGroup::new_pure_one)
         } else {
-            Err(ImpureError::Pure(VersionError(buf.to_vec())))
+            Err(IOErrorGroup::new_pure_one(VersionError(buf.to_vec())))
         }
     }
 

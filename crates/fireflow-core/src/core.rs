@@ -16,10 +16,10 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
-    DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult,
-    IOWarningsAndErrorsResult, ImpureError, LogResult, ResultExt as _, GroupResult,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsAndGroupResult, WarningsResult,
+    DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, GroupResult,
+    IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndGroupResult, WarningsAndIOErrorsResult, WarningsResult, io_to_log,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
@@ -105,7 +105,6 @@ use thiserror::Error;
 use std::collections::{HashMap, HashSet};
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::fs::File;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
@@ -479,11 +478,11 @@ impl AnyCoreDataset {
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
-    ) -> IOWarningsAndErrorsResult<
+    ) -> WarningsAndIOErrorsResult<
         (Self, StdDatasetWithKwsOutput),
-        (),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
+        (),
     >
     where
         R: Read + Seek,
@@ -1318,11 +1317,11 @@ pub trait Versioned {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
-    ) -> IOWarningsAndErrorsResult<
+    ) -> WarningsAndIOErrorsResult<
         (FCSDataFrame, Analysis, DatasetSegments),
-        (),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
+        (),
     >
     where
         R: Read + Seek,
@@ -1337,19 +1336,22 @@ pub trait Versioned {
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
             .zip_commutative(offset_res)
-            .map_errors(ImpureError::Pure)
+            .group()
+            .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(layout, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReaderConfig = st.conf.as_ref();
-                let data_res = layout
+                layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_errors(ImpureError::inner_into);
-                let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
-                data_res
-                    .zip_commutative(analysis_res)
-                    .map_ok_value(|(d, a)| (d, a, *dataset_segs))
+                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                    .and_then_commutative(|d| {
+                        ar.h_read(h)
+                            .map(|a| (d, a, *dataset_segs))
+                            .map_err(IOErrorGroup::from)
+                            .into_log()
+                    })
             })
     }
 }
@@ -2710,7 +2712,7 @@ where
         self.measurements
             .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
             .map_ok_value(|_| ())
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -2759,7 +2761,7 @@ where
                 |m, y| *m.value.as_mut() = y,
             )
             .set_ok_value(())
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3042,7 +3044,7 @@ where
                     )
                     .unwrap();
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3077,7 +3079,7 @@ where
                     )
                     .unwrap();
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3098,7 +3100,7 @@ where
                     .specific
                     .applied_gates3_0_mut(private::NoTouchy) = ag;
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3119,7 +3121,7 @@ where
                     .specific
                     .applied_gates3_2_mut(private::NoTouchy) = ag;
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3194,7 +3196,7 @@ where
                     self.others,
                 )
             })
-            .summarize_errors_with(summary)
+            .group_with(summary)
     }
 
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
@@ -3384,7 +3386,7 @@ where
         M::Optical: AsScaleTransform,
     {
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3410,7 +3412,7 @@ where
         layout
             .check_measurement_vector(&self.measurements)
             .when_ok(|| self.layout = layout)
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3447,7 +3449,7 @@ where
                         self.layout = layout;
                     })
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 
@@ -3870,7 +3872,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
-            .summarize_errors()
+            .group()
     }
 
     fn lookup_inner<C>(
@@ -4003,10 +4005,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary>
-    {
+    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .summarize_errors()
+            .group()
     }
 
     /// Add time measurement at the given position
@@ -4020,10 +4021,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary>
-    {
+    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .summarize_errors()
+            .group()
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -4038,7 +4038,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndGroupResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalSummary>
     {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .summarize_errors()
+            .group()
     }
 
     /// Add optical measurement at a given position
@@ -4054,7 +4054,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndGroupResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalSummary>
     {
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .summarize_errors()
+            .group()
     }
 
     /// Remove measurements
@@ -4245,13 +4245,13 @@ where
     <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
     pub fn new_from_keywords<C>(
-        p: PathBuf,
+        p: &PathBuf,
         kws: ValidKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &C,
-    ) -> WarningsAndIOGroupResult<
+    ) -> WarningsAndIOErrorsResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
@@ -4269,20 +4269,19 @@ where
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        File::options()
-            .read(true)
-            .open(p)
-            .and_then(|file| ReadState::init(&file, conf).map(|st| (st, file)))
-            .map_err(ImpureError::IO)
+        // TODO fix warning conversions
+        ReadState::open(p, conf)
+            .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
-            .commutative_warnings_to_errors(conf.as_ref(), |w| {
-                ImpureError::Pure(StdDatasetFromRawError::from(w))
-            })
-            .summarize_errors()
+            .deanonymize()
+        // .commutative_warnings_to_errors(conf.as_ref(), |w| {
+        //     ImpureError::Pure(StdDatasetFromRawError::from(w))
+        // })
+        // .group()
     }
 
     pub(crate) fn new_from_keywords_inner<C, R>(
@@ -4292,11 +4291,11 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
-    ) -> IOWarningsAndErrorsResult<
+    ) -> WarningsAndIOErrorsResult<
         (Self, StdDatasetWithKwsOutput),
-        (),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
+        (),
     >
     where
         R: Read + Seek,
@@ -4313,25 +4312,27 @@ where
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
             .map_commutative_warnings(StdDatasetFromRawWarning::from)
             .map_errors(StdDatasetFromRawError::from)
-            .map_errors(ImpureError::Pure)
+            .group()
+            .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
+                let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 let or = OthersReader::new(other_segs);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReaderConfig = st.conf.as_ref();
-                let data_res = text
-                    .layout
+                text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(StdDatasetFromRawWarning::from)
-                    .map_errors(ImpureError::inner_into);
-                let analysis_res = ar.h_read(h).map_err(ImpureError::IO).into_log();
-                let others_res = or.h_read(h).map_err(ImpureError::IO).into_log();
-                let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                data_res
-                    .zip3_commutative(analysis_res, others_res)
-                    .map_ok_value(|(data, analysis, others)| {
-                        let c = text.into_coredataset_unchecked(data, analysis, others);
-                        (c, out)
+                    .map_pure_errors(StdDatasetFromRawError::from)
+                    .and_then_commutative(|data| {
+                        ar.h_read(h)
+                            .and_then(|analysis| {
+                                let others = or.h_read(h)?;
+                                let c = text.into_coredataset_unchecked(data, analysis, others);
+                                Ok((c, out))
+                            })
+                            .map_err(IOErrorGroup::from)
+                            .into_log()
                     })
             })
     }
@@ -4341,7 +4342,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOErrorsResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
@@ -4356,14 +4357,14 @@ where
         let check_res = if conf.skip_conversion_check {
             LogResult::new_ok(())
         } else {
-            layout
-                .check_writer(df)
-                .map_errors(StdWriterError::from)
-                .map_errors(ImpureError::Pure)
-                .nowarn_into_warn()
+            layout.check_writer(df)
         };
 
         check_res
+            .map_errors(StdWriterError::from)
+            .nowarn_into_warn()
+            .group()
+            .map_error(IOErrorGroup::Pure)
             // write HEADER+TEXT+OTHER(s) first
             .and_commutative(|| {
                 let data_len = layout.nbytes(df);
@@ -4386,7 +4387,9 @@ where
                         others,
                     )
                 };
-                res.map_err(ImpureError::inner_into).into_log()
+                res.map_err(|e| e.map_inner(StdWriterError::from))
+                    .map_err(IOErrorGroup::from)
+                    .into_log()
             })
             // write DATA; conversion check flag is flipped from above since
             // we want to emit warnings as we are writing if we did not run
@@ -4396,12 +4399,14 @@ where
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
                     .map_commutative_warnings(StdWriterWarning::from)
-                    .map_errors(ImpureError::IO)
-                    .repack_errors()
+                    .map_error(IOErrorGroup::from)
             })
             // write ANALYSIS
-            .and_commutative(|| h.write_all(&self.analysis.0).into_io_log())
-            .summarize_errors()
+            .and_commutative(|| {
+                io_to_log!(h.write_all(&self.analysis.0));
+                LogResult::new_ok(())
+            })
+            .deanonymize()
     }
 
     /// Return reference to DATA segment as dataframe.
@@ -4530,7 +4535,7 @@ where
                     .map_err(PushTemporalToDatasetError::from)
                     .into_log()
             })
-            .summarize_errors()
+            .group()
     }
 
     /// Add time measurement at the given position
@@ -4560,7 +4565,7 @@ where
                     .map_err(InsertTemporalToDatasetError::from)
                     .into_log()
             })
-            .summarize_errors()
+            .group()
     }
 
     /// Add measurement to the end of the measurement vector
@@ -4587,7 +4592,7 @@ where
                     .map_err(PushOpticalToDatasetError::from)
                     .into_log()
             })
-            .summarize_errors()
+            .group()
     }
 
     /// Add measurement at a given position
@@ -4616,7 +4621,7 @@ where
                     .map_err(InsertOpticalInDatasetError::from)
                     .into_log()
             })
-            .summarize_errors()
+            .group()
     }
 
     /// Convert this struct into a CoreTEXT.
@@ -4649,7 +4654,7 @@ where
                     .map_errors(SetMeasurementsAndDataError::from)
                     .when_ok(|| self.data = df)
             })
-            .summarize_errors()
+            .group()
             .resolve_nowarn()
     }
 }
@@ -8496,6 +8501,7 @@ pub enum StdWriterError {
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdWriterWarning {
+    // TODO is this necessary?
     Column(ColumnError<IntRangeError<()>>),
     Check(ColumnError<AnyLossError>),
 }

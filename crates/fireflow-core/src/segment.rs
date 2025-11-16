@@ -6,8 +6,7 @@ use crate::config::{
 use crate::header::HEADER_LEN;
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
-    IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorsResult,
-    WarningsAndErrorsResult,
+    IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
@@ -930,7 +929,6 @@ impl OtherSegment20 {
             h.take(u64::from(w)).read_to_end(&mut buf1)?;
             // If any regions are entirely blank, just ignore them
             if !buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-            } else {
                 let r = Self::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf);
                 results.push(r);
             }

@@ -17,9 +17,9 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOErrorGroup, ImpureError, LogResult, ResultExt as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOErrorsResult, io_to_log,
+    DeferredWarningsAndErrors, IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOErrorsResult, io_to_log,
 };
 use crate::macros::def_group;
 use crate::segment::{

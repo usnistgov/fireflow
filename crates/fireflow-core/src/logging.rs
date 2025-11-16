@@ -2,14 +2,30 @@
 ///
 /// This is predicated on the following needs:
 ///
-/// * We need to handle entire groups of errors all at once (rather than return
-///   the first encountered error)
-/// * Dynamic dispatch is yucky and evil, therefore we need a way to group
-///   errors efficiently into enums.
-/// * Some warnings and errors should be interchangable depending on config.
-/// * Error type and cardinality should be obvious based on the type
-/// * Invalid and nonsensible logging states should be made impossible, which
-///   in turn will guide the happy path to only permit sane operations
+/// 1. We need to handle entire groups of errors all at once (rather than return
+///    the first encountered error)
+/// 2. Dynamic dispatch is yucky and evil, therefore we need a way to group
+///    errors efficiently into enums.
+/// 3. Some warnings and errors should be interchangable depending on config.
+/// 4. Error type and cardinality should be obvious based on the type
+/// 5. Invalid and nonsensible logging states should be made impossible, which
+///    in turn will guide the happy path to only permit sane operations
+/// 6. IO errors are special and should short-circuit execution no matter what,
+///    which is different from non-IO errors which can be collected and returned
+///    as a group.
+///
+/// For 6. this is not generally true of all code, but here it can be assumed
+/// because IO errors are going to depend on a state which will likely not
+/// change within the execution sequence of any given code path. For instance,
+/// an IO error may be thrown if a file is unreadable. There is only one file
+/// being read in this case and if it is not readable for one function this will
+/// likely be true for all. This is not true in general for all code because
+/// some code can read multiple files.
+///
+/// This simplification allows IO errors to be stored and thrown almost
+/// independently of other errors. In Haskell terms, this can be thought of
+/// like a transformer stack where pure errors are handled on one layer and
+/// an IO error is handled on a different layer.
 use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
@@ -1054,12 +1070,6 @@ impl<X, C> GenNonEmpty<X, C> {
         C: IntoNewCardinality<Cf>,
     {
         GenNonEmpty::new(self.head, self.tail.into_new_cardinality())
-    }
-}
-
-impl<X> GenNonEmpty<X, Nothing<X>> {
-    pub(crate) fn unwrap(self) -> X {
-        self.head
     }
 }
 

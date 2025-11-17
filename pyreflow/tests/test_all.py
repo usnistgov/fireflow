@@ -643,7 +643,7 @@ class TestCore:
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
         ag: AppliedGates3_0 = ([], {0: ur}, None)
         core.applied_gates = ag
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
             ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
@@ -653,7 +653,7 @@ class TestCore:
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
         ag: AppliedGates3_2 = ({0: ur}, None)
         core.applied_gates = ag
-        with pytest.raises(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowException):
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
             ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, None))
             core.applied_gates = ag_bad

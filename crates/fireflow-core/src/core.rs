@@ -7960,9 +7960,11 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         // don't check specific indices for $COMP since this keyword links
         // all indices
-        let comp = NonEmpty::collect((0..par.0).map(IndexFromOne::from))
-            .map(|js| ExistingIndexedLinkError::new(Key0::default(), js))
-            .map(AnyExistingIndexLinkError::from);
+        let comp = self.comp.as_ref().and_then(|_| {
+            NonEmpty::collect((0..par.0).map(IndexFromOne::from))
+                .map(|js| ExistingIndexedLinkError::new(Key0::default(), js))
+                .map(AnyExistingIndexLinkError::from)
+        });
         let ag = self
             .applied_gates
             .existing_link_errors(indices)

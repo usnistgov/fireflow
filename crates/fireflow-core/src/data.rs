@@ -54,15 +54,16 @@ use crate::config::{
 };
 use crate::core::{
     AsScaleTransform, LayoutConvertError, LayoutConvertResult, Measurements, ScaleTransform,
+    TemporalsAndOpticals, VersionedMetaroot,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredSwitchableError,
-    DeferredSwitchableErrors, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
-    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, WarningsResult,
+    CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
+    DeferredSwitchableErrors, DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup,
+    ErrorsResult, IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsResult,
 };
-use crate::macros::match_many_to_one;
+use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::{
     AnyDataSegment, DataSegmentId, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
@@ -83,6 +84,7 @@ use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
     ReqKeyError, ReqMetarootKey as _,
 };
+use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
 
 use crate::validated::keys::NonStdKeywords;
@@ -565,40 +567,41 @@ pub trait LayoutOps<'a, T>: Sized {
     fn check_transforms_and_len(
         &self,
         xforms: &[ScaleTransform],
-    ) -> DeferredErrors<(), MeasLayoutMismatchError> {
+    ) -> Result<(), MeasLayoutMismatchError> {
         let meas_n = xforms.len();
         let layout_n = self.ncols();
         if meas_n != layout_n {
             let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return LogResult::new_err(e.into());
+            return Err(e.into());
         }
-        self.check_transforms(xforms)
-            .map_errors(MeasLayoutMismatchError::from)
+        self.check_transforms(xforms)?;
+        Ok(())
     }
 
     // TODO this should be private
     fn check_transforms(
         &self,
         xforms: &[ScaleTransform],
-    ) -> DeferredErrors<(), ColumnError<ScaleMismatchTransformError>> {
+    ) -> Result<(), ScaleMismatchTransformErrors> {
         // ASSUME measurements and layout columns are the same length
-        self.datatypes()
+        let ds = self.datatypes();
+        let es = ds
             .iter()
             .zip(xforms)
             .enumerate()
-            .map(|(i, (&datatype, &scale))| {
+            .filter_map(|(i, (&datatype, &scale))| {
                 // Only integers are allowed to have gain and log scaling, so
                 // everything else should be a "noop" transform (ie a linear
                 // transform with slope of 1.0). NOTE the standard itself is
                 // vague about what should happen to ASCII values (presumably
                 // since nobody cares) so here we just treat them like we treat
                 // floating point types to keep the logic simple.
-                let is_ok = datatype == AlphaNumType::Integer || scale.is_noop();
-                let e = ScaleMismatchTransformError { datatype, scale };
-                LogResult::new_log_if(is_ok, (), (), ColumnError::new(i, e))
-            })
-            .mappend_def()
-            .map_deferred_value(|_| ())
+                (datatype != AlphaNumType::Integer && !scale.is_noop()).then(|| {
+                    let e = ScaleMismatchTransformError { datatype, scale };
+                    ColumnError::new(i, e)
+                })
+            });
+        ErrorGroup::try_new(es)
     }
 
     fn truncate_df(
@@ -724,13 +727,29 @@ where
     fn check_measurement_vector<N, T, O: AsScaleTransform>(
         &self,
         meas: &Measurements<N, T, O>,
-    ) -> DeferredErrors<(), MeasLayoutMismatchError> {
+    ) -> Result<(), MeasLayoutMismatchError> {
         let xforms: Vec<_> = meas
             .iter_with(&|_, _| ScaleTransform::default(), &|_, m| {
                 m.value.as_transform()
             })
             .collect();
         self.check_transforms_and_len(&xforms[..])
+    }
+
+    fn try_new_measurements<M: VersionedMetaroot>(
+        &self,
+        measurements: TemporalsAndOpticals<M>,
+    ) -> Result<Measurements<M::Name, M::Temporal, M::Optical>, MeasurementsWithLayoutError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        NamedVec::try_new(measurements)
+            .map_err(MeasurementsWithLayoutError::from)
+            .and_then(|ms| {
+                self.check_measurement_vector(&ms)
+                    .map_err(MeasurementsWithLayoutError::from)?;
+                Ok(ms)
+            })
     }
 }
 
@@ -4506,8 +4525,23 @@ pub struct MixedToInnerError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
     Lengths(MeasLayoutLengthsError),
-    Scale(ColumnError<ScaleMismatchTransformError>),
+    Scale(ScaleMismatchTransformErrors),
 }
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MeasurementsWithLayoutError {
+    New(NewNamedVecError),
+    Layout(MeasLayoutMismatchError),
+}
+
+pub type ScaleMismatchTransformErrors =
+    ErrorGroup<ColumnError<ScaleMismatchTransformError>, ScaleMismatchTransformSummary>;
+
+def_group!(
+    ScaleMismatchTransformSummary,
+    "mismatch between scale transforms and column datatypes"
+);
 
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]

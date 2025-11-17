@@ -1,8 +1,9 @@
 use crate::data::ColumnError;
 use crate::logging::{
-    CommutativeResult, CommutativeResultIter as _, ErrorResult, ErrorsResult, LogResult,
-    ResultExt as _,
+    CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
+    LogResult, ResultExt as _,
 };
+use crate::macros::def_group;
 use crate::text::optional::MightHave;
 use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
 use crate::validated::shortname::Shortname;
@@ -356,7 +357,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         xs: Vec<Element<X, Y>>,
         f_noncenter: Fnoncenter,
         f_center: Fcenter,
-    ) -> ErrorsResult<Vec<R>, (), SetElementsError>
+    ) -> Result<Vec<R>, SetElementsError>
     where
         Fnoncenter: Fn(IndexedElement<&K, &mut V>, Y) -> R,
         Fcenter: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
@@ -371,42 +372,37 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(true)))
         };
 
-        self.check_keys_length(&xs[..], true)
-            .map_err(SetElementsError::from)
-            .into_log()
-            .and_then_commutative(|()| {
-                let res = match self {
-                    Self::Split(s) => {
-                        let nleft = s.left.len();
-                        let mut it = xs.into_iter();
-                        // ASSUME this won't fail because we already counted
-                        let xs_left = it.by_ref().take(nleft).collect();
-                        let x_center = it.by_ref().next().unwrap();
-                        let xs_right = it.collect();
-                        let left_res = check_optical(xs_left);
-                        let center_res = x_center
-                            .center()
-                            .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
-                            .into_log();
-                        let right_res = check_optical(xs_right);
-                        left_res
-                            .zip3_commutative(center_res, right_res)
-                            .map_ok_value(|(ys_left, y_center, ys_right)| {
-                                let left_out = go(&mut s.left, ys_left, 0);
-                                let c = &mut s.center;
-                                let center_index =
-                                    IndexedElement::new(nleft.into(), &c.key, &mut c.value);
-                                let center_out = f_center(center_index, y_center);
-                                let right_out = go(&mut s.right, ys_right, 1 + nleft);
-                                left_out.chain([center_out]).chain(right_out).collect()
-                            })
-                    }
-                    Self::Unsplit(u) => {
-                        check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())
-                    }
-                };
-                res.map_errors(SetElementsError::from)
-            })
+        self.check_keys_length(&xs[..], true)?;
+        let res = match self {
+            Self::Split(s) => {
+                let nleft = s.left.len();
+                let mut it = xs.into_iter();
+                // ASSUME this won't fail because we already counted
+                let xs_left = it.by_ref().take(nleft).collect();
+                let x_center = it.by_ref().next().unwrap();
+                let xs_right = it.collect();
+                let left_res = check_optical(xs_left);
+                let center_res = x_center
+                    .center()
+                    .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
+                    .into_log();
+                let right_res = check_optical(xs_right);
+                left_res
+                    .zip3_commutative(center_res, right_res)
+                    .map_ok_value(|(ys_left, y_center, ys_right)| {
+                        let left_out = go(&mut s.left, ys_left, 0);
+                        let c = &mut s.center;
+                        let center_index = IndexedElement::new(nleft.into(), &c.key, &mut c.value);
+                        let center_out = f_center(center_index, y_center);
+                        let right_out = go(&mut s.right, ys_right, 1 + nleft);
+                        left_out.chain([center_out]).chain(right_out).collect()
+                    })
+            }
+            Self::Unsplit(u) => {
+                check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())
+            }
+        };
+        res.group().resolve_nowarn().map_err(SetElementsError::from)
     }
 
     /// Apply function(s) to all values, altering them in place.
@@ -1952,7 +1948,7 @@ pub enum NewNamedVecError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetElementsError {
     Length(InputLengthError),
-    Mismatch(ColumnError<OpticalMismatchError>),
+    Mismatch(OpticalMismatchErrors),
 }
 
 #[derive(Debug, Error)]
@@ -2033,6 +2029,14 @@ pub struct IndexedElementError<E> {
     error: E,
     index: MeasIndex,
 }
+
+pub type OpticalMismatchErrors =
+    ErrorGroup<ColumnError<OpticalMismatchError>, OpticalMismatchSummary>;
+
+def_group!(
+    OpticalMismatchSummary,
+    "attempted to assign incompatible measurement values"
+);
 
 #[derive(Debug, Error, new)]
 pub struct OpticalMismatchError {

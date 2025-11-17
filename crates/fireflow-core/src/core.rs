@@ -7,9 +7,10 @@ use crate::config::{
 use crate::data::{
     AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
     DataLayout3_1, DataLayout3_2, InterLayoutOps as _, IsTot, LayoutOps as _, LookupLayoutError,
-    LookupLayoutWarning, MeasLayoutMismatchError, MixedToNonMixedLayoutError,
-    MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError, RawToLayoutError,
-    RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning, VersionedDataLayout,
+    LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
+    RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning,
+    VersionedDataLayout,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -2701,19 +2702,14 @@ where
     // }
 
     /// Set fields on all optical measurements to values in a vector
-    pub fn set_optical<X>(
-        &mut self,
-        xs: Vec<NonCenterElement<X>>,
-    ) -> GroupResult<(), SetElementsError, SetOpticalSummary>
+    pub fn set_optical<X>(&mut self, xs: Vec<NonCenterElement<X>>) -> Result<(), SetElementsError>
     where
         Optical<M::Optical>: AsMut<X>,
     {
         let ys = xs.into_iter().map(|x| x.0).collect();
         self.measurements
-            .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())
-            .map_ok_value(|_| ())
-            .group()
-            .resolve_nowarn()
+            .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())?;
+        Ok(())
     }
 
     /// Get field which is on both optical and temporal measurement types
@@ -2748,21 +2744,17 @@ where
     pub fn set_temporal_optical2<X, Y>(
         &mut self,
         xs: Vec<Element<X, Y>>,
-        // TODO failure struct could be more specific
-    ) -> GroupResult<(), SetElementsError, SetOpticalSummary>
+    ) -> Result<(), SetElementsError>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<Y>,
     {
-        self.measurements
-            .alter_elements_zip(
-                xs,
-                |m, x| *m.value.as_mut() = x,
-                |m, y| *m.value.as_mut() = y,
-            )
-            .set_ok_value(())
-            .group()
-            .resolve_nowarn()
+        self.measurements.alter_elements_zip(
+            xs,
+            |m, x| *m.value.as_mut() = x,
+            |m, y| *m.value.as_mut() = y,
+        )?;
+        Ok(())
     }
 
     /// Get value for $BTIM as a [`NaiveTime`]
@@ -3014,6 +3006,7 @@ where
     where
         M::Optical: HasScale,
     {
+        // TODO not dry, this functionality already exists in the named vec code
         let center_scale_not_linear = || {
             self.measurements
                 .center_index()
@@ -3031,7 +3024,8 @@ where
             .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
             .collect();
         l.check_transforms_and_len(&xforms[..])
-            .map_errors(SetScalesError::from)
+            .map_err(SetScalesError::from)
+            .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
             // ASSUME this won't fail because we checked the length and
             // time index first
@@ -3067,7 +3061,8 @@ where
 
         let l = &self.layout;
         l.check_transforms_and_len(&xforms[..])
-            .map_errors(SetTransformsError::from)
+            .map_err(SetTransformsError::from)
+            .into_nowarn()
             .eval_deferred_error(|()| center_xform_not_noop())
             // ASSUME this won't fail because we checked the length first
             .when_ok(|| {
@@ -3405,15 +3400,13 @@ where
     pub fn set_layout(
         &mut self,
         layout: <M::Ver as Versioned>::Layout,
-    ) -> GroupResult<(), MeasLayoutMismatchError, SetLayoutSummary>
+    ) -> Result<(), MeasLayoutMismatchError>
     where
         M::Optical: AsScaleTransform,
     {
-        layout
-            .check_measurement_vector(&self.measurements)
-            .when_ok(|| self.layout = layout)
-            .group()
-            .resolve_nowarn()
+        layout.check_measurement_vector(&self.measurements)?;
+        self.layout = layout;
+        Ok(())
     }
 
     /// Set measurements and layout
@@ -3435,19 +3428,15 @@ where
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
             .map_err(SetMeasurementsError::from)
             .into_log();
-        let vec_res = NamedVec::try_new(measurements)
+        let new_res = layout
+            .try_new_measurements::<M>(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
         link_res
-            .zip_commutative(vec_res)
-            .and_then_commutative(|((), ms)| {
-                layout
-                    .check_measurement_vector(&ms)
-                    .map_errors(SetMeasurementsError::from)
-                    .when_ok(|| {
-                        self.measurements = ms;
-                        self.layout = layout;
-                    })
+            .zip_commutative(new_res)
+            .map_ok_value(|((), ms)| {
+                self.measurements = ms;
+                self.layout = layout;
             })
             .group()
             .resolve_nowarn()
@@ -3466,20 +3455,14 @@ where
             .new_meas_has_existing_links(&measurements, allow_shared_names, skip_index_check)
             .map_err(SetMeasurementsError::from)
             .into_log();
-        let vec_res = NamedVec::try_new(measurements)
+        let vec_res = self
+            .layout
+            .try_new_measurements::<M>(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        link_res
-            .zip_commutative(vec_res)
-            .and_then_commutative(|((), ms)| {
-                self.layout
-                    .check_measurement_vector(&ms)
-                    .map_errors(SetMeasurementsError::from)
-                    .set_ok_value(ms)
-            })
-            .map_ok_value(|ms| {
-                self.measurements = ms;
-            })
+        link_res.zip_commutative(vec_res).map_ok_value(|((), ms)| {
+            self.measurements = ms;
+        })
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
@@ -4220,14 +4203,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // and that transforms are valid for given datatype(s)
         let layout_res = layout
             .check_measurement_vector(measurements)
-            .map_errors(NewCoreRelationalError::from);
+            .map_err(NewCoreRelationalError::from);
         // Check for any invalid links; throw error if any are found
         let par = Par(measurements.len());
         let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_dropping);
         AnyLinkErrors::try_new(link_errs)
-            .into_nowarn()
-            .map_errors(NewCoreRelationalError::from)
-            .lift_f2_once(layout_res, |(), ()| ())
+            .map_err(NewCoreRelationalError::from)
+            .zip(layout_res)
+            .set_ok_value(())
     }
 
     fn new_unchecked(
@@ -8507,9 +8490,8 @@ pub enum StdWriterWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsError {
-    New(NewNamedVecError),
+    New(MeasurementsWithLayoutError),
     Link(ExistingLinkErrors),
-    Layout(MeasLayoutMismatchError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -9230,8 +9212,6 @@ pub struct ConvertSummary {
     to: Version,
 }
 
-def_group!(SetLayoutSummary, "could not set data layout");
-
 def_group!(PushTemporalSummary, "could not push temporal measurement");
 
 def_group!(
@@ -9249,11 +9229,6 @@ def_group!(InsertTemporalSummary, "could not push temporal measurement");
 def_group!(PushOpticalSummary, "could not push optical measurement");
 
 def_group!(InsertOpticalSummary, "could not push optical measurement");
-
-def_group!(
-    SetOpticalSummary,
-    "could not set values for optical measurements"
-);
 
 def_group!(SetMeasurementsSummary, "could not set measurements");
 

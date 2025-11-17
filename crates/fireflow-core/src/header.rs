@@ -1,5 +1,7 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::logging::{DeferredErrors, DeferredIter as _, IOErrorGroup, LogResult, ResultExt, split_io};
+use crate::logging::{
+    DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
+};
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
     OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
@@ -245,7 +247,7 @@ impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> Result<Self, IOErrorGroup<HeaderError, ()>>
+    ) -> IOGroupResult<Self, HeaderError, ()>
     where
         C: AsRef<HeaderConfigInner>,
         R: Read,
@@ -277,14 +279,15 @@ impl Header {
 fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> Result<
+) -> IOGroupResult<
     (
         Version,
         PrimaryTextSegment,
         HeaderDataSegment,
         HeaderAnalysisSegment,
     ),
-    IOErrorGroup<HeaderError, ()>,
+    HeaderError,
+    (),
 >
 where
     R: Read,
@@ -313,7 +316,7 @@ where
         .map_err(IOErrorGroup::Pure)
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), IOErrorGroup<HeaderError, ()>> {
+fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderError, ()> {
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
@@ -324,7 +327,7 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), IOErrorGroup<Heade
 }
 
 impl Version {
-    fn h_read<R: Read>(h: &mut BufReader<R>) -> Result<Self, IOErrorGroup<VersionError, ()>> {
+    fn h_read<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<Self, VersionError, ()> {
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {

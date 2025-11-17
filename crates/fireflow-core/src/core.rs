@@ -19,7 +19,7 @@ use crate::logging::{
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, GroupResult,
     IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
     SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndGroupResult, WarningsAndIOErrorsResult, WarningsResult, io_to_log,
+    WarningsAndGroupResult, WarningsAndIOGroupResult, WarningsResult, io_to_log,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
@@ -478,7 +478,7 @@ impl AnyCoreDataset {
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &ReadState<C>,
-    ) -> WarningsAndIOErrorsResult<
+    ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
@@ -1317,7 +1317,7 @@ pub trait Versioned {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
-    ) -> WarningsAndIOErrorsResult<
+    ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, Analysis, DatasetSegments),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
@@ -4251,7 +4251,7 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         conf: &C,
-    ) -> WarningsAndIOErrorsResult<
+    ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
@@ -4287,7 +4287,7 @@ where
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
-    ) -> WarningsAndIOErrorsResult<
+    ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
@@ -4338,7 +4338,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOErrorsResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {

@@ -60,7 +60,7 @@ use crate::logging::{
     DeferredSwitchableErrors, DeferredWarningAndError, DeferredWarningsAndError, ErrorsResult,
     IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
     SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOErrorsResult, WarningsResult,
+    WarningsAndIOGroupResult, WarningsResult,
 };
 use crate::macros::match_many_to_one;
 use crate::nonempty::FCSNonEmpty;
@@ -548,7 +548,7 @@ pub trait LayoutOps<'a, T>: Sized {
         tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
+    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot;
 
@@ -678,7 +678,7 @@ where
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
+    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
         // It's passed down to each layer of the read stack to avoid making the
@@ -2231,7 +2231,7 @@ where
         tot: T,
         seg: AnyDataSegment,
         _: &ReaderConfig,
-    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
+    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         let rs = &self.ranges;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > platform pntr size");
         let res = T::with_tot(
@@ -2574,7 +2574,7 @@ where
         tot: T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> WarningsAndIOErrorsResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
+    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot,
     {

@@ -47,12 +47,14 @@ use thiserror::Error;
 // Group Results to be used at library boundaries
 //
 
-pub type WarningsAndIOErrorsResult<V, W, E, G> =
+pub type WarningsAndIOGroupResult<V, W, E, G> =
     WarningsAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
 pub type WarningsAndGroupResult<V, W, E, S> = WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
 pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
+
+pub type IOGroupResult<V, E, G> = Result<V, IOErrorGroup<E, G>>;
 
 //
 // Boring regular result which may have an IO error

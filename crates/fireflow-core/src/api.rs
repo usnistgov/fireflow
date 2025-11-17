@@ -17,9 +17,9 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOErrorsResult, io_to_log,
+    DeferredWarningsAndErrors, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::def_group;
 use crate::segment::{
@@ -65,7 +65,7 @@ use {
 pub fn fcs_read_header(
     p: &PathBuf,
     conf: &ReadHeaderConfig,
-) -> Result<Header, IOErrorGroup<HeaderError, HeaderFailure>> {
+) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
     let (st, file) = ReadState::open(p, conf)?;
     let mut reader = BufReader::new(file);
     Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
@@ -76,12 +76,8 @@ pub fn fcs_read_header(
 pub fn fcs_read_raw_text(
     p: &PathBuf,
     conf: &ReadRawTEXTConfig,
-) -> WarningsAndErrorResult<
-    RawTEXTOutput,
-    (),
-    ParseRawTEXTWarning,
-    IOErrorGroup<HeaderOrRawError, RawTEXTFailure>,
-> {
+) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
+{
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, _)| x)
         .warnings_to_pure_errors(&conf.shared, HeaderOrRawError::from)
@@ -93,11 +89,11 @@ pub fn fcs_read_raw_text(
 pub fn fcs_read_std_text(
     p: &PathBuf,
     conf: &ReadStdTEXTConfig,
-) -> WarningsAndErrorResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreTEXT, StdTEXTOutput),
-    (),
     StdTEXTWarning,
-    IOErrorGroup<StdTEXTError, StdTEXTFailure>,
+    StdTEXTError,
+    StdTEXTFailure,
 > {
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, st)| (x, st))
@@ -119,12 +115,8 @@ pub fn fcs_read_std_text(
 pub fn fcs_read_raw_dataset(
     p: &PathBuf,
     conf: &ReadRawDatasetConfig,
-) -> WarningsAndIOErrorsResult<
-    RawDatasetOutput,
-    RawDatasetWarning,
-    RawDatasetError,
-    RawDatasetFailure,
-> {
+) -> WarningsAndIOGroupResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure>
+{
     read_fcs_raw_text_inner(p, conf)
         .map_pure_errors(RawDatasetError::from)
         .map_commutative_warnings(RawDatasetWarning::from)
@@ -151,7 +143,7 @@ pub fn fcs_read_raw_dataset(
 pub fn fcs_read_std_dataset(
     p: &PathBuf,
     conf: &ReadStdDatasetConfig,
-) -> WarningsAndIOErrorsResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetOutput),
     StdDatasetWarning,
     StdDatasetError,
@@ -179,7 +171,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadRawDatasetFromKeywordsConfig,
-) -> WarningsAndIOErrorsResult<
+) -> WarningsAndIOGroupResult<
     RawDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
@@ -214,7 +206,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     conf: &ReadStdDatasetFromKeywordsConfig,
-) -> WarningsAndIOErrorsResult<
+) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
     StdDatasetFromRawWarning,
     StdDatasetFromRawError,
@@ -595,7 +587,7 @@ fn h_read_dataset_from_kws<C, R>(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
     st: &ReadState<C>,
-) -> WarningsAndIOErrorsResult<
+) -> WarningsAndIOGroupResult<
     RawDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
@@ -672,7 +664,7 @@ impl RawTEXTOutput {
         self,
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> WarningsAndIOErrorsResult<
+    ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
         StdDatasetFromRawWarning,
         StdDatasetFromRawError,
@@ -705,7 +697,7 @@ fn kws_to_df_analysis<C, R>(
     data: HeaderDataSegment,
     analysis: HeaderAnalysisSegment,
     st: &ReadState<C>,
-) -> WarningsAndIOErrorsResult<
+) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
@@ -727,7 +719,7 @@ fn h_read_raw_text_from_header<C, R>(
     h: &mut BufReader<R>,
     header: Header,
     st: &ReadState<C>,
-) -> WarningsAndIOErrorsResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError, ()>
+) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError, ()>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderAndTEXTConfig>
@@ -839,7 +831,7 @@ fn h_read_raw_supp_text<R: Read + Seek>(
     buf: &mut Vec<u8>,
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndIOErrorsResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError, ()> {
+) -> WarningsAndIOGroupResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError, ()> {
     if let Some(seg) = maybe_seg {
         io_to_log!(seg.h_read_contents(h, buf));
         split_raw_supp_text(kws, delim, buf, conf)

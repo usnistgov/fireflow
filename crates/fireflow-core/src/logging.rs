@@ -1412,24 +1412,33 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         self.errors.extend(es);
     }
 
-    fn with_value<F, V, Pf, EC1>(mut self, f: F) -> CommutativeResult<V, Pf, WC, E, EC>
+    fn with_value<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
     where
-        F: FnOnce(P) -> CommutativeResult<V, Pf, WC, E, EC1>,
+        Fr: FnOnce(P) -> CommutativeResult<V, Pf, WC, E, EC>,
+        Fp: FnOnce(V) -> Pf,
         WC: Semigroup,
         EC: Extend<E> + IntoIterator<Item = E>,
-        EC1: IntoIterator<Item = E>,
     {
-        match f(self.value) {
+        match fr(self.value) {
             Succ(s) => {
                 let ws = self.warnings.sappend(s.warnings);
-                Succ(Success::new(s.value, (), ws))
+                Failure::new(ws, self.errors, fp(s.value))
             }
             Fail(e) => {
                 let ws = self.warnings.sappend(e.warnings);
                 self.errors.extend(e.errors);
-                Fail(Failure::new(ws, self.errors, e.value))
+                Failure::new(ws, self.errors, e.value)
             }
         }
+    }
+
+    fn with_deferred_value<F, V>(self, f: F) -> Failure<V, WC, E, EC>
+    where
+        F: FnOnce(P) -> CommutativeResult<V, V, WC, E, EC>,
+        WC: Semigroup,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        self.with_value(|v| v, f)
     }
 
     fn with_success<F, V, X, PF>(self, other: Success<V, X, WC>, f: F) -> Failure<PF, WC, E, EC>
@@ -1942,15 +1951,15 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     /// that Option<T> must be converted to a vector before calling this.
     ///
     /// Inner for errors must be able to hold multiple values.
-    pub(crate) fn and_then_deferred<F, Vf, Pf>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    pub(crate) fn and_then_deferred<F, Vf>(self, f: F) -> Deferred<Vf, WC, E, EC>
     where
-        F: FnOnce(V) -> CommutativeResult<Vf, Pf, WC, E, EC>,
+        F: FnOnce(V) -> Deferred<Vf, WC, E, EC>,
         WC: Semigroup,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
         match self {
             Succ(s) => s.with_value(f),
-            Fail(e) => e.with_value(f),
+            Fail(e) => Fail(e.with_deferred_value(f)),
         }
     }
 

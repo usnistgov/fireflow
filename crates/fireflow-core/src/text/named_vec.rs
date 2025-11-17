@@ -13,6 +13,7 @@ use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -672,36 +673,57 @@ impl<K, U, V> NamedVec<K, U, V> {
     //     }
     // }
 
-    /// Add a new non-center element at the end of the vector
-    pub(crate) fn push(&mut self, key: K, value: V) -> Result<Shortname, NonUniqueKeyError>
+    /// Check if new name can be pushed
+    pub(crate) fn check_push<'a>(
+        &self,
+        name: &'a K,
+    ) -> Result<Cow<'a, Shortname>, NonUniqueKeyError>
     where
         K: MightHave<Shortname>,
     {
         let index = self.len().into();
-        let (ckey, name) = self.check_key(key, index)?;
-        let p = Pair::new(ckey, value);
+        self.check_key(name, index)
+    }
+
+    /// Check if new name can be pushed
+    // TODO this could be an error group
+    pub(crate) fn check_insert<'a>(
+        &self,
+        index: MeasIndex,
+        name: &'a K,
+    ) -> Result<Cow<'a, Shortname>, InsertError>
+    where
+        K: MightHave<Shortname>,
+    {
+        self.check_boundary_index(index)
+            .map_err(InsertError::Index)?;
+        let n = self.check_key(name, index)?;
+        Ok(n)
+    }
+
+    /// Add a new non-center element at the end of the vector.
+    ///
+    /// Does not guarantee keys are unique.
+    pub(crate) fn push_nocheck(&mut self, key: K, value: V)
+    where
+        K: MightHave<Shortname>,
+    {
+        let p = Pair::new(key, value);
         match self {
             Self::Split(s) => s.right.push(p),
             Self::Unsplit(u) => u.members.push(p),
         }
-        Ok(name)
     }
 
     /// Insert a new non-center element at a given position.
-    pub(crate) fn insert(
-        &mut self,
-        index: MeasIndex,
-        key: K,
-        value: V,
-    ) -> Result<Shortname, InsertError>
+    ///
+    /// Will panic if index is out of bounds. Does not guarantee keys are unique.
+    pub(crate) fn insert_nocheck(&mut self, index: MeasIndex, key: K, value: V)
     where
         K: MightHave<Shortname>,
     {
-        let i = self
-            .check_boundary_index(index)
-            .map_err(InsertError::Index)?;
-        let (ckey, name) = self.check_key(key, index).map_err(InsertError::NonUnique)?;
-        let p = Pair::new(ckey, value);
+        let i = usize::from(index);
+        let p = Pair::new(key, value);
         match self {
             Self::Split(s) => {
                 let ln = s.left.len();
@@ -712,7 +734,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             }
             Self::Unsplit(u) => u.members.insert(i, p),
         }
-        Ok(name)
     }
 
     /// Replace a non-center value with a new value at given position.
@@ -832,58 +853,71 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
     }
 
-    /// Push a new center element to the end of the vector
-    ///
-    /// Return error if center already exists.
-    pub(crate) fn push_center(&mut self, name: Shortname, value: U) -> Result<(), InsertCenterError>
+    /// Test if new center with name can be pushed
+    // TODO this could be an error group
+    pub(crate) fn check_push_center(&self, name: &Shortname) -> Result<(), InsertCenterError>
     where
         K: MightHave<Shortname>,
     {
-        let key = self
-            .check_name(name)
+        self.check_name(name)
             .map_err(InsertError::NonUnique)
             .map_err(InsertCenterError::Insert)?;
-        let p = Pair::new(key, value);
-        let (newself, ret) = match mem::take(self) {
-            Self::Unsplit(u) => (Self::new_split(u.members, p, vec![]), Ok(())),
-            s @ Self::Split(_) => (s, Err(CenterPresentError.into())),
-        };
-        *self = newself;
-        ret
+        if matches!(self, Self::Split(_)) {
+            return Err(CenterPresentError.into());
+        }
+        Ok(())
     }
 
-    /// Insert a new center element at a given position.
-    ///
-    /// Return error if center already exists.
-    pub(crate) fn insert_center(
-        &mut self,
+    /// Test if new center with name can be inserted at index
+    // TODO this could be an error group
+    pub(crate) fn check_insert_center(
+        &self,
         index: MeasIndex,
-        name: Shortname,
-        value: U,
+        name: &Shortname,
     ) -> Result<(), InsertCenterError>
     where
         K: MightHave<Shortname>,
     {
-        let i = self
-            .check_boundary_index(index)
-            .map_err(InsertError::Index)
-            .map_err(InsertCenterError::Insert)?;
-        let key = self
-            .check_name(name)
-            .map_err(InsertError::NonUnique)
-            .map_err(InsertCenterError::Insert)?;
-        let p = Pair::new(key, value);
-        let (newself, ret) = match mem::take(self) {
+        self.check_push_center(name)?;
+        self.check_boundary_index(index)
+            .map_err(InsertError::Index)?;
+        Ok(())
+    }
+
+    /// Push a new center element to the end of the vector
+    ///
+    /// Will noop if center is already present and will not guarantee
+    /// name uniqueness.
+    pub(crate) fn push_center_nocheck(&mut self, name: Shortname, value: U)
+    where
+        K: MightHave<Shortname>,
+    {
+        let p = Pair::new(name, value);
+        *self = match mem::take(self) {
+            Self::Unsplit(u) => Self::new_split(u.members, p, vec![]),
+            s @ Self::Split(_) => s,
+        };
+    }
+
+    /// Insert a new center element at a given position.
+    ///
+    /// Will noop if center already exists, will not guarantee name uniqueness,
+    /// and will silently truncate any indices that are over length of vector.
+    pub(crate) fn insert_center_nocheck(&mut self, index: MeasIndex, name: Shortname, value: U)
+    where
+        K: MightHave<Shortname>,
+    {
+        let i = usize::from(index);
+        let p = Pair::new(name, value);
+        *self = match mem::take(self) {
             Self::Unsplit(u) => {
                 let mut it = u.members.into_iter();
                 let left: Vec<_> = it.by_ref().take(i).collect();
                 let right: Vec<_> = it.collect();
-                (Self::new_split(left, p, right), Ok(()))
+                Self::new_split(left, p, right)
             }
-            s @ Self::Split(_) => (s, Err(CenterPresentError.into())),
+            s @ Self::Split(_) => s,
         };
-        *self = newself;
-        ret
     }
 
     /// Remove key/value pair by name.
@@ -1490,27 +1524,32 @@ impl<K, U, V> NamedVec<K, U, V> {
     //         .map(|(i, p)| (i, &mut p.value))
     // }
 
-    fn check_key(&self, key: K, index: MeasIndex) -> Result<(K, Shortname), NonUniqueKeyError>
+    fn check_key<'a>(
+        &self,
+        key: &'a K,
+        index: MeasIndex,
+    ) -> Result<Cow<'a, Shortname>, NonUniqueKeyError>
     where
         K: MightHave<Shortname>,
     {
-        // TODO we don't need to create a new string here
-        let name = to_opt_or_indexed(key.as_opt(), index);
-        if self.iter_all_names().any(|n| n == name) {
-            Err(NonUniqueKeyError { name })
+        let name = key
+            .as_opt()
+            .map_or_else(|| Cow::Owned(Shortname::from(index)), Cow::Borrowed);
+        if self.iter_all_names().any(|n| &n == name.as_ref()) {
+            Err(NonUniqueKeyError::new(name.into_owned()))
         } else {
-            Ok((key, name))
+            Ok(name)
         }
     }
 
-    fn check_name(&self, name: Shortname) -> Result<Shortname, NonUniqueKeyError>
+    fn check_name(&self, name: &Shortname) -> Result<(), NonUniqueKeyError>
     where
         K: MightHave<Shortname>,
     {
-        if self.iter_all_names().any(|n| n == name) {
-            Err(NonUniqueKeyError { name })
+        if self.iter_all_names().any(|n| &n == name) {
+            Err(NonUniqueKeyError::new(name.clone()))
         } else {
-            Ok(name)
+            Ok(())
         }
     }
 
@@ -1554,7 +1593,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
     }
 
-    fn check_boundary_index(&self, index: MeasIndex) -> Result<usize, BoundaryIndexError> {
+    fn check_boundary_index(&self, index: MeasIndex) -> Result<(), BoundaryIndexError> {
         IndexFromOne::from(index).check_boundary_index(self.len())
     }
 
@@ -1896,7 +1935,7 @@ impl<K, U, V> SplitVec<K, U, V> {
     }
 }
 
-#[derive(Debug, Display, Error)]
+#[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
     Index(BoundaryIndexError),
@@ -1980,7 +2019,7 @@ pub struct NonUniqueKeysError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
 pub struct KeyNotFoundError(pub Shortname);
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(px::RelationalException))]

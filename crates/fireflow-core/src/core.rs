@@ -17,10 +17,11 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
-    DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorResult, ErrorsResult, GroupResult,
-    IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndGroupResult, WarningsAndIOGroupResult, WarningsResult, io_to_log,
+    DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult, ErrorsResult,
+    GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
+    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    WarningsAndIOGroupResult, WarningsResult, io_to_log,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
@@ -103,11 +104,11 @@ use num_traits::identities::{One as _, Zero};
 use regex::Regex;
 use thiserror::Error;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::io;
-use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -3088,15 +3089,12 @@ where
     {
         let (js, _) = self.measurement_indices_and_names();
         let es = ag.existing_link_errors(&js);
-        ErrorsResult::new_err_from_iter(es, ())
-            .when_ok(|| {
-                *self
-                    .metaroot
-                    .specific
-                    .applied_gates3_0_mut(private::NoTouchy) = ag;
-            })
-            .group()
-            .resolve_nowarn()
+        ErrorGroup::try_new(es)?;
+        *self
+            .metaroot
+            .specific
+            .applied_gates3_0_mut(private::NoTouchy) = ag;
+        Ok(())
     }
 
     /// Set gating keywords (3.2)
@@ -3109,15 +3107,12 @@ where
     {
         let (js, _) = self.measurement_indices_and_names();
         let es = ag.existing_link_errors(&js);
-        ErrorsResult::new_err_from_iter(es, ())
-            .when_ok(|| {
-                *self
-                    .metaroot
-                    .specific
-                    .applied_gates3_2_mut(private::NoTouchy) = ag;
-            })
-            .group()
-            .resolve_nowarn()
+        ErrorGroup::try_new(es)?;
+        *self
+            .metaroot
+            .specific
+            .applied_gates3_2_mut(private::NoTouchy) = ag;
+        Ok(())
     }
 
     /// Get reference to non-standard keywords.
@@ -3271,27 +3266,32 @@ where
         Ok(ret)
     }
 
+    // each of these push/insert functions follow the same pattern:
+    // 1. check if addition can occur
+    // 2. try to insert range and add to errors from 1 if applicable
+    // 3. if both of these succeed, add new measurement and update indices
+
     fn push_temporal_inner(
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
+    ) -> WarningAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.measurements
-            .push_center(n, m)
+            .check_push_center(&n)
             .map_err(InsertTemporalError::from)
-            .into_log()
-            .and_commutative(|| {
+            .and_then_log(|()| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
                     .map_errors(InsertTemporalError::from)
+                    .repack_errors()
             })
             .when_ok(|| {
-                self.metaroot
-                    .specific
-                    .insert_meas_index_inner(self.par().0.into());
+                self.measurements.push_center_nocheck(n, m);
+                let i = self.par().0.into();
+                self.metaroot.specific.insert_meas_index_inner(i);
             })
     }
 
@@ -3302,18 +3302,21 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
+    ) -> WarningAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.measurements
-            .insert_center(i, n, m)
+            .check_insert_center(i, &n)
             .map_err(InsertTemporalError::from)
-            .into_log()
-            .and_commutative(|| {
+            .and_then_log(|()| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
                     .map_errors(InsertTemporalError::from)
+                    .repack_errors()
             })
-            .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
+            .when_ok(|| {
+                self.measurements.insert_center_nocheck(i, n, m);
+                self.metaroot.specific.insert_meas_index_inner(i);
+            })
     }
 
     fn push_optical_inner(
@@ -3322,18 +3325,21 @@ where
         m: Optical<M::Optical>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalError> {
+    ) -> WarningAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalError> {
         self.measurements
-            .push(n, m)
+            .check_push(&n)
+            .map(Cow::into_owned)
             .map_err(PushOpticalError::from)
-            .into_log()
-            .and_commutative(|| {
+            .and_then_log(|ret| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
                     .map_errors(PushOpticalError::from)
+                    .repack_errors()
+                    .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
+                self.measurements.push_nocheck(n, m);
                 let i = self.par().0.into();
                 self.metaroot.specific.insert_meas_index_inner(i);
                 ret
@@ -3347,18 +3353,24 @@ where
         m: Optical<M::Optical>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
+    ) -> WarningAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
         self.measurements
-            .insert(i, n, m)
+            .check_insert(i, &n)
+            .map(Cow::into_owned)
             .map_err(InsertOpticalError::from)
-            .into_log()
-            .and_commutative(|| {
+            .and_then_log(|ret| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
                     .map_errors(InsertOpticalError::from)
+                    .repack_errors()
+                    .set_ok_value(ret)
             })
-            .when_ok(|| self.metaroot.specific.insert_meas_index_inner(i))
+            .map_ok_value(|ret| {
+                self.measurements.insert_nocheck(i, n, m);
+                self.metaroot.specific.insert_meas_index_inner(i);
+                ret
+            })
     }
 
     /// Get reference to measurement vector.
@@ -3988,7 +4000,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
+    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4004,7 +4016,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
+    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4018,8 +4030,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalSummary>
-    {
+    ) -> WarningAndGroupResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalSummary> {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4034,7 +4045,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalSummary>
+    ) -> WarningAndGroupResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalSummary>
     {
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
@@ -4504,16 +4515,16 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalSummary>
+    ) -> WarningAndGroupResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
-        self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .map_errors(PushTemporalToDatasetError::from)
-            .and_commutative(|| {
-                self.data
-                    .push_column(col)
-                    .map_err(PushTemporalToDatasetError::from)
-                    .into_log()
+        self.data
+            .check_new_column(&col)
+            .map_err(PushTemporalToDatasetError::from)
+            .and_then_log(|()| {
+                self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                    .map_errors(PushTemporalToDatasetError::from)
             })
+            .when_ok(|| self.data.push_column_nocheck(col))
             .group()
     }
 
@@ -4529,21 +4540,17 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<
-        (),
-        AnyRangeError,
-        InsertTemporalToDatasetError,
-        InsertTemporalSummary,
-    > {
-        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .map_errors(InsertTemporalToDatasetError::from)
-            .and_commutative(|| {
-                // ASSUME index is within bounds here since it was checked above
-                self.data
-                    .insert_column_nocheck(i.into(), col)
-                    .map_err(InsertTemporalToDatasetError::from)
-                    .into_log()
+    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalToDatasetError, InsertTemporalSummary>
+    {
+        self.data
+            .check_new_column(&col)
+            .map_err(InsertTemporalToDatasetError::from)
+            .and_then_log(|()| {
+                self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                    .map_errors(InsertTemporalToDatasetError::from)
             })
+            // ASSUME index is within bounds here since it was checked above
+            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
     }
 
@@ -4557,20 +4564,20 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<
+    ) -> WarningAndGroupResult<
         Shortname,
         AnyRangeError,
         PushOpticalToDatasetError,
         PushOpticalSummary,
     > {
-        self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .map_errors(PushOpticalToDatasetError::from)
-            .and_commutative(|| {
-                self.data
-                    .push_column(col)
-                    .map_err(PushOpticalToDatasetError::from)
-                    .into_log()
+        self.data
+            .check_new_column(&col)
+            .map_err(PushOpticalToDatasetError::from)
+            .and_then_log(|()| {
+                self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                    .map_errors(PushOpticalToDatasetError::from)
             })
+            .when_ok(|| self.data.push_column_nocheck(col))
             .group()
     }
 
@@ -4585,21 +4592,21 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningsAndGroupResult<
+    ) -> WarningAndGroupResult<
         Shortname,
         AnyRangeError,
         InsertOpticalInDatasetError,
         InsertOpticalSummary,
     > {
-        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .map_errors(InsertOpticalInDatasetError::from)
-            // ASSUME index is within bounds here since it was checked above
-            .and_commutative(|| {
-                self.data
-                    .insert_column_nocheck(i.into(), col)
-                    .map_err(InsertOpticalInDatasetError::from)
-                    .into_log()
+        self.data
+            .check_new_column(&col)
+            .map_err(InsertOpticalInDatasetError::from)
+            .and_then_log(|()| {
+                self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                    .map_errors(InsertOpticalInDatasetError::from)
             })
+            // ASSUME index is within bounds here since it was checked above
+            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
     }
 
@@ -5104,7 +5111,7 @@ impl CSVFlags {
         CSMode::transfer_metaroot_opt(std, nonstd, conf)
             .map_err(LookupCSVFlagsError::from)
             .into_deferred_nowarn()
-            .and_then_def(|m| {
+            .and_then_deferred(|m| {
                 // NOTE the standard seems to say that these flags are only
                 // required if the user wishes to encode a subset value using
                 // 0 as the identifier. This is in contrast to the paper it
@@ -5149,11 +5156,11 @@ impl ModificationData {
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
         let last_mod = LastModifier::remove_metaroot_opt_nofail(std);
         let last_mod_date = LastModified::transfer_metaroot_opt(std, nonstd, conf)
-            .into_deferred_nowarn()
-            .map_errors(LookupModifiedDataError::from);
+            .map_err(LookupModifiedDataError::from)
+            .into_deferred_nowarn();
         let ori = Originality::transfer_metaroot_opt(std, nonstd, conf)
-            .into_deferred_nowarn()
-            .map_errors(LookupModifiedDataError::from);
+            .map_err(LookupModifiedDataError::from)
+            .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
@@ -9194,10 +9201,6 @@ pub struct CompParMismatchError {
     par: usize,
     comp: usize,
 }
-
-// #[derive(Debug, Error)]
-// #[error("$CSVnFLAGS must not be empty")]
-// pub struct NewCSVFlagsError;
 
 #[cfg(feature = "python")]
 def_group!(NewCoreTEXTSummary, "could not make new CoreTEXT");

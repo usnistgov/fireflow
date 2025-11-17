@@ -227,7 +227,16 @@ impl FCSDataFrame {
 
     #[must_use]
     pub fn nrows(&self) -> usize {
-        if self.is_empty() { 0 } else { self.nrows }
+        self.nrows_nonempty().unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn nrows_nonempty(&self) -> Option<usize> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.nrows)
+        }
     }
 
     #[must_use]
@@ -252,42 +261,59 @@ impl FCSDataFrame {
         }
     }
 
-    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+    pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
         if self.is_empty() {
-            *self = Self::new1(col);
-            return Ok(());
-        }
-        let df_len = self.nrows();
-        let col_len = col.len();
-        if col_len == df_len {
-            self.columns.push(col);
-            Ok(())
+            None
         } else {
-            Err(ColumnLengthError { df_len, col_len })
+            Some(self.columns.remove(self.ncols()))
         }
     }
 
+    pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
+        if self.is_empty() {
+            *self = Self::new1(col);
+        } else {
+            self.columns.push(col);
+        }
+    }
+
+    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        self.check_new_column(&col)?;
+        self.push_column_nocheck(col);
+        Ok(())
+    }
+
     // will panic if index is out of bounds
-    pub(crate) fn insert_column_nocheck(
-        &mut self,
-        i: usize,
-        col: AnyFCSColumn,
-    ) -> Result<(), ColumnLengthError> {
+    pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
         // don't use Self::new1 here since we want to panic if i is out of
         // bounds
         if self.is_empty() {
             self.nrows = col.len();
             self.columns.insert(i, col);
-            return Ok(());
-        }
-        let df_len = self.nrows();
-        let col_len = col.len();
-        if col_len == df_len {
-            self.columns.insert(i, col);
-            Ok(())
         } else {
-            Err(ColumnLengthError { df_len, col_len })
+            self.columns.insert(i, col);
         }
+    }
+
+    // will panic if index is out of bounds
+    pub(crate) fn insert_column(
+        &mut self,
+        i: usize,
+        col: AnyFCSColumn,
+    ) -> Result<(), ColumnLengthError> {
+        self.check_new_column(&col)?;
+        self.insert_column(i, col);
+        Ok(())
+    }
+
+    pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        if let Some(df_len) = self.nrows_nonempty() {
+            let col_len = col.len();
+            if col_len != df_len {
+                return Err(ColumnLengthError { df_len, col_len });
+            }
+        }
+        Ok(())
     }
 
     /// Return number of bytes this will occupy if written as delimited ASCII

@@ -50,7 +50,11 @@ use thiserror::Error;
 pub type WarningsAndIOGroupResult<V, W, E, G> =
     WarningsAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
+pub type WarningAndIOGroupResult<V, W, E, G> = WarningAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
+
 pub type WarningsAndGroupResult<V, W, E, S> = WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
+
+pub type WarningAndGroupResult<V, W, E, S> = WarningAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
 pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
 
@@ -550,9 +554,10 @@ pub trait ResultExt: Sized {
         self.into_log()
     }
 
-    fn into_deferred_nowarn(self) -> NowarnResult<Self::Ok, Self::Ok, Self::Error, Vec<Self::Error>>
+    fn into_deferred_nowarn<EC>(self) -> NowarnResult<Self::Ok, Self::Ok, Self::Error, EC>
     where
         Self::Ok: Default,
+        EC: Default,
     {
         self.into_log().set_err_value(Self::Ok::default())
     }
@@ -710,6 +715,23 @@ pub trait ResultExt: Sized {
         match self.into_result() {
             Ok(x) => LogResult::new_ok(x),
             Err(g) => Fail(Failure::new_from_many(g.errors, ())),
+        }
+    }
+
+    /// Chain a LogResult operation which returns either a warning or error.
+    ///
+    /// This is the same as `and_then_commutative` without the Semigroup
+    /// bound, which allows one to keep the cardinality of warnings and errors
+    /// as one when using an operation that only returns an error (ie Result).
+    fn and_then_log<WC, EC, F, Vf>(self, f: F) -> CommutativeResult<Vf, (), WC, Self::Error, EC>
+    where
+        F: FnOnce(Self::Ok) -> CommutativeResult<Vf, (), WC, Self::Error, EC>,
+        EC: Default,
+        WC: Default,
+    {
+        match self.into_result() {
+            Ok(v) => f(v),
+            Err(e) => LogResult::new_err(e),
         }
     }
 }
@@ -1443,6 +1465,13 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
 // Commutative LogResult
 //
 impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
+    pub(crate) fn repack_warnings<WCf>(self) -> CommutativeResult<V, P, WCf, E, EC>
+    where
+        WC: IntoNewCardinality<WCf>,
+    {
+        self.map(Success::repack).map_err(Failure::repack_warnings)
+    }
+
     /// Map function over warnings of commutative Result
     pub(crate) fn map_commutative_warnings<F, W, Wf>(
         self,
@@ -1717,6 +1746,29 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
 }
 
 //
+// Commutative LogResult with one warning/error
+//
+impl<V, P, WC, E> WarningAndErrorResult<V, P, WC, E> {
+    /// Chain a result operation to a value with a warning or error.
+    ///
+    /// This is the same as `and_then_commutative` without the Semigroup
+    /// bound, which allows one to keep the cardinality of warnings and errors
+    /// as one when using an operation that only returns an error (ie Result).
+    pub(crate) fn and_then_result<Vf, F>(self, f: F) -> WarningAndErrorResult<Vf, (), WC, E>
+    where
+        F: FnOnce(V) -> Result<Vf, E>,
+    {
+        match self {
+            Succ(x) => match f(x.value) {
+                Ok(v) => Succ(Success::new(v, (), x.warnings)),
+                Err(e) => Fail(Failure::new_from_one(e, ()).set_warnings(x.warnings)),
+            },
+            Fail(x) => Fail(x.fmap_once(|_| ())),
+        }
+    }
+}
+
+//
 // Commutative/Resolvable LogResult
 //
 impl<V, WC, E> CommutativeResult<V, (), WC, E, Nothing<E>> {
@@ -1890,7 +1942,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
     /// that Option<T> must be converted to a vector before calling this.
     ///
     /// Inner for errors must be able to hold multiple values.
-    pub(crate) fn and_then_def<F, Vf, Pf>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    pub(crate) fn and_then_deferred<F, Vf, Pf>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
     where
         F: FnOnce(V) -> CommutativeResult<Vf, Pf, WC, E, EC>,
         WC: Semigroup,
@@ -1902,7 +1954,37 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    pub(crate) fn and_then_def_result<F, X, Vf>(self, flag: X, f: F) -> Deferred<Vf, WC, E, EC>
+    pub(crate) fn and_then_deferred_result<Fv, Fp, Vf, P>(
+        self,
+        default: P,
+        fp: Fp,
+        fv: Fv,
+    ) -> CommutativeResult<Vf, P, WC, E, EC>
+    where
+        Fv: FnOnce(V) -> Result<Vf, E>,
+        Fp: FnOnce(Vf) -> P,
+        EC: Extend<E> + Default,
+    {
+        match self {
+            Succ(s) => match fv(s.value) {
+                Ok(v) => Succ(Success::new(v, (), s.warnings)),
+                Err(e) => Fail(Failure::new_from_one(e, default).set_warnings(s.warnings)),
+            },
+            Fail(x) => {
+                let ret = match fv(x.value) {
+                    Ok(v) => Failure::new(x.warnings, x.errors, fp(v)),
+                    Err(e) => Failure::new_from_one(e, default).set_warnings(x.warnings),
+                };
+                Fail(ret)
+            }
+        }
+    }
+
+    pub(crate) fn and_then_deferred_switchable_result<F, X, Vf>(
+        self,
+        flag: X,
+        f: F,
+    ) -> Deferred<Vf, WC, E, EC>
     where
         X: ErrorFlag,
         Vf: Default,
@@ -1913,7 +1995,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
             + SwitchableErrorContainer<Inner = E, Warn = WC>
             + Default,
     {
-        self.and_then_def(|v| {
+        self.and_then_deferred(|v| {
             f(v).into_deferred_switchable(flag)
                 .switchable_into_commutative()
         })
@@ -1988,22 +2070,33 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
             }
         }
     }
+}
 
-    /// Monadically chain nowarn results
-    pub(crate) fn and_then_nowarn<F, Vf>(self, f: F) -> NowarnResult<Vf, Vf, E, EC>
+//
+// Nowarn/Deferred/Single error
+//
+impl<V, E> DeferredError<V, E> {
+    /// Monadically chain nowarn results and replace previous error if it exists.
+    ///
+    /// This is a very specialized case meant to be used where a deferred result
+    /// produces an error and a value, the latter of which needs to be used
+    /// by another operation which produces a new deferred value with an error,
+    /// where this error implies the first error.
+    ///
+    /// The last phrase is key because this function will throw away the first
+    /// error for the case when both results are errors. In this case, this is
+    /// correct because the latter error implies the first, and it is redundant
+    /// to return both.
+    pub(crate) fn and_then_replace<F, Vf>(self, f: F) -> DeferredError<Vf, E>
     where
-        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        F: FnOnce(V) -> DeferredError<Vf, E>,
     {
         match self {
             Succ(x) => f(x.value),
-            Fail(mut x) => {
+            Fail(x) => {
                 let ret = match f(x.value) {
                     Succ(y) => Failure::new(Nothing::default(), x.errors, y.value),
-                    Fail(y) => {
-                        x.errors.extend(y.errors);
-                        Failure::new(Nothing::default(), x.errors, y.value)
-                    }
+                    Fail(y) => Failure::new(Nothing::default(), y.errors, y.value),
                 };
                 Fail(ret)
             }
@@ -2475,6 +2568,10 @@ impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
 // Fully-generic LogResult
 //
 impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
+    pub(crate) fn is_succ(&self) -> bool {
+        matches!(self, Succ(_))
+    }
+
     pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>(
         self,
         f: F,
@@ -2521,6 +2618,17 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         F: FnOnce(),
     {
         self.map_ok_value(|v| {
+            f();
+            v
+        })
+    }
+
+    /// Run function when result is Fail
+    pub(crate) fn when_fail<F>(self, f: F) -> Self
+    where
+        F: FnOnce(),
+    {
+        self.map_err_value(|v| {
             f();
             v
         })

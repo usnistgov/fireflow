@@ -1169,7 +1169,7 @@ where
             }
         }
     };
-    res.and_then_def(|x| {
+    res.and_then_deferred(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
             // shouldn't this detect any overlap?
             if seg.same_coords(&text_segment) {

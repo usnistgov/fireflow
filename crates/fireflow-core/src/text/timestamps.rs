@@ -185,7 +185,7 @@ impl<X> Timestamps<X> {
             .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
         b.zip_f3_once(e, d)
-            .and_then_def(|(btim, etim, date)| {
+            .and_then_deferred(|(btim, etim, date)| {
                 Self::try_new(btim, etim, date)
                     .map_errors(LookupTimestampsError::Reversed)
                     .map_err_value(|ret| {

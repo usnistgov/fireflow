@@ -316,7 +316,7 @@ impl AppliedGates2_0 {
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let flag = conf.allow_optional_dropping;
         ag.zip_f2_once(gm)
-            .and_then_def_result(flag, |(scheme, gated_measurements)| {
+            .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme).map_err(LookupAppliedGatesError::Link)
             })
     }
@@ -422,7 +422,7 @@ impl AppliedGates3_0 {
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         s.zip_f2_once(ms)
-            .and_then_def(|(scheme, gated_measurements)| {
+            .and_then_deferred(|(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme)
                     .map_err(LookupAppliedGatesError::Link)
                     .into_succ()
@@ -466,7 +466,7 @@ impl AppliedGates3_0 {
             .switchable_into_commutative();
         index_res
             .lift_f2_once(scheme_res, |(), scheme| scheme)
-            .and_then_def_result(flag, |scheme| {
+            .and_then_deferred_switchable_result(flag, |scheme| {
                 AppliedGates2_0::try_new(self.gated_measurements.0, scheme)
                     .map_err(AppliedGates3_0To2_0Error::from)
             })
@@ -494,7 +494,7 @@ impl AppliedGates3_0 {
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
             })
             .switchable_into_commutative()
-            .and_then_def_result(flag, |()| {
+            .and_then_deferred_switchable_result(flag, |()| {
                 AppliedGates3_2::try_new(self.scheme.gating, regions)
                     .map_err(AppliedGates3_0To3_2Error::from)
             })
@@ -779,7 +779,7 @@ impl<I> GatingScheme<I> {
             .map_switchable_errors(LookupGatingSchemeError::Gating)
             .switchable_into_commutative()
             .into_semigroup()
-            .and_then_def(|gating| {
+            .and_then_deferred(|gating| {
                 gating
                     .as_ref()
                     .map_or(LogResult::new_ok_default(), |g| {
@@ -793,7 +793,7 @@ impl<I> GatingScheme<I> {
                             })
                             .mappend_def()
                     })
-                    .and_then_def_result(flag, |rs| {
+                    .and_then_deferred_switchable_result(flag, |rs| {
                         // TODO impl iterator for try_new
                         let regions = rs.into_iter().flatten().collect();
                         Self::try_new(gating, regions).map_err(LookupGatingSchemeError::Link)
@@ -875,7 +875,7 @@ impl<I> Region<I> {
         let flag = conf.allow_optional_dropping;
         index_res
             .zip_f2_once(window_res)
-            .and_then_def_result(flag, |(gi_opt, w_opt)| {
+            .and_then_deferred_switchable_result(flag, |(gi_opt, w_opt)| {
                 // Try to combine the gateindex and window together to make a
                 // region. This will only work if both are present and
                 // they are both the same type (uni/bi-variate). If anything
@@ -1058,7 +1058,7 @@ impl GatedMeasurements {
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)
             .switchable_into_commutative()
             .into_semigroup()
-            .and_then_def(|maybe| {
+            .and_then_deferred(|maybe| {
                 if let Some(n) = maybe {
                     (0..n.0)
                         .map(|i| {

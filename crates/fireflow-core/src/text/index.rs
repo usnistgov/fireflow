@@ -52,10 +52,9 @@ impl IndexFromOne {
         }
     }
 
-    pub(crate) fn check_boundary_index(self, len: usize) -> Result<usize, BoundaryIndexError> {
-        let i = self.into();
-        if i <= len {
-            Ok(i)
+    pub(crate) fn check_boundary_index(self, len: usize) -> Result<(), BoundaryIndexError> {
+        if usize::from(self) <= len {
+            Ok(())
         } else {
             Err(BoundaryIndexError::new(self, len))
         }

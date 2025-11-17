@@ -110,7 +110,7 @@ impl Datetimes {
             .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
         b.zip_f2_once(e)
-            .and_then_def(|(begin, end)| {
+            .and_then_deferred(|(begin, end)| {
                 Self::try_new(begin, end)
                     .map_errors(LookupDatetimesError::from)
                     .map_err_value(|ret| {

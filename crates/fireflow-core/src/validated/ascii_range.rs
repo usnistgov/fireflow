@@ -101,7 +101,7 @@ impl AsciiRange {
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
             .map_errors(NewAsciiRangeError::from)
-            .repack::<_, _, Vec<_>>();
+            .into_semigroup();
         let chars_res = Chars::try_from(width)
             .map_err(NewAsciiRangeError::from)
             .into_log();

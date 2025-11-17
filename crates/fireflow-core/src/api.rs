@@ -82,13 +82,10 @@ pub fn fcs_read_raw_text(
     ParseRawTEXTWarning,
     IOErrorGroup<HeaderOrRawError, RawTEXTFailure>,
 > {
-    // TODO put warnings into errors within IO context
     read_fcs_raw_text_inner(p, conf)
         .map_ok_value(|(x, _, _)| x)
+        .warnings_to_pure_errors(&conf.shared, HeaderOrRawError::from)
         .deanonymize()
-    // .commutative_warnings_to_errors(&conf.shared, HeaderOrRawError::from)
-    // .group()
-    // .map_errors(IOErrorGroup::Pure)
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
@@ -113,10 +110,8 @@ pub fn fcs_read_std_text(
                 .group()
                 .map_errors(IOErrorGroup::Pure)
         })
+        .warnings_to_pure_errors(&conf.shared, StdTEXTError::from)
         .deanonymize()
-    // .commutative_warnings_to_errors(&conf.shared, StdTEXTError::from)
-    // .group()
-    // .map_errors(IOErrorGroup::Pure)
 }
 
 /// Read dataset from FCS file using standardized TEXT.
@@ -147,10 +142,8 @@ pub fn fcs_read_raw_dataset(
             .map_commutative_warnings(RawDatasetWarning::from)
             .map_pure_errors(RawDatasetError::from)
         })
+        .warnings_to_pure_errors(&conf.shared, RawDatasetError::from)
         .deanonymize()
-    // .ungroup()
-    // .commutative_warnings_to_errors(&conf.shared, RawDatasetError::from)
-    // .group()
 }
 
 /// Read dataset from FCS file using raw key/value pairs from TEXT.
@@ -172,11 +165,8 @@ pub fn fcs_read_std_dataset(
                 .map_commutative_warnings(StdDatasetWarning::from)
                 .map_pure_errors(StdDatasetError::from)
         })
+        .warnings_to_pure_errors(&conf.shared, StdDatasetError::from)
         .deanonymize()
-    // .commutative_warnings_to_errors(&conf.shared, |w| {
-    //     ImpureError::Pure(StdDatasetError::from(w))
-    // })
-    // .group()
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -210,11 +200,8 @@ pub fn fcs_read_raw_dataset_with_keywords(
                 &st,
             )
         })
+        .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
-    // .commutative_warnings_to_errors(&conf.shared, |w| {
-    //     ImpureError::Pure(LookupAndReadDataAnalysisError::from(w))
-    // })
-    // .group()
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
@@ -248,11 +235,8 @@ pub fn fcs_read_std_dataset_with_keywords(
                 &st,
             )
         })
+        .warnings_to_pure_errors(&conf.shared, StdDatasetFromRawError::from)
         .deanonymize()
-    // .commutative_warnings_to_errors(&conf.shared, |w| {
-    //     ImpureError::Pure(StdDatasetFromRawError::from(w))
-    // })
-    // .group()
 }
 
 /// Output from parsing the TEXT segment.

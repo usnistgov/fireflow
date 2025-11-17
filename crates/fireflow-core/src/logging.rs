@@ -265,6 +265,8 @@ pub struct Failure<P, WC, E, EC> {
     value: P,
 }
 
+type Failure1<P, WC, E> = Failure<P, WC, E, Nothing<E>>;
+
 #[derive(Error, Debug)]
 pub enum IOErrorGroup<E, G> {
     IO(IOError, Option<ErrorGroup<E, G>>),
@@ -294,6 +296,21 @@ impl<E> IOErrorGroup<E, ()> {
 
     pub(crate) fn deanonymize<G: Default>(self) -> IOErrorGroup<E, G> {
         self.deanonymize_as(G::default())
+    }
+}
+
+impl<E> Extend<E> for IOErrorGroup<E, ()> {
+    fn extend<I: IntoIterator<Item = E>>(&mut self, iter: I) {
+        match self {
+            Self::IO(_, p) => {
+                if let Some(g) = p.as_mut() {
+                    g.errors.extend(iter);
+                } else {
+                    *p = GenNonEmpty::collect(iter).map(|ys| ErrorGroup::new((), ys));
+                }
+            }
+            Self::Pure(p) => p.errors.extend(iter),
+        }
     }
 }
 
@@ -344,10 +361,6 @@ pub(crate) type IOAnonErrorGroup<E> = IOErrorGroup<E, ()>;
 impl<E> AnonErrorGroup<E> {
     pub(crate) fn deanonymize_as<G>(self, g: G) -> ErrorGroup<E, G> {
         ErrorGroup::new(g, self.errors)
-    }
-
-    pub(crate) fn deanonymize<G: Default>(self) -> ErrorGroup<E, G> {
-        self.deanonymize_as(G::default())
     }
 }
 
@@ -1201,16 +1214,22 @@ impl<V, X, WC> Success<V, X, WC> {
     ///
     /// This is useful for cases where warnings might be optionally converted
     /// so we can't just set them to `()`
-    fn warnings_to_errors<E, W, P, EC, F, G>(self, f: F, g: G) -> LogResult<V, P, WC, WC, X, E, EC>
+    fn warnings_to_pure_errors<E, P, W, Fw, Fp>(
+        self,
+        fw: Fw,
+        fp: Fp,
+    ) -> IOGroupLogResult<V, P, WC, WC, X, E, ()>
     where
-        F: Fn(W) -> E,
-        G: FnOnce(V) -> P,
-        EC: Extend<E> + Default,
+        Fw: Fn(W) -> E,
+        Fp: FnOnce(V) -> P,
         WC: Default + IntoIterator<Item = W>,
     {
-        match GenNonEmpty::<E, EC>::collect(self.warnings.into_iter().map(f)) {
+        match GenNonEmpty::<E, Vec<E>>::collect(self.warnings.into_iter().map(fw)) {
             None => Succ(Self::new_flagged(self.value, self.flag)),
-            Some(es) => Fail(Failure::new_from_many(es, g(self.value))),
+            Some(es) => {
+                let e = IOErrorGroup::Pure(ErrorGroup::new((), es));
+                Fail(Failure::new_from_one(e, fp(self.value)))
+            }
         }
     }
 
@@ -1254,26 +1273,27 @@ impl<P, WC, E> Failure<P, WC, E, Nothing<E>> {
 //
 // Failure with error group
 //
-impl<P, WC, E, G> Failure<P, WC, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>> {
-    fn ungroup(self) -> Failure<P, WC, E, Vec<E>> {
-        Failure::new(self.warnings, self.errors.head.errors, self.value)
-    }
-}
+// impl<P, WC, E, G> Failure<P, WC, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>> {
+//     fn ungroup(self) -> Failure<P, WC, E, Vec<E>> {
+//         Failure::new(self.warnings, self.errors.head.errors, self.value)
+//     }
+// }
 
 //
-// Failure with IO error group
+// Failure with Anon IO error group
 //
-impl<P, WC, E, G> Failure<P, WC, IOErrorGroup<E, G>, Nothing<IOErrorGroup<E, G>>> {
-    pub(crate) fn throw_io(
-        self,
-    ) -> Result<Failure<P, WC, ErrorGroup<E, G>, Nothing<ErrorGroup<E, G>>>, Self> {
-        let ws = self.warnings;
-        let es = self.errors;
-        let v = self.value;
-        match es.head {
-            e @ IOErrorGroup::IO(_, _) => Err(Self::new(ws, GenNonEmpty::new1(e), v)),
-            IOErrorGroup::Pure(e) => Ok(Failure::new(ws, GenNonEmpty::new1(e), v)),
-        }
+impl<P, WC, E> Failure1<P, WC, IOAnonErrorGroup<E>> {
+    /// Convert warnings to non-IO errors while maintaining the warning type.
+    ///
+    /// Useful at code boundaries where we may want to upgrade warnings to
+    /// errors based on what the user wants a given function to do.
+    fn warnings_to_pure_errors<W, F>(mut self, f: F) -> Self
+    where
+        F: Fn(W) -> E,
+        WC: IntoIterator<Item = W> + Default,
+    {
+        self.errors.head.extend(self.warnings.into_iter().map(f));
+        Self::new_from_many(self.errors, self.value)
     }
 }
 
@@ -1415,20 +1435,6 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
     {
         Self::new(WC::default(), self.errors, self.value)
     }
-
-    /// Convert warnings to errors while maintaining the warning type.
-    ///
-    /// This is useful for cases where warnings might be optionally converted
-    /// so we can't just set them to `()`
-    fn warnings_to_errors<W, F>(mut self, f: F) -> Self
-    where
-        F: Fn(W) -> E,
-        EC: Extend<E>,
-        WC: IntoIterator<Item = W> + Default,
-    {
-        self.errors.extend(self.warnings.into_iter().map(f));
-        Self::new_from_many(self.errors, self.value)
-    }
 }
 
 //
@@ -1459,31 +1465,6 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         EC: Functor<E>,
     {
         self.map_commutative_warnings(&f).map_errors(f)
-    }
-
-    pub(crate) fn commutative_warnings_to_errors<F, W>(
-        self,
-        conf: &SharedConfig,
-        f: F,
-    ) -> CommutativeResult<V, (), WC, E, EC>
-    where
-        F: Fn(W) -> E,
-        EC: Extend<E> + Default,
-        WC: IntoIterator<Item = W> + Default,
-    {
-        let res = self;
-        if conf.warnings_are_errors {
-            match res {
-                Succ(s) => s.warnings_to_errors(f, |_| ()),
-                Fail(e) => Fail(e.warnings_to_errors(f).fmap_once(|_| ())),
-            }
-        } else if conf.hide_warnings {
-            res.map(Success::remove_warnings)
-                .map_err(Failure::remove_warnings)
-                .set_err_value(())
-        } else {
-            res.set_err_value(())
-        }
     }
 
     /// Add warnings to a commutative Result.
@@ -2428,11 +2409,11 @@ impl<V, P, LWC, RWC, X, E> LogResult<V, P, LWC, RWC, X, E, Nothing<E>> {
 //
 // LogResult with error group
 //
-impl<V, P, LWC, RWC, X, E, G> GroupLogResult<V, P, LWC, RWC, X, E, G> {
-    pub(crate) fn ungroup(self) -> LogResult<V, P, LWC, RWC, X, E, Vec<E>> {
-        self.map_err(Failure::ungroup)
-    }
-}
+// impl<V, P, LWC, RWC, X, E, G> GroupLogResult<V, P, LWC, RWC, X, E, G> {
+//     pub(crate) fn ungroup(self) -> LogResult<V, P, LWC, RWC, X, E, Vec<E>> {
+//         self.map_err(Failure::ungroup)
+//     }
+// }
 
 //
 // LogResult with IO error group
@@ -2456,6 +2437,35 @@ impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
 
     pub(crate) fn deanonymize<G: Default>(self) -> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
         self.deanonymize_as(G::default())
+    }
+}
+
+//
+// Commutative LogResult with IO error group
+//
+impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
+    pub(crate) fn warnings_to_pure_errors<F, W>(
+        self,
+        conf: &SharedConfig,
+        f: F,
+    ) -> IOGroupLogResult<V, (), WC, WC, (), E, ()>
+    where
+        F: Fn(W) -> E,
+        WC: IntoIterator<Item = W> + Default,
+    {
+        let res = self;
+        if conf.warnings_are_errors {
+            match res {
+                Succ(s) => s.warnings_to_pure_errors(f, |_| ()),
+                Fail(e) => Fail(e.warnings_to_pure_errors(f).fmap_once(|_| ())),
+            }
+        } else if conf.hide_warnings {
+            res.map(Success::remove_warnings)
+                .map_err(Failure::remove_warnings)
+                .set_err_value(())
+        } else {
+            res.set_err_value(())
+        }
     }
 }
 

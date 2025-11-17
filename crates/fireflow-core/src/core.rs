@@ -4269,7 +4269,6 @@ where
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        // TODO fix warning conversions
         ReadState::open(p, conf)
             .map_err(IOErrorGroup::from)
             .into_log()
@@ -4277,11 +4276,8 @@ where
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromRawError::from)
             .deanonymize()
-        // .commutative_warnings_to_errors(conf.as_ref(), |w| {
-        //     ImpureError::Pure(StdDatasetFromRawError::from(w))
-        // })
-        // .group()
     }
 
     pub(crate) fn new_from_keywords_inner<C, R>(

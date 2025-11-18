@@ -3389,13 +3389,11 @@ where
         xs: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> GroupResult<(), SetMeasurementsError, SetMeasurementsSummary>
+    ) -> Result<(), SetMeasurementsErrors>
     where
         M::Optical: AsScaleTransform,
     {
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
-            .group()
-            .resolve_nowarn()
     }
 
     // TODO add replace measurements function which doesn't touch PnN but
@@ -3460,7 +3458,7 @@ where
         measurements: TemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> ErrorsResult<(), (), SetMeasurementsError>
+    ) -> Result<(), SetMeasurementsErrors>
     where
         M::Optical: AsScaleTransform,
     {
@@ -3473,9 +3471,13 @@ where
             .try_new_measurements::<M>(measurements)
             .map_err(SetMeasurementsError::from)
             .into_nowarn();
-        link_res.zip_commutative(vec_res).map_ok_value(|((), ms)| {
-            self.measurements = ms;
-        })
+        link_res
+            .zip_commutative(vec_res)
+            .map_ok_value(|((), ms)| {
+                self.measurements = ms;
+            })
+            .group()
+            .resolve_nowarn()
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
@@ -4632,21 +4634,18 @@ where
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> GroupResult<(), SetMeasurementsAndDataError, SetMeasurementsAndDataSummary>
+    ) -> Result<(), SetMeasurementsAndDataError>
     where
         M::Optical: AsScaleTransform,
     {
         let meas_n = xs.0.len();
         let data_n = df.ncols();
-        let e = MeasDataMismatchError { meas_n, data_n };
-        LogResult::new_log_if(meas_n == data_n, (), (), e.into())
-            .and_commutative(|| {
-                self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
-                    .map_errors(SetMeasurementsAndDataError::from)
-                    .when_ok(|| self.data = df)
-            })
-            .group()
-            .resolve_nowarn()
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)?;
+        self.data = df;
+        Ok(())
     }
 }
 
@@ -8506,6 +8505,10 @@ pub enum SetMeasurementsError {
     Link(ExistingLinkErrors),
 }
 
+pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurementsSummary>;
+
+def_group!(SetMeasurementsSummary, "could not set measurements");
+
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetScalesError {
@@ -8523,7 +8526,7 @@ pub enum SetTransformsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
-    Meas(SetMeasurementsError),
+    Meas(SetMeasurementsErrors),
     Mismatch(MeasDataMismatchError),
 }
 
@@ -9248,18 +9251,11 @@ def_group!(PushOpticalSummary, "could not push optical measurement");
 
 def_group!(InsertOpticalSummary, "could not insert optical measurement");
 
-def_group!(SetMeasurementsSummary, "could not set measurements");
-
 def_group!(SetAppliedGatesSummary, "could not set gating keywords");
 
 def_group!(
     SetMeasurementsAndLayoutSummary,
     "could not set measurements and layout"
-);
-
-def_group!(
-    SetMeasurementsAndDataSummary,
-    "could not set measurements and data"
 );
 
 def_group!(WriteDatasetSummary, "could not write FCS file");

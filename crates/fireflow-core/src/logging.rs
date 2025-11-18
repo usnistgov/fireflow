@@ -371,6 +371,17 @@ impl<E> AnonErrorGroup<E> {
 }
 
 impl<E, G> ErrorGroup<E, G> {
+    pub(crate) fn new1(e: E) -> Self
+    where
+        G: Default,
+    {
+        Self::new1_with(G::default(), e)
+    }
+
+    pub(crate) fn new1_with(s: G, e: E) -> Self {
+        Self::new(s, GenNonEmpty::new1(e))
+    }
+
     pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Result<(), Self>
     where
         G: Default,

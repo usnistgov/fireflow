@@ -1471,7 +1471,7 @@ pub trait VersionedMetaroot: Sized {
         (Optical<Self::Optical>, Temporal<Self::Temporal>),
         (Temporal<Self::Temporal>, Optical<Self::Optical>),
         AllowLoss,
-        SwapOpticalTemporalError,
+        SwapOpticalTemporalErrors,
     > {
         let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
@@ -1485,22 +1485,28 @@ pub trait VersionedMetaroot: Sized {
         let (tmp_index, tmp) = old;
         let (opt_index, opt) = new;
 
-        let o_to_t_specific_errors = opt.specific.optical_to_temporal_loss_errors(opt_index);
-        let scale_error = opt.specific.nonlinear_scale_error(opt_index);
-        let t_to_o_err = tmp.specific.temporal_to_optical_error(tmp_index);
+        let scale_err = opt
+            .specific
+            .nonlinear_scale_error(opt_index)
+            .map(SwapOpticalTemporalError::from);
+        let t_to_o_err = tmp
+            .specific
+            .temporal_to_optical_error(tmp_index)
+            .map(SwapOpticalTemporalError::from);
+        let o_to_t_specific_errs = opt.specific.optical_to_temporal_loss_errors(opt_index);
         let o_to_t_common_errs = opt.key_loss_errors(opt_index);
 
-        let o_to_t_errs = o_to_t_specific_errors.chain(o_to_t_common_errs);
+        let es = o_to_t_specific_errs
+            .chain(o_to_t_common_errs)
+            .map(SwapOpticalTemporalError::from)
+            .chain(scale_err)
+            .chain(t_to_o_err);
 
-        let e = SwapOpticalTemporalError::try_new(
-            opt_index,
-            tmp_index,
-            scale_error,
-            t_to_o_err,
-            o_to_t_errs,
-        );
+        let s = SwapOpticalTemporalSummary::new(opt_index, tmp_index);
 
-        SwitchableErrorResult::new_deferred_switchable_maybe((tmp, opt), e, flag)
+        ErrorGroup::try_new_with(s, es)
+            .into_deferred_switchable(flag)
+            .set_deferred_value((tmp, opt))
             .map_ok_value(|(t, o)| go(t, o))
     }
 
@@ -1577,15 +1583,22 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         i: MeasIndex,
         data: Self::TData,
         flag: AllowLoss,
-    ) -> SwitchableErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalError> {
+    ) -> SwitchableErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalErrors> {
         let opt_common_errs = opt.key_loss_errors(i);
         let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
-        let scale_err = opt.specific.nonlinear_scale_error(i);
+        let scale_err = opt
+            .specific
+            .nonlinear_scale_error(i)
+            .map(OpticalToTemporalError::from);
+        let es = opt_common_errs
+            .chain(opt_specific_errs)
+            .map(OpticalToTemporalError::from)
+            .chain(scale_err);
 
-        let e =
-            OpticalToTemporalError::try_new(i, scale_err, opt_common_errs.chain(opt_specific_errs));
-
-        SwitchableErrorResult::new_deferred_switchable_maybe((opt, data), e, flag)
+        let s = OpticalToTemporalSummary::new(i);
+        ErrorGroup::try_new_with(s, es)
+            .into_deferred_switchable::<_, Nothing<_>>(flag)
+            .set_deferred_value((opt, data))
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
             .map_err_value(|(o, _)| o)
     }
@@ -8719,97 +8732,49 @@ pub enum SetTemporalByIndexError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalError {
-    Swap(SwapOpticalTemporalError),
-    ToOptical(OpticalToTemporalError),
+    Swap(SwapOpticalTemporalErrors),
+    ToOptical(OpticalToTemporalErrors),
 }
 
-#[derive(From, Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
-pub struct SwapOpticalTemporalError {
+pub type SwapOpticalTemporalErrors =
+    ErrorGroup<SwapOpticalTemporalError, SwapOpticalTemporalSummary>;
+
+#[derive(Display, Debug, new)]
+#[display("could not swap temporal index {tmp_index} with optical index {opt_index}")]
+pub struct SwapOpticalTemporalSummary {
     opt_index: MeasIndex,
     tmp_index: MeasIndex,
-    nonlinear: Option<OpticalNonLinearError>,
-    tmp_loss: Option<AnyTemporalToOpticalKeyLossError>,
-    opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
 }
 
-impl SwapOpticalTemporalError {
-    fn try_new(
-        opt_index: MeasIndex,
-        tmp_index: MeasIndex,
-        nonlinear: Option<OpticalNonLinearError>,
-        tmp_loss: Option<AnyTemporalToOpticalKeyLossError>,
-        opt_loss: impl IntoIterator<Item = AnyOpticalToTemporalKeyLossError>,
-    ) -> Option<Self> {
-        let opt_loss_: Vec<_> = opt_loss.into_iter().collect();
-        if nonlinear.is_none() && tmp_loss.is_none() && opt_loss_.is_empty() {
-            None
-        } else {
-            Some(Self::new(
-                opt_index, tmp_index, nonlinear, tmp_loss, opt_loss_,
-            ))
-        }
-    }
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SwapOpticalTemporalError {
+    NonLinear(OpticalNonLinearError),
+    TemporalToOptical(AnyTemporalToOpticalKeyLossError),
+    OpticalToTemporal(AnyOpticalToTemporalKeyLossError),
 }
 
-impl fmt::Display for SwapOpticalTemporalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let nl = self.nonlinear.as_ref().map(ToString::to_string);
-        let tl = self
-            .tmp_loss
-            .as_ref()
-            .map(|s| format!("temporal keys would be dropped ({s})"));
-        let os = self.opt_loss.iter().join(", ");
-        let ol = (!os.is_empty()).then(|| format!("optical keys would be dropped ({os})"));
-        let es = [nl, tl, ol].into_iter().flatten().join("; ");
-        write!(
-            f,
-            "Error swapping temporal index {} with optical index {}: {es}",
-            self.tmp_index, self.opt_index
-        )
-    }
-}
+pub type OpticalToTemporalErrors = ErrorGroup<OpticalToTemporalError, OpticalToTemporalSummary>;
 
-#[derive(From, Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
-pub struct OpticalToTemporalError {
+#[derive(Display, Debug, new)]
+#[display("could not convert optical index at {opt_index} to temporal")]
+pub struct OpticalToTemporalSummary {
     opt_index: MeasIndex,
-    nonlinear: Option<OpticalNonLinearError>,
-    opt_loss: Vec<AnyOpticalToTemporalKeyLossError>,
 }
 
-impl OpticalToTemporalError {
-    fn try_new(
-        opt_index: MeasIndex,
-        nonlinear: Option<OpticalNonLinearError>,
-        opt_loss: impl IntoIterator<Item = AnyOpticalToTemporalKeyLossError>,
-    ) -> Option<Self> {
-        let opt_loss_: Vec<_> = opt_loss.into_iter().collect();
-        if nonlinear.is_none() && opt_loss_.is_empty() {
-            None
-        } else {
-            Some(Self::new(opt_index, nonlinear, opt_loss_))
-        }
-    }
-}
-
-impl fmt::Display for OpticalToTemporalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let nl = self.nonlinear.as_ref().map(ToString::to_string);
-        let os = self.opt_loss.iter().join(", ");
-        let ol = (!os.is_empty()).then(|| format!("keys would be dropped ({os})"));
-        let es = [nl, ol].into_iter().flatten().join("; ");
-        write!(
-            f,
-            "Error converting optical index {} to temporal: {es}",
-            self.opt_index
-        )
-    }
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum OpticalToTemporalError {
+    NonLinear(OpticalNonLinearError),
+    OpticalToTemporal(AnyOpticalToTemporalKeyLossError),
 }
 
 #[derive(Debug, Error, new)]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException)
+)]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
     version: Version,
@@ -8919,6 +8884,7 @@ pub enum AnyMeasKeyLossError {
 
 /// Error when an optical keyword will be lost when converting to temporal
 #[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalToTemporalKeyLossError {
     Filter(IndexedKeyLossError<Filter>),
     Power(IndexedKeyLossError<Power>),
@@ -8939,8 +8905,7 @@ pub enum AnyOpticalToTemporalKeyLossError {
 
 /// Error when a temporal keyword will be lost when converting to optical
 #[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalToOpticalKeyLossError {
     TempType(IndexedKeyLossError<TemporalType>),
 }
@@ -9181,12 +9146,12 @@ pub struct Comp2_0TransferError;
 
 #[derive(Debug, Error, Display, new)]
 #[display(bound(T: Key))]
-#[display("{}", T::std())]
+#[display("{} must be dropped to convert", T::std())]
 pub struct UnitaryKeyLossError<T>(PhantomData<T>);
 
 #[derive(Debug, Error, Display, new)]
 #[display(bound(T: IndexedKey))]
-#[display("{}", T::std(*_1))]
+#[display("{} must be dropped to convert", T::std(*_1))]
 pub struct IndexedKeyLossError<T>(PhantomData<T>, #[new(into)] IndexFromOne);
 
 #[derive(Debug, Error)]
@@ -9313,13 +9278,21 @@ mod serialize {
 mod python {
     use crate::python::exceptions::ConversionException;
     use crate::text::ranged_float::PositiveFloat;
+    use crate::validated::keys::IndexedKey;
 
-    use super::{ConvertError, ScaleTransform};
+    use super::{ConvertError, IndexedKeyLossError, ScaleTransform};
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use std::fmt::Display;
+
+    // TODO make the derive macro add necessary bounds for this
+    impl<T: IndexedKey> From<IndexedKeyLossError<T>> for PyErr {
+        fn from(value: IndexedKeyLossError<T>) -> Self {
+            ConversionException::new_err(value.to_string())
+        }
+    }
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {

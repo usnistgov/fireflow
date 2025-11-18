@@ -1,4 +1,5 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
+use crate::core::BiIndexedKeyLossError;
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
@@ -136,6 +137,11 @@ impl Compensation2_0 {
             let xs = NonEmpty::from((col.into(), vec![row.into()]));
             ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
         })
+    }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
+        self.non_zero_indices()
+            .map(|(col, row, _)| BiIndexedKeyLossError(Key2::new_i2(col.into(), row.into())))
     }
 }
 

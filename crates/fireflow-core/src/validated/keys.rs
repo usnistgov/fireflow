@@ -343,8 +343,8 @@ impl<T> Key2<T> {
 
 #[derive(Debug, new)]
 pub struct BiIndex {
-    i0: IndexFromOne,
-    i1: IndexFromOne,
+    pub i0: IndexFromOne,
+    pub i1: IndexFromOne,
 }
 
 impl<T: Key> fmt::Display for SpecificKey<T, ()> {

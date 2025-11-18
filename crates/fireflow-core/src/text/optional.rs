@@ -1,6 +1,6 @@
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::type_families::{Applicative, Sibling1};
-use crate::validated::keys::{IndexedKey, Key, MeasHeader};
+use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader};
 
 use super::index::IndexFromOne;
 
@@ -135,14 +135,15 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
     where
         E: From<UnitaryKeyLossError<Self::Inner>>,
     {
-        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::new().into())
+        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::default().into())
     }
 
     fn indexed_key_convert_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
-        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>::new(i).into())
+        let k = Key1::new_i1(i.into());
+        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>(k).into())
     }
 }
 

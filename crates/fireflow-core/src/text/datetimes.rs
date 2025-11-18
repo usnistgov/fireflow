@@ -134,9 +134,9 @@ impl Datetimes {
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
-        let x0 = UnitaryKeyLossError::<BeginDateTime>::new();
+        let x0 = UnitaryKeyLossError::<BeginDateTime>::default();
         let y0 = self.begin.is_some().then_some(x0.into());
-        let x1 = UnitaryKeyLossError::<EndDateTime>::new();
+        let x1 = UnitaryKeyLossError::<EndDateTime>::default();
         let y1 = self.end.is_some().then_some(x1.into());
         [y0, y1].into_iter().flatten()
     }

@@ -50,11 +50,11 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
-    DetectorName, DetectorType, DetectorVoltage, Display, Endstext, Exp, ExtraStdKeywords, Feature,
-    Fil, Filter, Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier, Locationid,
-    LogScale, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
-    Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
+    DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
+    Feature, Fil, Filter, Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier,
+    Locationid, LogScale, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError,
+    Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
+    Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
     TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
     Unicode, UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
     WavelengthsLossError, Wellid,
@@ -89,8 +89,8 @@ use crate::validated::ascii_uint::{
 use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::keys::{
-    IndexedKey, Key, Key0, MeasHeader, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
-    NonStdMeasRegexError, StdKeywords, ValidKeywords,
+    BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, MeasHeader, NonStdKey, NonStdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasRegexError, StdKeywords, ValidKeywords,
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
@@ -111,7 +111,6 @@ use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -5174,7 +5173,7 @@ impl CSVFlags {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
-        let e = (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::new().into());
+        let e = (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::default().into());
         let go = |(i, f): (usize, &Option<_>)| f.indexed_key_convert_error(i);
         self.0.iter().enumerate().filter_map(go).chain(e)
     }
@@ -6197,9 +6196,15 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let is_ok = value.comp.is_none();
-        let e = Comp2_0TransferError;
-        SwitchableErrorsResult::new_deferred_switchable_ok_if(is_ok, (), e, flag)
+        let es = value
+            .comp
+            .as_ref()
+            .into_iter()
+            .flat_map(Compensation2_0::loss_errors)
+            .map(AnyMetarootKeyLossError::from);
+        let smry = Self::root_key_loss_summary();
+        let e = ErrorGroup::try_new_with(smry, es).err();
+        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6298,12 +6303,21 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let check_res = LogResult::new_ok(())
+        let es = value
+            .comp
+            .as_ref()
+            .into_iter()
+            .flat_map(Compensation2_0::loss_errors)
+            .map(AnyMetarootKeyLossError::from);
+        let smry = Self::root_key_loss_summary();
+        let e = ErrorGroup::try_new_with(smry, es).err();
+
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+            .switchable_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_errors(MetarootConvertError::from)
             .eval_deferred_warning_or_error(flag, |()| {
                 (!value.applied_gates.is_empty()).then_some(AppliedGates2_0To3_2Error)
-            })
-            .eval_deferred_warning_or_error(flag, |()| {
-                value.comp.is_some().then_some(Comp2_0TransferError)
             });
 
         let mode_res = Mode3_2::try_from(value.mode)
@@ -6460,7 +6474,7 @@ impl ScaleTransform {
     fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, IndexedKeyLossError<Gain>> {
         match self {
             Self::Lin(x) => {
-                let e = IndexedKeyLossError::<Gain>::new(i);
+                let e = IndexedKeyLossError::<Gain>(Key1::new_i1(i.into()));
                 let v = Scale::Linear;
                 LogResult::new_log_if(x.is_one(), v, v, e)
             }
@@ -8886,7 +8900,6 @@ pub enum MetarootConvertError {
     Gates3_2To2_0(AppliedGates3_2To2_0Error),
     Gates2_0To3_2(AppliedGates2_0To3_2Error),
     Loss(AnyMetarootKeyLossErrors),
-    Comp2_0(Comp2_0TransferError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8899,7 +8912,6 @@ pub enum MetarootConvertWarning {
     Loss(AnyMetarootKeyLossErrors),
     Optical(OpticalConvertWarning),
     Temporal(TemporalConvertError),
-    Comp2_0(Comp2_0TransferError),
 }
 
 pub type AnyMetarootKeyLossErrors = ErrorGroup<AnyMetarootKeyLossError, AnyMetarootKeyLossSummary>;
@@ -8918,7 +8930,8 @@ pub enum AnyMetarootKeyLossError {
     Unicode(UnitaryKeyLossError<Unicode>),
     Vol(UnitaryKeyLossError<Vol>),
     Flowrate(UnitaryKeyLossError<Flowrate>),
-    Comp(UnitaryKeyLossError<Compensation3_0>),
+    Comp2_0(BiIndexedKeyLossError<Dfc>),
+    Comp3_0(UnitaryKeyLossError<Compensation3_0>),
     Spillover(UnitaryKeyLossError<Spillover>),
     Unstained(UnstainedLossError),
     Datetime(DatetimeLossError),
@@ -9270,19 +9283,26 @@ pub struct MissingTime(pub TimeMeasNamePattern);
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
-#[derive(Debug, Error)]
-#[error("$DFCiTOj keywords are set and not applicable to the target version")]
-pub struct Comp2_0TransferError;
-
-#[derive(Debug, Error, Display, new)]
+#[derive(Debug, Error, Display)]
 #[display(bound(T: Key))]
-#[display("{} must be dropped to convert", T::std())]
-pub struct UnitaryKeyLossError<T>(PhantomData<T>);
+#[display("{_0} must be dropped to convert")]
+pub struct UnitaryKeyLossError<T>(pub Key0<T>);
 
-#[derive(Debug, Error, Display, new)]
+impl<T> Default for UnitaryKeyLossError<T> {
+    fn default() -> Self {
+        Self(Key0::default())
+    }
+}
+
+#[derive(Debug, Error, Display)]
 #[display(bound(T: IndexedKey))]
-#[display("{} must be dropped to convert", T::std(*_1))]
-pub struct IndexedKeyLossError<T>(PhantomData<T>, #[new(into)] IndexFromOne);
+#[display("{_0} must be dropped to convert")]
+pub struct IndexedKeyLossError<T>(pub Key1<T>);
+
+#[derive(Debug, Error, Display)]
+#[display(bound(T: BiIndexedKey))]
+#[display("{_0} must be dropped to convert")]
+pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
 #[derive(Debug, Error)]
 #[error("number of columns is {this_len}, input should match but got {other_len}")]
@@ -9408,9 +9428,12 @@ mod serialize {
 mod python {
     use crate::python::exceptions::ConversionException;
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{IndexedKey, Key};
+    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
-    use super::{ConvertError, IndexedKeyLossError, ScaleTransform, UnitaryKeyLossError};
+    use super::{
+        BiIndexedKeyLossError, ConvertError, IndexedKeyLossError, ScaleTransform,
+        UnitaryKeyLossError,
+    };
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
@@ -9426,6 +9449,12 @@ mod python {
     // TODO make the derive macro add necessary bounds for this
     impl<T: IndexedKey> From<IndexedKeyLossError<T>> for PyErr {
         fn from(value: IndexedKeyLossError<T>) -> Self {
+            ConversionException::new_err(value.to_string())
+        }
+    }
+
+    impl<T: BiIndexedKey> From<BiIndexedKeyLossError<T>> for PyErr {
+        fn from(value: BiIndexedKeyLossError<T>) -> Self {
             ConversionException::new_err(value.to_string())
         }
     }

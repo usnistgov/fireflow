@@ -686,19 +686,17 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Check if new name can be pushed
-    // TODO this could be an error group
     pub(crate) fn check_insert<'a>(
         &self,
         index: MeasIndex,
         name: &'a K,
-    ) -> Result<Cow<'a, Shortname>, InsertError>
+    ) -> ErrorsResult<Cow<'a, Shortname>, (), InsertError>
     where
         K: MightHave<Shortname>,
     {
-        self.check_boundary_index(index)
-            .map_err(InsertError::Index)?;
-        let n = self.check_key(name, index)?;
-        Ok(n)
+        let a = self.check_boundary_index(index).map_err(InsertError::from);
+        let b = self.check_key(name, index).map_err(InsertError::from);
+        a.zip(b).map_ok_value(|((), k)| k).set_err_value(())
     }
 
     /// Add a new non-center element at the end of the vector.
@@ -854,34 +852,37 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Test if new center with name can be pushed
-    // TODO this could be an error group
-    pub(crate) fn check_push_center(&self, name: &Shortname) -> Result<(), InsertCenterError>
+    pub(crate) fn check_push_center(
+        &self,
+        name: &Shortname,
+    ) -> ErrorsResult<(), (), PushCenterError>
     where
         K: MightHave<Shortname>,
     {
-        self.check_name(name)
-            .map_err(InsertError::NonUnique)
-            .map_err(InsertCenterError::Insert)?;
-        if matches!(self, Self::Split(_)) {
-            return Err(CenterPresentError.into());
-        }
-        Ok(())
+        let a = self.check_name(name).map_err(PushCenterError::from);
+        let b = matches!(self, Self::Split(_))
+            .then_some(CenterPresentError.into())
+            .map_or(Ok(()), Err);
+        a.zip(b).set_ok_value(())
     }
 
     /// Test if new center with name can be inserted at index
-    // TODO this could be an error group
     pub(crate) fn check_insert_center(
         &self,
         index: MeasIndex,
         name: &Shortname,
-    ) -> Result<(), InsertCenterError>
+    ) -> ErrorsResult<(), (), InsertCenterError>
     where
         K: MightHave<Shortname>,
     {
-        self.check_push_center(name)?;
-        self.check_boundary_index(index)
-            .map_err(InsertError::Index)?;
-        Ok(())
+        let a = self
+            .check_push_center(name)
+            .map_errors(InsertCenterError::from);
+        let b = self
+            .check_boundary_index(index)
+            .map_err(InsertCenterError::from)
+            .into_nowarn();
+        a.zip_commutative(b).set_ok_value(())
     }
 
     /// Push a new center element to the end of the vector
@@ -1311,9 +1312,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.find_with_name(n)
             .map_err(E::from)
             .into_log()
-            .nowarn_and_then(|index| {
-                self.set_center_by_index_inner(index.into(), swap, to_u)
-            })
+            .nowarn_and_then(|index| self.set_center_by_index_inner(index.into(), swap, to_u))
     }
 
     /// Set center to be the element with index if it exists.
@@ -1951,8 +1950,15 @@ pub enum RenameError {
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
+    Push(PushCenterError),
+    Index(BoundaryIndexError),
+}
+
+#[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum PushCenterError {
+    NonUnique(NonUniqueKeyError),
     Present(CenterPresentError),
-    Insert(InsertError),
 }
 
 #[derive(Debug, Error, Display, From)]

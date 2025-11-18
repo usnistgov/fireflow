@@ -65,8 +65,8 @@ use crate::text::lookup::{
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
     InputLengthError, InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec,
-    NewNamedVecError, NonCenterElement, NonUniqueKeyError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError,
+    NewNamedVecError, NonCenterElement, NonUniqueKeyError, PushCenterError, RenameError,
+    SetCenterError, SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -3277,16 +3277,15 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
+    ) -> WarningAndErrorsResult<(), (), AnyRangeError, PushTemporalError> {
         self.measurements
             .check_push_center(&n)
-            .map_err(InsertTemporalError::from)
-            .into_log()
+            .map_errors(PushTemporalError::from)
             .nowarn_and_then(|()| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
-                    .map_errors(InsertTemporalError::from)
+                    .map_errors(PushTemporalError::from)
                     .repack_errors()
             })
             .when_ok(|| {
@@ -3306,8 +3305,7 @@ where
     ) -> WarningAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
         self.measurements
             .check_insert_center(i, &n)
-            .map_err(InsertTemporalError::from)
-            .into_nowarn()
+            .map_errors(InsertTemporalError::from)
             .nowarn_and_then(|()| {
                 self.layout
                     .insert_nocheck(i, r, flag)
@@ -3359,9 +3357,8 @@ where
     ) -> WarningAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
         self.measurements
             .check_insert(i, &n)
-            .map(Cow::into_owned)
-            .map_err(InsertOpticalError::from)
-            .into_nowarn()
+            .map_ok_value(Cow::into_owned)
+            .map_errors(InsertOpticalError::from)
             .nowarn_and_then(|ret| {
                 self.layout
                     .insert_nocheck(i, r, flag)
@@ -4004,7 +4001,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
+    ) -> WarningAndGroupResult<(), AnyRangeError, PushTemporalError, PushTemporalSummary> {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -8560,6 +8557,13 @@ pub enum RemoveMeasByIndexError {
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum PushTemporalError {
+    Center(PushCenterError),
+    Layout(AnyRangeError),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
     Layout(AnyRangeError),
@@ -8582,7 +8586,7 @@ pub enum InsertOpticalError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
-    Measurement(InsertTemporalError),
+    Measurement(PushTemporalError),
     Column(df::ColumnLengthError),
 }
 
@@ -9223,8 +9227,6 @@ pub struct ConvertSummary {
     to: Version,
 }
 
-def_group!(PushTemporalSummary, "could not push temporal measurement");
-
 def_group!(
     SetScalesSummary,
     "could not set scales for optical measurements"
@@ -9235,11 +9237,16 @@ def_group!(
     "could not set scale transforms for optical measurements"
 );
 
-def_group!(InsertTemporalSummary, "could not push temporal measurement");
+def_group!(PushTemporalSummary, "could not push temporal measurement");
+
+def_group!(
+    InsertTemporalSummary,
+    "could not insert temporal measurement"
+);
 
 def_group!(PushOpticalSummary, "could not push optical measurement");
 
-def_group!(InsertOpticalSummary, "could not push optical measurement");
+def_group!(InsertOpticalSummary, "could not insert optical measurement");
 
 def_group!(SetMeasurementsSummary, "could not set measurements");
 

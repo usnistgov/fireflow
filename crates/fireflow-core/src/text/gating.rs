@@ -1,4 +1,5 @@
 use crate::config::{AllowLoss, ConfigFlag as _, StdTextReadConfig};
+use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
@@ -12,7 +13,7 @@ use crate::validated::keys::{
 
 use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
 use super::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
-use super::optional::KeywordPairMaybe as _;
+use super::optional::{CheckMaybe as _, KeywordPairMaybe as _};
 
 use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use super::keywords::{
@@ -28,6 +29,7 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::HashMap;
 use std::fmt;
+use std::iter::once;
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -296,12 +298,6 @@ impl AppliedGates2_0 {
         )
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        // ASSUME if this is empty then the gating regions will also be empty
-        // since they will have nothing to refer
-        self.gated_measurements.0.is_empty()
-    }
-
     pub(crate) fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -315,10 +311,12 @@ impl AppliedGates2_0 {
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let flag = conf.allow_optional_dropping;
-        ag.zip_f2_once(gm)
-            .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
+        ag.zip_f2_once(gm).and_then_deferred_switchable_result(
+            flag,
+            |(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme).map_err(LookupAppliedGatesError::Link)
-            })
+            },
+        )
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -330,6 +328,18 @@ impl AppliedGates2_0 {
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain([gate.metaroot_pair()])
             .chain(self.scheme.opt_keywords())
+    }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = AppliedGates2_0To3_2LossError> {
+        let gs = self
+            .gated_measurements
+            .loss_errors()
+            .map(AppliedGates2_0To3_2LossError::from);
+        let ss = self
+            .scheme
+            .loss_errors()
+            .map(AppliedGates2_0To3_2LossError::from);
+        gs.chain(ss)
     }
 }
 
@@ -544,10 +554,6 @@ impl AppliedGates3_2 {
         self.0.existing_link_errors(indices)
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     pub(crate) fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -559,6 +565,10 @@ impl AppliedGates3_2 {
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.0.opt_keywords()
+    }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError> {
+        self.0.loss_errors()
     }
 }
 
@@ -611,7 +621,7 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
-    pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
+    fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
         [
             self.scale.meas_opt_pair(i),
             self.filter.meas_opt_pair(i),
@@ -624,6 +634,18 @@ impl GatedMeasurement {
         ]
         .into_iter()
         .filter_map(|(k, v)| v.map(|x| (k, x)))
+    }
+
+    fn loss_errors(&self, i: GateIndex) -> impl Iterator<Item = GatedMeasurementLossError> {
+        let x0 = self.scale.indexed_key_loss_error(i);
+        let x1 = self.filter.indexed_key_loss_error(i);
+        let x2 = self.shortname.indexed_key_loss_error(i);
+        let x3 = self.percent_emitted.indexed_key_loss_error(i);
+        let x4 = self.range.indexed_key_loss_error(i);
+        let x5 = self.longname.indexed_key_loss_error(i);
+        let x6 = self.detector_type.indexed_key_loss_error(i);
+        let x7 = self.detector_voltage.indexed_key_loss_error(i);
+        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 }
 
@@ -655,12 +677,6 @@ impl<I> GatingScheme<I> {
         } else {
             Ok(Self { gating, regions })
         }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        // ASSUME gating will also be empty since it will have nothing to
-        // refer to if this is also empty
-        self.regions.is_empty()
     }
 
     /// Shift indices when a new measurement is inserted.
@@ -811,6 +827,21 @@ impl<I> GatingScheme<I> {
             .chain(self.gating.as_ref().map(OptMetarootKey::metaroot_pair))
     }
 
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError>
+    where
+        I: Copy,
+    {
+        let gating = self
+            .gating
+            .root_key_loss_error()
+            .map(GatingSchemeLossError::Gating);
+        self.regions
+            .keys()
+            .flat_map(|ri| Region::<I>::loss_errors(*ri))
+            .map(GatingSchemeLossError::from)
+            .chain(gating)
+    }
+
     fn inner_into<J: From<I>>(self) -> GatingScheme<J> {
         GatingScheme {
             gating: self.gating,
@@ -923,6 +954,19 @@ impl<I> Region<I> {
         I: Copy + FromStr + fmt::Display,
     {
         self.opt_keywords_std(i).map(|(k, v)| (k.to_string(), v))
+    }
+
+    fn loss_errors(i: RegionIndex) -> impl Iterator<Item = GateRegionLossError>
+    where
+        I: Copy,
+    {
+        let ri = IndexedKeyLossError(Key1::new_i1(i.into()));
+        let rw = IndexedKeyLossError(Key1::new_i1(i.into()));
+        [
+            GateRegionLossError::Index(ri),
+            GateRegionLossError::Window(rw),
+        ]
+        .into_iter()
     }
 
     pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
@@ -1073,6 +1117,16 @@ impl GatedMeasurements {
                 }
             })
     }
+
+    fn loss_errors(&self) -> impl Iterator<Item = GatedMeasurementsLossError> {
+        let g = GatedMeasurementsLossError::Gate(UnitaryKeyLossError::default());
+        self.0
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| m.loss_errors(i.into()))
+            .map(GatedMeasurementsLossError::from)
+            .chain(once(g))
+    }
 }
 
 impl From<AppliedGates2_0> for AppliedGates3_0 {
@@ -1145,13 +1199,46 @@ pub enum AppliedGates3_0To3_2Error {
     Scheme(#[from] DependentKeyError<Gating>),
 }
 
-#[derive(Debug, Error)]
-#[error("cannot convert 2.0 $GATING/$Gn*/$RnI/$RnW keywords to 3.2")]
-pub struct AppliedGates2_0To3_2Error;
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppliedGates2_0To3_2LossError {
+    GatedMeas(GatedMeasurementsLossError),
+    Scheme(GatingSchemeLossError),
+}
 
-#[derive(Debug, Error)]
-#[error("cannot convert 3.2 $GATING/$RnI/$RnW keywords to 2.0")]
-pub struct AppliedGates3_2To2_0Error;
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatingSchemeLossError {
+    Region(GateRegionLossError),
+    Gating(UnitaryKeyLossError<Gating>),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GateRegionLossError {
+    Index(IndexedKeyLossError<RegionGateIndex<()>>),
+    Window(IndexedKeyLossError<RegionWindow>),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatedMeasurementsLossError {
+    Gate(UnitaryKeyLossError<Gate>),
+    GatedMeas(GatedMeasurementLossError),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatedMeasurementLossError {
+    Scale(IndexedKeyLossError<GateScale>),
+    Filter(IndexedKeyLossError<GateFilter>),
+    Shortname(IndexedKeyLossError<GateShortname>),
+    PEmit(IndexedKeyLossError<GatePercentEmitted>),
+    Range(IndexedKeyLossError<GateRange>),
+    Longname(IndexedKeyLossError<GateLongname>),
+    DetType(IndexedKeyLossError<GateDetectorType>),
+    DetVolt(IndexedKeyLossError<GateDetectorVoltage>),
+}
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

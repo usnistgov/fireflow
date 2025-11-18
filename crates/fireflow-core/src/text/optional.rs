@@ -131,14 +131,14 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn root_key_convert_error<E>(&self) -> Option<E>
+    fn root_key_loss_error<E>(&self) -> Option<E>
     where
         E: From<UnitaryKeyLossError<Self::Inner>>,
     {
         (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::default().into())
     }
 
-    fn indexed_key_convert_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
+    fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {

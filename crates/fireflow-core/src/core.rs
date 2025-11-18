@@ -41,8 +41,8 @@ use crate::text::deprecated::{
     IndexedDepRef, IsDeprecated as _,
 };
 use crate::text::gating::{
-    AppliedGates2_0, AppliedGates2_0To3_2Error, AppliedGates3_0, AppliedGates3_0To2_0Error,
-    AppliedGates3_0To3_2Error, AppliedGates3_2, AppliedGates3_2To2_0Error, GateToMeasIndexError,
+    AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
+    AppliedGates3_0To3_2Error, AppliedGates3_2, GateToMeasIndexError, GatingSchemeLossError,
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
     MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
 };
@@ -1916,11 +1916,11 @@ impl<O> Optical<O> {
     }
 
     fn loss_errors(&self, i: MeasIndex) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
-        let filter = self.filter.indexed_key_convert_error(i);
-        let power = self.power.indexed_key_convert_error(i);
-        let det_type = self.detector_type.indexed_key_convert_error(i);
-        let per_emit = self.percent_emitted.indexed_key_convert_error(i);
-        let det_volt = self.detector_voltage.indexed_key_convert_error(i);
+        let filter = self.filter.indexed_key_loss_error(i);
+        let power = self.power.indexed_key_loss_error(i);
+        let det_type = self.detector_type.indexed_key_loss_error(i);
+        let per_emit = self.percent_emitted.indexed_key_loss_error(i);
+        let det_volt = self.detector_voltage.indexed_key_loss_error(i);
         [filter, power, det_type, per_emit, det_volt]
             .into_iter()
             .flatten()
@@ -5087,8 +5087,8 @@ impl UnstainedData {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = UnstainedLossError> {
-        let a = self.unstainedcenters.root_key_convert_error();
-        let b = self.unstainedinfo.root_key_convert_error();
+        let a = self.unstainedcenters.root_key_loss_error();
+        let b = self.unstainedinfo.root_key_loss_error();
         [a, b].into_iter().flatten()
     }
 }
@@ -5122,7 +5122,7 @@ impl SubsetData {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = SubsetLossError> {
-        let es = self.bits.root_key_convert_error();
+        let es = self.bits.root_key_loss_error();
         self.flags
             .loss_errors()
             .map(SubsetLossError::from)
@@ -5174,7 +5174,7 @@ impl CSVFlags {
 
     fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
         let e = (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::default().into());
-        let go = |(i, f): (usize, &Option<_>)| f.indexed_key_convert_error(i);
+        let go = |(i, f): (usize, &Option<_>)| f.indexed_key_loss_error(i);
         self.0.iter().enumerate().filter_map(go).chain(e)
     }
 }
@@ -5209,9 +5209,9 @@ impl ModificationData {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = ModificationLossError> {
-        let a = self.last_modified.root_key_convert_error();
-        let b = self.last_modifier.root_key_convert_error();
-        let c = self.originality.root_key_convert_error();
+        let a = self.last_modified.root_key_loss_error();
+        let b = self.last_modifier.root_key_loss_error();
+        let c = self.originality.root_key_loss_error();
         [a, b, c].into_iter().flatten()
     }
 }
@@ -5232,9 +5232,9 @@ impl CarrierData {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = CarrierLossError> {
-        let a = self.carrierid.root_key_convert_error();
-        let b = self.carriertype.root_key_convert_error();
-        let c = self.locationid.root_key_convert_error();
+        let a = self.carrierid.root_key_loss_error();
+        let b = self.carriertype.root_key_loss_error();
+        let c = self.locationid.root_key_loss_error();
         [a, b, c].into_iter().flatten()
     }
 }
@@ -5265,9 +5265,9 @@ impl PlateData {
     }
 
     fn loss_errors(self) -> impl Iterator<Item = PlateLossError> {
-        let a = self.platename.root_key_convert_error();
-        let b = self.plateid.root_key_convert_error();
-        let c = self.wellid.root_key_convert_error();
+        let a = self.platename.root_key_loss_error();
+        let b = self.plateid.root_key_loss_error();
+        let c = self.wellid.root_key_loss_error();
         [a, b, c].into_iter().flatten()
     }
 }
@@ -5305,8 +5305,8 @@ impl PeakData {
     }
 
     fn loss_errors(&self, i: MeasIndex) -> impl Iterator<Item = PeakLossError> {
-        let a = self.bin.indexed_key_convert_error(i);
-        let b = self.size.indexed_key_convert_error(i);
+        let a = self.bin.indexed_key_loss_error(i);
+        let b = self.size.indexed_key_loss_error(i);
         [a, b].into_iter().flatten()
     }
 }
@@ -5399,8 +5399,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value.calibration.indexed_key_convert_error(i);
-        let dpy = value.display.indexed_key_convert_error(i);
+        let cal = value.calibration.indexed_key_loss_error(i);
+        let dpy = value.display.indexed_key_loss_error(i);
         let check_errs = [cal, dpy].into_iter().flatten();
 
         let wave = value
@@ -5431,13 +5431,13 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value.calibration.indexed_key_convert_error(i);
-        let dpy = value.display.indexed_key_convert_error(i);
-        let anal = value.analyte.indexed_key_convert_error(i);
-        let feat = value.feature.indexed_key_convert_error(i);
-        let meas = value.measurement_type.indexed_key_convert_error(i);
-        let tag = value.tag.indexed_key_convert_error(i);
-        let det_name = value.detector_name.indexed_key_convert_error(i);
+        let cal = value.calibration.indexed_key_loss_error(i);
+        let dpy = value.display.indexed_key_loss_error(i);
+        let anal = value.analyte.indexed_key_loss_error(i);
+        let feat = value.feature.indexed_key_loss_error(i);
+        let meas = value.measurement_type.indexed_key_loss_error(i);
+        let tag = value.tag.indexed_key_loss_error(i);
+        let det_name = value.detector_name.indexed_key_loss_error(i);
         let check_errs = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
             .flatten();
@@ -5484,8 +5484,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value.calibration.indexed_key_convert_error(i);
-        let dpy = value.display.indexed_key_convert_error(i);
+        let cal = value.calibration.indexed_key_loss_error(i);
+        let dpy = value.display.indexed_key_loss_error(i);
         let check_errs = [cal, dpy].into_iter().flatten();
         let s = Self::meas_key_loss_summary();
         let check_err = ErrorGroup::try_new_with(s, check_errs)
@@ -5512,13 +5512,13 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let cal = value.calibration.indexed_key_convert_error(i);
-        let dpy = value.display.indexed_key_convert_error(i);
-        let anal = value.analyte.indexed_key_convert_error(i);
-        let feat = value.feature.indexed_key_convert_error(i);
-        let meas = value.measurement_type.indexed_key_convert_error(i);
-        let tag = value.tag.indexed_key_convert_error(i);
-        let det_name = value.detector_name.indexed_key_convert_error(i);
+        let cal = value.calibration.indexed_key_loss_error(i);
+        let dpy = value.display.indexed_key_loss_error(i);
+        let anal = value.analyte.indexed_key_loss_error(i);
+        let feat = value.feature.indexed_key_loss_error(i);
+        let meas = value.measurement_type.indexed_key_loss_error(i);
+        let tag = value.tag.indexed_key_loss_error(i);
+        let det_name = value.detector_name.indexed_key_loss_error(i);
 
         let check_errs = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
@@ -5575,11 +5575,11 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let anal = value.analyte.indexed_key_convert_error(i);
-        let feat = value.feature.indexed_key_convert_error(i);
-        let meas = value.measurement_type.indexed_key_convert_error(i);
-        let tag = value.tag.indexed_key_convert_error(i);
-        let det_name = value.detector_name.indexed_key_convert_error(i);
+        let anal = value.analyte.indexed_key_loss_error(i);
+        let feat = value.feature.indexed_key_loss_error(i);
+        let meas = value.measurement_type.indexed_key_loss_error(i);
+        let tag = value.tag.indexed_key_loss_error(i);
+        let det_name = value.detector_name.indexed_key_loss_error(i);
 
         let check_errs = [anal, feat, meas, tag, det_name].into_iter().flatten();
         let s = Self::meas_key_loss_summary();
@@ -5976,8 +5976,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let c = value.cytsn.root_key_convert_error();
-        let u = value.unicode.root_key_convert_error();
+        let c = value.cytsn.root_key_loss_error();
+        let u = value.unicode.root_key_loss_error();
         let s = value
             .subset
             .loss_errors()
@@ -6016,9 +6016,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
                 $x.loss_errors().map(AnyMetarootKeyLossError::from)
             };
         }
-        let cytsn = value.cytsn.root_key_convert_error();
-        let vol = value.vol.root_key_convert_error();
-        let spill = value.spillover.root_key_convert_error();
+        let cytsn = value.cytsn.root_key_loss_error();
+        let vol = value.vol.root_key_loss_error();
+        let spill = value.spillover.root_key_loss_error();
         let plate = loss_errors!(value.plate);
         let subset = loss_errors!(value.subset);
         let modi = loss_errors!(value.modification);
@@ -6056,15 +6056,16 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
                 $x.loss_errors().map(AnyMetarootKeyLossError::from)
             };
         }
-        let cytsn = value.cytsn.root_key_convert_error();
-        let vol = value.vol.root_key_convert_error();
-        let spill = value.spillover.root_key_convert_error();
-        let flow = value.flowrate.root_key_convert_error();
+        let cytsn = value.cytsn.root_key_loss_error();
+        let vol = value.vol.root_key_loss_error();
+        let spill = value.spillover.root_key_loss_error();
+        let flow = value.flowrate.root_key_loss_error();
         let modi = loss_errors!(value.modification);
         let plate = loss_errors!(value.plate);
         let dt = loss_errors!(value.datetimes);
         let carrier = loss_errors!(value.carrier);
         let us = loss_errors!(value.unstained);
+        let ag = loss_errors!(value.applied_gates);
 
         let es = [cytsn, vol, spill, flow]
             .into_iter()
@@ -6073,16 +6074,14 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .chain(plate)
             .chain(dt)
             .chain(carrier)
-            .chain(us);
+            .chain(us)
+            .chain(ag);
         let s = Self::root_key_loss_summary();
         let e = ErrorGroup::try_new_with(s, es).err();
         SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .eval_deferred_warning_or_error(flag, |()| {
-                (!value.applied_gates.is_empty()).then_some(AppliedGates3_2To2_0Error)
-            })
             .map_ok_value(|()| {
                 Self::new(
                     Mode::List,
@@ -6122,7 +6121,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         }
         let plate = loss_errors!(value.plate);
         let modi = loss_errors!(value.modification);
-        let vol = value.vol.root_key_convert_error();
+        let vol = value.vol.root_key_loss_error();
         let es = vol.into_iter().chain(plate).chain(modi);
         let s = Self::root_key_loss_summary();
         let e = ErrorGroup::try_new_with(s, es).err();
@@ -6155,8 +6154,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
                 $x.loss_errors().map(AnyMetarootKeyLossError::from)
             };
         }
-        let vol = value.vol.root_key_convert_error();
-        let flow = value.flowrate.root_key_convert_error();
+        let vol = value.vol.root_key_loss_error();
+        let flow = value.flowrate.root_key_loss_error();
         let modi = loss_errors!(value.modification);
         let plate = loss_errors!(value.plate);
         let dt = loss_errors!(value.datetimes);
@@ -6230,8 +6229,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let comp = value.comp.root_key_convert_error();
-        let us = value.unicode.root_key_convert_error();
+        let comp = value.comp.root_key_loss_error();
+        let us = value.unicode.root_key_loss_error();
         let es = [comp, us].into_iter().flatten();
         let s = Self::root_key_loss_summary();
         let e = ErrorGroup::try_new_with(s, es).err();
@@ -6273,7 +6272,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             .unstained
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
-        let flow = value.flowrate.root_key_convert_error();
+        let flow = value.flowrate.root_key_loss_error();
         let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
         let s = Self::root_key_loss_summary();
         let e = ErrorGroup::try_new_with(s, es).err();
@@ -6303,22 +6302,24 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
+        let comp = value
             .comp
             .as_ref()
             .into_iter()
             .flat_map(Compensation2_0::loss_errors)
             .map(AnyMetarootKeyLossError::from);
+        let ag = value
+            .applied_gates
+            .loss_errors()
+            .map(AnyMetarootKeyLossError::from);
+        let es = comp.chain(ag);
         let smry = Self::root_key_loss_summary();
         let e = ErrorGroup::try_new_with(smry, es).err();
 
         let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .eval_deferred_warning_or_error(flag, |()| {
-                (!value.applied_gates.is_empty()).then_some(AppliedGates2_0To3_2Error)
-            });
+            .map_errors(MetarootConvertError::from);
 
         let mode_res = Mode3_2::try_from(value.mode)
             .into_deferred_switchable_opt::<_, Vec<_>>(flag)
@@ -6359,8 +6360,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let uni = value.unicode.root_key_convert_error();
-        let comp = value.comp.root_key_convert_error();
+        let uni = value.unicode.root_key_loss_error();
+        let comp = value.comp.root_key_loss_error();
         let subset = value
             .subset
             .loss_errors()
@@ -6593,7 +6594,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         let smry = Self::meas_key_loss_summary();
         let d = value
             .display
-            .indexed_key_convert_error(i)
+            .indexed_key_loss_error(i)
             .map(|e| ErrorGroup::new1_with(smry, e))
             .map(TemporalConvertError::from);
         let es = [t, d].into_iter().flatten();
@@ -6608,8 +6609,8 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let di = value.display.indexed_key_convert_error(i);
-        let m = value.measurement_type.indexed_key_convert_error(i);
+        let di = value.display.indexed_key_loss_error(i);
+        let m = value.measurement_type.indexed_key_loss_error(i);
         let smry = Self::meas_key_loss_summary();
         let check_err = ErrorGroup::try_new_with(smry, [di, m].into_iter().flatten())
             .err()
@@ -6643,7 +6644,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         let smry = Self::meas_key_loss_summary();
         let e = value
             .display
-            .indexed_key_convert_error(i)
+            .indexed_key_loss_error(i)
             .map(|e| ErrorGroup::new1_with(smry, e))
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, value.peak);
@@ -6657,8 +6658,8 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let di = value.display.indexed_key_convert_error(i);
-        let m = value.measurement_type.indexed_key_convert_error(i);
+        let di = value.display.indexed_key_loss_error(i);
+        let m = value.measurement_type.indexed_key_loss_error(i);
         let smry = Self::meas_key_loss_summary();
         let es = ErrorGroup::try_new_with(smry, [di, m].into_iter().flatten())
             .err()
@@ -6697,7 +6698,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         let smry = Self::meas_key_loss_summary();
         let e = value
             .measurement_type
-            .indexed_key_convert_error(i)
+            .indexed_key_loss_error(i)
             .map(|e| ErrorGroup::new1_with(smry, e))
             .map(TemporalConvertError::from);
         let v = Self::new(value.timestep, value.display, PeakData::default());
@@ -7137,7 +7138,7 @@ impl VersionedOptical for InnerOptical2_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
-        self.wavelength.indexed_key_convert_error(i).into_iter()
+        self.wavelength.indexed_key_loss_error(i).into_iter()
     }
 
     fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
@@ -7172,7 +7173,7 @@ impl VersionedOptical for InnerOptical3_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
-        self.wavelength.indexed_key_convert_error(i).into_iter()
+        self.wavelength.indexed_key_loss_error(i).into_iter()
     }
 
     fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
@@ -7212,8 +7213,8 @@ impl VersionedOptical for InnerOptical3_1 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
-        let a = self.calibration.indexed_key_convert_error(i);
-        let b = self.wavelengths.indexed_key_convert_error(i);
+        let a = self.calibration.indexed_key_loss_error(i);
+        let b = self.wavelengths.indexed_key_loss_error(i);
         [a, b].into_iter().flatten()
     }
 
@@ -7258,13 +7259,13 @@ impl VersionedOptical for InnerOptical3_2 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
-        let cal = self.calibration.indexed_key_convert_error(i);
-        let wave = self.wavelengths.indexed_key_convert_error(i);
-        let meas = self.measurement_type.indexed_key_convert_error(i);
-        let anal = self.analyte.indexed_key_convert_error(i);
-        let tag = self.tag.indexed_key_convert_error(i);
-        let det_name = self.detector_name.indexed_key_convert_error(i);
-        let feat = self.feature.indexed_key_convert_error(i);
+        let cal = self.calibration.indexed_key_loss_error(i);
+        let wave = self.wavelengths.indexed_key_loss_error(i);
+        let meas = self.measurement_type.indexed_key_loss_error(i);
+        let anal = self.analyte.indexed_key_loss_error(i);
+        let tag = self.tag.indexed_key_loss_error(i);
+        let det_name = self.detector_name.indexed_key_loss_error(i);
+        let feat = self.feature.indexed_key_loss_error(i);
         [cal, wave, meas, anal, tag, det_name, feat]
             .into_iter()
             .flatten()
@@ -7394,7 +7395,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
         self.measurement_type
-            .indexed_key_convert_error(i)
+            .indexed_key_loss_error(i)
             .map_or(Ok(()), Err)
     }
 
@@ -8897,8 +8898,6 @@ pub enum MetarootConvertError {
     MeasToGate(MeasToGateIndexError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
-    Gates3_2To2_0(AppliedGates3_2To2_0Error),
-    Gates2_0To3_2(AppliedGates2_0To3_2Error),
     Loss(AnyMetarootKeyLossErrors),
 }
 
@@ -8907,8 +8906,6 @@ pub enum MetarootConvertWarning {
     Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
-    Gates3_2To2_0(AppliedGates3_2To2_0Error),
-    Gates2_0To3_2(AppliedGates2_0To3_2Error),
     Loss(AnyMetarootKeyLossErrors),
     Optical(OpticalConvertWarning),
     Temporal(TemporalConvertError),
@@ -8939,6 +8936,8 @@ pub enum AnyMetarootKeyLossError {
     Plate(PlateLossError),
     Modification(ModificationLossError),
     Subset(SubsetLossError),
+    AppliedGates2_0To3_2(AppliedGates2_0To3_2LossError),
+    AppliedGates3_2To2_0(GatingSchemeLossError),
 }
 
 pub type AnyMeasKeyLossErrors = ErrorGroup<AnyMeasKeyLossError, AnyMeasKeyLossSummary>;

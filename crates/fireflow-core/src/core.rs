@@ -3281,7 +3281,8 @@ where
         self.measurements
             .check_push_center(&n)
             .map_err(InsertTemporalError::from)
-            .and_then_log(|()| {
+            .into_log()
+            .nowarn_and_then(|()| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
@@ -3306,7 +3307,8 @@ where
         self.measurements
             .check_insert_center(i, &n)
             .map_err(InsertTemporalError::from)
-            .and_then_log(|()| {
+            .into_nowarn()
+            .nowarn_and_then(|()| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
@@ -3330,7 +3332,8 @@ where
             .check_push(&n)
             .map(Cow::into_owned)
             .map_err(PushOpticalError::from)
-            .and_then_log(|ret| {
+            .into_nowarn()
+            .nowarn_and_then(|ret| {
                 self.layout
                     .push(r, flag)
                     .switchable_into_commutative()
@@ -3358,7 +3361,8 @@ where
             .check_insert(i, &n)
             .map(Cow::into_owned)
             .map_err(InsertOpticalError::from)
-            .and_then_log(|ret| {
+            .into_nowarn()
+            .nowarn_and_then(|ret| {
                 self.layout
                     .insert_nocheck(i, r, flag)
                     .switchable_into_commutative()
@@ -4520,7 +4524,8 @@ where
         self.data
             .check_new_column(&col)
             .map_err(PushTemporalToDatasetError::from)
-            .and_then_log(|()| {
+            .into_nowarn()
+            .nowarn_and_then(|()| {
                 self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(PushTemporalToDatasetError::from)
             })
@@ -4545,7 +4550,8 @@ where
         self.data
             .check_new_column(&col)
             .map_err(InsertTemporalToDatasetError::from)
-            .and_then_log(|()| {
+            .into_nowarn()
+            .nowarn_and_then(|()| {
                 self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertTemporalToDatasetError::from)
             })
@@ -4573,7 +4579,8 @@ where
         self.data
             .check_new_column(&col)
             .map_err(PushOpticalToDatasetError::from)
-            .and_then_log(|()| {
+            .into_nowarn()
+            .nowarn_and_then(|()| {
                 self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(PushOpticalToDatasetError::from)
             })
@@ -4601,7 +4608,8 @@ where
         self.data
             .check_new_column(&col)
             .map_err(InsertOpticalInDatasetError::from)
-            .and_then_log(|()| {
+            .into_nowarn()
+            .nowarn_and_then(|()| {
                 self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertOpticalInDatasetError::from)
             })

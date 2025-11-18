@@ -717,23 +717,6 @@ pub trait ResultExt: Sized {
             Err(g) => Fail(Failure::new_from_many(g.errors, ())),
         }
     }
-
-    /// Chain a LogResult operation which returns either a warning or error.
-    ///
-    /// This is the same as `and_then_commutative` without the Semigroup
-    /// bound, which allows one to keep the cardinality of warnings and errors
-    /// as one when using an operation that only returns an error (ie Result).
-    fn and_then_log<WC, EC, F, Vf>(self, f: F) -> CommutativeResult<Vf, (), WC, Self::Error, EC>
-    where
-        F: FnOnce(Self::Ok) -> CommutativeResult<Vf, (), WC, Self::Error, EC>,
-        EC: Default,
-        WC: Default,
-    {
-        match self.into_result() {
-            Ok(v) => f(v),
-            Err(e) => LogResult::new_err(e),
-        }
-    }
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1133,6 +1116,19 @@ impl<V> Success<V, (), Nothing<()>> {
     pub(crate) fn set_warnings<WC>(self, ws: WC) -> Success<V, (), WC> {
         Success::new(self.value, (), ws)
     }
+
+    pub(crate) fn nowarn_and_then<F, Vf, P, LWC, RWC, X, E, EC>(
+        self,
+        f: F,
+    ) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
+    where
+        F: FnOnce(V) -> LogResult<Vf, P, LWC, RWC, X, E, EC>,
+    {
+        match f(self.value) {
+            Succ(s) => Succ(s),
+            Fail(e) => Fail(Failure::new(e.warnings, e.errors, e.value)),
+        }
+    }
 }
 
 //
@@ -1189,9 +1185,9 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    pub(crate) fn with_value<F, ToV, P, E, EC>(self, f: F) -> CommutativeResult<ToV, P, WC, E, EC>
+    pub(crate) fn with_log<F, Vf, P, E, EC>(self, f: F) -> CommutativeResult<Vf, P, WC, E, EC>
     where
-        F: FnOnce(V) -> CommutativeResult<ToV, P, WC, E, EC>,
+        F: FnOnce(V) -> CommutativeResult<Vf, P, WC, E, EC>,
         WC: Semigroup,
     {
         match f(self.value) {
@@ -1206,13 +1202,23 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    pub(crate) fn with_failure<F, P, PF, E, EC>(
+    fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+    {
+        match f(self.value) {
+            Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
+            Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
+        }
+    }
+
+    pub(crate) fn with_failure<F, P, Pf, E, EC>(
         self,
         other: Failure<P, WC, E, EC>,
         f: F,
-    ) -> Failure<PF, WC, E, EC>
+    ) -> Failure<Pf, WC, E, EC>
     where
-        F: FnOnce(V, P) -> PF,
+        F: FnOnce(V, P) -> Pf,
         WC: Semigroup,
     {
         let ws = self.warnings.sappend(other.warnings);
@@ -1278,6 +1284,21 @@ impl<P, E, EC> Failure<P, Nothing<()>, E, EC> {
 
     fn set_warnings<WCf>(self, ws: WCf) -> Failure<P, WCf, E, EC> {
         Failure::new(ws, self.errors, self.value)
+    }
+
+    fn nowarn_and_log<Fe, Fp, V, Pf, WC>(mut self, fp: Fp, fe: Fe) -> Failure<Pf, WC, E, EC>
+    where
+        Fe: FnOnce(P) -> CommutativeResult<V, Pf, WC, E, EC>,
+        Fp: FnOnce(V) -> Pf,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        match fe(self.value) {
+            Succ(s) => Failure::new(s.warnings, self.errors, fp(s.value)),
+            Fail(e) => {
+                self.errors.extend(e.errors);
+                Failure::new(e.warnings, self.errors, e.value)
+            }
+        }
     }
 }
 
@@ -1412,7 +1433,7 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         self.errors.extend(es);
     }
 
-    fn with_value<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
+    fn with_log<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
     where
         Fr: FnOnce(P) -> CommutativeResult<V, Pf, WC, E, EC>,
         Fp: FnOnce(V) -> Pf,
@@ -1432,13 +1453,19 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         }
     }
 
-    fn with_deferred_value<F, V>(self, f: F) -> Failure<V, WC, E, EC>
+    fn with_log_nowarn<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
     where
-        F: FnOnce(P) -> CommutativeResult<V, V, WC, E, EC>,
-        WC: Semigroup,
+        Fr: FnOnce(P) -> NowarnResult<V, Pf, E, EC>,
+        Fp: FnOnce(V) -> Pf,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
-        self.with_value(|v| v, f)
+        match fr(self.value) {
+            Succ(s) => Failure::new(self.warnings, self.errors, fp(s.value)),
+            Fail(e) => {
+                self.errors.extend(e.errors);
+                Failure::new(self.warnings, self.errors, e.value)
+            }
+        }
     }
 
     fn with_success<F, V, X, PF>(self, other: Success<V, X, WC>, f: F) -> Failure<PF, WC, E, EC>
@@ -1653,9 +1680,47 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         F: FnOnce(V) -> CommutativeResult<Vf, P, WC, E, EC>,
         WC: Semigroup,
     {
+        self.and_then_commutative_(|p| p, f)
+    }
+
+    pub(crate) fn and_then_commutative_<Fp, Fr, Vf, Pf>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        Fr: FnOnce(V) -> CommutativeResult<Vf, Pf, WC, E, EC>,
+        Fp: FnOnce(P) -> Pf,
+        WC: Semigroup,
+    {
         match self {
-            Succ(x) => x.with_value(f),
-            Fail(x) => Fail(x),
+            Succ(x) => x.with_log(fr),
+            Fail(x) => Fail(x.fmap_once(fp)),
+        }
+    }
+
+    pub(crate) fn and_then_nowarn_commutative<F, Vf>(
+        self,
+        f: F,
+    ) -> CommutativeResult<Vf, P, WC, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, P, E, EC>,
+    {
+        self.and_then_nowarn_commutative_(|p| p, f)
+    }
+
+    pub(crate) fn and_then_nowarn_commutative_<Fp, Fr, Vf, Pf>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+        Fp: FnOnce(P) -> Pf,
+    {
+        match self {
+            Succ(x) => x.with_log_nowarn(fr),
+            Fail(x) => Fail(x.fmap_once(fp)),
         }
     }
 
@@ -1751,29 +1816,6 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         self.zip5_commutative(x1, x2, x3, x4)
             .zip_commutative(x5.repack())
             .map_ok_value(|((y0, y1, y2, y3, y4), y5)| (y0, y1, y2, y3, y4, y5))
-    }
-}
-
-//
-// Commutative LogResult with one warning/error
-//
-impl<V, P, WC, E> WarningAndErrorResult<V, P, WC, E> {
-    /// Chain a result operation to a value with a warning or error.
-    ///
-    /// This is the same as `and_then_commutative` without the Semigroup
-    /// bound, which allows one to keep the cardinality of warnings and errors
-    /// as one when using an operation that only returns an error (ie Result).
-    pub(crate) fn and_then_result<Vf, F>(self, f: F) -> WarningAndErrorResult<Vf, (), WC, E>
-    where
-        F: FnOnce(V) -> Result<Vf, E>,
-    {
-        match self {
-            Succ(x) => match f(x.value) {
-                Ok(v) => Succ(Success::new(v, (), x.warnings)),
-                Err(e) => Fail(Failure::new_from_one(e, ()).set_warnings(x.warnings)),
-            },
-            Fail(x) => Fail(x.fmap_once(|_| ())),
-        }
     }
 }
 
@@ -1957,35 +1999,47 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         WC: Semigroup,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
+        self.and_then_deferred_(|v| v, f)
+    }
+
+    pub(crate) fn and_then_deferred_<Fp, Fr, Vf, Pf>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        Fr: FnOnce(V) -> CommutativeResult<Vf, Pf, WC, E, EC>,
+        Fp: FnOnce(Vf) -> Pf,
+        WC: Semigroup,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
         match self {
-            Succ(s) => s.with_value(f),
-            Fail(e) => Fail(e.with_deferred_value(f)),
+            Succ(s) => s.with_log(fr),
+            Fail(e) => Fail(e.with_log(fp, fr)),
         }
     }
 
-    pub(crate) fn and_then_deferred_result<Fv, Fp, Vf, P>(
-        self,
-        default: P,
-        fp: Fp,
-        fv: Fv,
-    ) -> CommutativeResult<Vf, P, WC, E, EC>
+    pub(crate) fn and_then_nowarn_deferred<F, Vf>(self, f: F) -> Deferred<Vf, WC, E, EC>
     where
-        Fv: FnOnce(V) -> Result<Vf, E>,
-        Fp: FnOnce(Vf) -> P,
-        EC: Extend<E> + Default,
+        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        self.and_then_nowarn_deferred_(|p| p, f)
+    }
+
+    pub(crate) fn and_then_nowarn_deferred_<Fr, Fp, Vf, Pf>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+        Fp: FnOnce(Vf) -> Pf,
+        EC: Extend<E> + IntoIterator<Item = E>,
     {
         match self {
-            Succ(s) => match fv(s.value) {
-                Ok(v) => Succ(Success::new(v, (), s.warnings)),
-                Err(e) => Fail(Failure::new_from_one(e, default).set_warnings(s.warnings)),
-            },
-            Fail(x) => {
-                let ret = match fv(x.value) {
-                    Ok(v) => Failure::new(x.warnings, x.errors, fp(v)),
-                    Err(e) => Failure::new_from_one(e, default).set_warnings(x.warnings),
-                };
-                Fail(ret)
-            }
+            Succ(s) => s.with_log_nowarn(fr),
+            Fail(e) => Fail(e.with_log_nowarn(fp, fr)),
         }
     }
 
@@ -2042,7 +2096,7 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
     ///
     /// If we know there are no warnings, then the function can return a
     /// non-commutative result type.
-    pub(crate) fn and_then_nowarn_with_warn<F, Vf, LWC, RWC, X>(
+    pub(crate) fn nowarn_and_then<F, Vf, LWC, RWC, X>(
         self,
         f: F,
     ) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
@@ -2050,9 +2104,22 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
         F: FnOnce(V) -> LogResult<Vf, P, LWC, RWC, X, E, EC>,
         RWC: Default,
     {
+        self.nowarn_and_then_(|p| p, f)
+    }
+
+    pub(crate) fn nowarn_and_then_<Fp, Fr, Vf, Pf, LWC, RWC, X>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> LogResult<Vf, Pf, LWC, RWC, X, E, EC>
+    where
+        Fr: FnOnce(V) -> LogResult<Vf, Pf, LWC, RWC, X, E, EC>,
+        Fp: FnOnce(P) -> Pf,
+        RWC: Default,
+    {
         match self {
-            Succ(x) => f(x.value),
-            Fail(x) => Fail(x.nowarn_into_warn()),
+            Succ(x) => x.nowarn_and_then(fr),
+            Fail(x) => Fail(x.nowarn_into_warn().fmap_once(fp)),
         }
     }
 }
@@ -2577,10 +2644,6 @@ impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
 // Fully-generic LogResult
 //
 impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
-    pub(crate) fn is_succ(&self) -> bool {
-        matches!(self, Succ(_))
-    }
-
     pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>(
         self,
         f: F,
@@ -2627,17 +2690,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         F: FnOnce(),
     {
         self.map_ok_value(|v| {
-            f();
-            v
-        })
-    }
-
-    /// Run function when result is Fail
-    pub(crate) fn when_fail<F>(self, f: F) -> Self
-    where
-        F: FnOnce(),
-    {
-        self.map_err_value(|v| {
             f();
             v
         })

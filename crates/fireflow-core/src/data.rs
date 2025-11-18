@@ -697,7 +697,7 @@ where
                 h.seek(SeekFrom::Start(begin))
                     .map_err(IOErrorGroup::from)
                     .into_log()
-                    .and_then_nowarn_with_warn(|_| {
+                    .nowarn_and_then(|_| {
                         self.h_read_df_inner(h, &mut buf, tot, seg, conf)
                     })
             },

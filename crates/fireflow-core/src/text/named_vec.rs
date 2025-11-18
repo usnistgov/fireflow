@@ -1140,7 +1140,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.find_with_name(n)
             .map_err(E::from)
             .into_log()
-            .and_then_nowarn_with_warn(|index| self.replace_center_at_inner(index, value, to_v))
+            .nowarn_and_then(|index| self.replace_center_at_inner(index, value, to_v))
     }
 
     /// Replace any value with a center value with name.
@@ -1186,7 +1186,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.get_index_if_named(index)
             .map_err(E::from)
             .into_log()
-            .and_then_nowarn_with_warn(|i| self.replace_center_at_inner(i.into(), value, to_v))
+            .nowarn_and_then(|i| self.replace_center_at_inner(i.into(), value, to_v))
     }
 
     /// Replace any value with a center value under index.
@@ -1311,7 +1311,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.find_with_name(n)
             .map_err(E::from)
             .into_log()
-            .and_then_nowarn_with_warn(|index| {
+            .nowarn_and_then(|index| {
                 self.set_center_by_index_inner(index.into(), swap, to_u)
             })
     }
@@ -1338,7 +1338,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.get_index_if_named(index)
             .map_err(E::from)
             .into_log()
-            .and_then_nowarn_with_warn(|i| self.set_center_by_index_inner(i, swap, to_u))
+            .nowarn_and_then(|i| self.set_center_by_index_inner(i, swap, to_u))
     }
 
     fn set_center_by_index_inner<Fswap, FtoU, LWC, RWC, E, EC>(

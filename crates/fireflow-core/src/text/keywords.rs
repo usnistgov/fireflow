@@ -757,6 +757,16 @@ pub enum CalibrationError<C> {
     Format(C),
 }
 
+impl From<Calibration3_1> for Calibration3_2 {
+    fn from(value: Calibration3_1) -> Self {
+        Self {
+            unit: value.unit,
+            offset: 0.0,
+            slope: value.slope,
+        }
+    }
+}
+
 /// The value for the $PnCALIBRATION key (3.2+)
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
@@ -794,6 +804,15 @@ impl FromStr for Calibration3_2 {
 #[error("must be like 'f1,[f2],string'")]
 pub struct CalibrationFormat3_2;
 
+impl From<Calibration3_2> for Calibration3_1 {
+    fn from(value: Calibration3_2) -> Self {
+        Self {
+            unit: value.unit,
+            slope: value.slope,
+        }
+    }
+}
+
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -802,6 +821,12 @@ pub struct CalibrationFormat3_2;
 pub struct Wavelength(pub PositiveFloat);
 
 impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
+
+impl From<Wavelength> for Wavelengths {
+    fn from(value: Wavelength) -> Self {
+        Self(vec![value.0])
+    }
+}
 
 /// The value for the $PnL key (3.1).
 ///

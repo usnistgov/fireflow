@@ -5311,69 +5311,6 @@ impl PeakData {
     }
 }
 
-impl From<FCSTime> for FCSTime60 {
-    fn from(value: FCSTime) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<FCSTime> for FCSTime100 {
-    fn from(value: FCSTime) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<FCSTime60> for FCSTime {
-    fn from(value: FCSTime60) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
-        Self(value.0.with_nanosecond(0).unwrap())
-    }
-}
-
-impl From<FCSTime100> for FCSTime {
-    fn from(value: FCSTime100) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
-        Self(value.0.with_nanosecond(0).unwrap())
-    }
-}
-
-impl From<FCSTime60> for FCSTime100 {
-    fn from(value: FCSTime60) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<FCSTime100> for FCSTime60 {
-    fn from(value: FCSTime100) -> Self {
-        Self(value.0)
-    }
-}
-
-impl From<Wavelength> for Wavelengths {
-    fn from(value: Wavelength) -> Self {
-        Self(vec![value.0])
-    }
-}
-
-impl From<Calibration3_1> for Calibration3_2 {
-    fn from(value: Calibration3_1) -> Self {
-        Self {
-            unit: value.unit,
-            offset: 0.0,
-            slope: value.slope,
-        }
-    }
-}
-
-impl From<Calibration3_2> for Calibration3_1 {
-    fn from(value: Calibration3_2) -> Self {
-        Self {
-            unit: value.unit,
-            slope: value.slope,
-        }
-    }
-}
-
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
     fn convert_from_optical(
         value: InnerOptical3_0,

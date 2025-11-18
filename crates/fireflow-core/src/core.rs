@@ -5382,6 +5382,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         ScaleTransform::try_convert_to_scale(value.scale, i)
+            .map_errors(AnyMeasKeyLossError::from)
             .group_with(Self::meas_key_loss_summary())
             .map_error(OpticalConvertWarning::from)
             .nowarn_into_switchable(flag)
@@ -5409,6 +5410,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>();
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
+            .map_errors(AnyMeasKeyLossError::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
             .group_with(Self::meas_key_loss_summary())
@@ -5442,6 +5444,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .flatten();
 
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
+            .map_errors(AnyMeasKeyLossError::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
             .group_with(Self::meas_key_loss_summary())
@@ -6416,10 +6419,10 @@ impl ScaleTransform {
     /// This may be lossy because the $PnG value cannot be represented with
     /// just a `Scale` object, and thus needs to be dropped if present and
     /// not equal to 1.0.
-    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, AnyMeasKeyLossError> {
+    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, IndexedKeyLossError<Gain>> {
         match self {
             Self::Lin(x) => {
-                let e = IndexedKeyLossError::<Gain>::new(i).into();
+                let e = IndexedKeyLossError::<Gain>::new(i);
                 let v = Scale::Linear;
                 LogResult::new_log_if(x.is_one(), v, v, e)
             }

@@ -8891,11 +8891,11 @@ impl fmt::Display for OpticalNonLinearError {
 #[derive(From, Display, Debug, Error)]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
-    Mode(ModeUpgradeError),
     GateLink(RegionToGateIndexError),
     MeasLink(RegionToMeasIndexError),
     GateToMeas(GateToMeasIndexError),
     MeasToGate(MeasToGateIndexError),
+    Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
     Loss(AnyMetarootKeyLossErrors),
@@ -8936,7 +8936,11 @@ pub enum AnyMetarootKeyLossError {
     Plate(PlateLossError),
     Modification(ModificationLossError),
     Subset(SubsetLossError),
+    // TODO maybe explain why thes are dropped. The scheme keywords are present
+    // in 3.2 but are incompabible with 2.0 since they reference measurements
+    // rather than Gn* keywords.
     AppliedGates2_0To3_2(AppliedGates2_0To3_2LossError),
+    // TODO ditto (mostly)
     AppliedGates3_2To2_0(GatingSchemeLossError),
 }
 

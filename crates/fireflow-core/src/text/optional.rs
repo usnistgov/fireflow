@@ -1,4 +1,4 @@
-use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
+use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::type_families::{Applicative, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, MeasHeader};
 
@@ -131,9 +131,9 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn root_key_convert_error(&self) -> Option<AnyMetarootKeyLossError>
+    fn root_key_convert_error<E>(&self) -> Option<E>
     where
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
+        E: From<UnitaryKeyLossError<Self::Inner>>,
     {
         (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::new().into())
     }

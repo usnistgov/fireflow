@@ -10,6 +10,7 @@ use super::optional::KeywordPairMaybe;
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_new::new;
 use regex::Regex;
 use std::fmt;
 use std::mem;
@@ -28,7 +29,7 @@ use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, AsRef, PartialEq)]
+#[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
@@ -46,11 +47,7 @@ pub struct Timestamps<X> {
 
 impl<X> Default for Timestamps<X> {
     fn default() -> Self {
-        Self {
-            btim: None,
-            etim: None,
-            date: None,
-        }
+        Self::new(None, None, None)
     }
 }
 
@@ -94,7 +91,7 @@ impl<X> Timestamps<X> {
     where
         X: PartialOrd,
     {
-        let ret = Self { btim, etim, date };
+        let ret = Self::new(btim, etim, date);
         if ret.valid() {
             LogResult::new_ok(ret)
         } else {
@@ -142,26 +139,21 @@ impl<X> Timestamps<X> {
     where
         F: Fn(X) -> Y,
     {
-        Timestamps {
-            btim: self.btim.map(|x| Xtim(f(x.0))),
-            etim: self.etim.map(|x| Xtim(f(x.0))),
-            date: self.date,
-        }
+        Timestamps::new(
+            self.btim.map(|x| Xtim(f(x.0))),
+            self.etim.map(|x| Xtim(f(x.0))),
+            self.date,
+        )
     }
 
     pub fn valid(&self) -> bool
     where
         X: PartialOrd,
     {
-        if self.date.is_some() {
-            if let (Some(b), Some(e)) = (&self.btim, &self.etim) {
-                b.0 < e.0
-            } else {
-                true
-            }
-        } else {
-            true
+        if let (Some(b), Some(e), Some(_)) = (&self.btim, &self.etim, &self.date) {
+            return b.0 < e.0;
         }
+        true
     }
 
     pub(crate) fn lookup(
@@ -174,15 +166,15 @@ impl<X> Timestamps<X> {
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
     {
-        let b = Btim::transfer_metaroot_opt_with(std, nonstd, (), conf)
-            .map_err(LookupTimestampsError::Btim)
-            .into_deferred_nowarn();
-        let e = Etim::transfer_metaroot_opt_with(std, nonstd, (), conf)
-            .map_err(LookupTimestampsError::Etim)
-            .into_deferred_nowarn();
-        let d = FCSDate::transfer_metaroot_opt_with(std, nonstd, (), conf)
-            .map_err(LookupTimestampsError::Date)
-            .into_deferred_nowarn();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_err(LookupTimestampsError::from)
+                    .into_deferred_nowarn()
+            };
+        }
+        let b = go!(Btim::transfer_metaroot_opt_with(std, nonstd, (), conf));
+        let e = go!(Etim::transfer_metaroot_opt_with(std, nonstd, (), conf));
+        let d = go!(FCSDate::transfer_metaroot_opt_with(std, nonstd, (), conf));
         let flag = conf.allow_optional_dropping;
         b.zip_f3_once(e, d)
             .and_then_deferred(|(btim, etim, date)| {
@@ -217,13 +209,10 @@ impl<X> Timestamps<X> {
         Option<Etim<X>>: KeywordPairMaybe<Inner = Etim<X>>,
         X: Copy + fmt::Display,
     {
-        [
-            self.btim.metaroot_opt_pair(),
-            self.etim.metaroot_opt_pair(),
-            self.date.metaroot_opt_pair(),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+        let a = self.btim.metaroot_opt_pair();
+        let b = self.etim.metaroot_opt_pair();
+        let c = self.date.metaroot_opt_pair();
+        [a, b, c].into_iter().filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
@@ -402,7 +391,7 @@ impl fmt::Display for FCSTime100 {
 )]
 pub struct FCSTime100Error;
 
-#[derive(Display, Debug, Error)]
+#[derive(Display, Debug, Error, From)]
 pub enum LookupTimestampsError<T, E> {
     Date(OptKeyStError<FCSDate>),
     Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),

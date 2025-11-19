@@ -6,7 +6,10 @@ use crate::logging::{
 use crate::nonempty::FCSNonEmpty;
 use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
 use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
-use crate::type_families::ApplyOnce as _;
+use crate::type_families::{
+    ApplyOnce as _, Functor, FunctorOnce, IsKind1, Kind1, impl_functor, impl_functor_common,
+    impl_functor_once, impl_kind1,
+};
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
@@ -84,7 +87,7 @@ pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 /// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
 /// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
 /// or bivariate)
-#[derive(Clone, PartialEq, AsRef)]
+#[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatingScheme<I> {
     #[as_ref(Option<Gating>)]
@@ -92,6 +95,10 @@ pub struct GatingScheme<I> {
     #[as_ref(HashMap<RegionIndex, Region<I>>)]
     regions: HashMap<RegionIndex, Region<I>>,
 }
+
+pub struct GatingSchemeFamily;
+
+impl_kind1!(GatingSchemeFamily, GatingScheme);
 
 /// A list of $Gn* keywords for indices 1-n.
 ///
@@ -109,12 +116,20 @@ pub enum Region<I> {
     Bivariate(BivariateRegion<I>),
 }
 
+pub struct RegionFamily;
+pub struct UnivariateRegionFamily;
+pub struct BivariateRegionFamily;
+
+impl_kind1!(RegionFamily, Region);
+impl_kind1!(UnivariateRegionFamily, UnivariateRegion);
+impl_kind1!(BivariateRegionFamily, BivariateRegion);
+
 pub type Region2_0 = Region<GateIndex>;
 pub type Region3_0 = Region<MeasOrGateIndex>;
 pub type Region3_2 = Region<PrefixedMeasIndex>;
 
 /// A univariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
@@ -122,7 +137,7 @@ pub struct UnivariateRegion<I> {
 }
 
 /// A bivariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
     pub vertices: FCSNonEmpty<Vertex>,
@@ -208,17 +223,31 @@ impl LinkedMeasIndex for PrefixedMeasIndex {
     }
 }
 
-impl<I> UnivariateRegion<I> {
-    fn map<F, J>(self, f: F) -> UnivariateRegion<J>
-    where
-        F: FnOnce(I) -> J,
-    {
-        UnivariateRegion {
-            gate: self.gate,
-            index: f(self.index),
-        }
-    }
+impl_functor_once!(
+    UnivariateRegion,
+    self,
+    mut f,
+    UnivariateRegion::new(self.gate, f(self.index))
+);
 
+impl_functor!(
+    BivariateRegion,
+    self,
+    f,
+    BivariateRegion::new(self.vertices, self.index.fmap(f))
+);
+
+impl_functor!(
+    Region,
+    self,
+    f,
+    match self {
+        Self::Univariate(x) => Region::Univariate(x.fmap_once(f)),
+        Self::Bivariate(x) => Region::Bivariate(x.fmap(f)),
+    }
+);
+
+impl<I> UnivariateRegion<I> {
     fn try_map<F, J, E>(self, f: F) -> Result<UnivariateRegion<J>, E>
     where
         F: FnOnce(I) -> Result<J, E>,
@@ -231,16 +260,6 @@ impl<I> UnivariateRegion<I> {
 }
 
 impl<I> BivariateRegion<I> {
-    fn map<F, J>(self, f: F) -> BivariateRegion<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        BivariateRegion {
-            vertices: self.vertices,
-            index: self.index.map(f),
-        }
-    }
-
     fn try_map<F, J, E>(self, f: F) -> Result<BivariateRegion<J>, E>
     where
         F: FnMut(I) -> Result<J, E>,
@@ -658,6 +677,17 @@ impl<I> Default for GatingScheme<I> {
     }
 }
 
+impl<I> Functor<I> for GatingScheme<I> {
+    fn fmap<F: FnMut(I) -> B, B>(self, mut f: F) -> GatingScheme<B> {
+        let rs = self
+            .regions
+            .into_iter()
+            .map(|(ri, r)| (ri, r.fmap(&mut f)))
+            .collect();
+        GatingScheme::new(self.gating, rs)
+    }
+}
+
 impl<I> GatingScheme<I> {
     pub fn try_new(
         gating: Option<Gating>,
@@ -841,17 +871,6 @@ impl<I> GatingScheme<I> {
             .map(GatingSchemeLossError::from)
             .chain(gating)
     }
-
-    fn inner_into<J: From<I>>(self) -> GatingScheme<J> {
-        GatingScheme {
-            gating: self.gating,
-            regions: self
-                .regions
-                .into_iter()
-                .map(|(ri, r)| (ri, r.inner_into()))
-                .collect(),
-        }
-    }
 }
 
 impl GatingScheme<PrefixedMeasIndex> {
@@ -914,7 +933,7 @@ impl<I> Region<I> {
                 // dropping), and demote the keywords if applicable.
                 let res = match (gi_opt, w_opt) {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
-                        Ok(x) => Ok(Some(x.inner_into())),
+                        Ok(x) => Ok(Some(x.fmap_into())),
                         Err((gi_, w_)) => {
                             if flag.is_set() {
                                 nonstd.insert_demoted_meas(ri.into(), &gi_);
@@ -985,16 +1004,6 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn map<F, J>(self, f: F) -> Region<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        match self {
-            Self::Univariate(x) => Region::Univariate(x.map(f)),
-            Self::Bivariate(x) => Region::Bivariate(x.map(f)),
-        }
-    }
-
     pub(crate) fn try_map<F, J, E>(self, f: F) -> Result<Region<J>, E>
     where
         F: FnMut(I) -> Result<J, E>,
@@ -1003,10 +1012,6 @@ impl<I> Region<I> {
             Self::Univariate(x) => Ok(Region::Univariate(x.try_map(f)?)),
             Self::Bivariate(x) => Ok(Region::Bivariate(x.try_map(f)?)),
         }
-    }
-
-    pub(crate) fn inner_into<J: From<I>>(self) -> Region<J> {
-        self.map(Into::into)
     }
 
     pub(crate) fn indices(&self) -> NonEmpty<I>
@@ -1133,7 +1138,7 @@ impl From<AppliedGates2_0> for AppliedGates3_0 {
     fn from(value: AppliedGates2_0) -> Self {
         Self {
             gated_measurements: value.gated_measurements,
-            scheme: value.scheme.inner_into(),
+            scheme: value.scheme.fmap_into(),
         }
     }
 }
@@ -1142,7 +1147,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     fn from(value: AppliedGates3_2) -> Self {
         Self {
             gated_measurements: vec![].into(),
-            scheme: value.0.inner_into(),
+            scheme: value.0.fmap_into(),
         }
     }
 }

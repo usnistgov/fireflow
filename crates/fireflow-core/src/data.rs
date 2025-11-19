@@ -87,6 +87,7 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
 
+use crate::type_families::{FunctorOnce, IsKind1, Kind1, impl_kind1};
 use crate::validated::keys::NonStdKeywords;
 use crate::validated::{
     ascii_range::{AsciiRange, Chars, NewAsciiRangeError},
@@ -697,9 +698,7 @@ where
                 h.seek(SeekFrom::Start(begin))
                     .map_err(IOErrorGroup::from)
                     .into_log()
-                    .nowarn_and_then(|_| {
-                        self.h_read_df_inner(h, &mut buf, tot, seg, conf)
-                    })
+                    .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
             },
         )
     }
@@ -2258,8 +2257,8 @@ where
         let res = T::with_tot(
             h,
             tot,
-            |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(ImpureError::inner_into),
-            |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(ImpureError::inner_into),
+            |h_, t| h_read_delim_with_rows(rs, h_, t, nbytes).map_err(ImpureError::fmap_into_once),
+            |h_| h_read_delim_without_rows(rs, h_, nbytes).map_err(ImpureError::fmap_into_once),
         );
         res.map_err(IOErrorGroup::from).into_log()
     }
@@ -3504,7 +3503,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Self::from)
-            .map_commutative_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::fmap_into_once)
     }
 }
 
@@ -3542,7 +3541,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Self::from)
-            .map_commutative_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::fmap_into_once)
     }
 }
 
@@ -3580,7 +3579,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     {
         NonMixedEndianLayout::try_new(datatype, byteord, columns, conf)
             .map_ok_value(Into::into)
-            .map_commutative_warnings(ColumnError::inner_into)
+            .map_commutative_warnings(ColumnError::fmap_into_once)
     }
 }
 
@@ -3671,7 +3670,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .collect();
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf)
                     .map_ok_value(|x| Self::NonMixed(x.phantom_into::<Option<NumType>>()))
-                    .map_commutative_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::fmap_into_once)
             }
             // has columns with 1+ datatypes, use mixed layout
             _ => {
@@ -3936,7 +3935,7 @@ impl<T> AnyOrderedLayout<T> {
         macro_rules! from {
             ($i:expr) => {
                 $i.map_errors(NewDataLayoutError::from)
-                    .map_commutative_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::fmap_into_once)
                     .map_ok_value(Self::from)
             };
         }
@@ -4065,7 +4064,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         macro_rules! from {
             ($x:expr) => {
                 $x.map_errors(NewDataLayoutError::from)
-                    .map_commutative_warnings(ColumnError::inner_into)
+                    .map_commutative_warnings(ColumnError::fmap_into_once)
                     .map_ok_value(Self::from)
             };
         }
@@ -4303,12 +4302,13 @@ pub struct ColumnError<E> {
     pub error: E,
 }
 
-impl<E> ColumnError<E> {
-    fn inner_into<X>(self) -> ColumnError<X>
-    where
-        X: From<E>,
-    {
-        ColumnError::new(self.index, self.error)
+pub struct ColumnErrorFamily;
+
+impl_kind1!(ColumnErrorFamily, ColumnError);
+
+impl<E> FunctorOnce<E> for ColumnError<E> {
+    fn fmap_once<F: FnOnce(E) -> B, B>(self, f: F) -> ColumnError<B> {
+        ColumnError::new(self.index, f(self.error))
     }
 }
 

@@ -30,7 +30,7 @@ use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
-    Sibling1,
+    Sibling1, impl_kind1,
 };
 
 use derive_new::new;
@@ -441,21 +441,19 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
-impl<E> ImpureError<E> {
-    pub fn inner_into<F>(self) -> ImpureError<F>
-    where
-        F: From<E>,
-    {
-        self.map_inner(Into::into)
-    }
-
-    pub fn map_inner<F: FnOnce(E) -> X, X>(self, f: F) -> ImpureError<X> {
+impl<E> FunctorOnce<E> for ImpureError<E> {
+    fn fmap_once<F: FnOnce(E) -> X, X>(self, f: F) -> ImpureError<X> {
         match self {
             Self::IO(x) => ImpureError::IO(x),
             Self::Pure(e) => ImpureError::Pure(f(e)),
         }
     }
 }
+
+/// Type family for impure errors
+pub struct ImpureErrorFamily;
+
+impl_kind1!(ImpureErrorFamily, ImpureError);
 
 /// Type family for `GenNonEmpty` where the container type is partially applied.
 pub struct GenNonEmptyFamily<C>(PhantomData<C>);

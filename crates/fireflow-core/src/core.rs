@@ -4405,7 +4405,7 @@ where
                         others,
                     )
                 };
-                res.map_err(|e| e.map_inner(StdWriterError::from))
+                res.map_err(|e| e.fmap_once(StdWriterError::from))
                     .map_err(IOErrorGroup::from)
                     .into_log()
             })

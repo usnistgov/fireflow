@@ -4,6 +4,9 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
+use crate::type_families::{
+    Functor, IsKind1, Kind1, impl_functor, impl_functor_common, impl_functor_once, impl_kind1,
+};
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, Key0, NonStdKeywords, StdKeywords};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
@@ -1223,7 +1226,7 @@ pub enum RegionGateIndex<I> {
 }
 
 /// The two indices of a bivariate gate
-#[derive(Clone, Copy, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, PartialEq, Display, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{x},{y}")]
 pub struct IndexPair<I> {
@@ -1231,17 +1234,12 @@ pub struct IndexPair<I> {
     pub y: I,
 }
 
-impl<I> IndexPair<I> {
-    pub(crate) fn map<F, J>(self, mut f: F) -> IndexPair<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        IndexPair {
-            x: f(self.x),
-            y: f(self.y),
-        }
-    }
+pub struct IndexPairFamily;
 
+impl_kind1!(IndexPairFamily, IndexPair);
+impl_functor!(IndexPair, self, mut f, IndexPair::new(f(self.x), f(self.y)));
+
+impl<I> IndexPair<I> {
     pub(crate) fn try_map<F, J, E>(self, mut f: F) -> Result<IndexPair<J>, E>
     where
         F: FnMut(I) -> Result<J, E>,

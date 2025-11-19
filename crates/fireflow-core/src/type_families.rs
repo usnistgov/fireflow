@@ -394,6 +394,8 @@ macro_rules! impl_functor_common {
     };
 }
 
+pub(crate) use impl_functor_common;
+
 macro_rules! impl_functor {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
         impl_functor_common!($t, Functor, fmap, FnMut, $self, mut $f, $body);
@@ -403,6 +405,8 @@ macro_rules! impl_functor {
         impl_functor_common!($t, Functor, fmap, FnMut, $self, $f, $body);
     };
 }
+
+pub(crate) use impl_functor;
 
 macro_rules! impl_functor_once {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
@@ -415,6 +419,8 @@ macro_rules! impl_functor_once {
         impl_functor_common!($t, FunctorOnce, fmap_once, FnOnce, $self, $f, $body);
     };
 }
+
+pub(crate) use impl_functor_once;
 
 impl_functor_once!(Nothing, self, _f, Nothing::default());
 impl_functor_once!(Identity, self, mut f, Identity(f(self.0)));

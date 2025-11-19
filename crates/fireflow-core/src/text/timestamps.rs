@@ -22,7 +22,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
 /// A convenient bundle holding data/time keyword values.
 ///
@@ -392,6 +392,12 @@ impl fmt::Display for FCSTime100 {
 pub struct FCSTime100Error;
 
 #[derive(Display, Debug, Error, From)]
+#[cfg_attr(
+    feature = "python",
+    derive(AllIntoPyErr),
+    bound(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<Self>),
+    bound(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<Self>)
+)]
 pub enum LookupTimestampsError<T, E> {
     Date(OptKeyStError<FCSDate>),
     Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
@@ -468,9 +474,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::text::lookup::ParseKeyError;
-
-    use super::{Btim, Etim, FCSFixedTimeError, LookupTimestampsError, Xtim};
+    use super::Xtim;
 
     use pyo3::prelude::*;
 
@@ -480,21 +484,6 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract::<T>()?))
-        }
-    }
-
-    impl<T, E> From<LookupTimestampsError<T, E>> for PyErr
-    where
-        ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<Self>,
-        ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<Self>,
-    {
-        fn from(value: LookupTimestampsError<T, E>) -> Self {
-            match value {
-                LookupTimestampsError::Date(x) => x.into(),
-                LookupTimestampsError::Btim(x) => x.into(),
-                LookupTimestampsError::Etim(x) => x.into(),
-                LookupTimestampsError::Reversed(x) => x.into(),
-            }
         }
     }
 }

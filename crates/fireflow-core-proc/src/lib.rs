@@ -1,12 +1,24 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Fields, Path, Visibility, parse_macro_input, parse_quote};
+use syn::{
+    Data, DeriveInput, Fields, Path, Visibility, WherePredicate, parse_macro_input, parse_quote,
+};
 
-#[proc_macro_derive(AllIntoPyErr)]
+#[proc_macro_derive(AllIntoPyErr, attributes(bound))]
 pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
     let generics = &parsed.generics;
+
+    let bounds: Vec<WherePredicate> = parsed
+        .attrs
+        .iter()
+        .filter_map(|a| {
+            let m = a.meta.require_list().ok()?;
+            let x = (m.path.get_ident().unwrap() == "bound").then_some(&m.tokens)?;
+            Some(parse_quote!(#x))
+        })
+        .collect();
 
     let mut into_clauses = vec![];
 
@@ -27,7 +39,10 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     }
 
     let ret = quote! {
-        impl #generics From<#name #generics> for pyo3::PyErr {
+        impl #generics From<#name #generics> for pyo3::PyErr
+        where
+            #(#bounds),*
+        {
             fn from(value: #name #generics) -> Self {
                 match value {
                     #(#into_clauses),*

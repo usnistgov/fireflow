@@ -410,6 +410,44 @@ pub enum LookupTimestampsError<T, E> {
     Reversed(ReversedTimestampsError),
 }
 
+impl From<FCSTime> for FCSTime60 {
+    fn from(value: FCSTime) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime> for FCSTime100 {
+    fn from(value: FCSTime) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime60> for FCSTime {
+    fn from(value: FCSTime60) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        Self(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime100> for FCSTime {
+    fn from(value: FCSTime100) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        Self(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime60> for FCSTime100 {
+    fn from(value: FCSTime60) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime100> for FCSTime60 {
+    fn from(value: FCSTime100) -> Self {
+        Self(value.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

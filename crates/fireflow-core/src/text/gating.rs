@@ -1143,6 +1143,8 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     "cannot convert region index ({0}) to measurement \
      index since it refers to a gate"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct RegionToMeasIndexError(GateIndex);
 
 #[derive(Debug, Error)]
@@ -1150,16 +1152,23 @@ pub struct RegionToMeasIndexError(GateIndex);
     "cannot convert region index ({0}) to gating index since \
      it refers to a measurement"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct RegionToGateIndexError(MeasIndex);
 
 #[derive(Debug, Error)]
 #[error("cannot convert gate index ({0}) to measurement index")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct GateToMeasIndexError(GateIndex);
 
 #[derive(Debug, Error)]
 #[error("cannot convert measurement index ({0}) to gate index")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
+// TODO this seems like it should be a general link error
 #[derive(Debug, Error)]
 #[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1174,6 +1183,7 @@ pub enum NewAppliedGatesWithSchemeError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
     Scheme(DependentKeyError<Gating>),
@@ -1181,6 +1191,8 @@ pub enum AppliedGates3_0To2_0Error {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub enum AppliedGates3_0To3_2Error {
     #[error("{0}")]
     Index(#[from] RegionToMeasIndexError),

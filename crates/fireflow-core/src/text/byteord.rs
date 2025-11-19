@@ -15,7 +15,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::DisplayAsPyErr;
+use {crate::python::exceptions as px, fireflow_core_proc::DisplayAsPyErr};
 
 use super::lookup::ReqMetarootKey;
 
@@ -433,6 +433,8 @@ pub struct BytesError(u8);
 
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct OrderedToEndianError;
 
 #[derive(Debug, Error)]

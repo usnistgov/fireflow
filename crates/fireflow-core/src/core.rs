@@ -5,12 +5,11 @@ use crate::config::{
     WriteConfig,
 };
 use crate::data::{
-    AnyLossError, AnyRangeError, ConvertWidthError, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, InterLayoutOps as _, IsTot, LayoutOps as _, LookupLayoutError,
-    LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
-    RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning,
-    VersionedDataLayout,
+    AnyLossError, AnyRangeError, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
+    DataLayout3_2, InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _,
+    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    NewDataLayoutError, NewDataReaderError, RawToLayoutError, RawToLayoutWarning,
+    ReadDataframeError, ReadDataframeWarning, VersionedDataLayout,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -30,7 +29,6 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning,
 };
-use crate::text::byteord::OrderedToEndianError;
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
     BeginDateTime, DatetimeLossError, Datetimes, EndDateTime, LookupDatetimesError,
@@ -46,7 +44,7 @@ use crate::text::gating::{
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
     MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
 };
-use crate::text::index::{IndexedError, IndexFromOne, MeasIndex};
+use crate::text::index::{IndexFromOne, IndexedError, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
@@ -55,8 +53,8 @@ use crate::text::keywords::{
     Locationid, LogScale, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError,
     Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
     Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
-    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, TimestepLossError, Tot, Trigger,
-    Unicode, UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
+    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
+    UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
     WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
@@ -1374,6 +1372,13 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
     ) -> LookupMetarootResult<Self>;
 }
 
+pub trait ConvertFromShortname<T: MightHave<Shortname>>: Sized
+where
+    Self: MightHave<Shortname>,
+{
+    fn convert_from_shortname(value: T, i: MeasIndex) -> Result<Self, NameConversionError>;
+}
+
 pub trait ConvertFromMetaroot<M>: Sized
 where
     Self: VersionedMetaroot,
@@ -1400,23 +1405,11 @@ where
     ) -> TemporalConvertResult<Self>;
 }
 
-pub trait ConvertFromLayout<T>: Sized
-where
-    Self: VersionedDataLayout,
-{
-    fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
-}
-
 pub trait VersionedMetaroot: Sized {
     type Ver: Versioned;
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave<Shortname>;
-
-    #[must_use]
-    fn root_key_loss_summary() -> AnyMetarootKeyLossSummary {
-        AnyMetarootKeyLossSummary::new(Self::Ver::fcs_version())
-    }
 
     /// Check that all links point to a valid name or index.
     ///
@@ -1524,11 +1517,6 @@ pub trait VersionedMetaroot: Sized {
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
 
-    #[must_use]
-    fn meas_key_loss_summary() -> AnyMeasKeyLossSummary {
-        AnyMeasKeyLossSummary::new(Self::Ver::fcs_version())
-    }
-
     fn req_suffixes_inner(
         &self,
         i: MeasIndex,
@@ -1562,11 +1550,6 @@ pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
     type Warning;
     type Error;
-
-    #[must_use]
-    fn meas_key_loss_summary() -> AnyMeasKeyLossSummary {
-        AnyMeasKeyLossSummary::new(Self::Ver::fcs_version())
-    }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
@@ -2176,8 +2159,6 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
 pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
 
 pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
-
-pub(crate) type VersionedConvertError<N, ToN> = ConvertError<<ToN as TryFrom<N>>::Error>;
 
 impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -3161,7 +3142,7 @@ where
     ) -> WarningsAndGroupResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
-        VersionedConvertError<M::Name, ToM::Name>,
+        ConvertError,
         ConvertSummary,
     >
     where
@@ -3169,7 +3150,7 @@ where
         ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
-        ToM::Name: MightHave<Shortname> + Clone + TryFrom<M::Name>,
+        ToM::Name: MightHave<Shortname> + Clone + ConvertFromShortname<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
     {
         let flag = AllowLoss(allow_loss);
@@ -3189,7 +3170,7 @@ where
                     .map_commutative_warnings(MetarootConvertWarning::from)
             })
             .and_then_commutative(|meas| {
-                meas.try_rewrapped()
+                meas.try_rewrapped(|i, n| ToM::Name::convert_from_shortname(n, i))
                     .map_errors(ConvertError::Rewrap)
                     .nowarn_into_warn()
             });
@@ -5321,8 +5302,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         ScaleTransform::try_convert_to_scale(value.scale, i)
-            .map_errors(AnyMeasKeyLossError::from)
-            .group_with(Self::meas_key_loss_summary())
+            .map_errors(AnyOpticalKeyLossError::from)
             .map_error(OpticalConvertWarning::from)
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
@@ -5345,15 +5325,14 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
 
         let wave = value
             .wavelengths
-            .into_wavelength()
+            .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>();
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
-            .map_errors(AnyMeasKeyLossError::from)
+            .map_errors(AnyOpticalKeyLossError::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .group_with(Self::meas_key_loss_summary())
-            .map_error(OpticalConvertWarning::from)
+            .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>();
 
         xform
@@ -5383,15 +5362,14 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .flatten();
 
         let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
-            .map_errors(AnyMeasKeyLossError::from)
+            .map_errors(AnyOpticalKeyLossError::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .group_with(Self::meas_key_loss_summary())
-            .map_error(OpticalConvertWarning::from)
+            .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>();
         let wave = value
             .wavelengths
-            .into_wavelength()
+            .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>();
 
@@ -5426,18 +5404,17 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
     ) -> OpticalConvertResult<Self> {
         let cal = value.calibration.indexed_key_loss_error(i);
         let dpy = value.display.indexed_key_loss_error(i);
-        let check_errs = [cal, dpy].into_iter().flatten();
-        let s = Self::meas_key_loss_summary();
-        let check_err = ErrorGroup::try_new_with(s, check_errs)
-            .err()
-            .map(OpticalConvertWarning::from);
+        let check_errs = [cal, dpy]
+            .into_iter()
+            .flatten()
+            .map(OpticalConvertWarning::Xfer);
 
         value
             .wavelengths
-            .into_wavelength()
+            .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
-            .extend_deferred_errors(check_err)
+            .extend_deferred_errors(check_errs)
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
@@ -5462,19 +5439,15 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
 
         let check_errs = [cal, dpy, anal, feat, meas, tag, det_name]
             .into_iter()
-            .flatten();
-
-        let s = Self::meas_key_loss_summary();
-        let check_err = ErrorGroup::try_new_with(s, check_errs)
-            .err()
-            .map(OpticalConvertWarning::from);
+            .flatten()
+            .map(OpticalConvertWarning::Xfer);
 
         value
             .wavelengths
-            .into_wavelength()
+            .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
-            .extend_deferred_errors(check_err)
+            .extend_deferred_errors(check_errs)
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
@@ -5521,13 +5494,12 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         let tag = value.tag.indexed_key_loss_error(i);
         let det_name = value.detector_name.indexed_key_loss_error(i);
 
-        let check_errs = [anal, feat, meas, tag, det_name].into_iter().flatten();
-        let s = Self::meas_key_loss_summary();
-        let check_err = ErrorGroup::try_new_with(s, check_errs)
-            .err()
-            .map(OpticalConvertWarning::from);
+        let check_errs = [anal, feat, meas, tag, det_name]
+            .into_iter()
+            .flatten()
+            .map(OpticalConvertWarning::Xfer);
 
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), check_err, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), check_errs, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -5550,16 +5522,15 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        let es = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let smry = Self::meas_key_loss_summary();
-        let e = ErrorGroup::try_new_with(smry, es)
-            .err()
-            .map(OpticalConvertWarning::from);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
-            .switchable_into_commutative()
-            .map_errors(OpticalConvertError::from);
         let scale_res = value.scale.ok_or(NoScaleError(i).into()).into_log();
-        check_res
+        let es = value
+            .peak
+            .loss_errors(i)
+            .map(AnyOpticalKeyLossError::from)
+            .map(OpticalConvertWarning::from);
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+            .switchable_into_commutative()
+            .map_errors(OpticalConvertError::from)
             .zip_commutative(scale_res)
             .map_ok_value(|((), s)| {
                 Self::new(
@@ -5584,12 +5555,12 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        let es = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let s = Self::meas_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es)
-            .err()
+        let es = value
+            .peak
+            .loss_errors(i)
+            .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -5614,12 +5585,12 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let s = Self::meas_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es)
-            .err()
+        let es = value
+            .peak
+            .loss_errors(i)
+            .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -5644,34 +5615,20 @@ type MetarootConvertResult<M> =
 type OpticalConvertResult<M> =
     WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
 
-type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, TemporalConvertError>;
-
-pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
+type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, AnyTemporalKeyLossError>;
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum OpticalConvertError {
     NoScale(NoScaleError),
     Warning(OpticalConvertWarning),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum OpticalConvertWarning {
     Wavelengths(WavelengthsLossError),
-    Xfer(AnyMeasKeyLossErrors),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum TemporalConvertError {
-    Timestep(TimestepLossError),
-    Xfer(AnyMeasKeyLossErrors),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum LayoutConvertError {
-    OrderToEndian(OrderedToEndianError),
-    Width(ConvertWidthError),
-    MixedToOrdered(MixedToOrderedLayoutError),
-    MixedToNonMixed(MixedToNonMixedLayoutError),
+    Xfer(AnyOpticalKeyLossError),
 }
 
 macro_rules! impl_ref {
@@ -5911,6 +5868,32 @@ where
     }
 }
 
+impl<T: MightHave<Shortname>> ConvertFromShortname<T> for T {
+    fn convert_from_shortname(value: T, _: MeasIndex) -> Result<Self, NameConversionError> {
+        Ok(value)
+    }
+}
+
+impl ConvertFromShortname<Option<Shortname>> for Identity<Shortname> {
+    fn convert_from_shortname(
+        value: Option<Shortname>,
+        i: MeasIndex,
+    ) -> Result<Self, NameConversionError> {
+        value
+            .ok_or_else(|| NameConversionError(Key1::new_i1(i.into())))
+            .map(Identity)
+    }
+}
+
+impl ConvertFromShortname<Identity<Shortname>> for Option<Shortname> {
+    fn convert_from_shortname(
+        value: Identity<Shortname>,
+        _: MeasIndex,
+    ) -> Result<Self, NameConversionError> {
+        Ok(Some(value.0))
+    }
+}
+
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_0,
@@ -5923,9 +5906,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [c, u].into_iter().flatten().chain(s);
-        let smry = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(smry, es).err();
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -5968,9 +5949,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .chain(plate)
             .chain(subset)
             .chain(modi);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6016,9 +5995,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .chain(carrier)
             .chain(us)
             .chain(ag);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6063,9 +6040,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         let modi = loss_errors!(value.modification);
         let vol = value.vol.root_key_loss_error();
         let es = vol.into_iter().chain(plate).chain(modi);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6109,9 +6084,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .chain(dt)
             .chain(carrier)
             .chain(us);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6141,9 +6114,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             .into_iter()
             .flat_map(Compensation2_0::loss_errors)
             .map(AnyMetarootKeyLossError::from);
-        let smry = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(smry, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6172,11 +6143,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         let comp = value.comp.root_key_loss_error();
         let us = value.unicode.root_key_loss_error();
         let es = [comp, us].into_iter().flatten();
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -6214,11 +6183,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             .map(AnyMetarootKeyLossError::from);
         let flow = value.flowrate.root_key_loss_error();
         let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
             .map_ok_value(|()| {
                 Self::new(
@@ -6253,10 +6220,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = comp.chain(ag);
-        let smry = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(smry, es).err();
-
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6307,9 +6271,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [uni, comp].into_iter().flatten().chain(subset);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6361,9 +6323,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .subset
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
-        let s = Self::root_key_loss_summary();
-        let e = ErrorGroup::try_new_with(s, es).err();
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_maybe((), e, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6518,7 +6478,10 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         _: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let e = value.timestep.loss_error().map(TemporalConvertError::from);
+        let e = value
+            .timestep
+            .loss_error()
+            .map(AnyTemporalKeyLossError::from);
         let v = Self::new(true, value.peak);
         SwitchableErrorsResult::new_deferred_switchable_maybe(v, e, flag)
     }
@@ -6530,13 +6493,11 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let t = value.timestep.loss_error().map(TemporalConvertError::from);
-        let smry = Self::meas_key_loss_summary();
-        let d = value
-            .display
-            .indexed_key_loss_error(i)
-            .map(|e| ErrorGroup::new1_with(smry, e))
-            .map(TemporalConvertError::from);
+        let t = value
+            .timestep
+            .loss_error()
+            .map(AnyTemporalKeyLossError::from);
+        let d = value.display.indexed_key_loss_error(i);
         let es = [t, d].into_iter().flatten();
         let v = Self::new(true, value.peak);
         LogResult::new_deferred_switchable_iter(v, es, flag)
@@ -6551,16 +6512,12 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
     ) -> TemporalConvertResult<Self> {
         let di = value.display.indexed_key_loss_error(i);
         let m = value.measurement_type.indexed_key_loss_error(i);
-        let smry = Self::meas_key_loss_summary();
-        let check_err = ErrorGroup::try_new_with(smry, [di, m].into_iter().flatten())
-            .err()
-            .map(TemporalConvertError::from);
         let t = value
             .timestep
             .loss_error()
-            .map(TemporalConvertError::Timestep);
+            .map(AnyTemporalKeyLossError::from);
+        let es = [di, m, t].into_iter().flatten();
         let v = Self::new(true, PeakData::default());
-        let es = [check_err, t].into_iter().flatten();
         LogResult::new_deferred_switchable_iter(v, es, flag)
     }
 }
@@ -6581,12 +6538,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let smry = Self::meas_key_loss_summary();
-        let e = value
-            .display
-            .indexed_key_loss_error(i)
-            .map(|e| ErrorGroup::new1_with(smry, e))
-            .map(TemporalConvertError::from);
+        let e = value.display.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.peak);
         LogResult::new_deferred_switchable_maybe(v, e, flag)
     }
@@ -6600,10 +6552,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
     ) -> TemporalConvertResult<Self> {
         let di = value.display.indexed_key_loss_error(i);
         let m = value.measurement_type.indexed_key_loss_error(i);
-        let smry = Self::meas_key_loss_summary();
-        let es = ErrorGroup::try_new_with(smry, [di, m].into_iter().flatten())
-            .err()
-            .map(TemporalConvertError::from);
+        let es = [di, m].into_iter().flatten();
         let v = Self::new(value.timestep, PeakData::default());
         LogResult::new_deferred_switchable_iter(v, es, flag)
     }
@@ -6635,12 +6584,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let smry = Self::meas_key_loss_summary();
-        let e = value
-            .measurement_type
-            .indexed_key_loss_error(i)
-            .map(|e| ErrorGroup::new1_with(smry, e))
-            .map(TemporalConvertError::from);
+        let e = value.measurement_type.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.display, PeakData::default());
         LogResult::new_deferred_switchable_maybe(v, e, flag)
     }
@@ -6652,11 +6596,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let p = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let smry = Self::meas_key_loss_summary();
-        let es = ErrorGroup::try_new_with(smry, p)
-            .err()
-            .map(TemporalConvertError::from);
+        let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(Timestep::default(), None, TemporalType::default());
         LogResult::new_deferred_switchable_iter(v, es, flag)
     }
@@ -6668,11 +6608,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let p = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let smry = Self::meas_key_loss_summary();
-        let es = ErrorGroup::try_new_with(smry, p)
-            .err()
-            .map(TemporalConvertError::from);
+        let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, None, TemporalType::default());
         LogResult::new_deferred_switchable_iter(v, es, flag)
     }
@@ -6684,91 +6620,9 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> TemporalConvertResult<Self> {
-        let smry = Self::meas_key_loss_summary();
-        let p = value.peak.loss_errors(i).map(AnyMeasKeyLossError::from);
-        let es = ErrorGroup::try_new_with(smry, p)
-            .err()
-            .map(TemporalConvertError::Xfer);
+        let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, value.display, TemporalType::default());
         LogResult::new_deferred_switchable_iter(v, es, flag)
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_1()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_1()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        match value {
-            DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
-            DataLayout3_2::Mixed(x) => x
-                .try_into_non_mixed()
-                .map_ok_value(Self)
-                .map_errors(LayoutConvertError::from),
-        }
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_2()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_2()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
     }
 }
 
@@ -8514,17 +8368,20 @@ impl OthersReader<'_> {
 }
 
 #[derive(Debug, Display, Error)]
-pub enum ConvertError<E> {
-    Rewrap(IndexedError<E>),
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ConvertError {
+    Rewrap(NameConversionError),
     Meta(MetarootConvertError),
-    Optical(IndexedError<OpticalConvertError>),
-    Temporal(IndexedError<TemporalConvertError>),
+    Optical(OpticalConvertError),
+    Temporal(AnyTemporalKeyLossError),
     Layout(LayoutConvertError),
 }
 
 #[derive(Debug, Error)]
-#[error("Some $PnN are blank and could not be converted")]
-pub struct BlankShortnames;
+#[error("{0} is required in target version but missing in current version")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+pub struct NameConversionError(Key1<Shortname>);
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdReaderError {
@@ -8732,15 +8589,10 @@ pub enum StdDatasetFromRawWarning {
     Layout(ReadDataframeWarning),
 }
 
-// #[derive(From, Display, Debug, Error)]
-// pub enum LookupMeasWarning {
-//     Parse(LookupKeysWarning),
-//     Pattern(NonStdMeasRegexError),
-// }
-
-// for now this just means $PnE isn't set and should be to convert
 #[derive(Debug, Error)]
 #[error("{} must be set before converting measurement", Scale::std(self.0))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct NoScaleError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
@@ -8830,6 +8682,7 @@ impl fmt::Display for OpticalNonLinearError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
     GateLink(RegionToGateIndexError),
@@ -8839,25 +8692,18 @@ pub enum MetarootConvertError {
     Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
-    Loss(AnyMetarootKeyLossErrors),
+    Loss(AnyMetarootKeyLossError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertWarning {
     Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),
-    Loss(AnyMetarootKeyLossErrors),
+    Loss(AnyMetarootKeyLossError),
     Optical(OpticalConvertWarning),
-    Temporal(TemporalConvertError),
-}
-
-pub type AnyMetarootKeyLossErrors = ErrorGroup<AnyMetarootKeyLossError, AnyMetarootKeyLossSummary>;
-
-#[derive(Display, Debug, new)]
-#[display("keys are not applicable to target version: {version}")]
-pub struct AnyMetarootKeyLossSummary {
-    version: Version,
+    Temporal(AnyTemporalKeyLossError),
 }
 
 /// Error when a metaroot keyword will be lost when converting versions
@@ -8885,18 +8731,10 @@ pub enum AnyMetarootKeyLossError {
     AppliedGates3_2To2_0(GatingSchemeLossError),
 }
 
-pub type AnyMeasKeyLossErrors = ErrorGroup<AnyMeasKeyLossError, AnyMeasKeyLossSummary>;
-
-#[derive(Display, Debug, new)]
-#[display("measurement keys are not applicable to target version: {version}")]
-pub struct AnyMeasKeyLossSummary {
-    version: Version,
-}
-
 /// Error when an optical keyword will be lost when converting versions
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AnyMeasKeyLossError {
+pub enum AnyOpticalKeyLossError {
     Filter(IndexedKeyLossError<Filter>),
     Power(IndexedKeyLossError<Power>),
     DetectorType(IndexedKeyLossError<DetectorType>),
@@ -8914,6 +8752,16 @@ pub enum AnyMeasKeyLossError {
     Feature(IndexedKeyLossError<Feature>),
     Calibration3_1(IndexedKeyLossError<Calibration3_1>),
     Calibration3_2(IndexedKeyLossError<Calibration3_2>),
+    Peak(PeakLossError),
+}
+
+/// Error when a temporal keyword will be lost when converting versions
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyTemporalKeyLossError {
+    TempType(IndexedKeyLossError<TemporalType>),
+    Display(IndexedKeyLossError<Display>),
+    Timestamp(UnitaryKeyLossError<Timestep>),
     Peak(PeakLossError),
 }
 
@@ -9379,15 +9227,13 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::exceptions::ConversionException;
     use crate::text::ranged_float::PositiveFloat;
 
-    use super::{ConvertError, ScaleTransform};
+    use super::ScaleTransform;
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-    use std::fmt::Display;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {
@@ -9416,12 +9262,6 @@ mod python {
                 Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
                 Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
             }
-        }
-    }
-
-    impl<E: Display> From<ConvertError<E>> for PyErr {
-        fn from(value: ConvertError<E>) -> Self {
-            ConversionException::new_err(value.to_string())
         }
     }
 }

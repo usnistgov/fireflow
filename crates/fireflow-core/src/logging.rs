@@ -378,9 +378,9 @@ impl<E, G> ErrorGroup<E, G> {
     //     Self::new1_with(G::default(), e)
     // }
 
-    pub(crate) fn new1_with(s: G, e: E) -> Self {
-        Self::new(s, GenNonEmpty::new1(e))
-    }
+    // pub(crate) fn new1_with(s: G, e: E) -> Self {
+    //     Self::new(s, GenNonEmpty::new1(e))
+    // }
 
     pub(crate) fn try_new(es: impl IntoIterator<Item = E>) -> Result<(), Self>
     where

@@ -3,9 +3,9 @@ use crate::logging::{
     LogResult, ResultExt as _,
 };
 use crate::macros::def_group;
-use crate::text::index::{BoundaryIndexError, IndexedError, IndexError, IndexFromOne, MeasIndex};
+use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, IndexedError, MeasIndex};
 use crate::text::optional::MightHave;
-use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, Sibling1, impl_kind2};
+use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 use crate::validated::shortname::Shortname;
 
 use derive_more::{Display, From, Into};
@@ -483,7 +483,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_center_value<F, Uf, P, LWC, RWC, E, EC>(
         self,
         f: F,
-    ) -> LogResult<NamedVec<K, Uf, V>, P, LWC, RWC, (), IndexedError<E>, Sibling1<EC, IndexedError<E>>>
+    ) -> LogResult<NamedVec<K, Uf, V>, P, LWC, RWC, (), E, EC>
     where
         F: Fn(IndexedElement<&Shortname, U>) -> LogResult<Uf, P, LWC, RWC, (), E, EC>,
         EC: Functor<E>,
@@ -499,7 +499,6 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let center = Pair::new(ckey, value);
                     NamedVec::new_split(s.left, center, s.right)
                 })
-                .map_errors(|error| IndexedError::new(index, error))
             }
             Self::Unsplit(u) => LogResult::new_ok(NamedVec::Unsplit(u)),
         }
@@ -510,21 +509,18 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_non_center_values<F, Vf, WC, E, EC>(
         self,
         f: F,
-    ) -> CommutativeResult<NamedVec<K, U, Vf>, (), WC, IndexedError<E>, Sibling1<EC, IndexedError<E>>>
+    ) -> CommutativeResult<NamedVec<K, U, Vf>, (), WC, E, EC>
     where
         F: Fn(MeasIndex, V) -> CommutativeResult<Vf, (), WC, E, EC>,
         WC: Monoid,
-        EC: Functor<E>,
-        Sibling1<EC, IndexedError<E>>: IntoIterator<Item = IndexedError<E>> + Extend<IndexedError<E>>,
+        EC: Functor<E> + IntoIterator<Item = E> + Extend<E>,
     {
         let go = |xs: PairedVec<K, V>, offset: usize| {
             xs.into_iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let j = i + offset;
-                    f(j.into(), p.value)
-                        .map_ok_value(|value| Pair::new(p.key, value))
-                        .map_errors(|error| IndexedError::new(j, error))
+                    f(j.into(), p.value).map_ok_value(|value| Pair::new(p.key, value))
                 })
                 .mappend_commutative()
         };
@@ -1441,20 +1437,15 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// This may fail if the original wrapped name cannot be converted.
     #[allow(clippy::type_complexity)]
-    pub(crate) fn try_rewrapped<J>(
-        self,
-    ) -> ErrorsResult<NamedVec<J, U, V>, (), IndexedError<<J as TryFrom<K>>::Error>>
+    pub(crate) fn try_rewrapped<J, E, F>(self, f: F) -> ErrorsResult<NamedVec<J, U, V>, (), E>
     where
-        J: TryFrom<K>,
+        F: Fn(MeasIndex, K) -> Result<J, E>,
     {
+        let try_go = |i: usize, p: Pair<K, V>| Ok(Pair::new(f(i.into(), p.key)?, p.value));
         let go = |xs: PairedVec<K, V>, offset: usize| {
             xs.into_iter()
                 .enumerate()
-                .map(|(i, p)| {
-                    Self::try_into_wrapper::<J>(p)
-                        .map_err(|error| IndexedError::new(i + offset, error))
-                        .into_nowarn()
-                })
+                .map(|(i, p)| try_go(i + offset, p).into_nowarn())
                 .mappend_commutative()
         };
         match self {
@@ -1469,13 +1460,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    fn try_into_wrapper<J>(p: Pair<K, V>) -> Result<Pair<J, V>, <J as TryFrom<K>>::Error>
-    where
-        J: TryFrom<K>,
-    {
-        Ok(Pair::new(p.key.try_into()?, p.value))
-    }
+    // #[allow(clippy::type_complexity)]
+    // fn try_into_wrapper<J>(p: Pair<K, V>) -> Result<Pair<J, V>, <J as TryFrom<K>>::Error>
+    // where
+    //     J: TryFrom<K>,
+    // {
+    //     Ok(Pair::new(p.key.try_into()?, p.value))
+    // }
 
     // fn from_center(p: Center<U>) -> Pair<K, V>
     // where

@@ -53,8 +53,7 @@ use crate::config::{
     StdTextReadConfig,
 };
 use crate::core::{
-    AsScaleTransform, LayoutConvertError, LayoutConvertResult, Measurements, ScaleTransform,
-    TemporalsAndOpticals, VersionedMetaroot,
+    AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
@@ -748,6 +747,14 @@ where
     }
 }
 
+/// Convert layout to new FCS version
+pub trait ConvertFromLayout<T>: Sized
+where
+    Self: VersionedDataLayout,
+{
+    fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
+}
+
 pub trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
@@ -1100,10 +1107,7 @@ macro_rules! impl_any_uint {
                 if let AnyBitmask::$var(x) = value {
                     Ok(x)
                 } else {
-                    Err(UintToUintError {
-                        from: w,
-                        to: Self::BYTES.into(),
-                    })
+                    Err(UintToUintError::new(w, Self::BYTES.into()))
                 }
             }
         }
@@ -1116,15 +1120,11 @@ macro_rules! impl_any_uint {
                     if let AnyBitmask::$var(y) = x {
                         Ok(y)
                     } else {
-                        Err(UintToUintError {
-                            from: w,
-                            to: Self::BYTES.into(),
-                        }
-                        .into())
+                        Err(UintToUintError::new(w, Self::BYTES.into()).into())
                     }
                 } else {
                     let dest_type = value.as_alpha_num_type();
-                    Err(MixedToInnerError::new(dest_type, value).into())
+                    Err(MixedToNonMixedError::new(dest_type, value).into())
                 }
             }
         }
@@ -1305,13 +1305,13 @@ impl<T: Clone, const LEN: usize> From<&FloatRange<T, LEN>> for Range {
 macro_rules! mixed_to_inner {
     ($inner:ident, $var:ident) => {
         impl TryFrom<NullMixedType> for $inner {
-            type Error = MixedToInnerError;
+            type Error = MixedToNonMixedError;
             fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
                 let dest_type = value.as_alpha_num_type();
                 if let MixedType::$var(x) = value {
                     Ok(x)
                 } else {
-                    Err(MixedToInnerError::new(dest_type, value))
+                    Err(MixedToNonMixedError::new(dest_type, value))
                 }
             }
         }
@@ -1862,12 +1862,13 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
         })
     }
 
-    pub(crate) fn uint_try_into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedUintLayout<T>> {
+    pub(crate) fn uint_try_into_ordered<T>(
+        self,
+    ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), UintEndianToOrderedLayoutError> {
         if let Some(cs) = NonEmpty::from_vec(self.columns) {
             cs.head
                 .try_into_one_size(cs.tail, self.byte_layout, 1)
-                .map_errors(|(index, error)| ConvertWidthError { index, error })
-                .map_errors(LayoutConvertError::from)
+                .map_errors(|(index, error)| IndexedError::new(index, error).into())
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
             LogResult::new_ok(FixedLayout::new(vec![], b).into())
@@ -1886,6 +1887,8 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .map(|(i, c)| {
                         c.try_into()
                             .map_err(|e| IndexedError::new(i + 1, e))
+                            .map_err(MixedToNonMixedLayoutError)
+                            .map_err(MixedToOrderedLayoutError::from)
                             .into_log()
                     })
                     .mappend_commutative()
@@ -1900,7 +1903,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::Uint(x) => x
                     .try_into_one_size(cs, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
-                    .map_errors(|(index, error)| IndexedError::new(index, error)),
+                    .map_errors(|(index, error)| error.into_col_error(index)),
                 MixedType::Ascii(x) => from_columns!(cs)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
@@ -1945,7 +1948,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 MixedType::F32(x) => from_iter!(it, x, byte_layout),
                 MixedType::F64(x) => from_iter!(it, x, byte_layout),
             }
-            .map_errors(|(i, error)| IndexedError::new(i + 1, error))
+            .map_errors(|(i, error)| IndexedError::new(i + 1, error).into())
         } else {
             let l = FixedLayout::new(vec![], self.byte_layout);
             LogResult::new_ok(NonMixedEndianLayout::Integer(l))
@@ -2917,7 +2920,7 @@ impl<C> EndianLayout<C, Option<NumType>> {
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
-        C: TryFrom<NullMixedType, Error = MixedToInnerError>,
+        C: TryFrom<NullMixedType, Error = MixedToNonMixedError>,
         NullMixedType: From<C>,
         NonMixedEndianLayout<Option<NumType>>: From<Self>,
     {
@@ -2940,7 +2943,7 @@ impl<C> EndianLayout<C, Option<NumType>> {
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, AnyRangeError>
     where
-        C: TryFrom<NullMixedType, Error = MixedToInnerError>,
+        C: TryFrom<NullMixedType, Error = MixedToNonMixedError>,
         NullMixedType: From<C>,
         NonMixedEndianLayout<Option<NumType>>: From<Self>,
     {
@@ -3682,6 +3685,84 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
+impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self(value.0.phantom_into()))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self(value.0.phantom_into()))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_1()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_1()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        match value {
+            DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
+            DataLayout3_2::Mixed(x) => x
+                .try_into_non_mixed()
+                .map_ok_value(Self)
+                .map_errors(LayoutConvertError::from),
+        }
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_2()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_2()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
+    }
+}
+
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![NumType::std_blank()]
@@ -4119,7 +4200,10 @@ impl<D> NonMixedEndianLayout<D> {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::Ascii(x) => LogResult::new_ok(x.phantom_into().into()),
-            Self::Integer(x) => x.uint_try_into_ordered().map_ok_value(Into::into),
+            Self::Integer(x) => x
+                .uint_try_into_ordered()
+                .map_ok_value(Into::into)
+                .map_errors(LayoutConvertError::from),
             Self::F32(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
             Self::F64(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
         }
@@ -4450,20 +4534,90 @@ impl fmt::Display for WidthMismatchError {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("integer conversion error in column {index}: {error}")]
-pub struct ConvertWidthError {
-    index: MeasIndex,
-    error: UintToUintError,
-}
-
-pub type MixedToOrderedLayoutError = IndexedError<MixedToOrderedConvertError>;
-pub type MixedToNonMixedLayoutError = IndexedError<MixedToInnerError>;
+pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
 
 #[derive(From, Display, Debug, Error)]
-pub enum MixedToOrderedConvertError {
-    Integer(MixedToOrderedUintError),
-    Other(MixedToInnerError),
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LayoutConvertError {
+    OrderToEndian(OrderedToEndianError),
+    Width(UintEndianToOrderedLayoutError),
+    MixedToOrdered(MixedToOrderedLayoutError),
+    MixedToNonMixed(MixedToNonMixedLayoutError),
+}
+
+/// Error when converting a 3.1/3.2 int layout to a 2.0/3.0 int layout.
+///
+/// This arises due to 3.1+ layouts being allowed to support any width and
+/// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
+#[derive(From, Debug, Error)]
+#[error(
+    "could not use {b} and {r} in new layout because source column uses \
+     {from}-byte integers and destination layout uses {to}-byte integers",
+    from = _0.error.from,
+    to = _0.error.to,
+    b = Width::std(_0.index),
+    r = Range::std(_0.index),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
+
+/// Error when converting a 3.2 mixed layout to a 3.1/3.2 non-mixed layout.
+///
+/// This will fail due to type mismatches (A, I, F, or D), since the width for
+/// integer layouts is allowed to vary.
+#[derive(From, Debug, Error)]
+#[error(
+    "could not use {b} and {r} when {p}='{from}' in layout with $DATATYPE='{to}'",
+    from = _0.error.src.as_alpha_num_type(),
+    to = _0.error.dest_type,
+    p = NumType::std(_0.index),
+    b = Width::std(_0.index),
+    r = Range::std(_0.index),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
+
+/// Error when converting a 3.2 mixed layout to a 2.0/3.0 ordered uint layout.
+///
+/// This can fail either because of a type mismatch (ie Float vs Integer) or
+/// because the width is incorrect if the mixed layout has integer columns.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MixedToOrderedLayoutError {
+    Integer(UintEndianToOrderedLayoutError),
+    Other(MixedToNonMixedLayoutError),
+}
+
+/// MixedToOrderedLayoutError without the index.
+///
+/// Used for TryFrom impl's where the index is not known
+#[derive(From)]
+pub enum MixedToOrderedUintError {
+    Integer(UintToUintError),
+    Other(MixedToNonMixedError),
+}
+
+impl MixedToOrderedUintError {
+    fn into_col_error(self, i: MeasIndex) -> MixedToOrderedLayoutError {
+        match self {
+            Self::Integer(e) => UintEndianToOrderedLayoutError(IndexedError::new(i, e)).into(),
+            Self::Other(e) => MixedToNonMixedLayoutError(IndexedError::new(i, e)).into(),
+        }
+    }
+}
+
+#[derive(Debug, new)]
+pub struct UintToUintError {
+    from: NonZeroU8,
+    to: u8,
+}
+
+#[derive(Debug, new)]
+pub struct MixedToNonMixedError {
+    dest_type: AlphaNumType,
+    src: NullMixedType,
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -4473,26 +4627,6 @@ pub enum AnyRangeError {
     Ascii(IntRangeError<()>),
     Int(BitmaskError),
     Float(DecimalToFloatError),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum MixedToOrderedUintError {
-    IsWrongInteger(UintToUintError),
-    Other(MixedToInnerError),
-}
-
-#[derive(Debug, Error)]
-#[error("could not convert integer from {from} bytes to {to} bytes")]
-pub struct UintToUintError {
-    from: NonZeroU8,
-    to: u8,
-}
-
-#[derive(Debug, Error, new)]
-#[error("could not convert mixed from {} to {dest_type}", .src.as_alpha_num_type())]
-pub struct MixedToInnerError {
-    dest_type: AlphaNumType,
-    src: NullMixedType,
 }
 
 #[derive(From, Display, Debug, Error)]

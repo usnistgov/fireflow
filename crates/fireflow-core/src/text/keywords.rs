@@ -1,4 +1,5 @@
 use crate::config::{AllowOptionalDropping, StdTextReadConfig};
+use crate::core::UnitaryKeyLossError;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -6,7 +7,9 @@ use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
 use crate::validated::ascii_uint::UintZeroPad20;
-use crate::validated::keys::{BiIndexedKey, IndexedKey, Key, Key0, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{
+    BiIndexedKey, IndexedKey, Key, Key0, Key1, NonStdKeywords, StdKeywords,
+};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
@@ -252,14 +255,10 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn loss_error(self) -> Option<TimestepLossError> {
-        (!self.0.is_one()).then_some(TimestepLossError(self))
+    pub(crate) fn loss_error(self) -> Option<UnitaryKeyLossError<Self>> {
+        (!self.0.is_one()).then_some(UnitaryKeyLossError::default())
     }
 }
-
-#[derive(Debug, Error)]
-#[error("$TIMESTEP is {0} and will be 1.0 after conversion")]
-pub struct TimestepLossError(Timestep);
 
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
@@ -427,7 +426,9 @@ impl TryFrom<Mode> for Mode3_2 {
 pub struct Mode3_2Error;
 
 #[derive(Debug, Error)]
-#[error("pre-3.2 $MODE must be 'L' to upgrade to 3.2 $MODE")]
+#[error("$MODE must be 'L'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub struct ModeUpgradeError;
 
 /// The value for the $PnDISPLAY key (3.1+)
@@ -890,10 +891,14 @@ impl FromStrDelim for Wavelengths {
 }
 
 impl Wavelengths {
-    pub(crate) fn into_wavelength(self) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
+    pub(crate) fn into_wavelength(
+        self,
+        i: MeasIndex,
+    ) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
         NonEmpty::from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
-            let e = WavelengthsLossError(n);
+            let k = Key1::new_i1(i.into());
+            let e = WavelengthsLossError(k, n);
             LogResult::new_deferred_if(n == 1, Some(Wavelength(ws.head)), e)
         })
     }
@@ -901,10 +906,12 @@ impl Wavelengths {
 
 #[derive(Debug, Error)]
 #[error(
-    "wavelengths is {0} elements long and will \
+    "{0} is {1} elements long and will \
      be reduced to first upon conversion"
 )]
-pub struct WavelengthsLossError(pub usize);
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
 
 #[derive(Debug, Error)]
 pub enum WavelengthsError {
@@ -1933,6 +1940,8 @@ impl TryFrom<Cyt> for Cyt3_2 {
 
 #[derive(Debug, Error)]
 #[error("$CYT is missing")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct NoCytError;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)

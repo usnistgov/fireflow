@@ -387,6 +387,8 @@ pub trait Pointed<A>: IsKind1 {
 
 macro_rules! impl_kind1 {
     ($f:ident, $t:ident) => {
+        pub struct $f;
+
         impl crate::type_families::Kind1 for $f {
             type Type<T> = $t<T>;
         }
@@ -401,6 +403,8 @@ pub(crate) use impl_kind1;
 
 macro_rules! impl_kind2 {
     ($f:ident, $t:ident) => {
+        pub struct $f;
+
         impl crate::type_families::Kind2 for $f {
             type Type<A, B> = $t<A, B>;
         }
@@ -412,14 +416,6 @@ macro_rules! impl_kind2 {
 }
 
 pub(crate) use impl_kind2;
-
-pub struct OptFamily;
-
-pub struct IdFamily;
-
-pub struct VecFamily;
-
-pub struct NullFamily;
 
 pub struct HashMapFamily<K, S>(PhantomData<K>, PhantomData<S>);
 

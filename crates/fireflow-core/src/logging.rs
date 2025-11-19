@@ -450,9 +450,6 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
     }
 }
 
-/// Type family for impure errors
-pub struct ImpureErrorFamily;
-
 impl_kind1!(ImpureErrorFamily, ImpureError);
 
 /// Type family for `GenNonEmpty` where the container type is partially applied.

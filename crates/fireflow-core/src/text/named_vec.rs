@@ -5,9 +5,7 @@ use crate::logging::{
 };
 use crate::macros::def_group;
 use crate::text::optional::MightHave;
-use crate::type_families::{
-    BifunctorOnce, Functor, IsKind2, Kind2, Monoid, Pointed, Sibling1, impl_kind2,
-};
+use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, Sibling1, impl_kind2};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -93,8 +91,6 @@ pub enum Element<U, V> {
     Center(U),
     NonCenter(V),
 }
-
-pub struct ElementFamily;
 
 impl_kind2!(ElementFamily, Element);
 

@@ -4304,8 +4304,6 @@ pub struct ColumnError<E> {
     pub error: E,
 }
 
-pub struct ColumnErrorFamily;
-
 impl_kind1!(ColumnErrorFamily, ColumnError);
 
 impl_functor_once!(

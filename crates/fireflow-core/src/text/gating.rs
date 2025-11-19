@@ -96,8 +96,6 @@ pub struct GatingScheme<I> {
     regions: HashMap<RegionIndex, Region<I>>,
 }
 
-pub struct GatingSchemeFamily;
-
 impl_kind1!(GatingSchemeFamily, GatingScheme);
 
 /// A list of $Gn* keywords for indices 1-n.
@@ -115,10 +113,6 @@ pub enum Region<I> {
     Univariate(UnivariateRegion<I>),
     Bivariate(BivariateRegion<I>),
 }
-
-pub struct RegionFamily;
-pub struct UnivariateRegionFamily;
-pub struct BivariateRegionFamily;
 
 impl_kind1!(RegionFamily, Region);
 impl_kind1!(UnivariateRegionFamily, UnivariateRegion);

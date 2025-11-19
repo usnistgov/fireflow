@@ -1232,8 +1232,6 @@ pub struct IndexPair<I> {
     pub y: I,
 }
 
-pub struct IndexPairFamily;
-
 impl_kind1!(IndexPairFamily, IndexPair);
 impl_functor!(IndexPair, self, mut f, IndexPair::new(f(self.x), f(self.y)));
 

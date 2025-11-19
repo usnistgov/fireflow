@@ -29,8 +29,8 @@
 use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 use crate::type_families::{
-    Applicative, Apply, ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid,
-    Semigroup, Sibling1,
+    ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
+    Sibling1,
 };
 
 use derive_new::new;
@@ -654,10 +654,10 @@ pub trait ResultExt: Sized {
     fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
     where
         Self::Ok: Default,
-        LWC: Default + Applicative<Self::Error>,
+        LWC: Default + Pointed<Self::Error>,
     {
         let ret = self.into_result().map_or_else(
-            |e| Success::new(Self::Ok::default(), (), LWC::pure(e)),
+            |e| Success::new(Self::Ok::default(), (), LWC::wrap(e)),
             Success::new_non_switchable,
         );
         Succ(ret)
@@ -667,7 +667,7 @@ pub trait ResultExt: Sized {
         self,
     ) -> LogResult<Option<Self::Ok>, P, LWC, RWC, (), E, EC>
     where
-        LWC: Default + Applicative<Self::Error>,
+        LWC: Default + Pointed<Self::Error>,
     {
         self.into_result().map(Some).into_succ()
     }
@@ -677,7 +677,7 @@ pub trait ResultExt: Sized {
         default: Self::Ok,
     ) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
     where
-        LWC: Applicative<Self::Error> + Default,
+        LWC: Pointed<Self::Error> + Default,
     {
         self.into_succ_opt().map_ok_value(|x| x.unwrap_or(default))
     }
@@ -880,12 +880,12 @@ impl<I, V, WC, E, EC> DeferredIter<V, WC, E, EC> for I where
 /// A constraint relating error and warning containers for switchable errors.
 pub trait SwitchableErrorContainer: Sized {
     type Inner;
-    type Warn: Applicative<Self::Inner>;
+    type Warn: Pointed<Self::Inner>;
 
     fn errors_to_warnings(errors: GenNonEmpty<Self::Inner, Self>) -> Self::Warn;
 
     fn error_to_warning(error: Self::Inner) -> Self::Warn {
-        Self::Warn::pure(error)
+        Self::Warn::wrap(error)
     }
 }
 
@@ -935,14 +935,8 @@ impl<T> IntoNewCardinality<Vec<T>> for Option<T> {
     }
 }
 
-impl<A, T: Apply<A>> Apply<A> for GenNonEmpty<A, T> {
-    fn lift_f2<F: Fn(A, B) -> C, B, C>(self, other: Sibling1<Self, B>, f: F) -> Sibling1<Self, C> {
-        GenNonEmpty::new(f(self.head, other.head), self.tail.lift_f2(other.tail, f))
-    }
-}
-
-impl<A, T: Applicative<A> + Default> Applicative<A> for GenNonEmpty<A, T> {
-    fn pure(a: A) -> Self {
+impl<A, T: IsKind1 + Default> Pointed<A> for GenNonEmpty<A, T> {
+    fn wrap(a: A) -> Self {
         Self::new(a, T::default())
     }
 }

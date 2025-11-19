@@ -82,7 +82,7 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
-use crate::type_families::{Applicative, ApplyOnce as _, FunctorOnce as _};
+use crate::type_families::{ApplyOnce as _, FunctorOnce as _, Pointed};
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
 };
@@ -3674,7 +3674,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
-        M::Name: Applicative<Shortname>,
+        M::Name: Pointed<Shortname>,
         Version: From<M::Ver>,
     {
         // Use nonstandard measurement pattern to assign keyvals to their
@@ -3727,7 +3727,7 @@ where
                                 {
                                     return Ok(name);
                                 }
-                                Err(M::Name::pure(name))
+                                Err(M::Name::wrap(name))
                             });
                             // Once we checked $PnN, pull all the rest of the
                             // standardized keywords from the hashtable and collect

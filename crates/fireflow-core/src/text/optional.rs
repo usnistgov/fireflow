@@ -1,5 +1,5 @@
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
-use crate::type_families::{Applicative, Sibling1};
+use crate::type_families::{Pointed, Sibling1};
 use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader};
 
 use super::index::IndexFromOne;
@@ -190,7 +190,7 @@ impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
 /// Encodes a type which might have something in it.
 ///
 /// Intended to be used as a "type family" pattern.
-pub trait MightHave<A>: Applicative<A> {
+pub trait MightHave<A>: Pointed<A> + Sized {
     /// If true, the wrapper will always have a value.
     ///
     /// Obviously, the implementation needs to ensure this is in sync with the

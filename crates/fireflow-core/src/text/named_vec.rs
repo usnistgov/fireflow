@@ -5,7 +5,7 @@ use crate::logging::{
 };
 use crate::macros::def_group;
 use crate::text::optional::MightHave;
-use crate::type_families::{Applicative, Functor, Monoid, Sibling1};
+use crate::type_families::{Functor, Monoid, Pointed, Sibling1};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -746,7 +746,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         value: V,
     ) -> Result<Element<U, V>, ElementIndexError>
     where
-        K: Applicative<Shortname>,
+        K: Pointed<Shortname>,
     {
         let i = self.check_element_index(index, true)?;
         let (newself, ret) = match mem::take(self) {
@@ -758,7 +758,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         (Self::Split(s), Element::NonCenter(ret))
                     }
                     Equal => {
-                        let key = K::pure(s.center.key);
+                        let key = K::wrap(s.center.key);
                         let members = s
                             .left
                             .into_iter()
@@ -830,7 +830,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let ln = s.left.len();
                     match i.cmp(&ln) {
                         Less => mem::replace(&mut s.left[i].key, key),
-                        Equal => K::pure(mem::replace(&mut s.center.key, k.clone())),
+                        Equal => K::wrap(mem::replace(&mut s.center.key, k.clone())),
                         Greater => mem::replace(&mut s.right[i - ln - 1].key, key),
                     }
                 }
@@ -1101,7 +1101,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let mut mapping = HashMap::new();
         let mut go = |side: &mut PairedVec<K, V>, ns_side: Vec<Shortname>| {
             for (p, n) in side.iter_mut().zip(ns_side) {
-                let old = mem::replace(&mut p.key, K::pure(n.clone()));
+                let old = mem::replace(&mut p.key, K::wrap(n.clone()));
                 if let Some(old_name) = old.to_opt() {
                     mapping.insert(old_name, n);
                 }
@@ -1428,7 +1428,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         F: FnOnce(MeasIndex, U) -> LogResult<(V, X), U, LWC, RWC, (), E, EC>,
         LWC: Default,
-        K: Applicative<Shortname>,
+        K: Pointed<Shortname>,
     {
         match mem::take(self) {
             Self::Split(s) => {
@@ -1436,7 +1436,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 to_v(index, s.center.value)
                     .inject_value((s.left, s.center.key, s.right))
                     .map_ok_value(|((value, ret), (left, center_key, right))| {
-                        let non_center = Pair::new(K::pure(center_key), value);
+                        let non_center = Pair::new(K::wrap(center_key), value);
                         let members = left.into_iter().chain([non_center]).chain(right).collect();
                         (Self::new_unsplit(members), Some(ret))
                     })
@@ -1641,7 +1641,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let new_center = Pair::new(stable.selected_left_key.to_opt()?, new_center_value);
-        let new_right_pair = Pair::new(K::pure(stable.center_key), new_right_value);
+        let new_right_pair = Pair::new(K::wrap(stable.center_key), new_right_value);
         let new_right = stable
             .left_right
             .into_iter()
@@ -1676,7 +1676,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let new_center = Pair::new(stable.selected_right_key.to_opt()?, new_center_value);
-        let new_left_pair = Pair::new(K::pure(stable.center_key), new_left_value);
+        let new_left_pair = Pair::new(K::wrap(stable.center_key), new_left_value);
         let new_left = stable
             .left
             .into_iter()
@@ -1743,10 +1743,10 @@ impl<U, V> Element<U, V> {
 
     pub fn unzip<K>(e: EitherPair<K, U, V>) -> (K, Self)
     where
-        K: Applicative<Shortname>,
+        K: Pointed<Shortname>,
     {
         e.both(
-            |p| (K::pure(p.key), Self::Center(p.value)),
+            |p| (K::wrap(p.key), Self::Center(p.value)),
             |p| (p.key, Self::NonCenter(p.value)),
         )
     }

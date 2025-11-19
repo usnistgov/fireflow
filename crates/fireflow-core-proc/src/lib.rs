@@ -10,15 +10,7 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     let name = &parsed.ident;
     let generics = &parsed.generics;
 
-    let bounds: Vec<WherePredicate> = parsed
-        .attrs
-        .iter()
-        .filter_map(|a| {
-            let m = a.meta.require_list().ok()?;
-            let x = (m.path.get_ident().unwrap() == "bound").then_some(&m.tokens)?;
-            Some(parse_quote!(#x))
-        })
-        .collect();
+    let bounds = parse_bounds(&parsed);
 
     let mut into_clauses = vec![];
 
@@ -57,11 +49,13 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
 ///
 /// The exception type is determined by the pyerr attribute. If not path is
 /// supplied, it is assumed to be from pyo3::exceptions (example, PyValueError).
-#[proc_macro_derive(DisplayAsPyErr, attributes(pyerr))]
-pub fn derive_into_builtin_pyerr(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(DisplayAsPyErr, attributes(pyerr, bound))]
+pub fn derive_display_as_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
     let generics = &parsed.generics;
+
+    let bounds = parse_bounds(&parsed);
 
     let epath: Path = parsed
         .attrs
@@ -80,7 +74,10 @@ pub fn derive_into_builtin_pyerr(input: TokenStream) -> TokenStream {
     };
 
     let ret = quote! {
-        impl #generics From<#name #generics> for pyo3::PyErr {
+        impl #generics From<#name #generics> for pyo3::PyErr
+        where
+            #(#bounds),*
+        {
             fn from(value: #name #generics) -> Self {
                 #full_epath::new_err(value.to_string())
             }
@@ -190,4 +187,16 @@ pub fn derive_try_from_py(input: TokenStream) -> TokenStream {
         }
     };
     ret.into()
+}
+
+fn parse_bounds(parsed: &DeriveInput) -> Vec<WherePredicate> {
+    parsed
+        .attrs
+        .iter()
+        .filter_map(|a| {
+            let m = a.meta.require_list().ok()?;
+            let x = (m.path.get_ident().unwrap() == "bound").then_some(&m.tokens)?;
+            Some(parse_quote!(#x))
+        })
+        .collect()
 }

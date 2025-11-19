@@ -95,7 +95,7 @@ use crate::validated::keys::{
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime, Timelike as _};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -9226,6 +9226,9 @@ type LookupTEXTOffsetsResult<T> =
 #[derive(Debug, Error, Display)]
 #[display(bound(T: Key))]
 #[display("{_0} must be dropped to convert")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", bound(T: Key))]
 pub struct UnitaryKeyLossError<T>(pub Key0<T>);
 
 impl<T> Default for UnitaryKeyLossError<T> {
@@ -9237,11 +9240,17 @@ impl<T> Default for UnitaryKeyLossError<T> {
 #[derive(Debug, Error, Display)]
 #[display(bound(T: IndexedKey))]
 #[display("{_0} must be dropped to convert")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", bound(T: IndexedKey))]
 pub struct IndexedKeyLossError<T>(pub Key1<T>);
 
 #[derive(Debug, Error, Display)]
 #[display(bound(T: BiIndexedKey))]
 #[display("{_0} must be dropped to convert")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", bound(T: BiIndexedKey))]
 pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
 #[derive(Debug, Error)]
@@ -9368,36 +9377,13 @@ mod serialize {
 mod python {
     use crate::python::exceptions::ConversionException;
     use crate::text::ranged_float::PositiveFloat;
-    use crate::validated::keys::{BiIndexedKey, IndexedKey, Key};
 
-    use super::{
-        BiIndexedKeyLossError, ConvertError, IndexedKeyLossError, ScaleTransform,
-        UnitaryKeyLossError,
-    };
+    use super::{ConvertError, ScaleTransform};
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use std::fmt::Display;
-
-    impl<T: Key> From<UnitaryKeyLossError<T>> for PyErr {
-        fn from(value: UnitaryKeyLossError<T>) -> Self {
-            ConversionException::new_err(value.to_string())
-        }
-    }
-
-    // TODO make the derive macro add necessary bounds for this
-    impl<T: IndexedKey> From<IndexedKeyLossError<T>> for PyErr {
-        fn from(value: IndexedKeyLossError<T>) -> Self {
-            ConversionException::new_err(value.to_string())
-        }
-    }
-
-    impl<T: BiIndexedKey> From<BiIndexedKeyLossError<T>> for PyErr {
-        fn from(value: BiIndexedKeyLossError<T>) -> Self {
-            ConversionException::new_err(value.to_string())
-        }
-    }
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
     impl<'py> FromPyObject<'py> for ScaleTransform {

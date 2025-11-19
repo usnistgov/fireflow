@@ -1,14 +1,12 @@
-use crate::data::ColumnError;
 use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
 use crate::macros::def_group;
+use crate::text::index::{BoundaryIndexError, IndexedError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
 use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, Sibling1, impl_kind2};
 use crate::validated::shortname::Shortname;
-
-use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -370,7 +368,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
                 .mappend_commutative()
-                .map_errors(|i| ColumnError::new(i, OpticalMismatchError::new(true)))
+                .map_errors(|i| IndexedError::new(i, OpticalMismatchError::new(true)))
         };
 
         self.check_keys_length(&xs[..], true)?;
@@ -385,7 +383,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let left_res = check_optical(xs_left);
                 let center_res = x_center
                     .center()
-                    .ok_or(ColumnError::new(nleft, OpticalMismatchError::new(false)))
+                    .ok_or(IndexedError::new(nleft, OpticalMismatchError::new(false)))
                     .into_log();
                 let right_res = check_optical(xs_right);
                 left_res
@@ -485,15 +483,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_center_value<F, Uf, P, LWC, RWC, E, EC>(
         self,
         f: F,
-    ) -> LogResult<
-        NamedVec<K, Uf, V>,
-        P,
-        LWC,
-        RWC,
-        (),
-        IndexedElementError<E>,
-        Sibling1<EC, IndexedElementError<E>>,
-    >
+    ) -> LogResult<NamedVec<K, Uf, V>, P, LWC, RWC, (), IndexedError<E>, Sibling1<EC, IndexedError<E>>>
     where
         F: Fn(IndexedElement<&Shortname, U>) -> LogResult<Uf, P, LWC, RWC, (), E, EC>,
         EC: Functor<E>,
@@ -509,7 +499,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let center = Pair::new(ckey, value);
                     NamedVec::new_split(s.left, center, s.right)
                 })
-                .map_errors(|error| IndexedElementError::new(error, index))
+                .map_errors(|error| IndexedError::new(index, error))
             }
             Self::Unsplit(u) => LogResult::new_ok(NamedVec::Unsplit(u)),
         }
@@ -520,19 +510,12 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn map_non_center_values<F, Vf, WC, E, EC>(
         self,
         f: F,
-    ) -> CommutativeResult<
-        NamedVec<K, U, Vf>,
-        (),
-        WC,
-        IndexedElementError<E>,
-        Sibling1<EC, IndexedElementError<E>>,
-    >
+    ) -> CommutativeResult<NamedVec<K, U, Vf>, (), WC, IndexedError<E>, Sibling1<EC, IndexedError<E>>>
     where
         F: Fn(MeasIndex, V) -> CommutativeResult<Vf, (), WC, E, EC>,
         WC: Monoid,
         EC: Functor<E>,
-        Sibling1<EC, IndexedElementError<E>>:
-            IntoIterator<Item = IndexedElementError<E>> + Extend<IndexedElementError<E>>,
+        Sibling1<EC, IndexedError<E>>: IntoIterator<Item = IndexedError<E>> + Extend<IndexedError<E>>,
     {
         let go = |xs: PairedVec<K, V>, offset: usize| {
             xs.into_iter()
@@ -541,7 +524,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let j = i + offset;
                     f(j.into(), p.value)
                         .map_ok_value(|value| Pair::new(p.key, value))
-                        .map_errors(|error| IndexedElementError::new(error, j.into()))
+                        .map_errors(|error| IndexedError::new(j, error))
                 })
                 .mappend_commutative()
         };
@@ -1460,7 +1443,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn try_rewrapped<J>(
         self,
-    ) -> ErrorsResult<NamedVec<J, U, V>, (), IndexedElementError<<J as TryFrom<K>>::Error>>
+    ) -> ErrorsResult<NamedVec<J, U, V>, (), IndexedError<<J as TryFrom<K>>::Error>>
     where
         J: TryFrom<K>,
     {
@@ -1469,7 +1452,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, p)| {
                     Self::try_into_wrapper::<J>(p)
-                        .map_err(|error| IndexedElementError::new(error, (i + offset).into()))
+                        .map_err(|error| IndexedError::new(i + offset, error))
                         .into_nowarn()
                 })
                 .mappend_commutative()
@@ -2033,15 +2016,8 @@ pub struct InputLengthError {
     include_center: bool,
 }
 
-#[derive(Debug, Error, new)]
-#[error("error at index {index}: {error}")]
-pub struct IndexedElementError<E> {
-    error: E,
-    index: MeasIndex,
-}
-
 pub type OpticalMismatchErrors =
-    ErrorGroup<ColumnError<OpticalMismatchError>, OpticalMismatchSummary>;
+    ErrorGroup<IndexedError<OpticalMismatchError>, OpticalMismatchSummary>;
 
 def_group!(
     OpticalMismatchSummary,
@@ -2069,8 +2045,8 @@ impl fmt::Display for OpticalMismatchError {
 #[cfg(feature = "python")]
 mod python {
     use super::{Element, NonCenterElement, OpticalMismatchError};
-    use crate::data::ColumnError;
     use crate::python::macros::impl_pyreflow_err;
+    use crate::text::index::IndexedError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
@@ -2088,5 +2064,5 @@ mod python {
         }
     }
 
-    impl_pyreflow_err!(MeasurementException, ColumnError<OpticalMismatchError>);
+    impl_pyreflow_err!(MeasurementException, IndexedError<OpticalMismatchError>);
 }

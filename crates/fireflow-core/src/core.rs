@@ -5,8 +5,8 @@ use crate::config::{
     WriteConfig,
 };
 use crate::data::{
-    AnyLossError, AnyRangeError, ColumnError, ConvertWidthError, DataLayout2_0, DataLayout3_0,
-    DataLayout3_1, DataLayout3_2, InterLayoutOps as _, IsTot, LayoutOps as _, LookupLayoutError,
+    AnyLossError, AnyRangeError, ConvertWidthError, DataLayout2_0, DataLayout3_0, DataLayout3_1,
+    DataLayout3_2, InterLayoutOps as _, IsTot, LayoutOps as _, LookupLayoutError,
     LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
     MixedToNonMixedLayoutError, MixedToOrderedLayoutError, NewDataLayoutError, NewDataReaderError,
     RawToLayoutError, RawToLayoutWarning, ReadDataframeError, ReadDataframeWarning,
@@ -46,7 +46,7 @@ use crate::text::gating::{
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
     MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
 };
-use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::index::{IndexedError, IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
@@ -64,10 +64,10 @@ use crate::text::lookup::{
     OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
-    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, IndexedElementError,
-    InputLengthError, InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec,
-    NewNamedVecError, NonCenterElement, NonUniqueKeyError, PushCenterError, RenameError,
-    SetCenterError, SetElementsError, SetKeysError, SetNamesError,
+    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
+    InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec, NewNamedVecError,
+    NonCenterElement, NonUniqueKeyError, PushCenterError, RenameError, SetCenterError,
+    SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -4486,7 +4486,7 @@ where
     pub fn truncate_data(
         &mut self,
         skip_conv_check: bool,
-    ) -> WarningsResult<(), ColumnError<AnyLossError>> {
+    ) -> WarningsResult<(), IndexedError<AnyLossError>> {
         // TODO this function is hilariously not-optimized; each column will be
         // cast into a totally new vector even if they are they exact same
         // type with no possible truncation. This also means that the new
@@ -8515,10 +8515,10 @@ impl OthersReader<'_> {
 
 #[derive(Debug, Display, Error)]
 pub enum ConvertError<E> {
-    Rewrap(IndexedElementError<E>),
+    Rewrap(IndexedError<E>),
     Meta(MetarootConvertError),
-    Optical(IndexedElementError<OpticalConvertError>),
-    Temporal(IndexedElementError<TemporalConvertError>),
+    Optical(IndexedError<OpticalConvertError>),
+    Temporal(IndexedError<TemporalConvertError>),
     Layout(LayoutConvertError),
 }
 
@@ -8536,15 +8536,15 @@ pub enum StdReaderError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
-    Check(ColumnError<AnyLossError>),
+    Check(IndexedError<AnyLossError>),
     Overflow(Uint8DigitOverflow),
 }
 
 #[derive(From, Display, Debug, Error)]
 pub enum StdWriterWarning {
     // TODO is this necessary?
-    Column(ColumnError<IntRangeError<()>>),
-    Check(ColumnError<AnyLossError>),
+    Column(IndexedError<IntRangeError<()>>),
+    Check(IndexedError<AnyLossError>),
 }
 
 #[derive(From, Display, Debug, Error)]

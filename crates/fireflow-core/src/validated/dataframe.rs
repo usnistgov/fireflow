@@ -261,13 +261,13 @@ impl FCSDataFrame {
         }
     }
 
-    pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.columns.remove(self.ncols()))
-        }
-    }
+    // pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
+    //     if self.is_empty() {
+    //         None
+    //     } else {
+    //         Some(self.columns.remove(self.ncols()))
+    //     }
+    // }
 
     pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
         if self.is_empty() {
@@ -277,34 +277,32 @@ impl FCSDataFrame {
         }
     }
 
-    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
-        self.check_new_column(&col)?;
-        self.push_column_nocheck(col);
-        Ok(())
-    }
+    // pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+    //     self.check_new_column(&col)?;
+    //     self.push_column_nocheck(col);
+    //     Ok(())
+    // }
 
     // will panic if index is out of bounds
     pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
-        // don't use Self::new1 here since we want to panic if i is out of
-        // bounds
         if self.is_empty() {
             self.nrows = col.len();
-            self.columns.insert(i, col);
-        } else {
-            self.columns.insert(i, col);
         }
+        // don't use Self::new1 here since we want to panic if i is out of
+        // bounds
+        self.columns.insert(i, col);
     }
 
-    // will panic if index is out of bounds
-    pub(crate) fn insert_column(
-        &mut self,
-        i: usize,
-        col: AnyFCSColumn,
-    ) -> Result<(), ColumnLengthError> {
-        self.check_new_column(&col)?;
-        self.insert_column(i, col);
-        Ok(())
-    }
+    // // will panic if index is out of bounds
+    // pub(crate) fn insert_column(
+    //     &mut self,
+    //     i: usize,
+    //     col: AnyFCSColumn,
+    // ) -> Result<(), ColumnLengthError> {
+    //     self.check_new_column(&col)?;
+    //     self.insert_column_nocheck(i, col);
+    //     Ok(())
+    // }
 
     pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
         if let Some(df_len) = self.nrows_nonempty() {

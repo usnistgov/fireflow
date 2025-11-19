@@ -7,7 +7,7 @@ use crate::nonempty::FCSNonEmpty;
 use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
 use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
 use crate::type_families::{
-    ApplyOnce as _, Functor, FunctorOnce, IsKind1, Kind1, impl_functor, impl_functor_common,
+    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
     impl_functor_once, impl_kind1,
 };
 use crate::validated::keys::{

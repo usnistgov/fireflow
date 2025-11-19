@@ -15,7 +15,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
+use pyo3::prelude::*;
 
 /// A value that always exists.
 #[derive(Clone, PartialEq, AsRef, Debug)]

@@ -387,11 +387,11 @@ pub trait Pointed<A>: IsKind1 {
 
 macro_rules! impl_kind1 {
     ($f:ident, $t:ident) => {
-        impl Kind1 for $f {
+        impl crate::type_families::Kind1 for $f {
             type Type<T> = $t<T>;
         }
 
-        impl<T> IsKind1 for $t<T> {
+        impl<T> crate::type_families::IsKind1 for $t<T> {
             type Family = $f;
         }
     };
@@ -401,11 +401,11 @@ pub(crate) use impl_kind1;
 
 macro_rules! impl_kind2 {
     ($f:ident, $t:ident) => {
-        impl Kind2 for $f {
+        impl crate::type_families::Kind2 for $f {
             type Type<A, B> = $t<A, B>;
         }
 
-        impl<A, B> IsKind2 for $t<A, B> {
+        impl<A, B> crate::type_families::IsKind2 for $t<A, B> {
             type Family = $f;
         }
     };
@@ -454,7 +454,7 @@ impl<X> Monoid for Vec<X> {}
 
 macro_rules! impl_functor_common {
     ($t:ident, $trait:ident, $fun:ident, $bound:ident, $self:ident, $f:pat, $body:expr) => {
-        impl<X> $trait<X> for $t<X> {
+        impl<X> crate::type_families::$trait<X> for $t<X> {
             fn $fun<F: $bound(X) -> Y, Y>($self, $f: F) -> $t<Y> {
                 $body
             }

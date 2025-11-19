@@ -87,7 +87,9 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
 
-use crate::type_families::{FunctorOnce, IsKind1, Kind1, impl_kind1};
+use crate::type_families::{
+    FunctorOnce as _, impl_functor, impl_functor_common, impl_functor_once, impl_kind1,
+};
 use crate::validated::keys::NonStdKeywords;
 use crate::validated::{
     ascii_range::{AsciiRange, Chars, NewAsciiRangeError},
@@ -4306,11 +4308,12 @@ pub struct ColumnErrorFamily;
 
 impl_kind1!(ColumnErrorFamily, ColumnError);
 
-impl<E> FunctorOnce<E> for ColumnError<E> {
-    fn fmap_once<F: FnOnce(E) -> B, B>(self, f: F) -> ColumnError<B> {
-        ColumnError::new(self.index, f(self.error))
-    }
-}
+impl_functor_once!(
+    ColumnError,
+    self,
+    mut f,
+    ColumnError::new(self.index, f(self.error))
+);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 

@@ -72,6 +72,11 @@
 ///   absent this, Functor needs to be manually implemented for all traits that
 ///   implement FunctorOnce.
 use crate::text::optional::{Identity, Nothing};
+use std::{
+    collections::HashMap,
+    hash::{BuildHasher, Hash},
+    marker::PhantomData,
+};
 
 pub type Sibling1<T, A> = <<T as IsKind1>::Family as Kind1>::Type<A>;
 pub type Sibling2<T, A, B> = <<T as IsKind2>::Family as Kind2>::Type<A, B>;
@@ -363,10 +368,20 @@ pub struct VecFamily;
 
 pub struct NullFamily;
 
+pub struct HashMapFamily<K, S>(PhantomData<K>, PhantomData<S>);
+
 impl_kind1!(NullFamily, Nothing);
 impl_kind1!(IdFamily, Identity);
 impl_kind1!(OptFamily, Option);
 impl_kind1!(VecFamily, Vec);
+
+impl<K, S> Kind1 for HashMapFamily<K, S> {
+    type Type<X> = HashMap<K, X, S>;
+}
+
+impl<K, X, S> IsKind1 for HashMap<K, X, S> {
+    type Family = HashMapFamily<K, S>;
+}
 
 impl<A> Semigroup for Nothing<A> {
     fn sappend(self, _: Self) -> Self {
@@ -426,6 +441,12 @@ impl_functor_once!(Nothing, self, _f, Nothing::default());
 impl_functor_once!(Identity, self, mut f, Identity(f(self.0)));
 impl_functor_once!(Option, self, f, self.map(f));
 impl_functor!(Vec, self, f, self.into_iter().map(f).collect());
+
+impl<K: Eq + Hash, A, S: Default + BuildHasher> Functor<A> for HashMap<K, A, S> {
+    fn fmap<F: FnMut(A) -> B, B>(self, mut f: F) -> HashMap<K, B, S> {
+        self.into_iter().map(|(k, v)| (k, f(v))).collect()
+    }
+}
 
 impl<A> ApplyOnce<A> for Option<A> {
     fn lift_f2_once<F: FnOnce(A, B) -> C, B, C>(

@@ -670,23 +670,16 @@ impl GatedMeasurement {
 
 impl<I> Default for GatingScheme<I> {
     fn default() -> Self {
-        Self {
-            gating: None,
-            regions: HashMap::new(),
-        }
+        Self::new(None, HashMap::new())
     }
 }
 
-impl<I> Functor<I> for GatingScheme<I> {
-    fn fmap<F: FnMut(I) -> B, B>(self, mut f: F) -> GatingScheme<B> {
-        let rs = self
-            .regions
-            .into_iter()
-            .map(|(ri, r)| (ri, r.fmap(&mut f)))
-            .collect();
-        GatingScheme::new(self.gating, rs)
-    }
-}
+impl_functor!(
+    GatingScheme,
+    self,
+    mut f,
+    GatingScheme::new(self.gating, self.regions.fmap(|ri| ri.fmap(&mut f)))
+);
 
 impl<I> GatingScheme<I> {
     pub fn try_new(

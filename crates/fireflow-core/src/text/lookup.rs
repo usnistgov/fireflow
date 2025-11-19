@@ -15,6 +15,12 @@ use std::convert::Infallible;
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    std::fmt::Display,
+};
+
 /// An error caused when parsing a required non-indexed standard key
 pub type ReqKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, ()>;
 
@@ -36,16 +42,14 @@ pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
 /// An parse key error for an optional indexed key when parsing with external state.
 pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
 
-/// An error caused by parsing a string incorrectly for a standard key value.
-#[derive(new, Debug, Error)]
-pub struct ParseKeyError<E, T, I> {
-    pub error: E,
-    pub key: SpecificKey<T, I>,
-    pub value: String,
-}
-
 /// An error caused when parsing a required standard key
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(
+    feature = "python",
+    derive(AllIntoPyErr),
+    bound(E: Display),
+    bound(SpecificKey<T, I>: Display)
+)]
 pub enum ReqKeyErrorInner<E, T, I> {
     /// Error due to parsing
     Parse(ParseKeyError<E, T, I>),
@@ -54,9 +58,29 @@ pub enum ReqKeyErrorInner<E, T, I> {
     Missing(MissingKeyError<T, I>),
 }
 
+/// An error caused by parsing a string incorrectly for a standard key value.
+#[derive(new, Debug, Error)]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(crate::python::exceptions::InvalidKeywordValueError),
+    bound(ParseKeyError<E, T, I>: Display)
+)]
+pub struct ParseKeyError<E, T, I> {
+    pub error: E,
+    pub key: SpecificKey<T, I>,
+    pub value: String,
+}
+
 /// An error caused by a required standard key being missing
 #[derive(Debug, Error)]
 #[error("missing required key: {0}")]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(crate::python::exceptions::InvalidKeywordValueError),
+    bound(SpecificKey<T, I>: Display)
+)]
 pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
@@ -572,33 +596,5 @@ pub(crate) fn truncate_string(s: &str, n: usize) -> String {
         format!("{}…(more)", s.chars().take(n).collect::<String>())
     } else {
         s.into()
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::exceptions::FCSDeprecatedError;
-
-    use super::{ParseKeyError, ReqKeyErrorInner};
-
-    use pyo3::prelude::*;
-    use std::fmt::Display;
-
-    impl<E, T, I> From<ReqKeyErrorInner<E, T, I>> for PyErr
-    where
-        ReqKeyErrorInner<E, T, I>: Display,
-    {
-        fn from(value: ReqKeyErrorInner<E, T, I>) -> Self {
-            FCSDeprecatedError::new_err(value.to_string())
-        }
-    }
-
-    impl<E, T, I> From<ParseKeyError<E, T, I>> for PyErr
-    where
-        ParseKeyError<E, T, I>: Display,
-    {
-        fn from(value: ParseKeyError<E, T, I>) -> Self {
-            FCSDeprecatedError::new_err(value.to_string())
-        }
     }
 }

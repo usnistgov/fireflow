@@ -1250,6 +1250,11 @@ pub enum IndexWindowMismatchError {
 }
 
 #[derive(Display, Debug, Error)]
+#[cfg_attr(
+    feature = "python",
+    derive(AllIntoPyErr),
+    bound(LookupRegionError<E0, E1>: Into<Self>)
+)]
 pub enum LookupGatingSchemeError<E0, E1> {
     Link(DependentKeyError<Gating>),
     Gating(OptKeyError<Gating>),
@@ -1257,6 +1262,12 @@ pub enum LookupGatingSchemeError<E0, E1> {
 }
 
 #[derive(Display, Debug, Error)]
+#[cfg_attr(
+    feature = "python",
+    derive(AllIntoPyErr),
+    bound(E0: Into<Self>),
+    bound(E1: Into<Self>)
+)]
 pub enum LookupRegionError<E0, E1> {
     Mismatch(IndexWindowMismatchError),
     Region(E0),
@@ -1264,6 +1275,7 @@ pub enum LookupRegionError<E0, E1> {
 }
 
 #[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E0: Into<Self>))]
 pub enum LookupAppliedGatesError<E0> {
     Scheme(E0),
     GatedMeas(LookupGatedMeasurementsError),
@@ -1304,51 +1316,4 @@ pub enum LookupGatedMeasError {
     PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
     Range(OptIndexedKeyError<GateRange>),
     DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{LookupAppliedGatesError, LookupGatingSchemeError, LookupRegionError};
-
-    use pyo3::prelude::*;
-
-    impl<E0, E1> From<LookupGatingSchemeError<E0, E1>> for PyErr
-    where
-        LookupRegionError<E0, E1>: Into<Self>,
-    {
-        fn from(value: LookupGatingSchemeError<E0, E1>) -> Self {
-            match value {
-                LookupGatingSchemeError::Link(x) => x.into(),
-                LookupGatingSchemeError::Gating(x) => x.into(),
-                LookupGatingSchemeError::Region(x) => x.into(),
-            }
-        }
-    }
-
-    impl<E0, E1> From<LookupRegionError<E0, E1>> for PyErr
-    where
-        E0: Into<Self>,
-        E1: Into<Self>,
-    {
-        fn from(value: LookupRegionError<E0, E1>) -> Self {
-            match value {
-                LookupRegionError::Mismatch(x) => x.into(),
-                LookupRegionError::Region(x) => x.into(),
-                LookupRegionError::Window(x) => x.into(),
-            }
-        }
-    }
-
-    impl<E0> From<LookupAppliedGatesError<E0>> for PyErr
-    where
-        E0: Into<Self>,
-    {
-        fn from(value: LookupAppliedGatesError<E0>) -> Self {
-            match value {
-                LookupAppliedGatesError::Scheme(x) => x.into(),
-                LookupAppliedGatesError::GatedMeas(x) => x.into(),
-                LookupAppliedGatesError::Link(x) => x.into(),
-            }
-        }
-    }
 }

@@ -22,11 +22,20 @@ use std::fmt;
 use std::mem::take;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::AllIntoPyErr;
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    std::fmt::Display,
+};
 
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]
 #[error("deprecated key: {0}")]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(crate::python::exceptions::FCSDeprecatedError),
+    bound(DepKeyWarning<T, I>: Display)
+)]
 pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
 
 pub type DepKey0<T> = DepKeyWarning<T, ()>;
@@ -327,25 +336,6 @@ where
             es.push(AnyDepKeyError::from(DepKeyWarning(Key1::<T>::new_i1(
                 self.index,
             ))));
-        }
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::exceptions::FCSDeprecatedError;
-
-    use super::DepKeyWarning;
-
-    use pyo3::prelude::*;
-    use std::fmt::Display;
-
-    impl<T, I> From<DepKeyWarning<T, I>> for PyErr
-    where
-        DepKeyWarning<T, I>: Display,
-    {
-        fn from(value: DepKeyWarning<T, I>) -> Self {
-            FCSDeprecatedError::new_err(value.to_string())
         }
     }
 }

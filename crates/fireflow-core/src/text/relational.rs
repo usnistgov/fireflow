@@ -1,4 +1,3 @@
-use crate::logging::ErrorGroup;
 /// Enforce relational links between keywords.
 ///
 /// This amounts to two basic operations:
@@ -27,6 +26,7 @@ use crate::logging::ErrorGroup;
 /// to run this process when creating a new Core* struct and also when we read
 /// a file and parse keywords from a hash table. The former doesn't require
 /// demoting optional keywords.
+use crate::logging::ErrorGroup;
 use crate::macros::def_group;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex};
 use crate::text::optional::DisplayMaybe as _;
@@ -52,7 +52,11 @@ use std::collections::HashSet;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::AllIntoPyErr;
+use {
+    crate::python::exceptions as px,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    std::fmt::Display,
+};
 
 #[derive(AsRef, From)]
 pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
@@ -102,6 +106,12 @@ pub(crate) type ExistingGateRegionLinkError =
     "{key} references existing $PnN: {xs}",
     xs = self.names.iter().join(", ")
 )]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException),
+    bound(SpecificKey<T, I>: Display)
+)]
 pub struct ExistingNamedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
     pub names: NonEmpty<Shortname>,
@@ -111,6 +121,12 @@ pub struct ExistingNamedLinkError<T, I> {
 #[error(
     "{key} references existing $PnN: {xs}",
     xs = self.names.iter().join(", ")
+)]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException),
+    bound(SpecificKey<T, I>: Display)
 )]
 pub struct ExistingIndexedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
@@ -205,6 +221,12 @@ pub enum AnyLinkError {
     "{key} references non-existent $PnN: {bad}",
     bad = self.names.iter().join(", ")
 )]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException),
+    bound(SpecificKey<T, I>: Display)
+)]
 pub struct NamedLinkError<T, I> {
     key: SpecificKey<T, I>,
     names: NonEmpty<Shortname>,
@@ -216,6 +238,12 @@ pub struct NamedLinkError<T, I> {
     "{key} references non-existent measurement indices: {bad}",
     bad = self.indices.iter().join(", ")
 )]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException),
+    bound(SpecificKey<T, I>: Display)
+)]
 pub struct IndexLinkError<T, I> {
     indices: NonEmpty<MeasIndex>,
     key: SpecificKey<T, I>,
@@ -226,6 +254,12 @@ pub struct IndexLinkError<T, I> {
 #[display(
     "{key} depends on other keys which do not exist: {bad}",
     bad = self.deps.iter().join(", "),
+)]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(px::RelationalException),
+    bound(SpecificKey<T, I>: Display)
 )]
 pub struct DependentKeyErrorInner<T, I> {
     deps: NonEmpty<StdKey>,
@@ -378,63 +412,5 @@ impl<I> RemovedGateLink<I> {
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
         let e1 = DependentIndexedKeyError::new2(i.into(), NonEmpty::new(window_key));
         [e0.into(), e1.into()].into_iter()
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::exceptions::RelationalException;
-
-    use super::{
-        DependentKeyErrorInner, ExistingIndexedLinkError, ExistingNamedLinkError, IndexLinkError,
-        NamedLinkError,
-    };
-
-    use pyo3::prelude::*;
-    use std::fmt::Display;
-
-    impl<T, I> From<DependentKeyErrorInner<T, I>> for PyErr
-    where
-        DependentKeyErrorInner<T, I>: Display,
-    {
-        fn from(value: DependentKeyErrorInner<T, I>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T, I> From<NamedLinkError<T, I>> for PyErr
-    where
-        NamedLinkError<T, I>: Display,
-    {
-        fn from(value: NamedLinkError<T, I>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T, I> From<IndexLinkError<T, I>> for PyErr
-    where
-        IndexLinkError<T, I>: Display,
-    {
-        fn from(value: IndexLinkError<T, I>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T, I> From<ExistingNamedLinkError<T, I>> for PyErr
-    where
-        ExistingNamedLinkError<T, I>: Display,
-    {
-        fn from(value: ExistingNamedLinkError<T, I>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
-    }
-
-    impl<T, I> From<ExistingIndexedLinkError<T, I>> for PyErr
-    where
-        ExistingIndexedLinkError<T, I>: Display,
-    {
-        fn from(value: ExistingIndexedLinkError<T, I>) -> Self {
-            RelationalException::new_err(value.to_string())
-        }
     }
 }

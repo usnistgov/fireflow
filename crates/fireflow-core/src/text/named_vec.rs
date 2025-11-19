@@ -5,7 +5,9 @@ use crate::logging::{
 };
 use crate::macros::def_group;
 use crate::text::optional::MightHave;
-use crate::type_families::{Functor, Monoid, Pointed, Sibling1};
+use crate::type_families::{
+    BifunctorOnce, Functor, IsKind2, Kind2, Monoid, Pointed, Sibling1, impl_kind2,
+};
 use crate::validated::shortname::Shortname;
 
 use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -92,6 +94,10 @@ pub enum Element<U, V> {
     NonCenter(V),
 }
 
+pub struct ElementFamily;
+
+impl_kind2!(ElementFamily, Element);
+
 #[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonCenterElement<V>(pub Element<(), V>);
@@ -111,9 +117,7 @@ type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
 
 pub type EitherPair<K, U, V> = Element<Pair<Shortname, U>, Pair<K, V>>;
 
-#[derive(Clone, From, Into)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-pub struct Eithers<K, U, V>(pub Vec<Either<K, U, V>>);
+pub type Eithers<K, U, V> = Vec<Either<K, U, V>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
@@ -126,16 +130,16 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        let names =
-            xs.0.iter()
-                .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
+        let names = xs
+            .iter()
+            .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
         if !all_unique_names(names) {
             return Err(NonUniqueKeysError.into());
         }
         let mut left = vec![];
         let mut center = None;
         let mut right = vec![];
-        for x in xs.0 {
+        for x in xs {
             match x {
                 Element::NonCenter(y) => {
                     let p = Pair::new(y.0, y.1);
@@ -594,7 +598,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             }
             Self::Unsplit(u) => Ok(Element::NonCenter(&u.members[i])),
         }
-        .map(|x| x.bimap(|p| (&p.key, &p.value), |p| (&p.key, &p.value)))
+        .map(|x| x.bimap_once(|p| (&p.key, &p.value), |p| (&p.key, &p.value)))
     }
 
     /// Get reference with name.
@@ -610,7 +614,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     |t| &t.key == n,
                     |o| o.key.as_opt().is_some_and(|kn| kn == n),
                 )
-                .then_some((i.into(), e.bimap(|p| &p.value, |p| &p.value)))
+                .then_some((i.into(), e.bimap_once(|p| &p.value, |p| &p.value)))
             })
             .ok_or_else(|| KeyNotFoundError(n.clone()))
     }
@@ -1707,81 +1711,46 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 }
 
-impl<K, U, V> Eithers<K, U, V> {
-    pub(crate) fn non_center_names(&self) -> impl Iterator<Item = &Shortname>
-    where
-        K: MightHave<Shortname>,
-    {
-        self.0
-            .iter()
-            .filter_map(|x| x.as_ref().non_center()?.0.as_opt())
+impl<A, B> BifunctorOnce<A, B> for Element<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Element<C, B> {
+        match self {
+            Self::Center(x) => Element::Center(f(x)),
+            Self::NonCenter(x) => Element::NonCenter(x),
+        }
     }
 
-    #[must_use]
-    pub fn inner_into<U0, V0>(self) -> Eithers<K, U0, V0>
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Element<A, C> {
+        match self {
+            Self::Center(x) => Element::Center(x),
+            Self::NonCenter(x) => Element::NonCenter(f(x)),
+        }
+    }
+}
+
+impl<K, U, V> EitherPair<K, U, V> {
+    pub fn unzip(self) -> (K, Element<U, V>)
     where
-        U0: From<U>,
-        V0: From<V>,
+        K: Pointed<Shortname>,
     {
-        Eithers(
-            self.0
-                .into_iter()
-                .map(|e| e.bimap(|(n, y)| (n, y.into()), |(n, y)| (n, y.into())))
-                .collect(),
+        self.both(
+            |p| (K::wrap(p.key), Element::Center(p.value)),
+            |p| (p.key, Element::NonCenter(p.value)),
         )
     }
 }
 
+impl<K, U, V> Either<K, U, V> {
+    pub fn values_into<Uf, Vf>(self) -> Either<K, Uf, Vf>
+    where
+        U: Into<Uf>,
+        V: Into<Vf>,
+    {
+        self.first_once(|(k, v)| (k, v.into()))
+            .second_once(|(k, v)| (k, v.into()))
+    }
+}
+
 impl<U, V> Element<U, V> {
-    pub fn inner_into<U1, V1>(self) -> Element<U1, V1>
-    where
-        U1: From<U>,
-        V1: From<V>,
-    {
-        self.bimap(Into::into, Into::into)
-    }
-
-    pub fn unzip<K>(e: EitherPair<K, U, V>) -> (K, Self)
-    where
-        K: Pointed<Shortname>,
-    {
-        e.both(
-            |p| (K::wrap(p.key), Self::Center(p.value)),
-            |p| (p.key, Self::NonCenter(p.value)),
-        )
-    }
-
-    pub fn bimap<F, G, X, Y>(self, f: F, g: G) -> Element<X, Y>
-    where
-        F: Fn(U) -> X,
-        G: Fn(V) -> Y,
-    {
-        match self {
-            Self::Center(u) => Element::Center(f(u)),
-            Self::NonCenter(v) => Element::NonCenter(g(v)),
-        }
-    }
-
-    pub fn map_center<F, X>(self, f: F) -> Element<X, V>
-    where
-        F: Fn(U) -> X,
-    {
-        match self {
-            Self::Center(u) => Element::Center(f(u)),
-            Self::NonCenter(v) => Element::NonCenter(v),
-        }
-    }
-
-    pub fn map_non_center<F, X>(self, f: F) -> Element<U, X>
-    where
-        F: Fn(V) -> X,
-    {
-        match self {
-            Self::Center(u) => Element::Center(u),
-            Self::NonCenter(v) => Element::NonCenter(f(v)),
-        }
-    }
-
     pub fn both<F, G, X>(self, mut f: F, mut g: G) -> X
     where
         F: FnMut(U) -> X,

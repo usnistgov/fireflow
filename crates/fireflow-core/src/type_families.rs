@@ -162,6 +162,45 @@ pub trait FunctorOnce<A>: Sized + IsKind1 {
     }
 }
 
+/// Like Functor but with two generic arguments
+pub trait BifunctorOnce<A, B>: Sized + IsKind2 {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B>;
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C>;
+
+    fn bimap_once<Fa, Fb, C, D>(self, fa: Fa, fb: Fb) -> Sibling2<Self, C, D>
+    where
+        Fa: FnOnce(A) -> C,
+        Fb: FnOnce(B) -> D,
+        Sibling2<Self, C, B>: BifunctorOnce<C, B>,
+    {
+        self.first_once(fa).second_once(fb)
+    }
+
+    fn first_into_once<C>(self) -> Sibling2<Self, C, B>
+    where
+        A: Into<C>,
+    {
+        self.first_once(Into::into)
+    }
+
+    fn second_into_once<C>(self) -> Sibling2<Self, A, C>
+    where
+        B: Into<C>,
+    {
+        self.second_once(Into::into)
+    }
+
+    fn bimap_into_once<C, D>(self) -> Sibling2<Self, C, D>
+    where
+        A: Into<C>,
+        B: Into<D>,
+        Sibling2<Self, C, B>: BifunctorOnce<C, B>,
+    {
+        self.bimap_once(Into::into, Into::into)
+    }
+}
+
 /// A type which represents a context whose contents can be combined.
 ///
 /// This is Applicative without "pure". In Rust this is a combination of what
@@ -359,6 +398,20 @@ macro_rules! impl_kind1 {
 }
 
 pub(crate) use impl_kind1;
+
+macro_rules! impl_kind2 {
+    ($f:ident, $t:ident) => {
+        impl Kind2 for $f {
+            type Type<A, B> = $t<A, B>;
+        }
+
+        impl<A, B> IsKind2 for $t<A, B> {
+            type Family = $f;
+        }
+    };
+}
+
+pub(crate) use impl_kind2;
 
 pub struct OptFamily;
 

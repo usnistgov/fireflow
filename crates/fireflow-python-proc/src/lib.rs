@@ -1538,13 +1538,13 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
             // This might seem inefficient since we are cloning
             // everything, but if we want to map a python lambda
             // function over the measurements we would need to to do
-            // this anyways, so simply returnig a copied list doesn't
+            // this anyways, so simply returning a copied list doesn't
             // lose anything and keeps this API simpler.
             self.0
                 .measurements()
                 .iter()
-                .map(|e| e.bimap(|t| t.value.clone(), |o| o.value.clone()))
-                .map(|v| v.inner_into())
+                .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
+                .map(|v| v.bimap_into_once())
                 .collect()
         }
     })
@@ -1595,7 +1595,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
             #doc
             fn measurement_at(&self, #fun_args) -> PyResult<#ret> {
                 let m = self.0.measurements().get(index)?;
-                Ok(m.bimap(|x| x.1.clone(), |x| x.1.clone()).inner_into())
+                Ok(m.bimap_once(|x| x.1.clone(), |x| x.1.clone()).bimap_into_once())
             }
         }
     }
@@ -1621,7 +1621,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
             #doc
             fn measurement_named(&self, #fun_args) -> PyResult<#ret> {
                 let (_, m) = self.0.measurements().get_name(&name)?;
-                Ok(m.bimap(|x| x.clone(), |x| x.clone()).inner_into())
+                Ok(m.bimap_once(|x| x.clone(), |x| x.clone()).bimap_into_once())
             }
         }
     }
@@ -1656,7 +1656,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
             fn set_measurements(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements(
-                        measurements.0.inner_into(),
+                        measurements.into(),
                         allow_shared_names,
                         skip_index_check,
                     )?;
@@ -1725,8 +1725,6 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&i).1;
 
     let name_pytype = PyType::new_versioned_shortname(version);
-    let name_rspath = name_pytype.as_rust_type();
-    let element_path = quote!(fireflow_core::text::named_vec::Element);
 
     let by_name_doc = DocString::new_method("Remove a measurement with a given name.")
         .para("Raise exception if ``name`` not found.")
@@ -1766,7 +1764,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 Ok(self
                    .0
                    .remove_measurement_by_name(&#name_ident)
-                   .map(|(i, x)| (i, x.inner_into()))?)
+                   .map(|(i, x)| (i, x.bimap_into_once()))?)
             }
 
             #by_index_doc
@@ -1774,9 +1772,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> PyResult<#index_ret> {
-                let r = self.0.remove_measurement_by_index(#index_ident)?;
-                let (n, v) = #element_path::unzip::<#name_rspath>(r);
-                Ok((n, v.inner_into()))
+                let (n, v) = self.0.remove_measurement_by_index(#index_ident)?.unzip();
+                Ok((n, v.bimap_into_once()))
             }
         }
     }
@@ -1891,13 +1888,12 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         impl #ident {
             #replace_at_doc
             fn replace_optical_at(&mut self, #index_fun_args) -> PyResult<#index_ret> {
-                Ok(self.0.replace_optical_at(index, meas.into())?.inner_into())
+                Ok(self.0.replace_optical_at(index, meas.into())?.bimap_into_once())
             }
 
             #replace_named_doc
             fn replace_optical_named(&mut self, #name_fun_args) -> PyResult<#named_ret> {
-                let ret = self.0.replace_optical_named(&name, meas.into())?;
-                Ok(ret.inner_into())
+                Ok(self.0.replace_optical_named(&name, meas.into())?.bimap_into_once())
             }
         }
     }
@@ -1979,7 +1975,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 #index_fun_args
             ) -> PyResult<#index_ret> {
                 let ret = #replace_tmp_at_body;
-                Ok(ret.inner_into())
+                Ok(ret.bimap_into_once())
             }
 
             #replace_named_doc
@@ -1988,7 +1984,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 #name_fun_args
             ) -> PyResult<#named_ret> {
                 let ret = #replace_tmp_named_body;
-                Ok(ret.inner_into())
+                Ok(ret.bimap_into_once())
             }
         }
     }
@@ -2281,7 +2277,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
             fn set_measurements_and_layout(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements_and_layout(
-                        measurements.0.inner_into(),
+                        measurements.into(),
                         layout.into(),
                         allow_shared_names,
                         skip_index_check,
@@ -2317,7 +2313,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
             fn set_measurements_and_data(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements_and_data(
-                        measurements.0.inner_into(),
+                        measurements.into(),
                         data,
                         allow_shared_names,
                         skip_index_check,
@@ -2730,7 +2726,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
             quote! {
                 self.0
                     .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
-                    .map(|e| e.bimap(|x| x.clone(), |y| y.clone()))
+                    .map(|e| e.bimap_once(|x| x.clone(), |y| y.clone()))
                     .collect()
             }
         },
@@ -2818,14 +2814,14 @@ where
         quote! {
             self.0
                 .optical_opt()
-                .map(|e| e.0.map_non_center(|x| x.cloned()).into())
+                .map(|e| e.0.second_once(|x| x.cloned()).into())
                 .collect()
         }
     } else {
         quote! {
             self.0
                 .optical::<#inner_rstype>()
-                .map(|e| e.0.map_non_center(|x| x.clone()).into())
+                .map(|e| e.0.second_once(|x| x.clone()).into())
                 .collect()
         }
     };

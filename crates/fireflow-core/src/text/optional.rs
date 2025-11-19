@@ -15,7 +15,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
+use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
 
 /// A value that always exists.
 #[derive(Clone, PartialEq, AsRef, Debug)]
@@ -282,10 +282,7 @@ mod python {
     use pyo3::types::PyBool;
     use std::convert::Infallible;
 
-    impl<'py, T> FromPyObject<'py> for Identity<T>
-    where
-        T: FromPyObject<'py>,
-    {
+    impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for Identity<T> {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract()?))
         }

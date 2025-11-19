@@ -69,8 +69,9 @@ use fireflow_core::text::gating::{
 };
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::Eithers;
+use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
+use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
 
@@ -502,7 +503,7 @@ where
     Y: From<V>,
 {
     fn from(value: PyEithers<K, U, V>) -> Self {
-        value.0.inner_into()
+        value.0.fmap(Element::values_into)
     }
 }
 

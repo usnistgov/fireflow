@@ -641,18 +641,17 @@ impl GatedMeasurement {
     }
 
     fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
-        [
-            self.scale.meas_opt_pair(i),
-            self.filter.meas_opt_pair(i),
-            self.shortname.meas_opt_pair(i),
-            self.percent_emitted.meas_opt_pair(i),
-            self.range.meas_opt_pair(i),
-            self.longname.meas_opt_pair(i),
-            self.detector_type.meas_opt_pair(i),
-            self.detector_voltage.meas_opt_pair(i),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+        let x0 = self.scale.meas_opt_pair(i);
+        let x1 = self.filter.meas_opt_pair(i);
+        let x2 = self.shortname.meas_opt_pair(i);
+        let x3 = self.percent_emitted.meas_opt_pair(i);
+        let x4 = self.range.meas_opt_pair(i);
+        let x5 = self.longname.meas_opt_pair(i);
+        let x6 = self.detector_type.meas_opt_pair(i);
+        let x7 = self.detector_voltage.meas_opt_pair(i);
+        [x0, x1, x2, x3, x4, x5, x6, x7]
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn loss_errors(&self, i: GateIndex) -> impl Iterator<Item = GatedMeasurementLossError> {

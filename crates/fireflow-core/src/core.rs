@@ -82,7 +82,7 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
-use crate::type_families::{ApplyOnce as _, FunctorOnce as _, Pointed};
+use crate::type_families::{ApplyOnce as _, BifunctorOnce as _, FunctorOnce as _, Pointed};
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
 };
@@ -2703,7 +2703,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|e| e.bimap(|_| (), |v| v.value.as_ref()).into())
+            .map(|e| e.bimap_once(|_| (), |v| v.value.as_ref()).into())
     }
 
     /// Return optional field from all optical measurements as an iterator
@@ -2712,7 +2712,7 @@ where
         Optical<M::Optical>: AsRef<Option<X>>,
     {
         self.optical()
-            .map(|e| e.0.map_non_center(|x| x.as_ref()).into())
+            .map(|e| e.0.second_once(|x| x.as_ref()).into())
     }
 
     // /// Return optional field from all optical measurements as an iterator
@@ -2748,7 +2748,7 @@ where
     {
         self.measurements
             .iter()
-            .map(|x| x.bimap(|m| m.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.bimap_once(|m| m.value.as_ref(), |m| m.value.as_ref()))
     }
 
     /// Set field which is on both optical and temporal measurement types
@@ -3750,7 +3750,6 @@ where
                         })
                 })
                 .mappend_commutative()
-                .map_ok_value(Eithers)
         })
     }
 
@@ -3814,7 +3813,11 @@ where
     ) -> Result<(), ExistingLinkErrors> {
         let (js, ns) = self.measurement_indices_and_names();
         if allow_shared_names {
-            let meas_ns = MeasNamesNoTime(measurements.non_center_names().collect());
+            let ms = measurements
+                .iter()
+                .filter_map(|x| x.as_ref().non_center()?.0.as_opt())
+                .collect();
+            let meas_ns = MeasNamesNoTime(ms);
             let es = self
                 .metaroot
                 .meas_has_existing_named_links_with(&meas_ns)
@@ -4663,7 +4666,7 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        let meas_n = xs.0.len();
+        let meas_n = xs.len();
         let data_n = df.ncols();
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
@@ -7671,7 +7674,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         ms: &TemporalsAndOpticals2_0,
         conf: &StdTextReadConfig,
     ) -> LookupMetarootResult<Self> {
-        let par = Par(ms.0.len());
+        let par = Par(ms.len());
         let comp = Compensation2_0::lookup(std, par, conf)
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
@@ -7781,10 +7784,10 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map_errors(LookupMetarootError::from)
         };
 
-        let ordered_names: Vec<_> =
-            ms.0.iter()
-                .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
-                .collect();
+        let ordered_names: Vec<_> = ms
+            .iter()
+            .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
+            .collect();
 
         let cyt = Cyt::remove_metaroot_opt_nofail(std);
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
@@ -7847,10 +7850,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             };
         }
 
-        let ordered_names: Vec<_> =
-            ms.0.iter()
-                .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
-                .collect();
+        // TODO not dry
+        let ordered_names: Vec<_> = ms
+            .iter()
+            .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
+            .collect();
 
         let flow = Flowrate::remove_metaroot_opt_nofail(std);
         let cytsn = Cytsn::remove_metaroot_opt_nofail(std);

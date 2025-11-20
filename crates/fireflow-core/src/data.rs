@@ -64,10 +64,7 @@ use crate::logging::{
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
-use crate::segment::{
-    AnyDataSegment, DataSegmentId, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
-    SegmentMismatchWarning,
-};
+use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
     OrderedToEndianError, SizedByteOrd, WidthToBytesError,
@@ -75,12 +72,12 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexedError, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, IntRangeError, NumType, Par,
-    Range, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, NumType, Par, Range,
+    RangeToIntError, Tot, Width,
 };
 use crate::text::lookup::{
-    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, ReqIndexedKey as _, ReqIndexedKeyError,
-    ReqKeyError, ReqMetarootKey as _,
+    OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
+    ReqMetarootKey as _,
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
@@ -88,7 +85,7 @@ use crate::type_families::FunctorOnce as _;
 use crate::validated::ascii_range::{AsciiRange, Chars, NewAsciiRangeError};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskError, BitmaskLossError,
+    Bitmask64, BitmaskLossError, BitmaskTruncationError,
 };
 use crate::validated::dataframe::{
     AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, FCSDataType,
@@ -596,7 +593,7 @@ pub trait LayoutOps<'a, T>: Sized {
             })
             .map(|(i, (&datatype, &scale))| {
                 let e = ScaleMismatchTransformError { datatype, scale };
-                IndexedError::new(i, e)
+                IndexedError::new(i, e).into()
             });
         ErrorGroup::try_new(es)
     }
@@ -661,7 +658,7 @@ where
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self>;
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
 
@@ -1852,7 +1849,12 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
         cs: Vec<ColumnLayoutValues<D>>,
         e: Endian,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), IndexedError<BitmaskError>, IndexedError<NewUintTypeError>>
+    ) -> WarningsAndErrorsResult<
+        Self,
+        (),
+        IndexedError<RangeToBitmaskError>,
+        IndexedError<NewUintTypeError>,
+    >
     where
         D: IsNumType,
     {
@@ -2125,7 +2127,7 @@ impl AnyNullBitmask {
         width: Width,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorResult<Self, (), BitmaskError, NewUintTypeError> {
+    ) -> WarningsAndErrorResult<Self, (), RangeToBitmaskError, NewUintTypeError> {
         width
             .try_into()
             .map_err(NewUintTypeError::from)
@@ -2144,7 +2146,7 @@ impl AnyNullBitmask {
         width: Bytes,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, BitmaskError> {
+    ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, RangeToBitmaskError> {
         match width {
             Bytes::B1 => Bitmask08::from_range(range, flag).map_deferred_value(Into::into),
             Bytes::B2 => Bitmask16::from_range(range, flag).map_deferred_value(Into::into),
@@ -3055,10 +3057,10 @@ impl HasDatatype for NullMixedType {
 
 impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
 where
-    T: TryFrom<Range, Error = IntRangeError<T>> + PrimInt,
+    T: TryFrom<Range, Error = RangeToIntError<T>> + PrimInt,
     u64: From<T>,
 {
-    type Error = BitmaskError;
+    type Error = RangeToBitmaskError;
 
     fn from_range(
         range: Range,
@@ -3067,8 +3069,8 @@ where
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint()
-            .map_error(BitmaskError::from)
-            .and_then_replace(|x| Self::try_from_native(x).map_error(BitmaskError::from))
+            .map_error(RangeToBitmaskError::from)
+            .and_then_replace(|x| Self::try_from_native(x).map_error(RangeToBitmaskError::from))
             .nowarn_into_switchable(flag)
     }
 }
@@ -3091,7 +3093,7 @@ where
 }
 
 impl FromRange for AsciiRange {
-    type Error = IntRangeError<()>;
+    type Error = RangeToIntError<()>;
 
     /// Make new AsciiRange from a float or integer.
     ///
@@ -3109,7 +3111,7 @@ impl FromRange for AsciiRange {
 }
 
 impl FromRange for AnyNullBitmask {
-    type Error = IntRangeError<()>;
+    type Error = RangeToIntError<()>;
 
     /// make a new bitmask from a float or integer.
     ///
@@ -3325,7 +3327,8 @@ impl<T> AnyOrderedUintLayout<T> {
         cs: Vec<ColumnLayoutValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,
         conf: &ReadLayoutConfig,
-    ) -> WarningsAndErrorsResult<Self, (), IndexedError<BitmaskError>, NewFixedIntLayoutError> {
+    ) -> WarningsAndErrorsResult<Self, (), IndexedError<RangeToBitmaskError>, NewFixedIntLayoutError>
+    {
         let notrunc = conf.disallow_range_truncation;
         let real_bo = conf.integer_byteord_override.unwrap_or(bo);
         let n = real_bo.nbytes();
@@ -3369,7 +3372,8 @@ impl<T> AnyOrderedUintLayout<T> {
                         .into_semigroup()
                 })
                 .set_err_value(())
-                .map_errors(NewFixedIntLayoutError::from)
+                .map_errors(ColumnIntOrderedColumnError)
+                .map_errors(NewFixedIntLayoutError::Column)
                 .map_ok_value(Self::from)
             });
 
@@ -3402,7 +3406,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     ) -> WarningsAndErrorsResult<
         Self,
         (),
-        IndexedError<IntRangeError<()>>,
+        IndexedError<RangeToIntError<()>>,
         IndexedError<NewAsciiRangeError>,
     >
     where
@@ -3490,7 +3494,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, conf).map_ok_value(Self::from)
     }
 
@@ -3528,7 +3532,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Into::into)
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, conf).map_ok_value(Self::from)
     }
 
@@ -3566,7 +3570,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         NonMixedEndianLayout::lookup_ro(kws, conf).map_ok_value(Self::from)
     }
 
@@ -3616,11 +3620,14 @@ impl VersionedDataLayout for DataLayout3_2 {
 
         d.zip3_commutative(e, cs)
             .and_then_commutative(|(datatype, endian, columns)| {
-                from!(Self::try_new(datatype, endian, columns, conf.as_ref()))
+                from!(
+                    Self::try_new(datatype, endian, columns, conf.as_ref())
+                        .map_commutative_warnings(ColumnNewMixedTypeWarning)
+                )
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         macro_rules! from1 {
             ($i:expr) => {
                 $i.map_err(RawParsedError::from).into_log()
@@ -3629,8 +3636,8 @@ impl VersionedDataLayout for DataLayout3_2 {
 
         macro_rules! from2 {
             ($i:expr) => {
-                $i.map_commutative_warnings(RawToLayoutWarning::from)
-                    .map_errors(RawToLayoutError::from)
+                $i.map_commutative_warnings(LookupRawWarning::from)
+                    .map_errors(LookupRawError::from)
             };
         }
 
@@ -3639,7 +3646,10 @@ impl VersionedDataLayout for DataLayout3_2 {
         let cs = Option::<NumType>::lookup_ro_all(kws);
 
         from2!(d.zip3_commutative(e, cs)).and_then_commutative(|(datatype, endian, columns)| {
-            from2!(Self::try_new(datatype, endian, columns, conf))
+            from2!(
+                Self::try_new(datatype, endian, columns, conf)
+                    .map_commutative_warnings(ColumnNewMixedTypeWarning)
+            )
         })
     }
 
@@ -3682,6 +3692,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
                 };
                 FixedLayout::try_new(columns, byteord.0, go)
+                    .map_errors(ColumnNewMixedTypeError)
                     .map_errors(NewDataLayoutError::from)
                     .map_ok_value(Self::from)
             }
@@ -3939,11 +3950,14 @@ impl<T> AnyOrderedLayout<T> {
 
         d.zip3_commutative(b, cs)
             .and_then_commutative(|(datatype, byteord, columns)| {
-                from!(Self::try_new(datatype, byteord, columns, conf.as_ref()))
+                from!(
+                    Self::try_new(datatype, byteord, columns, conf.as_ref())
+                        .map_commutative_warnings(ColumnNewMixedTypeWarning)
+                )
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         macro_rules! from1 {
             ($i:expr) => {
                 $i.map_err(RawParsedError::from).into_log()
@@ -3952,8 +3966,8 @@ impl<T> AnyOrderedLayout<T> {
 
         macro_rules! from2 {
             ($i:expr) => {
-                $i.map_commutative_warnings(RawToLayoutWarning::from)
-                    .map_errors(RawToLayoutError::from)
+                $i.map_commutative_warnings(LookupRawWarning::from)
+                    .map_errors(LookupRawError::from)
             };
         }
 
@@ -3962,7 +3976,10 @@ impl<T> AnyOrderedLayout<T> {
         let cs = Nothing::<NumType>::lookup_ro_all(kws);
 
         from2!(d.zip3_commutative(b, cs)).and_then_commutative(|(datatype, byteord, columns)| {
-            from2!(Self::try_new(datatype, byteord, columns, conf))
+            from2!(
+                Self::try_new(datatype, byteord, columns, conf)
+                    .map_commutative_warnings(ColumnNewMixedTypeWarning)
+            )
         })
     }
 
@@ -4030,8 +4047,9 @@ impl<T> AnyOrderedLayout<T> {
                     .into_log()
                     .and_then_commutative(|b| {
                         from! {FixedLayout::try_new(columns, b, |c| {
-                            $t::from_width_and_range(c.width, c.range, $notrunc).repack_errors()
-                        })}
+                            $t::from_width_and_range(c.width, c.range, $notrunc)
+                                .repack_errors()
+                        }).map_errors(ColumnFloatWidthError)}
                     })
             };
         }
@@ -4039,8 +4057,16 @@ impl<T> AnyOrderedLayout<T> {
         let notrunc = conf.disallow_range_truncation;
 
         match datatype {
-            AlphaNumType::Ascii => from!(AnyAsciiLayout::try_new(columns, notrunc)),
-            AlphaNumType::Integer => from!(AnyOrderedUintLayout::try_new(columns, byteord, conf)),
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
+                .map_errors(ColumnNewAsciiRangeError)
+                .map_errors(NewDataLayoutError::from)
+                .map_commutative_warnings(IndexedError::fmap_into_once)
+                .map_ok_value(Self::from),
+            AlphaNumType::Integer => AnyOrderedUintLayout::try_new(columns, byteord, conf)
+                .map_errors(NewDataLayoutError::from)
+                .map_commutative_warnings(IndexedError::fmap_into_once)
+                .map_ok_value(Self::from),
+
             AlphaNumType::Float => go_float!(F32Range, notrunc),
             AlphaNumType::Double => go_float!(F64Range, notrunc),
         }
@@ -4104,11 +4130,12 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
             .into_log();
         d.zip3_commutative(n, cs)
             .and_then_commutative(|(datatype, byteord, columns)| {
-                go!(Self::try_new(datatype, byteord.0, columns, conf.as_ref()))
+                go!(Self::try_new(datatype, byteord.0, columns, conf.as_ref())
+                    .map_commutative_warnings(ColumnNewMixedTypeWarning))
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &ReadLayoutConfig) -> LookupRawResult<Self> {
         let cs = Nothing::<NumType>::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
@@ -4117,12 +4144,13 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
             .map_err(RawParsedError::from)
             .into_log();
         d.zip3_commutative(n, cs)
-            .map_commutative_warnings(RawToLayoutWarning::from)
-            .map_errors(RawToLayoutError::from)
+            .map_commutative_warnings(LookupRawWarning::from)
+            .map_errors(LookupRawError::from)
             .and_then_commutative(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord.0, columns, conf)
-                    .map_commutative_warnings(RawToLayoutWarning::from)
-                    .map_errors(RawToLayoutError::from)
+                    .map_commutative_warnings(ColumnNewMixedTypeWarning)
+                    .map_commutative_warnings(LookupRawWarning::from)
+                    .map_errors(LookupRawError::from)
             })
     }
 
@@ -4144,20 +4172,33 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         };
 
         macro_rules! from {
-            ($x:expr) => {
-                $x.map_errors(NewDataLayoutError::from)
+            ($col:ident, $x:expr) => {
+                $x.map_errors($col)
+                    .map_errors(NewDataLayoutError::from)
                     .map_commutative_warnings(IndexedError::fmap_into_once)
                     .map_ok_value(Self::from)
             };
         }
 
         match datatype {
-            AlphaNumType::Ascii => from!(AnyAsciiLayout::try_new(columns, notrunc)),
+            AlphaNumType::Ascii => from!(
+                ColumnNewAsciiRangeError,
+                AnyAsciiLayout::try_new(columns, notrunc)
+            ),
             AlphaNumType::Integer => {
-                from!(FixedLayout::endian_uint_try_new(columns, endian, notrunc))
+                from!(
+                    ColumnNewUintTypeError,
+                    FixedLayout::endian_uint_try_new(columns, endian, notrunc)
+                )
             }
-            AlphaNumType::Float => from!(FixedLayout::try_new(columns, endian, go_f32)),
-            AlphaNumType::Double => from!(FixedLayout::try_new(columns, endian, go_f64)),
+            AlphaNumType::Float => from!(
+                ColumnFloatWidthError,
+                FixedLayout::try_new(columns, endian, go_f32)
+            ),
+            AlphaNumType::Double => from!(
+                ColumnFloatWidthError,
+                FixedLayout::try_new(columns, endian, go_f64)
+            ),
         }
     }
 }
@@ -4234,37 +4275,76 @@ pub enum AsciiToUintError {
 pub struct NotAsciiError(Vec<u8>);
 
 #[derive(From, Display, Debug, Error)]
-// TODO this feels sloppy
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewDataLayoutError {
-    Ascii(IndexedError<NewAsciiRangeError>),
+    Ascii(ColumnNewAsciiRangeError),
     FixedInt(NewFixedIntLayoutError),
-    Float(IndexedError<FloatWidthError>),
-    VariableInt(IndexedError<NewUintTypeError>),
-    Mixed(IndexedError<NewMixedTypeError>),
+    Float(ColumnFloatWidthError),
+    VariableInt(ColumnNewUintTypeError),
+    Mixed(ColumnNewMixedTypeError),
     ByteOrd(ByteOrdToSizedError),
 }
 
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnNewAsciiRangeError(IndexedError<NewAsciiRangeError>);
+
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnFloatWidthError(IndexedError<FloatWidthError>);
+
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnNewMixedTypeError(IndexedError<NewMixedTypeError>);
+
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnNewMixedTypeWarning(IndexedError<NewMixedTypeWarning>);
+
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnIntOrderedColumnError(IndexedError<IntOrderedColumnError>);
+
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnIntRangeError(IndexedError<RangeToIntError<()>>);
+
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewFixedIntLayoutError {
     Width(SingleFixedWidthError),
-    Column(IndexedError<IntOrderedColumnError>),
+    Column(ColumnIntOrderedColumnError),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug)]
 pub enum IntOrderedColumnError {
     Order(ByteOrdToSizedError),
-    Size(BitmaskError),
+    Size(RangeToBitmaskError),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SingleFixedWidthError {
     Bytes(WidthToBytesError),
     Width(WidthMismatchError),
 }
 
 #[derive(Debug, Error, new)]
+// TODO use correct error type
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
     found: NonEmpty<Bytes>,
@@ -4277,16 +4357,22 @@ pub enum NewMixedTypeError {
     Float(FloatWidthError),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug)]
 pub enum NewMixedTypeWarning {
-    Ascii(IntRangeError<()>),
-    Uint(BitmaskError),
+    Ascii(RangeToIntError<()>),
+    Uint(RangeToBitmaskError),
     Float(DecimalToFloatError),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnNewUintTypeError(IndexedError<NewUintTypeError>);
+
+#[derive(From, Display, Debug)]
 pub enum NewUintTypeError {
-    Bitmask(BitmaskError),
+    Bitmask(RangeToBitmaskError),
     Bytes(WidthToBytesError),
 }
 
@@ -4302,29 +4388,6 @@ pub enum FloatWidthError {
 pub struct WrongFloatWidth {
     pub width: Bytes,
     pub expected: usize,
-}
-
-pub type DataReaderResult<T> =
-    WarningsAndErrorsResult<T, (), NewDataReaderWarning, NewDataReaderError>;
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewDataReaderError {
-    TotMismatch(TotEventMismatch),
-    ParseTot(ReqKeyError<Tot>),
-    ParseSeg(ReqSegmentWithDefaultError<DataSegmentId>),
-    Width(UnevenEventWidth),
-    Mismatch(SegmentMismatchWarning<DataSegmentId>),
-}
-
-#[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewDataReaderWarning {
-    TotMismatch(TotEventMismatch),
-    ParseTot(OptKeyError<Tot>),
-    Layout(IndexedError<IntRangeError<()>>),
-    Width(UnevenEventWidth),
-    Segment(ReqSegmentWithDefaultWarning<DataSegmentId>),
 }
 
 #[derive(Error, Debug)]
@@ -4380,6 +4443,18 @@ pub enum AnyLossError {
     Ascii(LossError<AsciiLossError>),
 }
 
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnBitmaskError(IndexedError<RangeToBitmaskError>);
+
+#[derive(From, Display, Debug)]
+pub enum RangeToBitmaskError {
+    ToInt(RangeToIntError<()>),
+    Trunc(BitmaskTruncationError),
+}
+
 #[derive(Clone, Copy, Debug, Error)]
 #[error("ASCII data truncated to {0} chars")]
 pub struct AsciiLossError(Chars);
@@ -4399,7 +4474,7 @@ pub enum LookupLayoutError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
-    New(IndexedError<NewMixedTypeWarning>),
+    New(ColumnNewMixedTypeWarning),
     Datatype(DeprecatedDatatypeWarning),
     Meas(LookupMeasLayoutWarning),
 }
@@ -4418,19 +4493,19 @@ pub enum LookupMeasLayoutWarning {
     NumType(OptIndexedKeyError<NumType>),
 }
 
-type FromRawResult<T> = WarningsAndErrorsResult<T, (), RawToLayoutWarning, RawToLayoutError>;
+type LookupRawResult<T> = WarningsAndErrorsResult<T, (), LookupRawWarning, LookupRawError>;
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawToLayoutError {
+pub enum LookupRawError {
     New(NewDataLayoutError),
     Raw(RawParsedError),
 }
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawToLayoutWarning {
-    New(IndexedError<NewMixedTypeWarning>),
+pub enum LookupRawWarning {
+    New(ColumnNewMixedTypeWarning),
     Raw(OptIndexedKeyError<NumType>),
 }
 
@@ -4634,8 +4709,8 @@ pub struct MixedToNonMixedError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(px::RelationalException))]
 pub enum AnyRangeError {
-    Ascii(IntRangeError<()>),
-    Int(BitmaskError),
+    Ascii(RangeToIntError<()>),
+    Int(RangeToBitmaskError),
     Float(DecimalToFloatError),
 }
 
@@ -4653,8 +4728,14 @@ pub enum MeasurementsWithLayoutError {
     Layout(MeasLayoutMismatchError),
 }
 
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+pub struct ColumnScaleMismatchTransformError(IndexedError<ScaleMismatchTransformError>);
+
 pub type ScaleMismatchTransformErrors =
-    ErrorGroup<IndexedError<ScaleMismatchTransformError>, ScaleMismatchTransformSummary>;
+    ErrorGroup<ColumnScaleMismatchTransformError, ScaleMismatchTransformSummary>;
 
 def_group!(
     ScaleMismatchTransformSummary,
@@ -4687,15 +4768,11 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_pyreflow_err;
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
-    use crate::text::keywords::{AlphaNumType, IntRangeError};
+    use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
 
-    use super::{
-        AnyNullBitmask, FloatRange, IndexedError, NewMixedTypeWarning, NullMixedType,
-        ScaleMismatchTransformError,
-    };
+    use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
     use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;
@@ -4765,16 +4842,4 @@ mod python {
             }
         }
     }
-
-    impl_pyreflow_err!(
-        MeasurementException,
-        IndexedError<ScaleMismatchTransformError>
-    );
-
-    // These are relational because how Range is parsed depends on the value
-    // of BYTEORD, DATATYPE, etc.
-    impl_pyreflow_err!(RelationalException, IndexedError<NewMixedTypeWarning>);
-
-    // TODO not sure what these should really be
-    impl_pyreflow_err!(FileLayoutError, IndexedError<IntRangeError<()>>);
 }

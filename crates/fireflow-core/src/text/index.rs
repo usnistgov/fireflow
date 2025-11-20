@@ -96,8 +96,8 @@ pub struct BoundaryIndexError {
 // TODO this itself shouldn't be an error; it should be the base for more
 // complex errors since the index can mean different things in different
 // contexts.
-#[derive(new, Debug, Error)]
-#[error("(index {index}) {error}")]
+#[derive(new, Debug)]
+// #[error("(index {index}) {error}")]
 pub struct IndexedError<E> {
     #[new(into)]
     pub index: IndexFromOne,

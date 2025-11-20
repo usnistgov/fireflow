@@ -3,7 +3,7 @@
 use crate::config::DisallowRangeTrunc;
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToCharsError;
-use crate::text::keywords::{IntRangeError, Range, Width};
+use crate::text::keywords::{RangeToIntError, Range, Width};
 
 use derive_more::{Display, From, Into};
 use std::num::{NonZero, NonZeroU8};
@@ -50,7 +50,7 @@ pub struct OtherWidth(pub Chars);
 const MAX_CHARS: u8 = 20;
 
 impl TryFrom<Range> for Chars {
-    type Error = IntRangeError<u64>;
+    type Error = RangeToIntError<u64>;
 
     fn try_from(value: Range) -> Result<Self, Self::Error> {
         u64::try_from(value).map(Self::from_u64)
@@ -95,7 +95,7 @@ impl AsciiRange {
         width: Width,
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), IntRangeError<()>, NewAsciiRangeError> {
+    ) -> WarningsAndErrorsResult<Self, (), RangeToIntError<()>, NewAsciiRangeError> {
         let rng_res = range
             .into_uint()
             .nowarn_into_switchable(flag)
@@ -191,7 +191,7 @@ pub struct CharsError(u8);
 pub enum NewAsciiRangeError {
     New(NotEnoughCharsError),
     Width(WidthToCharsError),
-    Range(IntRangeError<()>),
+    Range(RangeToIntError<()>),
 }
 
 #[derive(Debug, Error)]

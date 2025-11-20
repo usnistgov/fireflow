@@ -3,6 +3,7 @@ use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use derive_more::{Display, From, Into};
+use derive_new::new;
 use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fmt;
@@ -112,10 +113,7 @@ macro_rules! byteord_from_sized {
                 if let ByteOrd2_0::$var(sized) = value {
                     Ok(sized)
                 } else {
-                    Err(ByteOrdToSizedError {
-                        bytes: value.nbytes(),
-                        length: $len,
-                    })
+                    Err(ByteOrdToSizedError::new(value.nbytes(), $len))
                 }
             }
         }
@@ -403,6 +401,9 @@ impl fmt::Display for Bytes {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", bound(X: fmt::Display))]
 pub enum WidthToFixedError<X> {
     #[error("width is variable where fixed is needed")]
     Variable,
@@ -437,8 +438,11 @@ pub struct BytesError(u8);
 #[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct OrderedToEndianError;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
+// TODO probably wrong exception type
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
 pub struct ByteOrdToSizedError {
     bytes: Bytes,
     length: usize,

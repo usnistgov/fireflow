@@ -4,7 +4,7 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _,
 };
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{IntRangeError, Range};
+use crate::text::keywords::{RangeToIntError, Range};
 
 use bigdecimal::BigDecimal;
 use derive_more::{Display, From};
@@ -181,17 +181,11 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("could not make bitmask for {value} which exceeds {bytes} bytes")]
+#[derive(Debug, Display)]
+#[display("could not make bitmask for {value} which exceeds {bytes} bytes")]
 pub struct BitmaskTruncationError {
     bytes: u8,
     value: u64,
-}
-
-#[derive(Display, From, Debug, Error)]
-pub enum BitmaskError {
-    ToInt(IntRangeError<()>),
-    Trunc(BitmaskTruncationError),
 }
 
 #[derive(Clone, Copy, Debug, Error)]

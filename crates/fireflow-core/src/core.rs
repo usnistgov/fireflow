@@ -7,9 +7,9 @@ use crate::config::{
 use crate::data::{
     AnyRangeError, ColumnLossError, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
     DataLayout3_2, InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _,
-    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataLayoutError, NewDataReaderError, RawToLayoutError, RawToLayoutWarning,
-    ReadDataframeError, ReadDataframeWarning, VersionedDataLayout,
+    LookupLayoutError, LookupLayoutWarning, LookupRawError, LookupRawWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
+    ReadDataframeWarning, VersionedDataLayout,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -44,18 +44,17 @@ use crate::text::gating::{
     LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
     MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
 };
-use crate::text::index::{IndexFromOne, IndexedError, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
     DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
-    Feature, Fil, Filter, Flowrate, Gain, Inst, IntRangeError, LastModified, LastModifier,
-    Locationid, LogScale, Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError,
-    Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
-    Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
-    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
-    UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier, Locationid, LogScale,
+    Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
+    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -4351,7 +4350,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), StdWriterWarning, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<(), ColumnLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
@@ -4407,7 +4406,6 @@ where
             .and_commutative(|| {
                 layout
                     .h_write_df(h, df, !conf.skip_conversion_check)
-                    .map_commutative_warnings(StdWriterWarning::from)
                     .map_error(IOErrorGroup::from)
             })
             // write ANALYSIS
@@ -8388,24 +8386,11 @@ pub enum ConvertError {
 pub struct NameConversionError(Key1<Shortname>);
 
 #[derive(From, Display, Debug, Error)]
-pub enum StdReaderError {
-    Layout(NewDataLayoutError),
-    Reader(NewDataReaderError),
-}
-
-#[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(ColumnLossError),
     Overflow(Uint8DigitOverflow),
-}
-
-#[derive(From, Display, Debug, Error)]
-pub enum StdWriterWarning {
-    // TODO is this necessary?
-    Column(IndexedError<IntRangeError<()>>),
-    Check(ColumnLossError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8853,7 +8838,7 @@ pub enum UnstainedLossError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
-    Layout(RawToLayoutError),
+    Layout(LookupRawError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
@@ -8862,7 +8847,7 @@ pub enum LookupAndReadDataAnalysisError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
-    Layout(RawToLayoutWarning),
+    Layout(LookupRawWarning),
     Data(ReadDataframeWarning),
 }
 

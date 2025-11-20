@@ -1718,15 +1718,15 @@ pub enum Width {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self) -> DeferredError<T, IntRangeError<()>>
+    pub(crate) fn into_uint<T>(self) -> DeferredError<T, RangeToIntError<()>>
     where
-        T: TryFrom<Self, Error = IntRangeError<T>> + PrimInt,
+        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
     {
         let (b, err) = self.try_into().map_or_else(
-            |e: IntRangeError<T>| match e.error_kind {
-                IntRangeErrorKind::Overrange => (T::max_value(), Some(e.void())),
-                IntRangeErrorKind::Underrange => (T::zero(), Some(e.void())),
-                IntRangeErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
+            |e: RangeToIntError<T>| match e.error_kind {
+                RangeToIntErrorKind::Overrange => (T::max_value(), Some(e.void())),
+                RangeToIntErrorKind::Underrange => (T::zero(), Some(e.void())),
+                RangeToIntErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
             },
             |x| (x, None),
         );
@@ -1756,11 +1756,11 @@ impl Range {
 macro_rules! try_from_range_int {
     ($inttype:ident, $to:ident) => {
         impl TryFrom<Range> for $inttype {
-            type Error = IntRangeError<$inttype>;
+            type Error = RangeToIntError<$inttype>;
 
             fn try_from(value: Range) -> Result<Self, Self::Error> {
                 let x = &value.0;
-                let err = |error_kind| IntRangeError {
+                let err = |error_kind| RangeToIntError {
                     src_type: type_name::<$inttype>(),
                     src_num: x.clone(),
                     error_kind,
@@ -1769,13 +1769,13 @@ macro_rules! try_from_range_int {
                     if x.fractional_digit_count() <= 0 {
                         Ok(y)
                     } else {
-                        Err(err(IntRangeErrorKind::PrecisionLoss(y)))
+                        Err(err(RangeToIntErrorKind::PrecisionLoss(y)))
                     }
                 } else {
                     if BigDecimal::from($inttype::MAX) < *x {
-                        Err(err(IntRangeErrorKind::Overrange))
+                        Err(err(RangeToIntErrorKind::Overrange))
                     } else {
-                        Err(err(IntRangeErrorKind::Underrange))
+                        Err(err(RangeToIntErrorKind::Underrange))
                     }
                 }
             }
@@ -1788,46 +1788,46 @@ try_from_range_int!(u16, to_u16);
 try_from_range_int!(u32, to_u32);
 try_from_range_int!(u64, to_u64);
 
-#[derive(Debug, Error)]
-pub struct IntRangeError<T> {
+#[derive(Debug)]
+pub struct RangeToIntError<T> {
     src_type: &'static str,
     src_num: BigDecimal,
-    error_kind: IntRangeErrorKind<T>,
+    error_kind: RangeToIntErrorKind<T>,
 }
 
 #[derive(Debug)]
-pub enum IntRangeErrorKind<T> {
+pub enum RangeToIntErrorKind<T> {
     Overrange,
     Underrange,
     PrecisionLoss(T),
 }
 
-impl<T> IntRangeError<T> {
-    pub(crate) fn void(self) -> IntRangeError<()> {
-        IntRangeError {
+impl<T> RangeToIntError<T> {
+    pub(crate) fn void(self) -> RangeToIntError<()> {
+        RangeToIntError {
             src_type: self.src_type,
             src_num: self.src_num,
             error_kind: match self.error_kind {
-                IntRangeErrorKind::Overrange => IntRangeErrorKind::Overrange,
-                IntRangeErrorKind::Underrange => IntRangeErrorKind::Underrange,
-                IntRangeErrorKind::PrecisionLoss(_) => IntRangeErrorKind::PrecisionLoss(()),
+                RangeToIntErrorKind::Overrange => RangeToIntErrorKind::Overrange,
+                RangeToIntErrorKind::Underrange => RangeToIntErrorKind::Underrange,
+                RangeToIntErrorKind::PrecisionLoss(_) => RangeToIntErrorKind::PrecisionLoss(()),
             },
         }
     }
 }
 
-impl<T> fmt::Display for IntRangeError<T> {
+impl<T> fmt::Display for RangeToIntError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let t = self.src_type;
         let x = &self.src_num;
         match self.error_kind {
-            IntRangeErrorKind::Overrange => {
+            RangeToIntErrorKind::Overrange => {
                 write!(f, "{x} is larger than {t} can hold")
             }
-            IntRangeErrorKind::Underrange => {
+            RangeToIntErrorKind::Underrange => {
                 write!(f, "{x} is less than zero and could not be converted to {t}")
             }
-            IntRangeErrorKind::PrecisionLoss(_) => {
+            RangeToIntErrorKind::PrecisionLoss(_) => {
                 write!(f, "{x} lost precision when converting to {t}")
             }
         }

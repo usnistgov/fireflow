@@ -10,7 +10,6 @@ use crate::core::{
     StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
     StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
-use crate::data::{NewDataReaderError, NewDataReaderWarning, RawToLayoutError, RawToLayoutWarning};
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
     Version3_1, Version3_2,
@@ -397,20 +396,6 @@ pub enum HeaderOrRawError {
     Header(HeaderError),
     RawTEXT(ParseRawTEXTError),
     Warn(ParseRawTEXTWarning),
-}
-
-#[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawToReaderError {
-    Layout(RawToLayoutError),
-    Reader(NewDataReaderError),
-}
-
-#[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawToReaderWarning {
-    Layout(RawToLayoutWarning),
-    Reader(NewDataReaderWarning),
 }
 
 #[derive(From, Display)]

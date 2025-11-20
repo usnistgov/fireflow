@@ -6,8 +6,6 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use crate::type_families::{impl_functor, impl_functor_common, impl_functor_once, impl_kind1};
-
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
@@ -92,27 +90,6 @@ pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
     pub len: usize,
 }
-
-// TODO this itself shouldn't be an error; it should be the base for more
-// complex errors since the index can mean different things in different
-// contexts.
-#[derive(new, Debug)]
-// #[error("(index {index}) {error}")]
-pub struct IndexedError<E> {
-    #[new(into)]
-    pub index: IndexFromOne,
-    #[new(into)]
-    pub error: E,
-}
-
-impl_kind1!(ColumnErrorFamily, IndexedError);
-
-impl_functor_once!(
-    IndexedError,
-    self,
-    mut f,
-    IndexedError::new(self.index, f(self.error))
-);
 
 #[cfg(test)]
 mod tests {

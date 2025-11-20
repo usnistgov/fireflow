@@ -70,7 +70,7 @@ use crate::text::byteord::{
     OrderedToEndianError, SizedByteOrd, WidthToBytesError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
-use crate::text::index::{IndexedError, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, NumType, Par, Range,
     RangeToIntError, Tot, Width,
@@ -81,7 +81,9 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
-use crate::type_families::FunctorOnce as _;
+use crate::type_families::{
+    FunctorOnce as _, impl_functor, impl_functor_common, impl_functor_once, impl_kind1,
+};
 use crate::validated::ascii_range::{AsciiRange, Chars, NewAsciiRangeError};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
@@ -4765,6 +4767,22 @@ pub struct ScaleMismatchTransformError {
 pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
     [Width::std_blank(), Range::std_blank()]
 }
+
+#[derive(new, Debug)]
+pub struct IndexedError<E> {
+    #[new(into)]
+    pub index: IndexFromOne,
+    pub error: E,
+}
+
+impl_kind1!(ColumnErrorFamily, IndexedError);
+
+impl_functor_once!(
+    IndexedError,
+    self,
+    mut f,
+    IndexedError::new(self.index, f(self.error))
+);
 
 #[cfg(feature = "python")]
 mod python {

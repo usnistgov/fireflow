@@ -360,8 +360,10 @@ struct ColumnWriter<'a, C, T, S> {
 }
 
 impl<C, T, S> ColumnWriter<'_, C, T, S> {
-    fn as_err(&self, i: MeasIndex) -> Option<IndexedError<AnyLossError>> {
-        self.loss.as_ref().map(|&error| IndexedError::new(i, error))
+    fn into_err(self, i: MeasIndex) -> Option<ColumnLossError> {
+        self.loss
+            .map(|error| IndexedError::new(i, error))
+            .map(ColumnLossError)
     }
 }
 
@@ -549,17 +551,14 @@ pub trait LayoutOps<'a, T>: Sized {
     where
         T: IsTot;
 
-    fn check_writer(
-        &self,
-        df: &'a FCSDataFrame,
-    ) -> ErrorsResult<(), (), IndexedError<AnyLossError>>;
+    fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), ColumnLossError>;
 
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedError<AnyLossError>, io::Error>;
+    ) -> DeferredWarningsAndError<(), ColumnLossError, io::Error>;
 
     fn check_transforms_and_len(
         &self,
@@ -606,7 +605,7 @@ pub trait LayoutOps<'a, T>: Sized {
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedError<AnyLossError>>;
+    ) -> WarningsResult<FCSDataFrame, ColumnLossError>;
 }
 
 #[delegatable_trait]
@@ -704,7 +703,7 @@ where
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> WarningsAndErrorResult<(), (), IndexedError<AnyLossError>, io::Error>
+    ) -> WarningsAndErrorResult<(), (), ColumnLossError, io::Error>
     where
         W: Write,
     {
@@ -905,7 +904,7 @@ trait Writable<'a, S> {
 
     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>);
 
-    fn as_err(&self, i: MeasIndex) -> Option<IndexedError<AnyLossError>>;
+    fn into_err(self, i: MeasIndex) -> Option<ColumnLossError>;
 }
 
 trait Castable: Sized + HasNativeType {
@@ -1707,8 +1706,8 @@ where
         (FCSColumn::from(xs).into(), warn)
     }
 
-    fn as_err(&self, i: MeasIndex) -> Option<IndexedError<AnyLossError>> {
-        self.as_err(i)
+    fn into_err(self, i: MeasIndex) -> Option<ColumnLossError> {
+        self.into_err(i)
     }
 }
 
@@ -1726,8 +1725,8 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
         match_any_mixed!(self, x, { x.truncate(skip_conv_check) })
     }
 
-    fn as_err(&self, i: MeasIndex) -> Option<IndexedError<AnyLossError>> {
-        match_any_mixed!(self, x, { x.as_err(i) })
+    fn into_err(self, i: MeasIndex) -> Option<ColumnLossError> {
+        match_any_mixed!(self, x, { x.into_err(i) })
     }
 }
 
@@ -1740,8 +1739,8 @@ impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
         match_any_uint!(self, Self, x, { x.truncate(skip_conv_check) })
     }
 
-    fn as_err(&self, i: MeasIndex) -> Option<IndexedError<AnyLossError>> {
-        match_any_uint!(self, Self, x, { x.as_err(i) })
+    fn into_err(self, i: MeasIndex) -> Option<ColumnLossError> {
+        match_any_uint!(self, Self, x, { x.into_err(i) })
     }
 }
 
@@ -2263,12 +2262,13 @@ where
         res.map_err(IOErrorGroup::from).into_log()
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), ColumnLossError> {
         df.iter_columns()
             .enumerate()
             .map(|(i, c)| {
                 c.check_writer::<_, _, u64>(|_| None)
                     .map_err(|error| IndexedError::new(i, AnyLossError::Int(error)))
+                    .map_err(ColumnLossError)
                     .into_log()
             })
             .mappend_def_void()
@@ -2279,7 +2279,7 @@ where
         h: &mut BufWriter<W>,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedError<AnyLossError>, io::Error> {
+    ) -> DeferredWarningsAndError<(), ColumnLossError, io::Error> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
@@ -2315,6 +2315,7 @@ where
                     warn.map(LossError::Cast)
                         .map(AnyLossError::Ascii)
                         .map(|w| IndexedError::new(i, w))
+                        .map(ColumnLossError)
                 })
                 .collect();
             write_res.set_commutative_warnings(cs)
@@ -2325,7 +2326,7 @@ where
         &self,
         df: &FCSDataFrame,
         skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedError<AnyLossError>> {
+    ) -> WarningsResult<FCSDataFrame, ColumnLossError> {
         let nrows = df.nrows();
         let (columns, warnings): (Vec<_>, Vec<_>) = df
             .iter_columns()
@@ -2345,7 +2346,11 @@ where
                 )
             })
             .unzip();
-        let ws: Vec<_> = warnings.into_iter().flatten().collect();
+        let ws: Vec<_> = warnings
+            .into_iter()
+            .flatten()
+            .map(ColumnLossError)
+            .collect();
         let ret = FCSDataFrame::try_new(columns).unwrap();
         Success::new_non_switchable(ret).set_warnings(ws)
     }
@@ -2621,10 +2626,7 @@ where
             })
     }
 
-    fn check_writer(
-        &self,
-        df: &'a FCSDataFrame,
-    ) -> ErrorsResult<(), (), IndexedError<AnyLossError>> {
+    fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), ColumnLossError> {
         // ASSUME df has same number of columns as layout
         self.columns
             .iter()
@@ -2634,6 +2636,7 @@ where
                 col_type
                     .check_writer(col_data)
                     .map_err(|error| IndexedError::new(i, error))
+                    .map_err(ColumnLossError)
                     .into_log()
             })
             .mappend_def_void()
@@ -2644,7 +2647,7 @@ where
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedError<AnyLossError>, io::Error> {
+    ) -> DeferredWarningsAndError<(), ColumnLossError, io::Error> {
         let nrows = df.nrows();
         // ASSUME df has same number of columns as layout
         let mut cs: Vec<_> = self
@@ -2675,9 +2678,9 @@ where
             write_res.nowarn_into_warn()
         } else {
             let ws = cs
-                .iter()
+                .into_iter()
                 .enumerate()
-                .filter_map(|(i, c)| c.as_err(i.into()))
+                .filter_map(|(i, c)| c.into_err(i.into()))
                 .collect();
             write_res.set_commutative_warnings(ws)
         }
@@ -2689,7 +2692,7 @@ where
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedError<AnyLossError>> {
+    ) -> WarningsResult<FCSDataFrame, ColumnLossError> {
         // ASSUME df has same number of columns as layout
         let (new_columns, warnings): (Vec<_>, Vec<_>) = self
             .columns
@@ -2706,6 +2709,7 @@ where
             .into_iter()
             .enumerate()
             .filter_map(|(i, e)| e.map(|f| IndexedError::new(i, f)))
+            .map(ColumnLossError)
             .collect();
         let ret = FCSDataFrame::try_new(new_columns).unwrap();
         Success::new_non_switchable(ret).set_warnings(ws)
@@ -4363,7 +4367,13 @@ pub enum EventWidthError {
     Uneven(UnevenEventWidth),
 }
 
-#[derive(From, Display, Clone, Copy, Debug, Error)]
+#[derive(From, Debug, Error)]
+#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+pub struct ColumnLossError(IndexedError<AnyLossError>);
+
+#[derive(From, Display, Debug)]
 pub enum AnyLossError {
     Int(LossError<BitmaskLossError>),
     Float(LossError<Infallible>),
@@ -4371,7 +4381,7 @@ pub enum AnyLossError {
 }
 
 #[derive(Clone, Copy, Debug, Error)]
-#[error("ASCII data was too big and truncated into {0} chars")]
+#[error("ASCII data truncated to {0} chars")]
 pub struct AsciiLossError(Chars);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
@@ -4683,7 +4693,7 @@ mod python {
     use crate::validated::ascii_range::AsciiRange;
 
     use super::{
-        AnyLossError, AnyNullBitmask, FloatRange, IndexedError, NewMixedTypeWarning, NullMixedType,
+        AnyNullBitmask, FloatRange, IndexedError, NewMixedTypeWarning, NullMixedType,
         ScaleMismatchTransformError,
     };
 
@@ -4764,8 +4774,6 @@ mod python {
     // These are relational because how Range is parsed depends on the value
     // of BYTEORD, DATATYPE, etc.
     impl_pyreflow_err!(RelationalException, IndexedError<NewMixedTypeWarning>);
-
-    impl_pyreflow_err!(EventDataError, IndexedError<AnyLossError>);
 
     // TODO not sure what these should really be
     impl_pyreflow_err!(FileLayoutError, IndexedError<IntRangeError<()>>);

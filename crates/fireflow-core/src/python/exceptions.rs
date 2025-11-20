@@ -59,6 +59,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    DataLossError,
+    PyreflowException,
+    "Exception caused by loss of precision for values in DATA segment"
+);
+
+create_exception!(
+    _pyreflow,
     PyreflowWarning,
     PyWarning,
     "Warning created by internal pyreflow."

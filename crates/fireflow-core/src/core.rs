@@ -5,7 +5,7 @@ use crate::config::{
     WriteConfig,
 };
 use crate::data::{
-    AnyLossError, AnyRangeError, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
+    AnyRangeError, ColumnLossError, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
     DataLayout3_2, InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _,
     LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
     NewDataLayoutError, NewDataReaderError, RawToLayoutError, RawToLayoutWarning,
@@ -4471,10 +4471,7 @@ where
     ///
     /// This will copy the entire dataframe regardless of whether or not the
     /// data needs to be truncated. This will hopefully be fixed in the future.
-    pub fn truncate_data(
-        &mut self,
-        skip_conv_check: bool,
-    ) -> WarningsResult<(), IndexedError<AnyLossError>> {
+    pub fn truncate_data(&mut self, skip_conv_check: bool) -> WarningsResult<(), ColumnLossError> {
         // TODO this function is hilariously not-optimized; each column will be
         // cast into a totally new vector even if they are they exact same
         // type with no possible truncation. This also means that the new
@@ -8400,7 +8397,7 @@ pub enum StdReaderError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
-    Check(IndexedError<AnyLossError>),
+    Check(ColumnLossError),
     Overflow(Uint8DigitOverflow),
 }
 
@@ -8408,7 +8405,7 @@ pub enum StdWriterError {
 pub enum StdWriterWarning {
     // TODO is this necessary?
     Column(IndexedError<IntRangeError<()>>),
-    Check(IndexedError<AnyLossError>),
+    Check(ColumnLossError),
 }
 
 #[derive(From, Display, Debug, Error)]

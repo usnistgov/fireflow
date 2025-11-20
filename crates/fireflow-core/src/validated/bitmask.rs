@@ -195,7 +195,7 @@ pub enum BitmaskError {
 }
 
 #[derive(Clone, Copy, Debug, Error)]
-#[error("integer data was too big and truncated to bitmask {0}")]
+#[error("integer data truncated to {0}")]
 pub struct BitmaskLossError(pub u64);
 
 #[cfg(test)]

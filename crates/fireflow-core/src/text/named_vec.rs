@@ -351,27 +351,31 @@ impl<K, U, V> NamedVec<K, U, V> {
         Ok(x)
     }
 
-    pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, X, Y, R>(
+    pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, Ferror, X, Y, R, E, G>(
         &mut self,
         xs: Vec<Element<X, Y>>,
+        g: G,
         f_noncenter: Fnoncenter,
         f_center: Fcenter,
-    ) -> Result<Vec<R>, SetElementsError>
+        f_error: Ferror,
+    ) -> Result<Vec<R>, SetElementsError<ErrorGroup<E, G>>>
     where
         Fnoncenter: Fn(IndexedElement<&K, &mut V>, Y) -> R,
         Fcenter: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        Ferror: Fn(MeasIndex, bool) -> E,
     {
         let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f_noncenter);
 
-        let check_optical = |ys: Vec<Element<X, Y>>| {
+        let check_optical = |ys: Vec<Element<X, Y>>, offset: usize| {
             ys.into_iter()
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
                 .mappend_commutative()
-                .map_errors(|i| IndexedError::new(i, OpticalMismatchError::new(true)))
+                .map_errors(|i| f_error((i + offset).into(), false))
         };
 
-        self.check_keys_length(&xs[..], true)?;
+        self.check_keys_length(&xs[..], true)
+            .map_err(SetElementsError::Length)?;
         let res = match self {
             Self::Split(s) => {
                 let nleft = s.left.len();
@@ -380,12 +384,12 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let xs_left = it.by_ref().take(nleft).collect();
                 let x_center = it.by_ref().next().unwrap();
                 let xs_right = it.collect();
-                let left_res = check_optical(xs_left);
+                let left_res = check_optical(xs_left, 0);
                 let center_res = x_center
                     .center()
-                    .ok_or(IndexedError::new(nleft, OpticalMismatchError::new(false)))
+                    .ok_or(f_error(nleft.into(), true))
                     .into_log();
-                let right_res = check_optical(xs_right);
+                let right_res = check_optical(xs_right, nleft + 1);
                 left_res
                     .zip3_commutative(center_res, right_res)
                     .map_ok_value(|(ys_left, y_center, ys_right)| {
@@ -398,10 +402,12 @@ impl<K, U, V> NamedVec<K, U, V> {
                     })
             }
             Self::Unsplit(u) => {
-                check_optical(xs).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())
+                check_optical(xs, 0).map_ok_value(|ys| go(&mut u.members, ys, 0).collect())
             }
         };
-        res.group().resolve_nowarn().map_err(SetElementsError::from)
+        res.group_with(g)
+            .resolve_nowarn()
+            .map_err(SetElementsError::Mismatch)
     }
 
     /// Apply function(s) to all values, altering them in place.
@@ -1928,11 +1934,12 @@ pub enum NewNamedVecError {
     MultiCenter(CenterPresentError),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetElementsError {
+#[cfg_attr(feature = "python", bound(E: Into<Self>))]
+pub enum SetElementsError<E> {
     Length(InputLengthError),
-    Mismatch(OpticalMismatchErrors),
+    Mismatch(E),
 }
 
 #[derive(Debug, Error)]
@@ -2007,37 +2014,9 @@ pub struct InputLengthError {
     include_center: bool,
 }
 
-pub type OpticalMismatchErrors =
-    ErrorGroup<IndexedError<OpticalMismatchError>, OpticalMismatchSummary>;
-
-def_group!(
-    OpticalMismatchSummary,
-    "attempted to assign incompatible measurement values"
-);
-
-#[derive(Debug, Error, new)]
-pub struct OpticalMismatchError {
-    new_is_optical: bool,
-}
-
-impl fmt::Display for OpticalMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let opt = "optical";
-        let tmp = "temporal";
-        let (x, y) = if self.new_is_optical {
-            (opt, tmp)
-        } else {
-            (tmp, opt)
-        };
-        write!(f, "tried to assign {x} value to {y} measurement")
-    }
-}
-
 #[cfg(feature = "python")]
 mod python {
-    use super::{Element, NonCenterElement, OpticalMismatchError};
-    use crate::python::macros::impl_pyreflow_err;
-    use crate::text::index::IndexedError;
+    use super::{Element, NonCenterElement};
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
@@ -2054,6 +2033,4 @@ mod python {
             Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
         }
     }
-
-    impl_pyreflow_err!(MeasurementException, IndexedError<OpticalMismatchError>);
 }

@@ -2709,13 +2709,18 @@ where
     // }
 
     /// Set fields on all optical measurements to values in a vector
-    pub fn set_optical<X>(&mut self, xs: Vec<NonCenterElement<X>>) -> Result<(), SetElementsError>
+    pub fn set_optical<X>(&mut self, xs: Vec<NonCenterElement<X>>) -> Result<(), SetOpticalError>
     where
         Optical<M::Optical>: AsMut<X>,
     {
         let ys = xs.into_iter().map(|x| x.0).collect();
-        self.measurements
-            .alter_elements_zip(ys, |m, x| *m.value.as_mut() = x, |_, ()| ())?;
+        self.measurements.alter_elements_zip(
+            ys,
+            SetOpticalSummary,
+            |m, x| *m.value.as_mut() = x,
+            |_, ()| (),
+            |i, is_opt| MeasMismatchError::new(is_opt, i),
+        )?;
         Ok(())
     }
 
@@ -2751,15 +2756,17 @@ where
     pub fn set_temporal_optical2<X, Y>(
         &mut self,
         xs: Vec<Element<X, Y>>,
-    ) -> Result<(), SetElementsError>
+    ) -> Result<(), SetAllMeasError>
     where
         Temporal<M::Temporal>: AsMut<X>,
         Optical<M::Optical>: AsMut<Y>,
     {
         self.measurements.alter_elements_zip(
             xs,
+            SetAllMeasSummary,
             |m, x| *m.value.as_mut() = x,
             |m, y| *m.value.as_mut() = y,
+            |i, is_opt| MeasMismatchError::new(is_opt, i),
         )?;
         Ok(())
     }
@@ -9131,6 +9138,39 @@ pub struct ScaleTransformError {
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
+}
+
+pub type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
+
+def_group!(
+    SetOpticalSummary,
+    "attempted to assign incompatible optical measurement values"
+);
+
+pub type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
+
+def_group!(
+    SetAllMeasSummary,
+    "attempted to assign incompatible optical and temporal measurement values"
+);
+
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+pub struct MeasMismatchError {
+    key_is_optical: bool,
+    index: MeasIndex,
+}
+
+impl fmt::Display for MeasMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let k = self.index;
+        if self.key_is_optical {
+            write!(f, "optical index {k} must not be assigned empty-tuple")
+        } else {
+            write!(f, "temporal index {k} must be assigned empty tuple")
+        }
+    }
 }
 
 #[cfg(feature = "python")]

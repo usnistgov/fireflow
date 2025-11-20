@@ -43,6 +43,9 @@ use std::marker::PhantomData;
 use std::vec;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::AllIntoPyErr;
+
 //
 // Group Results to be used at library boundaries
 //
@@ -434,6 +437,8 @@ pub struct GenNonEmpty<X, C> {
 
 /// Either a pure error or impure (IO) error.
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Into<pyo3::PyErr>))]
 pub enum ImpureError<E> {
     #[error("IO error: {0}")]
     IO(#[from] IOError),
@@ -2881,24 +2886,12 @@ pub(crate) use io_to_log;
 mod python {
     use crate::{python::PyreflowWarning, text::optional::Nothing};
 
-    use super::{
-        CommutativeResult, ErrorGroup, IOErrorGroup, ImpureError, NonCommutativeResult, Success,
-    };
+    use super::{CommutativeResult, ErrorGroup, IOErrorGroup, NonCommutativeResult, Success};
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
     use std::ffi::CString;
     use std::fmt::Display;
-
-    impl<T: Into<Self>> From<ImpureError<T>> for PyErr {
-        fn from(value: ImpureError<T>) -> Self {
-            match value {
-                ImpureError::Pure(e) => e.into(),
-                // This should be an OSError of some kind
-                ImpureError::IO(e) => e.into(),
-            }
-        }
-    }
 
     impl<E, G> From<IOErrorGroup<E, G>> for PyErr
     where

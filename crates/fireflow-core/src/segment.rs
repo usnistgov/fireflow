@@ -35,6 +35,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+
 /// Denotes a correction for a segment
 #[derive(Default, Clone, Copy, new)]
 pub struct OffsetCorrection<I, S> {
@@ -547,6 +550,8 @@ impl HasRegion for OtherSegmentId {
 }
 
 #[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentError<B, E> {
     BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
     EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
@@ -554,6 +559,8 @@ pub enum ReqSegmentError<B, E> {
 }
 
 #[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
 pub enum OptSegmentError<B, E> {
     BeginKey(ParseKeyError<ParseIntError, B, ()>),
     EndKey(ParseKeyError<ParseIntError, E, ()>),
@@ -1116,6 +1123,10 @@ pub enum HeaderSegmentError<S> {
 }
 
 #[derive(Debug, Error)]
+// TODO better error choice?
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(T: Into<u64> + Copy))]
 pub struct SegmentError<T> {
     begin: T,
     end: T,
@@ -1198,6 +1209,9 @@ where
     "could not obtain {} segment offset from TEXT, using offsets from HEADER",
     I::REGION
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
 impl<I> Default for SegmentDefaultWarning<I> {
@@ -1214,18 +1228,25 @@ impl<I> Default for SegmentDefaultWarning<I> {
     text.as_u64().fmt_pair(),
     I::REGION,
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentMismatchWarning<I> {
     header: HeaderSegment<I>,
     text: TEXTSegment<I>,
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
     Mismatch(SegmentMismatchWarning<I>),
     Lookup(SegmentDefaultWarning<I>),
@@ -1233,6 +1254,8 @@ pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
@@ -1271,18 +1294,11 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::FileLayoutError;
-    use crate::validated::keys::Key;
+    use super::{InnerSegment, NonEmptySegment, Segment, Zero};
 
-    use super::{
-        InnerSegment, NonEmptySegment, OptSegmentError, OptSegmentWithDefaultWarningInner,
-        ReqSegmentError, ReqSegmentWithDefaultErrorInner, ReqSegmentWithDefaultWarning_, Segment,
-        SegmentError, SegmentMismatchWarning, Zero,
-    };
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-    use std::fmt::Display;
 
     // segments will be returned as tuples like (u32, u32) reflecting their
     // exact representation in an FCS file
@@ -1321,71 +1337,6 @@ mod python {
                 .try_coords()
                 .unwrap_or((0, 0))
                 .into_pyobject(py)
-        }
-    }
-
-    impl<I, B, E> From<ReqSegmentWithDefaultErrorInner<I, B, E>> for PyErr
-    where
-        ReqSegmentWithDefaultErrorInner<I, B, E>: Display,
-    {
-        fn from(value: ReqSegmentWithDefaultErrorInner<I, B, E>) -> Self {
-            FileLayoutError::new_err(value.to_string())
-        }
-    }
-
-    impl<I, B, E> From<ReqSegmentWithDefaultWarning_<I, B, E>> for PyErr
-    where
-        ReqSegmentWithDefaultWarning_<I, B, E>: Display,
-    {
-        fn from(value: ReqSegmentWithDefaultWarning_<I, B, E>) -> Self {
-            FileLayoutError::new_err(value.to_string())
-        }
-    }
-
-    impl<I, B, E> From<OptSegmentWithDefaultWarningInner<I, B, E>> for PyErr
-    where
-        OptSegmentWithDefaultWarningInner<I, B, E>: Display,
-    {
-        fn from(value: OptSegmentWithDefaultWarningInner<I, B, E>) -> Self {
-            FileLayoutError::new_err(value.to_string())
-        }
-    }
-
-    impl<I> From<SegmentMismatchWarning<I>> for PyErr
-    where
-        SegmentMismatchWarning<I>: Display,
-    {
-        fn from(value: SegmentMismatchWarning<I>) -> Self {
-            FileLayoutError::new_err(value.to_string())
-        }
-    }
-
-    impl<T> From<SegmentError<T>> for PyErr
-    where
-        SegmentError<T>: Display,
-    {
-        fn from(value: SegmentError<T>) -> Self {
-            FileLayoutError::new_err(value.to_string())
-        }
-    }
-
-    impl<B: Key, E: Key> From<ReqSegmentError<B, E>> for PyErr {
-        fn from(value: ReqSegmentError<B, E>) -> Self {
-            match value {
-                ReqSegmentError::BeginKey(x) => x.into(),
-                ReqSegmentError::EndKey(x) => x.into(),
-                ReqSegmentError::Segment(x) => x.into(),
-            }
-        }
-    }
-
-    impl<B: Key, E: Key> From<OptSegmentError<B, E>> for PyErr {
-        fn from(value: OptSegmentError<B, E>) -> Self {
-            match value {
-                OptSegmentError::BeginKey(x) => x.into(),
-                OptSegmentError::EndKey(x) => x.into(),
-                OptSegmentError::Segment(x) => x.into(),
-            }
         }
     }
 }

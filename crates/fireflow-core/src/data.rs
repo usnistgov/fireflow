@@ -57,8 +57,8 @@ use crate::core::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, IOErrorGroup,
-    IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
+    DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult,
+    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
     WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, WarningsResult,
 };
@@ -72,8 +72,8 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, NumType, Par, Range,
-    RangeToIntError, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, NumType, Par, Range,
+    RangeToIntError, Scale, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -559,10 +559,12 @@ pub trait LayoutOps<'a, T>: Sized {
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), ColumnLossError, io::Error>;
 
-    fn check_transforms_and_len(
-        &self,
-        xforms: &[ScaleTransform],
-    ) -> Result<(), MeasLayoutMismatchError> {
+    fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
+    where
+        G: Default,
+        S: CheckedScaleTransform,
+        MeasLayoutMismatchError: From<ErrorGroup<S::Err, G>>,
+    {
         let meas_n = xforms.len();
         let layout_n = self.ncols();
         if meas_n != layout_n {
@@ -574,10 +576,11 @@ pub trait LayoutOps<'a, T>: Sized {
     }
 
     // TODO this should be private
-    fn check_transforms(
-        &self,
-        xforms: &[ScaleTransform],
-    ) -> Result<(), ScaleMismatchTransformErrors> {
+    fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
+    where
+        S: CheckedScaleTransform,
+        G: Default,
+    {
         // ASSUME measurements and layout columns are the same length
         let ds = self.datatypes();
         let es = ds
@@ -590,13 +593,7 @@ pub trait LayoutOps<'a, T>: Sized {
             // vague about what should happen to ASCII values (presumably
             // since nobody cares) so here we just treat them like we treat
             // floating point types to keep the logic simple.
-            .filter(|(_, (datatype, scale))| {
-                *datatype != &AlphaNumType::Integer && !scale.is_noop()
-            })
-            .map(|(i, (&datatype, &scale))| {
-                let e = ScaleMismatchTransformError { datatype, scale };
-                IndexedError::new(i, e).into()
-            });
+            .filter_map(|(i, (&datatype, s))| s.matches_datatype(datatype, i.into()).err());
         ErrorGroup::try_new(es)
     }
 
@@ -751,6 +748,12 @@ where
     Self: VersionedDataLayout,
 {
     fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
+}
+
+pub trait CheckedScaleTransform {
+    type Err;
+
+    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
 }
 
 pub trait HasNativeType: Sized {
@@ -3780,6 +3783,28 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
     }
 }
 
+impl CheckedScaleTransform for Scale {
+    type Err = ScaleMismatchError;
+
+    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
+        if datatype != AlphaNumType::Integer && matches!(self, Self::Log(_)) {
+            return Err(ScaleMismatchError::new(i, datatype, *self));
+        }
+        Ok(())
+    }
+}
+
+impl CheckedScaleTransform for ScaleTransform {
+    type Err = ScaleTransformMismatchError;
+
+    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
+        if datatype != AlphaNumType::Integer && !self.is_noop() {
+            return Err(ScaleTransformMismatchError::new(i, datatype, *self));
+        }
+        Ok(())
+    }
+}
+
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
     fn opt_meas_headers(&self) -> Vec<MeasHeader> {
         vec![NumType::std_blank()]
@@ -4720,7 +4745,8 @@ pub enum AnyRangeError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
     Lengths(MeasLayoutLengthsError),
-    Scale(ScaleMismatchTransformErrors),
+    Scale(ScaleMismatchErrors),
+    ScaleTransform(ScaleTransformMismatchErrors),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -4730,17 +4756,18 @@ pub enum MeasurementsWithLayoutError {
     Layout(MeasLayoutMismatchError),
 }
 
-#[derive(From, Debug, Error)]
-#[error("{e} in column {i}", e = _0.error, i = _0.index)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
-pub struct ColumnScaleMismatchTransformError(IndexedError<ScaleMismatchTransformError>);
-
-pub type ScaleMismatchTransformErrors =
-    ErrorGroup<ColumnScaleMismatchTransformError, ScaleMismatchTransformSummary>;
+pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
 
 def_group!(
-    ScaleMismatchTransformSummary,
+    ScaleMismatchSummary,
+    "mismatch between scale and column datatypes"
+);
+
+pub type ScaleTransformMismatchErrors =
+    ErrorGroup<ScaleTransformMismatchError, ScaleTransformMismatchSummary>;
+
+def_group!(
+    ScaleTransformMismatchSummary,
     "mismatch between scale transforms and column datatypes"
 );
 
@@ -4753,14 +4780,52 @@ pub struct MeasLayoutLengthsError {
     layout_n: usize,
 }
 
-#[derive(Debug, Error)]
-#[error(
-    "only integer columns may have non-unitary scale transforms, \
-     column was '{datatype}' and its scale transform was '{scale}'"
-)]
-pub struct ScaleMismatchTransformError {
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+pub struct ScaleMismatchError {
+    index: MeasIndex,
+    datatype: AlphaNumType,
+    scale: Scale,
+}
+
+impl fmt::Display for ScaleMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = self.index;
+        let ekey = Scale::std(i);
+        let dt = self.datatype;
+        let eval = self.scale;
+        write!(
+            f,
+            "only integer columns may have non-linear scale, \
+             column is '{dt}' where {ekey} is '{eval}'"
+        )
+    }
+}
+
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+pub struct ScaleTransformMismatchError {
+    index: MeasIndex,
     datatype: AlphaNumType,
     scale: ScaleTransform,
+}
+
+impl fmt::Display for ScaleTransformMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = self.index;
+        let ekey = Scale::std(i);
+        let gkey = Gain::std(i);
+        let dt = self.datatype;
+        let (eval, g): (Scale, Option<Gain>) = self.scale.into();
+        let gval = g.map_or("not set".into(), |s| format!("'{s}'"));
+        write!(
+            f,
+            "only integer columns may have non-unitary scale transforms, \
+             column is '{dt}' where {ekey} is '{eval}' and {gkey} is {gval}"
+        )
+    }
 }
 
 #[cfg(feature = "serde")]

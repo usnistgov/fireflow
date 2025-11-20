@@ -58,7 +58,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{
         AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
     },
@@ -236,7 +236,7 @@ pub enum LookupTemporalGain {
 #[derive(Debug, Error)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
@@ -365,7 +365,7 @@ pub enum Mode {
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
 pub enum DeprecatedModeWarning {
     #[error("$MODE=C is deprecated")]
     ModeCorrelated,
@@ -428,7 +428,7 @@ pub struct Mode3_2Error;
 #[derive(Debug, Error)]
 #[error("$MODE must be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct ModeUpgradeError;
 
 /// The value for the $PnDISPLAY key (3.1+)
@@ -641,7 +641,7 @@ impl FromStr for AlphaNumType {
 #[derive(Debug, Error)]
 #[error("$DATATYPE=A is deprecated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
 pub struct DeprecatedDatatypeWarning;
 
 #[derive(Debug, Error)]
@@ -910,7 +910,7 @@ impl Wavelengths {
      be reduced to first upon conversion"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
 
 #[derive(Debug, Error)]
@@ -1941,7 +1941,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
 #[derive(Debug, Error)]
 #[error("$CYT is missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct NoCytError;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
@@ -2180,14 +2180,14 @@ impl ExtraStdKeywords {
 #[derive(Debug, Error)]
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that unused standard keyword was found.
 #[derive(Debug, Error)]
 #[error("unused standard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct UnusedStandardError(pub StdKey);
 
 macro_rules! newtype_string {

@@ -37,7 +37,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
@@ -398,7 +398,7 @@ impl str::FromStr for Version {
 
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum HeaderError {
     #[error("{0}")]
     Primary(PrimarySegmentError),

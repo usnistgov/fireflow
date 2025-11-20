@@ -18,7 +18,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
 };
 
@@ -181,7 +181,7 @@ impl FromStr for FCSDateTime {
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct ReversedDatetimesError;
 
 #[derive(Debug, Error)]

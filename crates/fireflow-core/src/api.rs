@@ -56,7 +56,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
 };
 
@@ -416,12 +416,12 @@ pub enum STextSegmentWarning {
 #[derive(Debug, Error)]
 #[error("primary and supplemental TEXT are duplicated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DuplicatedSuppTEXT;
 
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum ParseRawTEXTError {
     Delim(DelimVerifyError),
     Primary(ParsePrimaryTEXTError),
@@ -443,7 +443,7 @@ pub enum DelimVerifyError {
 #[derive(Debug, Error)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimCharError(u8);
 
 #[derive(Debug, Error)]
@@ -494,7 +494,7 @@ pub enum ParsePrimaryTEXTError {
 
 #[derive(Display, From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
     BlankValue(BlankValueError),
@@ -536,7 +536,7 @@ pub struct NonUtf8KeywordError {
 #[error("nonstandard keywords detected")]
 // TODO use better error class here
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NonstandardError;
 
 #[allow(clippy::type_complexity)]

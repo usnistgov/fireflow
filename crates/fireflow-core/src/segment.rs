@@ -1271,7 +1271,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::exceptions::FileLayoutError;
+    use crate::python::FileLayoutError;
     use crate::validated::keys::Key;
 
     use super::{

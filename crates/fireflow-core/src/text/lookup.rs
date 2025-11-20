@@ -60,12 +60,9 @@ pub enum ReqKeyErrorInner<E, T, I> {
 
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Debug, Error)]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(crate::python::exceptions::InvalidKeywordValueError),
-    bound(ParseKeyError<E, T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
     pub key: SpecificKey<T, I>,
@@ -75,12 +72,9 @@ pub struct ParseKeyError<E, T, I> {
 /// An error caused by a required standard key being missing
 #[derive(Debug, Error)]
 #[error("missing required key: {0}")]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(crate::python::exceptions::InvalidKeywordValueError),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;

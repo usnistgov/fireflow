@@ -27,7 +27,7 @@ use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
 };
 
@@ -1944,25 +1944,25 @@ pub enum SetElementsError<E> {
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct CenterPresentError;
 
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NoNameError;
 
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MissingCenterError;
 
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonUniqueKeysError;
 
 #[derive(Debug, Error)]
@@ -1973,7 +1973,7 @@ pub struct KeyNotFoundError(pub Shortname);
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonUniqueKeyError {
     name: Shortname,
 }
@@ -2006,7 +2006,7 @@ impl fmt::Display for ElementIndexError {
     c = if self.include_center { "" } else { "not " }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,

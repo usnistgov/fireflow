@@ -30,12 +30,9 @@ use {
 /// Error/warning triggered when encountering a key which is deprecated
 #[derive(Debug, Error)]
 #[error("deprecated key: {0}")]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(crate::python::exceptions::FCSDeprecatedError),
-    bound(DepKeyWarning<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", bound(DepKeyWarning<T, I>: Display))]
 pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
 
 pub type DepKey0<T> = DepKeyWarning<T, ()>;

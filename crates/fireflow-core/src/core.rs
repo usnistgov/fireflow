@@ -115,7 +115,7 @@ use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     pyo3::prelude::*,
 };
@@ -8382,7 +8382,7 @@ pub enum ConvertError {
 #[derive(Debug, Error)]
 #[error("{0} is required in target version but missing in current version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct NameConversionError(Key1<Shortname>);
 
 #[derive(From, Display, Debug, Error)]
@@ -8512,7 +8512,7 @@ pub enum InsertOpticalInDatasetError {
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
@@ -8521,13 +8521,13 @@ pub struct MeasDataMismatchError {
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonLinearTemporalScaleError;
 
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonLinearTemporalTransformError;
 
 #[derive(From, Display, Debug, Error)]
@@ -8581,7 +8581,7 @@ pub enum StdDatasetFromRawWarning {
 #[derive(Debug, Error)]
 #[error("{} must be set before converting measurement", Scale::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct NoScaleError(MeasIndex);
 
 #[derive(From, Display, Debug, Error)]
@@ -8650,7 +8650,7 @@ pub enum OpticalToTemporalError {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException)
+    pyerr(py::RelationalException)
 )]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
@@ -9058,7 +9058,7 @@ pub enum LookupModifiedDataError {
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
 type LookupTEXTOffsetsResult<T> =
@@ -9068,7 +9068,7 @@ type LookupTEXTOffsetsResult<T> =
 #[display(bound(T: Key))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: Key))]
 pub struct UnitaryKeyLossError<T>(pub Key0<T>);
 
@@ -9082,7 +9082,7 @@ impl<T> Default for UnitaryKeyLossError<T> {
 #[display(bound(T: IndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: IndexedKey))]
 pub struct IndexedKeyLossError<T>(pub Key1<T>);
 
@@ -9090,7 +9090,7 @@ pub struct IndexedKeyLossError<T>(pub Key1<T>);
 #[display(bound(T: BiIndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: BiIndexedKey))]
 pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
@@ -9107,7 +9107,7 @@ pub struct ColumnNumberError {
      '{scale}' and non-unit gain '{gain}'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
@@ -9116,7 +9116,7 @@ pub struct ScaleTransformError {
 #[derive(Debug, Error)]
 #[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
@@ -9138,7 +9138,7 @@ def_group!(
 
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MeasMismatchError {
     key_is_optical: bool,
     index: MeasIndex,

@@ -53,7 +53,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     std::fmt::Display,
 };
@@ -109,7 +109,7 @@ pub(crate) type ExistingGateRegionLinkError =
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException),
+    pyerr(py::RelationalException),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct ExistingNamedLinkError<T, I> {
@@ -125,7 +125,7 @@ pub struct ExistingNamedLinkError<T, I> {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException),
+    pyerr(py::RelationalException),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct ExistingIndexedLinkError<T, I> {
@@ -224,7 +224,7 @@ pub enum AnyLinkError {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException),
+    pyerr(py::RelationalException),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct NamedLinkError<T, I> {
@@ -241,7 +241,7 @@ pub struct NamedLinkError<T, I> {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException),
+    pyerr(py::RelationalException),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct IndexLinkError<T, I> {
@@ -258,7 +258,7 @@ pub struct IndexLinkError<T, I> {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(px::RelationalException),
+    pyerr(py::RelationalException),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct DependentKeyErrorInner<T, I> {

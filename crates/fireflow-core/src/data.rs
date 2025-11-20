@@ -115,7 +115,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
 };
 
@@ -4264,7 +4264,7 @@ impl<D> NonMixedEndianLayout<D> {
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub enum AsciiToUintError {
     NotAscii(NotAsciiError),
     Int(ParseIntError),
@@ -4288,37 +4288,37 @@ pub enum NewDataLayoutError {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnNewAsciiRangeError(IndexedError<NewAsciiRangeError>);
 
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnFloatWidthError(IndexedError<FloatWidthError>);
 
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnNewMixedTypeError(IndexedError<NewMixedTypeError>);
 
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnNewMixedTypeWarning(IndexedError<NewMixedTypeWarning>);
 
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnIntOrderedColumnError(IndexedError<IntOrderedColumnError>);
 
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnIntRangeError(IndexedError<RangeToIntError<()>>);
 
 #[derive(From, Display, Debug, Error)]
@@ -4344,7 +4344,7 @@ pub enum SingleFixedWidthError {
 #[derive(Debug, Error, new)]
 // TODO use correct error type
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
     found: NonEmpty<Bytes>,
@@ -4367,7 +4367,7 @@ pub enum NewMixedTypeWarning {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnNewUintTypeError(IndexedError<NewUintTypeError>);
 
 #[derive(From, Display, Debug)]
@@ -4396,7 +4396,7 @@ pub struct WrongFloatWidth {
      evenly fit into DATA is {total_events}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct TotEventMismatch {
     tot: Tot,
     total_events: u64,
@@ -4408,7 +4408,7 @@ pub struct TotEventMismatch {
      DATA segment which is {nbytes} bytes long (remainder of {remainder})"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct UnevenEventWidth {
     event_width: u64,
     nbytes: u64,
@@ -4418,7 +4418,7 @@ pub struct UnevenEventWidth {
 #[derive(Error, Debug, new)]
 #[error("DATA segment is {event_width} bytes but event width is zero")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ZeroEventWidth {
     event_width: u64,
 }
@@ -4433,7 +4433,7 @@ pub enum EventWidthError {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnLossError(IndexedError<AnyLossError>);
 
 #[derive(From, Display, Debug)]
@@ -4446,7 +4446,7 @@ pub enum AnyLossError {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnBitmaskError(IndexedError<RangeToBitmaskError>);
 
 #[derive(From, Display, Debug)]
@@ -4563,7 +4563,7 @@ pub enum ReadDelimAsciiError {
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub enum ReadDelimWithRowsAsciiError {
     RowsExceeded(RowsExceededError),
     Incomplete(DelimIncompleteError),
@@ -4589,7 +4589,7 @@ pub struct DelimIncompleteError {
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub enum ReadDelimAsciiWithoutRowsError {
     #[error("{0}")]
     Parse(AsciiToUintError),
@@ -4644,7 +4644,7 @@ pub enum LayoutConvertError {
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
 /// Error when converting a 3.2 mixed layout to a 3.1/3.2 non-mixed layout.
@@ -4661,7 +4661,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
 /// Error when converting a 3.2 mixed layout to a 2.0/3.0 ordered uint layout.
@@ -4707,7 +4707,7 @@ pub struct MixedToNonMixedError {
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub enum AnyRangeError {
     Ascii(RangeToIntError<()>),
     Int(RangeToBitmaskError),
@@ -4731,7 +4731,7 @@ pub enum MeasurementsWithLayoutError {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct ColumnScaleMismatchTransformError(IndexedError<ScaleMismatchTransformError>);
 
 pub type ScaleMismatchTransformErrors =
@@ -4745,7 +4745,7 @@ def_group!(
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
     layout_n: usize,

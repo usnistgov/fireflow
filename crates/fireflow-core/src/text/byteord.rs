@@ -16,7 +16,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {crate::python::exceptions as px, fireflow_core_proc::DisplayAsPyErr};
+use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
 
 use super::lookup::ReqMetarootKey;
 
@@ -402,7 +402,7 @@ impl fmt::Display for Bytes {
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 #[cfg_attr(feature = "python", bound(X: fmt::Display))]
 pub enum WidthToFixedError<X> {
     #[error("width is variable where fixed is needed")]
@@ -435,14 +435,14 @@ pub struct BytesError(u8);
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct OrderedToEndianError;
 
 #[derive(Debug, Error, new)]
 // TODO probably wrong exception type
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct ByteOrdToSizedError {
     bytes: Bytes,
     length: usize,

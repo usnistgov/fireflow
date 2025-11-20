@@ -42,7 +42,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px,
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
 };
 
@@ -1144,7 +1144,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
      index since it refers to a gate"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct RegionToMeasIndexError(GateIndex);
 
 #[derive(Debug, Error)]
@@ -1153,26 +1153,26 @@ pub struct RegionToMeasIndexError(GateIndex);
      it refers to a measurement"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct RegionToGateIndexError(MeasIndex);
 
 #[derive(Debug, Error)]
 #[error("cannot convert gate index ({0}) to measurement index")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct GateToMeasIndexError(GateIndex);
 
 #[derive(Debug, Error)]
 #[error("cannot convert measurement index ({0}) to gate index")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
 // TODO this seems like it should be a general link error
 #[derive(Debug, Error)]
 #[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 #[derive(From, Display, Debug, Error)]
@@ -1192,7 +1192,7 @@ pub enum AppliedGates3_0To2_0Error {
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub enum AppliedGates3_0To3_2Error {
     #[error("{0}")]
     Index(#[from] RegionToMeasIndexError),
@@ -1245,7 +1245,7 @@ pub enum GatedMeasurementLossError {
 
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub enum IndexWindowMismatchError {
     #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
     Both(RegionIndex),

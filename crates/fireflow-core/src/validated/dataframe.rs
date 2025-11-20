@@ -13,7 +13,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::python::exceptions as px, crate::validated::shortname::Shortname,
+    crate::python as py, crate::validated::shortname::Shortname,
     fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
 };
 
@@ -182,14 +182,14 @@ impl AnyFCSColumn {
 #[error("column lengths to not match")]
 // TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NewDataframeError;
 
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 // TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(px::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,

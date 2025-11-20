@@ -2879,7 +2879,7 @@ pub(crate) use io_to_log;
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::{python::exceptions::PyreflowWarning, text::optional::Nothing};
+    use crate::{python::PyreflowWarning, text::optional::Nothing};
 
     use super::{
         CommutativeResult, ErrorGroup, IOErrorGroup, ImpureError, NonCommutativeResult, Success,

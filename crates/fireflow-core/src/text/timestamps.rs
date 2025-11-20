@@ -227,11 +227,8 @@ impl Timestamps<FCSTime100> {
 
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(crate::python::exceptions::RelationalException)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct ReversedTimestampsError;
 
 type TimestampsResult<T> = Result<T, ReversedTimestampsError>;

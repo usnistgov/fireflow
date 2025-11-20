@@ -54,10 +54,15 @@ pub type NoByteOrd2_0 = NoByteOrd<true>;
 pub type NoByteOrd3_1 = NoByteOrd<false>;
 
 /// The number of bytes for a numeric measurement
+#[derive(Into)]
+#[into(u8, NonZeroU8, PrivBitsOrChars)]
+pub struct Bytes(pub(crate) PrivBytes);
+
+/// Private version of `Bytes`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(u8)]
-pub enum Bytes {
+pub(crate) enum PrivBytes {
     B1 = 1,
     B2,
     B3,
@@ -74,9 +79,15 @@ pub enum Bytes {
 /// depending on what is needed by the column.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(NonZeroU8, u8)]
+pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
+
+/// Internal version of `BitsOrChars`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
-pub struct BitsOrChars(NonZeroU8);
+pub(crate) struct PrivBitsOrChars(NonZeroU8);
 
 /// Relate types corresponding to keywords to those storing byte layout.
 pub(crate) trait HasByteOrd: Sized {
@@ -173,8 +184,8 @@ macro_rules! byteord_from_sized {
         }
 
         impl SizedByteOrd<$len> {
-            pub(crate) fn nbytes() -> Bytes {
-                Bytes::$bytes
+            pub(crate) fn nbytes() -> PrivBytes {
+                PrivBytes::$bytes
             }
         }
 
@@ -193,7 +204,7 @@ byteord_from_sized!(6, O6, B6);
 byteord_from_sized!(7, O7, B7);
 byteord_from_sized!(8, O8, B8);
 
-impl Bytes {
+impl PrivBytes {
     /// Return number of bytes needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // find position of most-significant non-zero byte
@@ -262,47 +273,43 @@ impl From<bool> for Endian {
 impl TryFrom<Width> for Chars {
     type Error = WidthToCharsError;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        let fixed = BitsOrChars::try_from(value)
-            .ok()
-            .ok_or(WidthToFixedError::Variable)?;
+        let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
     }
 }
 
-impl TryFrom<Width> for Bytes {
-    type Error = WidthToBytesError;
+impl TryFrom<Width> for PrivBytes {
+    type Error = WidthToFixedError<BytesError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        let fixed = BitsOrChars::try_from(value)
-            .ok()
-            .ok_or(WidthToFixedError::Variable)?;
+        let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
     }
 }
 
-impl TryFrom<Width> for BitsOrChars {
-    type Error = ();
+impl TryFrom<Width> for PrivBitsOrChars {
+    type Error = VariableWidthError;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
         if let Width::Fixed(x) = value {
-            Ok(x)
+            Ok(x.0)
         } else {
-            Err(())
+            Err(VariableWidthError)
         }
     }
 }
 
-impl TryFrom<BitsOrChars> for Chars {
+impl TryFrom<PrivBitsOrChars> for Chars {
     type Error = CharsError;
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+    fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         NonZeroU8::from(value).try_into()
     }
 }
 
-impl TryFrom<BitsOrChars> for Bytes {
+impl TryFrom<PrivBitsOrChars> for PrivBytes {
     type Error = BytesError;
     /// Return number of bytes represented by this.
     ///
     /// Return error if bits is not divisible by 8 and within [1,64].
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+    fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
         if x.trailing_zeros() >= 3 {
             return (x >> 3).try_into().or(Err(BytesError(x)));
@@ -311,15 +318,15 @@ impl TryFrom<BitsOrChars> for Bytes {
     }
 }
 
-impl From<Bytes> for NonZeroU8 {
-    fn from(value: Bytes) -> Self {
+impl From<PrivBytes> for NonZeroU8 {
+    fn from(value: PrivBytes) -> Self {
         // ASSUME this will never fail
         Self::new(u8::from(value)).unwrap()
     }
 }
 
-impl From<Bytes> for BitsOrChars {
-    fn from(value: Bytes) -> Self {
+impl From<PrivBytes> for PrivBitsOrChars {
+    fn from(value: PrivBytes) -> Self {
         // ASSUME this will never fail
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
@@ -327,7 +334,9 @@ impl From<Bytes> for BitsOrChars {
 
 impl From<Option<NonZeroU8>> for Width {
     fn from(value: Option<NonZeroU8>) -> Self {
-        value.map_or(Self::Variable, |x| Self::Fixed(BitsOrChars(x)))
+        value.map_or(Self::Variable, |x| {
+            Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))
+        })
     }
 }
 
@@ -335,7 +344,7 @@ impl From<Width> for Option<NonZeroU8> {
     fn from(value: Width) -> Self {
         match value {
             Width::Variable => None,
-            Width::Fixed(x) => Some(x.0),
+            Width::Fixed(x) => Some(x.0.0),
         }
     }
 }
@@ -344,7 +353,7 @@ impl TryFrom<Width> for NonZeroU8 {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
         if let Width::Fixed(x) = value {
-            Ok(x.0)
+            Ok(x.0.0)
         } else {
             Err(())
         }
@@ -389,34 +398,30 @@ impl FromStr for Width {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "*" => Ok(Self::Variable),
-            _ => s.parse::<NonZeroU8>().map(|x| Self::Fixed(BitsOrChars(x))),
+            _ => s
+                .parse::<NonZeroU8>()
+                .map(|x| Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))),
         }
     }
 }
 
-impl fmt::Display for Bytes {
+impl fmt::Display for PrivBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         u8::from(*self).fmt(f)
     }
 }
 
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-#[cfg_attr(feature = "python", bound(X: fmt::Display))]
-pub enum WidthToFixedError<X> {
-    #[error("width is variable where fixed is needed")]
-    Variable,
-    #[error("error when converting fixed bits: {0}")]
+#[derive(Debug, Display, From)]
+pub(crate) enum WidthToFixedError<X> {
+    #[from]
+    Variable(VariableWidthError),
     Fixed(X),
 }
 
-pub(crate) type WidthToCharsError = WidthToFixedError<CharsError>;
-pub type WidthToBytesError = WidthToFixedError<BytesError>;
+#[derive(Debug, Display)]
+pub(crate) struct VariableWidthError;
 
-#[derive(Debug, Error)]
-#[error("bits must be between 1 and 64, got {0}")]
-pub struct BitsError(u8);
+pub(crate) type WidthToCharsError = WidthToFixedError<CharsError>;
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
@@ -428,9 +433,9 @@ pub struct NewByteOrdError(usize);
 #[error("endian must be either 1,2,3,4 or 4,3,2,1")]
 pub struct NewEndianError;
 
-#[derive(Debug, Error)]
-#[error("bits must be multiple of 8 and between 8 and 64, got {0}")]
-pub struct BytesError(u8);
+#[derive(Debug, Display)]
+#[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
+pub(crate) struct BytesError(u8);
 
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
@@ -444,7 +449,7 @@ pub struct OrderedToEndianError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct ByteOrdToSizedError {
-    bytes: Bytes,
+    bytes: PrivBytes,
     length: usize,
 }
 
@@ -463,23 +468,23 @@ mod tests {
 
     #[test]
     fn str_to_width_as_bytes() {
-        assert!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("16".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("64".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("7".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("63".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("65".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
+        assert!(PrivBytes::try_from("8".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("16".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("64".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("7".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("63".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("65".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
     }
 
     #[test]
     fn bytes_from_u64() {
-        assert_eq!(Bytes::B1, Bytes::from_u64(0));
-        assert_eq!(Bytes::B1, Bytes::from_u64(0x00FF));
-        assert_eq!(Bytes::B2, Bytes::from_u64(0x0100));
-        assert_eq!(Bytes::B2, Bytes::from_u64(0xFFFF));
-        assert_eq!(Bytes::B3, Bytes::from_u64(0x0001_0000));
-        assert_eq!(Bytes::B8, Bytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
+        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0));
+        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0x00FF));
+        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0x0100));
+        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0xFFFF));
+        assert_eq!(PrivBytes::B3, PrivBytes::from_u64(0x0001_0000));
+        assert_eq!(PrivBytes::B8, PrivBytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
     }
 }
 

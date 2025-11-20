@@ -13,7 +13,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, TryFromPyObject};
+use fireflow_core_proc::DisplayAsPyErr;
 
 /// The type of an ASCII column in all versions
 ///
@@ -30,22 +30,20 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
-/// The number of chars for an ASCII measurement
-///
-/// Must be an integer between 1 and 20.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(TryFromPyObject))]
-#[into(NonZeroU8, u8)]
-pub(crate) struct Chars(NonZeroU8);
-
 /// Width to use when parsing OTHER segments.
 ///
 /// Must be an integer between 1 and 20.
 #[derive(Clone, Copy, Into, From)]
 #[into(u8, Chars)]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct OtherWidth(Chars);
+
+/// The number of chars for an ASCII measurement
+///
+/// Must be an integer between 1 and 20.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Hash, Display, Into, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(NonZeroU8, u8)]
+pub(crate) struct Chars(NonZeroU8);
 
 const MAX_CHARS: u8 = 20;
 
@@ -185,9 +183,8 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("bits must be <= 20 to be used as number of characters, got {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[derive(Debug, Display)]
+#[display("bits must be <= 20 to be used as number of characters, got {_0}")]
 pub(crate) struct CharsError(u8);
 
 #[derive(From, Display, Debug)]
@@ -205,7 +202,10 @@ pub(crate) struct NotEnoughCharsError {
 }
 
 #[derive(Debug, Error)]
+// TODO what python error?
 #[error("OTHER width should be integer b/t 1 and 20, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub struct OtherWidthError(u8);
 
 #[cfg(test)]
@@ -218,5 +218,19 @@ mod tests {
         assert!(Chars::try_from(0_u8).is_err());
         assert!(Chars::try_from(20_u8).is_ok());
         assert!(Chars::try_from(21_u8).is_err());
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::OtherWidth;
+    use pyo3::prelude::*;
+
+    impl<'py> FromPyObject<'py> for OtherWidth {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: u8 = ob.extract()?;
+            let y = x.try_into()?;
+            Ok(y)
+        }
     }
 }

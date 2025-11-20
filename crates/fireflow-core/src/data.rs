@@ -66,8 +66,8 @@ use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
-    OrderedToEndianError, SizedByteOrd, WidthToBytesError,
+    BitsOrChars, ByteOrdToSizedError, Bytes, BytesError, Endian, HasByteOrd, NoByteOrd,
+    NoByteOrd3_1, OrderedToEndianError, PrivBytes, SizedByteOrd, WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -2039,7 +2039,8 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
         T: HasFloatBounds,
     {
-        Bytes::try_from(width)
+        PrivBytes::try_from(width)
+            .map_err(WidthToBytesError)
             .into_log::<Vec<_>, Vec<_>, Nothing<_>>()
             .map_errors(FloatWidthError::from)
             .and_then_commutative(|bytes| {
@@ -2103,15 +2104,15 @@ impl From<u64> for AnyNullBitmask {
     /// possible will be used.
     fn from(value: u64) -> Self {
         // ASSUME these will never truncate because we check the width first
-        match Bytes::from_u64(value) {
-            Bytes::B1 => Self::Uint08(Bitmask::from_u64(value).0),
-            Bytes::B2 => Self::Uint16(Bitmask::from_u64(value).0),
-            Bytes::B3 => Self::Uint24(Bitmask::from_u64(value).0),
-            Bytes::B4 => Self::Uint32(Bitmask::from_u64(value).0),
-            Bytes::B5 => Self::Uint40(Bitmask::from_u64(value).0),
-            Bytes::B6 => Self::Uint48(Bitmask::from_u64(value).0),
-            Bytes::B7 => Self::Uint56(Bitmask::from_u64(value).0),
-            Bytes::B8 => Self::Uint64(Bitmask::from_u64(value).0),
+        match PrivBytes::from_u64(value) {
+            PrivBytes::B1 => Self::Uint08(Bitmask::from_u64(value).0),
+            PrivBytes::B2 => Self::Uint16(Bitmask::from_u64(value).0),
+            PrivBytes::B3 => Self::Uint24(Bitmask::from_u64(value).0),
+            PrivBytes::B4 => Self::Uint32(Bitmask::from_u64(value).0),
+            PrivBytes::B5 => Self::Uint40(Bitmask::from_u64(value).0),
+            PrivBytes::B6 => Self::Uint48(Bitmask::from_u64(value).0),
+            PrivBytes::B7 => Self::Uint56(Bitmask::from_u64(value).0),
+            PrivBytes::B8 => Self::Uint64(Bitmask::from_u64(value).0),
         }
     }
 }
@@ -2135,6 +2136,7 @@ impl AnyNullBitmask {
     ) -> WarningsAndErrorResult<Self, (), RangeToBitmaskError, NewUintTypeError> {
         width
             .try_into()
+            .map_err(WidthToBytesError)
             .map_err(NewUintTypeError::from)
             .into_log()
             .and_then_commutative(|bytes| {
@@ -2148,19 +2150,19 @@ impl AnyNullBitmask {
 
     /// Make a new bitmask with a given width (in bytes) using a float/int.
     fn new1(
-        width: Bytes,
+        width: PrivBytes,
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, RangeToBitmaskError> {
         match width {
-            Bytes::B1 => Bitmask08::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B2 => Bitmask16::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B3 => Bitmask24::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B4 => Bitmask32::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B5 => Bitmask40::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B6 => Bitmask48::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B7 => Bitmask56::from_range(range, flag).map_deferred_value(Into::into),
-            Bytes::B8 => Bitmask64::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B1 => Bitmask08::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B2 => Bitmask16::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B3 => Bitmask24::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B4 => Bitmask32::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B5 => Bitmask40::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B6 => Bitmask48::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B7 => Bitmask56::from_range(range, flag).map_deferred_value(Into::into),
+            PrivBytes::B8 => Bitmask64::from_range(range, flag).map_deferred_value(Into::into),
         }
     }
 
@@ -2979,7 +2981,7 @@ macro_rules! def_native_wrapper {
         }
 
         impl HasNativeWidth for $name {
-            const BYTES: Bytes = Bytes::$bytes;
+            const BYTES: Bytes = Bytes(PrivBytes::$bytes);
             const LEN: usize = $native_size;
             type Order = SizedByteOrd<$size>;
         }
@@ -3187,7 +3189,7 @@ where
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        Self::BYTES.into()
+        BitsOrChars(Self::BYTES.into())
     }
 
     fn range(&self) -> Range {
@@ -3206,7 +3208,7 @@ where
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        Self::BYTES.into()
+        BitsOrChars(Self::BYTES.into())
     }
 
     fn range(&self) -> Range {
@@ -3220,7 +3222,7 @@ impl IsFixed for AsciiRange {
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        self.chars().into()
+        BitsOrChars(self.chars().into())
     }
 
     fn range(&self) -> Range {
@@ -3346,9 +3348,10 @@ impl<T> AnyOrderedUintLayout<T> {
         } else {
             cs.iter()
                 .map(|c| c.width)
-                .map(Bytes::try_from)
+                .map(PrivBytes::try_from)
                 .map(Result::into_log::<_, _, Vec<_>>)
                 .mappend_commutative()
+                .map_errors(WidthToBytesError)
                 .map_errors(SingleFixedWidthError::from)
                 .and_then_commutative(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n);
@@ -4374,7 +4377,7 @@ pub enum SingleFixedWidthError {
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
-    found: NonEmpty<Bytes>,
+    found: NonEmpty<PrivBytes>,
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -4410,11 +4413,17 @@ pub enum FloatWidthError {
     Range(DecimalToFloatError),
 }
 
+#[derive(From, Display, Debug, Error)]
+// TODO split this into a new type which handles the single layout case
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
+pub struct WidthToBytesError(WidthToFixedError<BytesError>);
+
 #[derive(Debug, Error, new)]
 #[error("expected width to be {expected} but got {width} when determining float type")]
 pub struct WrongFloatWidth {
-    pub width: Bytes,
-    pub expected: usize,
+    width: PrivBytes,
+    expected: usize,
 }
 
 #[derive(Error, Debug)]
@@ -4464,14 +4473,18 @@ pub enum EventWidthError {
 pub struct ColumnLossError(IndexedError<AnyLossError>);
 
 #[derive(From, Display, Debug)]
-pub enum AnyLossError {
+pub(crate) enum AnyLossError {
     Int(LossError<BitmaskLossError>),
     Float(LossError<Infallible>),
     Ascii(LossError<AsciiLossError>),
 }
 
 #[derive(From, Debug, Error)]
-#[error("{e} in column {i}", e = _0.error, i = _0.index)]
+#[error(
+    "{k} could not be used as integer bitmask because {e}",
+    k = Range::std(_0.index),
+    e = _0.error
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct ColumnBitmaskError(IndexedError<RangeToBitmaskError>);
@@ -4484,7 +4497,7 @@ pub enum RangeToBitmaskError {
 
 #[derive(Clone, Copy, Debug, Error)]
 #[error("ASCII data truncated to {0} chars")]
-pub struct AsciiLossError(Chars);
+pub(crate) struct AsciiLossError(Chars);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 
@@ -4663,8 +4676,7 @@ pub enum LayoutConvertError {
 /// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
 #[derive(From, Debug, Error)]
 #[error(
-    "could not use {b} and {r} in new layout because source column uses \
-     {from}-byte integers and destination layout uses {to}-byte integers",
+    "{b} and {r} encoding {from}-byte integers are incompatible with {to}-byte integer layout",
     from = _0.error.from,
     to = _0.error.to,
     b = Width::std(_0.index),
@@ -4680,7 +4692,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 /// integer layouts is allowed to vary.
 #[derive(From, Debug, Error)]
 #[error(
-    "could not use {b} and {r} when {p}='{from}' in layout with $DATATYPE='{to}'",
+    "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
     from = _0.error.src.as_alpha_num_type(),
     to = _0.error.dest_type,
     p = NumType::std(_0.index),

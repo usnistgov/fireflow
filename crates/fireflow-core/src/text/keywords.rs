@@ -14,7 +14,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{BitsOrChars, Bytes, Endian, NewByteOrdError, NoByteOrd, SizedByteOrd};
+use super::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd};
 use super::compensation::{Compensation, NewCompError};
 use super::datetimes::{BeginDateTime, EndDateTime};
 use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -568,7 +568,7 @@ impl From<NoByteOrd<true>> for ByteOrd2_0 {
 
 impl ByteOrd2_0 {
     #[must_use]
-    pub fn nbytes(&self) -> Bytes {
+    pub(crate) fn nbytes(&self) -> PrivBytes {
         match self {
             Self::O1(_) => SizedByteOrd::<1>::nbytes(),
             Self::O2(_) => SizedByteOrd::<2>::nbytes(),
@@ -1796,7 +1796,7 @@ pub struct RangeToIntError<T> {
 }
 
 #[derive(Debug)]
-pub enum RangeToIntErrorKind<T> {
+pub(crate) enum RangeToIntErrorKind<T> {
     Overrange,
     Underrange,
     PrecisionLoss(T),

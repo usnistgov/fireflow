@@ -11,7 +11,6 @@ use derive_more::Display;
 use num_traits::PrimInt;
 use num_traits::identities::One as _;
 use std::mem::size_of;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -181,16 +180,18 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 }
 
+// NOTE this Display message is concated into larger message in
+// data::RangeToBitmaskError, consult this enum first before changing
 #[derive(Debug, Display)]
-#[display("could not make bitmask for {value} which exceeds {bytes} bytes")]
+#[display("{value} cannot fit into {bytes} bytes")]
 pub struct BitmaskTruncationError {
     bytes: u8,
     value: u64,
 }
 
-#[derive(Clone, Copy, Debug, Error)]
-#[error("integer data truncated to {0}")]
-pub struct BitmaskLossError(pub u64);
+#[derive(Clone, Copy, Debug, Display)]
+#[display("integer data truncated to {_0}")]
+pub(crate) struct BitmaskLossError(pub u64);
 
 #[cfg(test)]
 mod tests {

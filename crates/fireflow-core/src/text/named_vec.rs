@@ -2,8 +2,7 @@ use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
-use crate::macros::def_group;
-use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, IndexedError, MeasIndex};
+use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
 use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 use crate::validated::shortname::Shortname;

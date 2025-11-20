@@ -411,7 +411,7 @@ pub enum WidthToFixedError<X> {
     Fixed(X),
 }
 
-pub type WidthToCharsError = WidthToFixedError<CharsError>;
+pub(crate) type WidthToCharsError = WidthToFixedError<CharsError>;
 pub type WidthToBytesError = WidthToFixedError<BytesError>;
 
 #[derive(Debug, Error)]

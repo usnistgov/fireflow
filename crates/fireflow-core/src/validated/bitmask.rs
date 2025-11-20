@@ -4,10 +4,10 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _,
 };
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{RangeToIntError, Range};
+use crate::text::keywords::Range;
 
 use bigdecimal::BigDecimal;
-use derive_more::{Display, From};
+use derive_more::Display;
 use num_traits::PrimInt;
 use num_traits::identities::One as _;
 use std::mem::size_of;

@@ -3,7 +3,7 @@
 use crate::config::DisallowRangeTrunc;
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToCharsError;
-use crate::text::keywords::{RangeToIntError, Range, Width};
+use crate::text::keywords::{Range, RangeToIntError, Width};
 
 use derive_more::{Display, From, Into};
 use std::num::{NonZero, NonZeroU8};
@@ -37,7 +37,7 @@ pub struct AsciiRange {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(TryFromPyObject))]
 #[into(NonZeroU8, u8)]
-pub struct Chars(NonZeroU8);
+pub(crate) struct Chars(NonZeroU8);
 
 /// Width to use when parsing OTHER segments.
 ///
@@ -45,7 +45,7 @@ pub struct Chars(NonZeroU8);
 #[derive(Clone, Copy, Into, From)]
 #[into(u8, Chars)]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-pub struct OtherWidth(pub Chars);
+pub struct OtherWidth(Chars);
 
 const MAX_CHARS: u8 = 20;
 
@@ -71,7 +71,10 @@ impl From<&AsciiRange> for Range {
 }
 
 impl AsciiRange {
-    pub fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
+    pub(crate) fn try_new_from_chars(
+        value: u64,
+        chars: Chars,
+    ) -> Result<Self, NotEnoughCharsError> {
         let needed = Chars::from_u64(value);
         if chars < needed {
             Err(NotEnoughCharsError { chars, value })
@@ -108,7 +111,7 @@ impl AsciiRange {
         rng_res
             .zip_commutative(chars_res)
             .and_then_commutative(|(rng, chars)| {
-                Self::try_new(rng, chars)
+                Self::try_new_from_chars(rng, chars)
                     .map_err(NewAsciiRangeError::from)
                     .into_log()
             })
@@ -185,18 +188,18 @@ impl TryFrom<u8> for OtherWidth {
 #[derive(Debug, Error)]
 #[error("bits must be <= 20 to be used as number of characters, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
-pub struct CharsError(u8);
+pub(crate) struct CharsError(u8);
 
-#[derive(Display, From, Debug, Error)]
-pub enum NewAsciiRangeError {
+#[derive(From, Display, Debug)]
+pub(crate) enum NewAsciiRangeError {
     New(NotEnoughCharsError),
     Width(WidthToCharsError),
     Range(RangeToIntError<()>),
 }
 
-#[derive(Debug, Error)]
-#[error("not enough chars to hold {value}, got {chars}")]
-pub struct NotEnoughCharsError {
+#[derive(Debug, Display)]
+#[display("not enough chars to hold {value}, got {chars}")]
+pub(crate) struct NotEnoughCharsError {
     chars: Chars,
     value: u64,
 }

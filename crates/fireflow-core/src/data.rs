@@ -4270,8 +4270,8 @@ pub enum AsciiToUintError {
     Int(ParseIntError),
 }
 
-#[derive(Debug, Error)]
-#[error("bytestring is not valid ASCII: {0:?}")]
+#[derive(Debug, Display)]
+#[display("bytestring is not valid ASCII: {_0:?}")]
 pub struct NotAsciiError(Vec<u8>);
 
 #[derive(From, Display, Debug, Error)]
@@ -4351,7 +4351,7 @@ pub struct WidthMismatchError {
 }
 
 #[derive(From, Display, Debug, Error)]
-pub enum NewMixedTypeError {
+pub(crate) enum NewMixedTypeError {
     Ascii(NewAsciiRangeError),
     Uint(NewUintTypeError),
     Float(FloatWidthError),

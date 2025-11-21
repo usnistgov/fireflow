@@ -1154,6 +1154,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     }
 }
 
+// TODO make these errors refer to $RnI
 #[derive(Debug, Error)]
 #[error(
     "cannot convert region index ({0}) to measurement \

@@ -69,7 +69,7 @@ use crate::text::named_vec::{
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
-    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError, AnyLinkErrors,
+    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError,
     ExistingGateRegionLinkError, ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors,
     ExistingNamedLinkError, KeyToNameLinkError, MeasIndicesNoTime, MeasNamesNoTime, NamedLinkError,
     RemovedLink,
@@ -2507,7 +2507,7 @@ where
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         (),
         AnyTemporalToOpticalKeyLossError,
-        ReplaceTemporalError,
+        ReplaceTemporalErrorByIndex,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
@@ -2520,11 +2520,11 @@ where
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
-                .map_errors(ReplaceTemporalError::from)
+                .map_errors(ReplaceTemporalErrorByIndex::from)
         })
     }
 
-    /// Replace temporal measurement at index.
+    /// Replace temporal measurement with name.
     #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named(
         &mut self,
@@ -2544,7 +2544,7 @@ where
             })
     }
 
-    /// Replace temporal measurement at index.
+    /// Replace temporal measurement with name.
     #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named_lossy(
         &mut self,
@@ -2555,7 +2555,7 @@ where
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         (),
         AnyTemporalToOpticalKeyLossError,
-        ReplaceTemporalError,
+        ReplaceTemporalErrorByName,
     >
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = AllowLoss>,
@@ -2569,7 +2569,7 @@ where
                 M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                     .switchable_into_non_commutative()
                     .map_ok_value(|(x, _)| x)
-                    .map_errors(ReplaceTemporalError::from)
+                    .map_errors(ReplaceTemporalErrorByName::from)
             })
     }
 
@@ -4201,7 +4201,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .into_log()
             .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, &layout, drop_flag.is_set())
+                layout
+                    .check_measurement_vector(&ms)
+                    .map_err(NewCoreError::from)
+                    .into_log()
+                    .set_ok_value(ms)
+            })
+            .and_then_commutative(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_set())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(drop_flag)
                     .switchable_into_commutative()
@@ -4230,39 +4237,42 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
-            .into_log()
+            .into_nowarn()
             .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, &layout, false)
+                layout
+                    .check_measurement_vector(&ms)
+                    .map_err(NewCoreError::from)
+                    .into_nowarn()
+                    .set_ok_value(ms)
+            })
+            .and_then_commutative(|ms| {
+                Self::check_relationships(&mut metaroot, &ms, false)
                     .map_errors(NewCoreWarning::from)
                     .map_errors(NewCoreError::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
             })
     }
 
+    /// Check for invalid keyword relationships.
+    ///
+    /// For example, $SPILLOVER in the metaroot must refer to valid
+    /// measurements.
+    ///
+    /// If allow_dropping is true, remove keywords with invalid relationships.
     fn check_relationships(
         metaroot: &mut Metaroot<M>,
         measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
-        layout: &<M::Ver as Versioned>::Layout,
-        allow_dropping: bool,
-    ) -> ErrorsResult<(), (), NewCoreRelationalError>
+        allow_drop: bool,
+    ) -> ErrorsResult<(), (), AnyLinkError>
     where
         M::Optical: AsScaleTransform,
     {
         let (js_, ns_) = measurements.indexed_non_center_names().unzip();
         let js = MeasIndicesNoTime(js_);
         let ns = MeasNamesNoTime(ns_);
-        // Check that measurement and layout vectors are same length
-        // and that transforms are valid for given datatype(s)
-        let layout_res = layout
-            .check_measurement_vector(measurements)
-            .map_err(NewCoreRelationalError::from);
-        // Check for any invalid links; throw error if any are found
         let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_dropping);
-        AnyLinkErrors::try_new(link_errs)
-            .map_err(NewCoreRelationalError::from)
-            .zip(layout_res)
-            .set_ok_value(())
+        let link_errs = metaroot.remove_invalid_links(par, &ns, &js, allow_drop);
+        LogResult::new_err_from_iter(link_errs, ())
     }
 
     fn new_unchecked(
@@ -5639,28 +5649,6 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
                 )
             })
     }
-}
-
-type MetarootConvertResult<M> =
-    WarningsAndErrorsResult<M, (), MetarootConvertWarning, MetarootConvertError>;
-
-type OpticalConvertResult<M> =
-    WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
-
-type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, AnyTemporalKeyLossError>;
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum OpticalConvertError {
-    NoScale(NoScaleError),
-    Warning(OpticalConvertWarning),
-}
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum OpticalConvertWarning {
-    Wavelengths(WavelengthsLossError),
-    Xfer(AnyOpticalKeyLossError),
 }
 
 macro_rules! impl_ref {
@@ -8446,6 +8434,7 @@ impl OthersReader<'_> {
     }
 }
 
+/// Error when converting Core* to new FCS version
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ConvertError {
@@ -8456,12 +8445,38 @@ pub enum ConvertError {
     Layout(LayoutConvertError),
 }
 
+type MetarootConvertResult<M> =
+    WarningsAndErrorsResult<M, (), MetarootConvertWarning, MetarootConvertError>;
+
+type OpticalConvertResult<M> =
+    WarningsAndErrorsResult<M, (), OpticalConvertWarning, OpticalConvertError>;
+
+type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, AnyTemporalKeyLossError>;
+
+/// Error when converting optical measurement to new FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum OpticalConvertError {
+    NoScale(NoScaleError),
+    Warning(OpticalConvertWarning),
+}
+
+/// Warning when converting optical measurement to new FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum OpticalConvertWarning {
+    Wavelengths(WavelengthsLossError),
+    Xfer(AnyOpticalKeyLossError),
+}
+
+/// Error when $PnN is optional and missing in current version and required in target
 #[derive(Debug, Error)]
 #[error("{0} is required in target version but missing in current version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct NameConversionError(Key1<Shortname>);
 
+/// Error when writing CoreDataset to file
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
@@ -8470,6 +8485,7 @@ pub enum StdWriterError {
     Overflow(Uint8DigitOverflow),
 }
 
+/// Error when setting measurements vector
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsError {
@@ -8481,6 +8497,7 @@ pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurement
 
 def_group!(SetMeasurementsSummary, "could not set measurements");
 
+/// Error when setting $PnE for all measurements (3.0+)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetScalesError {
@@ -8488,6 +8505,7 @@ pub enum SetScalesError {
     Temporal(NonLinearTemporalScaleError),
 }
 
+/// Error when setting $PnE/PnG for all measurements (3.0+)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTransformsError {
@@ -8495,6 +8513,7 @@ pub enum SetTransformsError {
     Temporal(NonLinearTemporalTransformError),
 }
 
+/// Error when setting measurements and DATA/dataframe simultaneously
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
@@ -8502,6 +8521,7 @@ pub enum SetMeasurementsAndDataError {
     Mismatch(MeasDataMismatchError),
 }
 
+/// Error when setting dataframe/DATA segment in CoreDataset
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ColumnsToDataframeError {
@@ -8509,13 +8529,7 @@ pub enum ColumnsToDataframeError {
     Mismatch(MeasDataMismatchError),
 }
 
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetMeasurementsOnlyError {
-    Meas(SetMeasurementsError),
-    Mismatch(MeasDataMismatchError),
-}
-
+/// Error when removing measurement by name ($PnN)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
@@ -8523,6 +8537,7 @@ pub enum RemoveMeasByNameError {
     Name(KeyNotFoundError),
 }
 
+/// Error when removing measurement by index
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByIndexError {
@@ -8530,6 +8545,7 @@ pub enum RemoveMeasByIndexError {
     Index(ElementIndexError),
 }
 
+/// Error when pushing a temporal measurement into a CoreTEXT
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalError {
@@ -8537,6 +8553,7 @@ pub enum PushTemporalError {
     Layout(InsertRangeError),
 }
 
+/// Error when inserting a temporal measurement into a CoreTEXT
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
@@ -8544,6 +8561,7 @@ pub enum InsertTemporalError {
     Layout(InsertRangeError),
 }
 
+/// Error when pushing an optical measurement into a CoreTEXT
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
@@ -8551,6 +8569,7 @@ pub enum PushOpticalError {
     Layout(InsertRangeError),
 }
 
+/// Error when inserting an optical measurement into a CoreTEXT
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalError {
@@ -8558,6 +8577,7 @@ pub enum InsertOpticalError {
     Layout(InsertRangeError),
 }
 
+/// Error when pushing a temporal measurement into a CoreDataset
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
@@ -8565,6 +8585,7 @@ pub enum PushTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
+/// Error when inserting a temporal measurement into a CoreDataset
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalToDatasetError {
@@ -8572,6 +8593,7 @@ pub enum InsertTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
+/// Error when pushing an optical measurement into a CoreDataset
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalToDatasetError {
@@ -8579,6 +8601,7 @@ pub enum PushOpticalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
+/// Error when inserting an optical measurement into a CoreDataset
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalInDatasetError {
@@ -8586,6 +8609,7 @@ pub enum InsertOpticalInDatasetError {
     Column(df::ColumnLengthError),
 }
 
+/// Error when measurement vector is not the same length as columns in DATA/dataframe
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -8595,18 +8619,21 @@ pub struct MeasDataMismatchError {
     data_n: usize,
 }
 
+/// Error when attempting to set temporal $PnE to log (2.0)
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonLinearTemporalScaleError;
 
+/// Error when attempting to set temporal $PnE/$PnG to non-unitary transform (3.0+)
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonLinearTemporalTransformError;
 
+/// Error when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
@@ -8614,6 +8641,7 @@ pub enum StdTEXTFromKeywordsError {
     Warn(StdTEXTFromRawWarning),
 }
 
+/// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromRawError {
@@ -8626,6 +8654,7 @@ pub enum StdTEXTFromRawError {
     Unused(UnusedStandardError),
 }
 
+/// Warning when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromRawWarning {
@@ -8638,6 +8667,7 @@ pub enum StdTEXTFromRawWarning {
     Unused(UnusedStandardError),
 }
 
+/// Error when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromRawError {
@@ -8647,6 +8677,7 @@ pub enum StdDatasetFromRawError {
     Warn(StdDatasetFromRawWarning),
 }
 
+/// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromRawWarning {
@@ -8655,20 +8686,30 @@ pub enum StdDatasetFromRawWarning {
     Layout(ReadDataframeWarning),
 }
 
+/// Error when $PnE is not set on optical measurement and target version requires it
 #[derive(Debug, Error)]
 #[error("{} must be set before converting measurement", Scale::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct NoScaleError(MeasIndex);
 
+/// Error when replacing temporal measurement by index
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ReplaceTemporalError {
+pub enum ReplaceTemporalErrorByIndex {
     ToOptical(AnyTemporalToOpticalKeyLossError),
     Set(SetCenterError),
+}
+
+/// Error when replacing temporal measurement by name
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReplaceTemporalErrorByName {
+    ToOptical(AnyTemporalToOpticalKeyLossError),
     Name(KeyNotFoundError),
 }
 
+/// Error when setting a new temporal measurement by name ($PnN)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalByNameError {
@@ -8676,6 +8717,7 @@ pub enum SetTemporalByNameError {
     Name(KeyNotFoundError),
 }
 
+/// Error when setting a new temporal measurement by index
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalByIndexError {
@@ -8683,15 +8725,17 @@ pub enum SetTemporalByIndexError {
     Set(SetCenterError),
 }
 
+/// Error when setting a new temporal measurement
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalError {
+    /// Temporal already exists, in which case old one needs to be converted to optical
     Swap(SwapOpticalTemporalErrors),
+    /// Temporal does not exist, in which case one optical measurement must be converted
     ToOptical(OpticalToTemporalErrors),
 }
 
-pub type SwapOpticalTemporalErrors =
-    ErrorGroup<SwapOpticalTemporalError, SwapOpticalTemporalSummary>;
+type SwapOpticalTemporalErrors = ErrorGroup<SwapOpticalTemporalError, SwapOpticalTemporalSummary>;
 
 #[derive(Display, Debug, new)]
 #[display("could not swap temporal index {tmp_index} with optical index {opt_index}")]
@@ -8700,6 +8744,7 @@ pub struct SwapOpticalTemporalSummary {
     tmp_index: MeasIndex,
 }
 
+/// Error when swapping optical and temporal measurement
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SwapOpticalTemporalError {
@@ -8708,7 +8753,7 @@ pub enum SwapOpticalTemporalError {
     OpticalToTemporal(AnyOpticalToTemporalKeyLossError),
 }
 
-pub type OpticalToTemporalErrors = ErrorGroup<OpticalToTemporalError, OpticalToTemporalSummary>;
+type OpticalToTemporalErrors = ErrorGroup<OpticalToTemporalError, OpticalToTemporalSummary>;
 
 #[derive(Display, Debug, new)]
 #[display("could not convert optical index at {opt_index} to temporal")]
@@ -8716,6 +8761,7 @@ pub struct OpticalToTemporalSummary {
     opt_index: MeasIndex,
 }
 
+/// Error when converting optical to temporal measurement
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum OpticalToTemporalError {
@@ -8723,12 +8769,10 @@ pub enum OpticalToTemporalError {
     OpticalToTemporal(AnyOpticalToTemporalKeyLossError),
 }
 
+/// Error when optical measurement is non-unitary but is to be converted to temporal.
 #[derive(Debug, Error, new)]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(py::RelationalException)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
     version: Version,
@@ -8747,6 +8791,9 @@ impl fmt::Display for OpticalNonLinearError {
     }
 }
 
+/// Error when metaroot is changed to new FCS version
+///
+/// Most of these only apply to very specific version combinations.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertError {
@@ -8761,6 +8808,7 @@ pub enum MetarootConvertError {
     Loss(AnyMetarootKeyLossError),
 }
 
+/// Warning when metaroot is changed to new FCS version
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertWarning {
@@ -8859,6 +8907,7 @@ pub enum AnyTemporalToOpticalKeyLossError {
     TempType(IndexedKeyLossError<TemporalType>),
 }
 
+/// Error when $PKn and $PKNn keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PeakLossError {
@@ -8866,6 +8915,7 @@ pub enum PeakLossError {
     Number(IndexedKeyLossError<PeakIndex>),
 }
 
+/// Error when "plate" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PlateLossError {
@@ -8874,6 +8924,7 @@ pub enum PlateLossError {
     Wellid(UnitaryKeyLossError<Wellid>),
 }
 
+/// Error when "subset" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SubsetLossError {
@@ -8881,6 +8932,7 @@ pub enum SubsetLossError {
     Flag(CSVFlagsLossError),
 }
 
+/// Error when $CSVnFLAG and $CSMode keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum CSVFlagsLossError {
@@ -8888,6 +8940,7 @@ pub enum CSVFlagsLossError {
     CSVFlag(IndexedKeyLossError<CSVFlag>),
 }
 
+/// Error when "modification" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ModificationLossError {
@@ -8896,6 +8949,7 @@ pub enum ModificationLossError {
     Originality(UnitaryKeyLossError<Originality>),
 }
 
+/// Error when "carrier" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum CarrierLossError {
@@ -8904,6 +8958,7 @@ pub enum CarrierLossError {
     Carriertype(UnitaryKeyLossError<Carriertype>),
 }
 
+/// Error when $UNSTAINED* keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum UnstainedLossError {
@@ -8911,6 +8966,7 @@ pub enum UnstainedLossError {
     UnstainedInfo(UnitaryKeyLossError<UnstainedInfo>),
 }
 
+/// Error when reading DATA segment from already-parsed keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
@@ -8921,6 +8977,7 @@ pub enum LookupAndReadDataAnalysisError {
     Warn(LookupAndReadDataAnalysisWarning),
 }
 
+/// Warning when reading DATA segment from already-parsed keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
@@ -8929,59 +8986,92 @@ pub enum LookupAndReadDataAnalysisWarning {
     Data(ReadDataframeWarning),
 }
 
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupTEXTOffsetsWarning {
-    Tot(OptKeyError<Tot>),
-    ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
-    ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
-    MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
-}
-
+/// Error when looking up offsets for parsing DATA
+///
+/// Note that not every error applies to every version.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsError {
+    /// $TOT is missing (3.0+)
     Tot(ReqKeyError<Tot>),
+    /// required DATA keywords are missing (3.0/3.1)
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
+    /// required ANALYSIS keywords are missing (3.0/3.1)
     ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
+    /// TEXT DATA segment does not match HEADER (3.0+)
     MismatchData(SegmentMismatchWarning<DataSegmentId>),
+    /// required TEXT ANALYSIS segment does not match HEADER (3.0/3.1)
     MismatchAnalysis(SegmentMismatchWarning<AnalysisSegmentId>),
+    /// optional TEXT ANALYSIS segment does not match HEADER (3.2)
     MismatchAnalysisOpt(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
 }
 
+/// Warning when looking up offsets for parsing DATA
+///
+/// Note that not every warning applies to every version.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupTEXTOffsetsWarning {
+    /// $TOT is optional in FCS 2.0 (for some reason)
+    Tot(OptKeyError<Tot>),
+    /// TEXT DATA segment can be optionally be overridden by HEADER (3.0+)
+    ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
+    /// TEXT ANALYSIS segment can be optionally be overridden by HEADER (3.0+)
+    ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
+    /// TEXT ANALYSIS segment does not match HEADER and is dropped (3.0+)
+    MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
+}
+
+/// Error when building new CoreTEXT object
+///
+/// The timestep/datetime errors are technically "relational" but are here and
+/// not in NewCoreRelationalerror because each time/date object is created
+/// prior to calling the function that would produce that error, and these
+/// are validated for correct order.
+///
+/// Note that not every error applies to each version.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreTEXTError {
+    /// Any new Core* error
     Core(NewCoreError),
+    /// datetimes are flipped; all versions
     Timestamps(ReversedTimestampsError),
+    /// datetimes are flipped; 3.2 only
     Datetimes(ReversedDatetimesError),
 }
 
+/// Error when building new Core* (TEXT or dataset)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
+    /// Measurement vector has more than one time element
     Meas(NewNamedVecError),
+    /// Measurement and layout are incompatible
+    Layout(MeasLayoutMismatchError),
+    /// Any other warning which is configured to be a fatal error
     Warn(NewCoreWarning),
 }
 
+/// Warning when building new Core*
+///
+/// Each of these are also errors but can be configured to only be warnings
+/// if the user desires.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreWarning {
+    /// Time channel is missing entirely
     Time(MissingTime),
-    Relational(NewCoreRelationalError),
+    /// A keyword has invalid links (and is dropped in the case of a warning)
+    Link(AnyLinkError),
+    /// A keyword is deprecated
     Deprecated(AnyDepKeyError),
 }
 
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewCoreRelationalError {
-    Link(AnyLinkErrors),
-    Layout(MeasLayoutMismatchError),
-}
-
-pub type LookupMetarootResult<V> =
+type LookupMetarootResult<V> =
     WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
 
+/// Error when parsing any metaroot keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootError {
@@ -8991,6 +9081,7 @@ pub enum LookupMetarootError {
     Warn(LookupMetarootWarning),
 }
 
+/// Warning when parsing any metaroot keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootWarning {
@@ -9018,9 +9109,10 @@ pub enum LookupMetarootWarning {
     Subset(LookupSubsetError),
 }
 
-pub type LookupMeasurementResult<V> =
+type LookupMeasurementResult<V> =
     WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
 
+/// Error when parsing any measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementError {
@@ -9030,6 +9122,7 @@ pub enum LookupMeasurementError {
     Warn(LookupMeasurementWarning),
 }
 
+/// Warning when parsing any measurement keyword.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementWarning {
@@ -9040,9 +9133,10 @@ pub enum LookupMeasurementWarning {
     MissingTime(MissingTime),
 }
 
-pub type LookupShortnameResult<V> =
+type LookupShortnameResult<V> =
     WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
 
+/// Error when parsing $PnN
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupShortnameError {
@@ -9050,9 +9144,10 @@ pub enum LookupShortnameError {
     Opt(OptIndexedKeyError<Shortname>),
 }
 
-pub type LookupOpticalResult<V> =
+type LookupOpticalResult<V> =
     WarningsAndErrorsResult<V, (), LookupOpticalWarning, LookupOpticalError>;
 
+/// Error when parsing any optical measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
@@ -9061,6 +9156,7 @@ pub enum LookupOpticalError {
     Warn(LookupOpticalWarning),
 }
 
+/// Warning when parsing any optical measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
@@ -9082,9 +9178,10 @@ pub enum LookupOpticalWarning {
     Peak(LookupPeakError),
 }
 
-pub type LookupTemporalResult<V> =
+type LookupTemporalResult<V> =
     WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
 
+/// Error when parsing any temporal measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalError {
@@ -9093,6 +9190,7 @@ pub enum LookupTemporalError {
     Warn(LookupTemporalWarning),
 }
 
+/// Warning when parsing any temporal measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
@@ -9103,6 +9201,7 @@ pub enum LookupTemporalWarning {
     Peak(LookupPeakError),
 }
 
+/// Error when parsing $PKn or $PKNn
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupPeakError {
@@ -9110,6 +9209,7 @@ pub enum LookupPeakError {
     Index(OptIndexedKeyError<PeakIndex>),
 }
 
+/// Error when parsing $CS* keywords.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupSubsetError {
@@ -9118,6 +9218,7 @@ pub enum LookupSubsetError {
     Tot(OptKeyError<CSTot>),
 }
 
+/// Error when parsing $CSMODE or $CSVnFlag
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCSVFlagsError {
@@ -9125,6 +9226,9 @@ pub enum LookupCSVFlagsError {
     Flag(OptIndexedKeyError<CSVFlag>),
 }
 
+/// Error when parsing keywords for $LAST_MODIFIED or $ORIGINALITY
+///
+/// Note that $LAST_MODIFIER is infallible.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupModifiedDataError {
@@ -9200,14 +9304,14 @@ pub struct CompParMismatchError {
     comp: usize,
 }
 
-pub type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
+type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
 
 def_group!(
     SetOpticalSummary,
     "attempted to assign incompatible optical measurement values"
 );
 
-pub type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
+type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
 
 def_group!(
     SetAllMeasSummary,

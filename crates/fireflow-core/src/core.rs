@@ -1378,32 +1378,19 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
 }
 
-pub trait ConvertFromShortname<T: MightHave<Shortname>>: Sized
-where
-    Self: MightHave<Shortname>,
-{
+pub trait ConvertFromShortname<T>: Sized + MightHave<Shortname> {
     fn convert_from_shortname(value: T, i: MeasIndex) -> Result<Self, NameConversionError>;
 }
 
-pub trait ConvertFromMetaroot<M>: Sized
-where
-    Self: VersionedMetaroot,
-    M: VersionedMetaroot,
-{
+pub trait ConvertFromMetaroot<M>: Sized + VersionedMetaroot {
     fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
 }
 
-pub trait ConvertFromOptical<O>: Sized
-where
-    Self: VersionedOptical,
-{
+pub trait ConvertFromOptical<O>: Sized + VersionedOptical {
     fn convert_from_optical(value: O, i: MeasIndex, flag: AllowLoss) -> OpticalConvertResult<Self>;
 }
 
-pub trait ConvertFromTemporal<T>: Sized
-where
-    Self: VersionedTemporal,
-{
+pub trait ConvertFromTemporal<T>: Sized + VersionedTemporal {
     fn convert_from_temporal(
         value: T,
         i: MeasIndex,

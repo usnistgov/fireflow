@@ -414,56 +414,38 @@ pub trait IsNumType: Sized {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &ReadLayoutConfig,
-    ) -> WarningsAndErrorsResult<
-        ColumnLayoutValues<Self>,
-        (),
-        OptIndexedKeyError<NumType>,
-        LookupMeasLayoutError,
-    > {
-        let w = Width::remove_meas_req(std, i)
-            .map_err(LookupMeasLayoutError::from)
-            .into_nowarn();
-        let r = Range::remove_meas_req(std, i)
-            .map_err(LookupMeasLayoutError::from)
-            .into_nowarn();
-        w.zip_commutative(r)
-            .nowarn_into_warn()
-            .and_then_commutative(|(width, range)| {
-                Self::lookup_datatype(std, nonstd, i, conf)
-                    .switchable_into_commutative()
-                    .map_errors(LookupMeasLayoutError::from)
-                    .into_semigroup()
-                    .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                    .set_err_value(())
-            })
+    ) -> LookupOneMeasLayoutResult<Self> {
+        let width = Width::remove_meas_req(std, i);
+        let range = Range::remove_meas_req(std, i);
+        let datatype = Self::lookup_datatype(std, nonstd, i, conf);
+        Self::make_meas(width, range, datatype)
     }
 
+    #[must_use]
     fn lookup_one_ro(
         kws: &StdKeywords,
         i: MeasIndex,
         conf: &ReadLayoutConfig,
-    ) -> WarningsAndErrorsResult<
-        ColumnLayoutValues<Self>,
-        (),
-        OptIndexedKeyError<NumType>,
-        LookupMeasLayoutError,
-    > {
-        let w = Width::get_meas_req(kws, i)
-            .map_err(LookupMeasLayoutError::from)
-            .into_nowarn();
-        let r = Range::get_meas_req(kws, i)
-            .map_err(LookupMeasLayoutError::from)
-            .into_nowarn();
-        w.zip_commutative(r)
-            .nowarn_into_warn()
-            .and_then_commutative(|(width, range)| {
-                Self::lookup_datatype_ro(kws, i, conf)
-                    .switchable_into_commutative()
-                    .map_errors(LookupMeasLayoutError::from)
-                    .into_semigroup()
-                    .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
-                    .set_err_value(())
-            })
+    ) -> LookupOneMeasLayoutResult<Self> {
+        let width = Width::get_meas_req(kws, i);
+        let range = Range::get_meas_req(kws, i);
+        let datatype = Self::lookup_datatype_ro(kws, i, conf);
+        Self::make_meas(width, range, datatype)
+    }
+
+    fn make_meas(
+        width: Result<Width, ReqIndexedKeyError<Width>>,
+        range: Result<Range, ReqIndexedKeyError<Range>>,
+        datatype: DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>,
+    ) -> LookupOneMeasLayoutResult<Self> {
+        let w = width.map_err(LookupMeasLayoutError::from).into_log();
+        let r = range.map_err(LookupMeasLayoutError::from).into_log();
+        let d = datatype
+            .switchable_into_commutative()
+            .map_errors(LookupMeasLayoutError::from)
+            .into_semigroup();
+        w.zip3_commutative(r, d)
+            .map_ok_value(|(w_, r_, d_)| ColumnLayoutValues::new(w_, r_, d_))
     }
 }
 
@@ -4490,6 +4472,13 @@ pub enum LookupLayoutWarning {
 
 type LookupMeasLayoutResult<T> = WarningsAndErrorsResult<
     Vec<ColumnLayoutValues<T>>,
+    (),
+    OptIndexedKeyError<NumType>,
+    LookupMeasLayoutError,
+>;
+
+type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
+    ColumnLayoutValues<T>,
     (),
     OptIndexedKeyError<NumType>,
     LookupMeasLayoutError,

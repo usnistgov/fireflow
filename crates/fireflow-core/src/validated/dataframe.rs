@@ -2,6 +2,7 @@ use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use num_traits::identities::Zero as _;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
@@ -18,7 +19,7 @@ use {
 };
 
 /// A dataframe without NULL and only types that make sense for FCS files.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, new)]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
@@ -196,13 +197,20 @@ pub struct ColumnLengthError {
 }
 
 impl FCSDataFrame {
-    pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
-        if let Some(nrows) = columns.first().map(AnyFCSColumn::len) {
-            if columns.iter().all(|c| c.len() == nrows) {
-                Ok(Self { columns, nrows })
-            } else {
-                Err(NewDataframeError)
+    pub fn try_new(
+        columns: impl IntoIterator<Item = AnyFCSColumn>,
+    ) -> Result<Self, NewDataframeError> {
+        let mut it = columns.into_iter();
+        if let Some(c0) = it.by_ref().next() {
+            let nrows = c0.len();
+            let mut columns = vec![c0];
+            for c in it {
+                if c.len() != nrows {
+                    return Err(NewDataframeError);
+                }
+                columns.push(c);
             }
+            Ok(Self::new(columns, nrows))
         } else {
             Ok(Self::default())
         }

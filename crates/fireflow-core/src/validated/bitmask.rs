@@ -3,6 +3,7 @@
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _,
 };
+use crate::text::byteord::PrivBytes;
 use crate::text::index::MeasIndex;
 use crate::text::keywords::Range;
 
@@ -88,7 +89,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         let (bitmask, truncated) = Self::from_native(value);
         let error = truncated.then(|| BitmaskTruncationError {
-            bytes: Self::bits(),
+            bytes: Self::bytes(),
             value: u64::from(value),
         });
         LogResult::new_deferred_maybe(bitmask, error)
@@ -152,13 +153,15 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         Self::from_native(T::max_value()).0
     }
 
-    fn bytes() -> u8 {
-        // ASSUME 'LEN' will never exceed 8
-        LEN.try_into().unwrap()
+    fn bytes() -> PrivBytes {
+        u8::try_from(LEN)
+            .unwrap()
+            .try_into()
+            .expect("Bytes greater than 8")
     }
 
     fn bits() -> u8 {
-        Self::bytes() * 8
+        u8::from(Self::bytes()) * 8
     }
 
     pub(crate) fn try_from_many<E, X>(
@@ -185,7 +188,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 #[derive(Debug, Display)]
 #[display("{value} cannot fit into {bytes} bytes")]
 pub struct BitmaskTruncationError {
-    pub(crate) bytes: u8,
+    pub(crate) bytes: PrivBytes,
     pub(crate) value: u64,
 }
 

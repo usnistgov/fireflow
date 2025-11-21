@@ -54,7 +54,7 @@ pub type NoByteOrd2_0 = NoByteOrd<true>;
 pub type NoByteOrd3_1 = NoByteOrd<false>;
 
 /// The number of bytes for a numeric measurement
-#[derive(Into)]
+#[derive(Into, Debug, Display)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
 pub struct Bytes(pub(crate) PrivBytes);
 

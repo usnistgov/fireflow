@@ -1,7 +1,7 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::config::DisallowRangeTrunc;
-use crate::data::{IndexedError, IndexedRangeToIntError};
+use crate::data::{IndexedError, IndexedRangeToAsciiError, RangeToAsciiError};
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::index::MeasIndex;
@@ -101,12 +101,13 @@ impl AsciiRange {
         range: Range,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToIntError, AsciiRangeFromKeywordsError>
+    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToAsciiError, AsciiRangeFromKeywordsError>
     {
         let rng_res = range
             .into_uint()
+            .map_errors(RangeToAsciiError::from)
             .map_errors(|e| IndexedError::new(i, e))
-            .map_errors(IndexedRangeToIntError)
+            .map_errors(IndexedRangeToAsciiError)
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
             .map_errors(AsciiRangeFromKeywordsError::from)
@@ -204,7 +205,7 @@ pub(crate) struct CharsError(u8);
 pub enum AsciiRangeFromKeywordsError {
     New(IndexedNotEnoughCharsError),
     Width(IndexedWidthToCharsError),
-    Range(IndexedRangeToIntError),
+    Range(IndexedRangeToAsciiError),
 }
 
 #[derive(From, Debug, Error)]

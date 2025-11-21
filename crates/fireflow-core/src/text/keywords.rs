@@ -46,7 +46,6 @@ use thiserror::Error;
 
 use derive_new::new;
 use nalgebra::DMatrix;
-use std::any::type_name;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
@@ -1766,15 +1765,15 @@ impl Range {
 }
 
 macro_rules! try_from_range_int {
-    ($inttype:ident, $to:ident) => {
+    ($inttype:ident, $to:ident, $ut:ident) => {
         impl TryFrom<Range> for $inttype {
             type Error = RangeToIntError<$inttype>;
 
             fn try_from(value: Range) -> Result<Self, Self::Error> {
                 let x = &value.0;
                 let err = |error_kind| RangeToIntError {
-                    src_type: type_name::<$inttype>(),
-                    src_num: x.clone(),
+                    dest_type: UintType::$ut,
+                    src_value: x.clone(),
                     error_kind,
                 };
                 if let Some(y) = x.$to() {
@@ -1795,16 +1794,35 @@ macro_rules! try_from_range_int {
     };
 }
 
-try_from_range_int!(u8, to_u8);
-try_from_range_int!(u16, to_u16);
-try_from_range_int!(u32, to_u32);
-try_from_range_int!(u64, to_u64);
+try_from_range_int!(u8, to_u8, U8);
+try_from_range_int!(u16, to_u16, U16);
+try_from_range_int!(u32, to_u32, U32);
+try_from_range_int!(u64, to_u64, U64);
 
 #[derive(Debug)]
 pub struct RangeToIntError<T> {
-    src_type: &'static str,
-    src_num: BigDecimal,
-    error_kind: RangeToIntErrorKind<T>,
+    pub(crate) dest_type: UintType,
+    pub(crate) src_value: BigDecimal,
+    pub(crate) error_kind: RangeToIntErrorKind<T>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum UintType {
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
+impl From<UintType> for PrivBytes {
+    fn from(value: UintType) -> Self {
+        match value {
+            UintType::U8 => Self::B1,
+            UintType::U16 => Self::B2,
+            UintType::U32 => Self::B4,
+            UintType::U64 => Self::B8,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1817,31 +1835,13 @@ pub(crate) enum RangeToIntErrorKind<T> {
 impl<T> RangeToIntError<T> {
     pub(crate) fn void(self) -> RangeToIntError<()> {
         RangeToIntError {
-            src_type: self.src_type,
-            src_num: self.src_num,
+            dest_type: self.dest_type,
+            src_value: self.src_value,
             error_kind: match self.error_kind {
                 RangeToIntErrorKind::Overrange => RangeToIntErrorKind::Overrange,
                 RangeToIntErrorKind::Underrange => RangeToIntErrorKind::Underrange,
                 RangeToIntErrorKind::PrecisionLoss(_) => RangeToIntErrorKind::PrecisionLoss(()),
             },
-        }
-    }
-}
-
-impl<T> fmt::Display for RangeToIntError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let t = self.src_type;
-        let x = &self.src_num;
-        match self.error_kind {
-            RangeToIntErrorKind::Overrange => {
-                write!(f, "{x} is larger than {t} can hold")
-            }
-            RangeToIntErrorKind::Underrange => {
-                write!(f, "{x} is less than zero and could not be converted to {t}")
-            }
-            RangeToIntErrorKind::PrecisionLoss(_) => {
-                write!(f, "{x} lost precision when converting to {t}")
-            }
         }
     }
 }

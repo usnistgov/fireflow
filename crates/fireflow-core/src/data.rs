@@ -73,7 +73,7 @@ use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBoun
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, LookupDatatypeResult,
-    NumType, Par, Range, RangeToIntError, Scale, Tot, Width,
+    NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, Scale, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -81,7 +81,7 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
-use crate::type_families::FunctorOnce as _;
+use crate::type_families::{Functor as _, FunctorOnce as _};
 use crate::validated::ascii_range::{AsciiRange, AsciiRangeFromKeywordsError, Chars};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
@@ -2139,7 +2139,8 @@ impl AnyNullBitmask {
             PrivBytes::B7 => Bitmask56::from_range(range, flag).map_deferred_value(Into::into),
             PrivBytes::B8 => Bitmask64::from_range(range, flag).map_deferred_value(Into::into),
         };
-        ret.map_switchable_errors(|e| e.into_indexed_err(i))
+        ret.map_switchable_errors(|e| IndexedError::new(i, e))
+            .map_switchable_errors(IndexedBitmaskError)
     }
 
     pub(crate) fn try_into_one_size<X, E, T>(
@@ -2322,31 +2323,28 @@ where
         skip_conv_check: bool,
     ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
         let nrows = df.nrows();
-        let (columns, warnings): (Vec<_>, Vec<_>) = df
-            .iter_columns()
-            .enumerate()
-            .map(|(i, c)| {
-                let mut w = None;
-                let mut cs = vec![0; nrows];
-                for x in AnySource::<'_, u64>::new(c) {
-                    cs.push(x.new);
-                    if !skip_conv_check {
-                        w = mem::take(&mut w).or(x.as_err());
-                    }
+        let mut warnings = vec![];
+        let columns = df.iter_columns().enumerate().map(|(i, c)| {
+            let mut w = None;
+            let mut cs = vec![0; nrows];
+            for x in AnySource::<'_, u64>::new(c) {
+                cs.push(x.new);
+                if !skip_conv_check {
+                    w = mem::take(&mut w).or(x.as_err());
                 }
-                (
-                    FCSColumn::from(cs).into(),
-                    w.map(|x| IndexedError::new(i, AnyLossError::Ascii(LossError::Cast(x)))),
-                )
-            })
-            .unzip();
-        let ws: Vec<_> = warnings
-            .into_iter()
-            .flatten()
-            .map(IndexedLossError)
-            .collect();
+            }
+            if let Some(x) = w
+                .map(LossError::Cast)
+                .map(AnyLossError::Ascii)
+                .map(|x| IndexedError::new(i, x))
+                .map(IndexedLossError)
+            {
+                warnings.push(x);
+            }
+            FCSColumn::from(cs).into()
+        });
         let ret = FCSDataFrame::try_new(columns).unwrap();
-        Success::new_non_switchable(ret).set_warnings(ws)
+        Success::new_non_switchable(ret).set_warnings(warnings)
     }
 }
 
@@ -2367,6 +2365,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         range
             .into_uint()
+            .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
             .map_ok_value(|r| self.ranges.insert(index.into(), r))
@@ -2380,6 +2379,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         range
             .into_uint()
+            .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
             .map_ok_value(|r| self.ranges.push(r))
@@ -2454,11 +2454,10 @@ fn h_read_delim_with_rows<R: Read>(
             .map_err(ReadDelimWithRowsAsciiError::Parse)
             .map_err(ImpureError::Pure)?;
     }
-    let cs: Vec<_> = data
+    let cs = data
         .into_iter()
         .map(FCSColumn::from)
-        .map(AnyFCSColumn::from)
-        .collect();
+        .map(AnyFCSColumn::from);
     // ASSUME this will never fail because all columns should be the same
     // length
     Ok(FCSDataFrame::try_new(cs).unwrap())
@@ -2519,11 +2518,10 @@ fn h_read_delim_without_rows<R: Read>(
     if !buf.is_empty() {
         go(&mut data, col, &buf)?;
     }
-    let cs: Vec<_> = data
+    let cs = data
         .into_iter()
         .map(FCSColumn::from)
-        .map(AnyFCSColumn::from)
-        .collect();
+        .map(AnyFCSColumn::from);
     // ASSUME this will never fail because all columns should be the same
     // length
     Ok(FCSDataFrame::try_new(cs).unwrap())
@@ -2680,33 +2678,27 @@ where
         }
     }
 
-    // TODO confusing that this returns a result when no trait impls for this
-    // method can fail
     fn truncate_df(
         &self,
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
     ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
         // ASSUME df has same number of columns as layout
-        let (new_columns, warnings): (Vec<_>, Vec<_>) = self
-            .columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| {
-                col_type
+        let mut warnings = vec![];
+        let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
+            |(i, (col_type, col_data))| {
+                let (x, warn) = col_type
                     .clone()
                     .into_writer(col_data)
-                    .truncate(skip_conv_check)
-            })
-            .unzip();
-        let ws: Vec<_> = warnings
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, e)| e.map(|f| IndexedError::new(i, f)))
-            .map(IndexedLossError)
-            .collect();
+                    .truncate(skip_conv_check);
+                if let Some(w) = warn {
+                    warnings.push(IndexedLossError(IndexedError::new(i, w)));
+                }
+                x
+            },
+        );
         let ret = FCSDataFrame::try_new(new_columns).unwrap();
-        Success::new_non_switchable(ret).set_warnings(ws)
+        Success::new_non_switchable(ret).set_warnings(warnings)
     }
 }
 
@@ -2823,10 +2815,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 c.h_read(h, row, self.byte_layout, buf)?;
             }
         }
-        let data = col_readers
-            .into_iter()
-            .map(Readable::into_dataframe_column)
-            .collect();
+        let data = col_readers.into_iter().map(Readable::into_dataframe_column);
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
@@ -2842,10 +2831,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     where
         X: From<C>,
     {
-        FixedLayout::new(
-            self.columns.into_iter().map(Into::into).collect(),
-            self.byte_layout,
-        )
+        FixedLayout::new(self.columns.fmap(Into::into), self.byte_layout)
     }
 
     fn byte_layout_into<X>(self) -> FixedLayout<C, X, T, D>
@@ -2888,7 +2874,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         C: IsFixed,
     {
         let n = seg.len();
-        // TODO is this always not zero?
         let w = self.event_width();
         if w == 0 {
             LogResult::new_err(EventWidthError::from(ZeroEventWidth::new(n)))
@@ -3080,7 +3065,7 @@ where
 }
 
 impl FromRange for AsciiRange {
-    type Error = RangeToIntError<()>;
+    type Error = RangeToAsciiError;
 
     /// Make new AsciiRange from a float or integer.
     ///
@@ -3093,12 +3078,13 @@ impl FromRange for AsciiRange {
         range
             .into_uint::<u64>()
             .map_deferred_value(Self::from)
+            .map_errors(RangeToAsciiError::from)
             .nowarn_into_switchable(flag)
     }
 }
 
 impl FromRange for AnyNullBitmask {
-    type Error = RangeToIntError<()>;
+    type Error = RangeToBitmaskError;
 
     /// make a new bitmask from a float or integer.
     ///
@@ -3111,12 +3097,17 @@ impl FromRange for AnyNullBitmask {
         // TODO there is probably a better place to do this subtraction
         (range - Range::from(1_u8))
             .into_uint()
+            .map_errors(RangeToBitmaskError::from)
             .map_deferred_value(|x: u64| Self::from(x))
             .nowarn_into_switchable(flag)
     }
 }
 
 impl FromRange for NullMixedType {
+    // TODO this error is a bit weird here because its message pertains to
+    // inserting new ranges into layouts, but this has nothing to do with this
+    // trait. It just so happens that the only use cases we have for this
+    // are inserting/pushing new ranges, so it works out.
     type Error = InsertRangeError;
 
     /// Create a mixed type based on the range.
@@ -3358,7 +3349,8 @@ impl<T> AnyOrderedUintLayout<T> {
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 FixedLayout::try_new(cs, o, |i, c| {
                     Bitmask::from_range(c.range, notrunc)
-                        .map_switchable_errors(|e| e.into_indexed_err(i))
+                        .map_switchable_errors(|e| IndexedError::new(i, e))
+                        .map_switchable_errors(IndexedBitmaskError)
                         .switchable_into_commutative()
                         .into_semigroup()
                 })
@@ -3393,7 +3385,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     pub(crate) fn try_new(
         cs: Vec<ColumnLayoutValues<D>>,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToIntError, AsciiRangeFromKeywordsError>
+    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToAsciiError, AsciiRangeFromKeywordsError>
     where
         D: IsNumType,
     {
@@ -3404,8 +3396,9 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                     c.range
                         .into_uint::<u64>()
                         .nowarn_into_switchable(flag)
+                        .map_switchable_errors(RangeToAsciiError::from)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
-                        .map_switchable_errors(IndexedRangeToIntError)
+                        .map_switchable_errors(IndexedRangeToAsciiError)
                         .switchable_into_commutative()
                         .map_errors(AsciiRangeFromKeywordsError::from)
                         .repack()
@@ -4310,7 +4303,7 @@ pub enum NewMixedTypeError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMixedTypeWarning {
-    Ascii(IndexedRangeToIntError),
+    Ascii(IndexedRangeToAsciiError),
     Uint(IndexedBitmaskError),
     Float(IndexedFloatRangeError),
 }
@@ -4363,54 +4356,99 @@ pub enum FloatWidthError {
     Range(IndexedFloatRangeError),
 }
 
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum IndexedBitmaskError {
-    ToInt(IndexedRangeToIntError),
-    Trunc(IndexedBitmaskTruncationError),
+/// Error when converting $PnR to bitmask for integer layout.
+#[derive(From, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
+pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
+
+impl fmt::Display for IndexedBitmaskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = self.0.index;
+        let pnr = Range::std(i);
+        let pnb = Width::std(i);
+        let e = match &self.0.error {
+            RangeToBitmaskError::Over(v, b) => {
+                format!("{v} cannot fit into {b} bytes set by {pnb}")
+            }
+            RangeToBitmaskError::Under(v) => {
+                format!("{v} is less than zero")
+            }
+            RangeToBitmaskError::Float(v) => {
+                format!("{v} would has decimal precision which would be lost")
+            }
+        };
+        write!(f, "could not make bitmask from {pnr} because {e}")
+    }
 }
 
-#[derive(From, Display, Debug)]
-pub enum RangeToBitmaskError {
-    ToInt(RangeToIntError<()>),
-    Trunc(BitmaskTruncationError),
+/// Inner error for RangeToBitmaskError without the index
+///
+/// This is necessary to translate from the more general RangeToIntError to add
+/// integer-layout-specific context. Furthermore, it subsumes
+/// BitmaskTruncationError since this is a special case of $PnR not fitting into
+/// a fixed number of bytes, where the bytes in this case happen to not align
+/// with native datatypes (u8, u16, etc).
+#[derive(Debug)]
+enum RangeToBitmaskError {
+    Over(BigDecimal, Bytes),
+    Under(BigDecimal),
+    Float(BigDecimal),
 }
 
-impl RangeToBitmaskError {
-    fn into_indexed_err(self, i: MeasIndex) -> IndexedBitmaskError {
-        match self {
-            Self::ToInt(e) => IndexedRangeToIntError(IndexedError::new(i, e)).into(),
-            Self::Trunc(e) => IndexedBitmaskTruncationError(IndexedError::new(i, e)).into(),
+impl From<BitmaskTruncationError> for RangeToBitmaskError {
+    fn from(value: BitmaskTruncationError) -> Self {
+        Self::Over(BigDecimal::from(value.value), Bytes(value.bytes))
+    }
+}
+
+impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
+    fn from(value: RangeToIntError<T>) -> Self {
+        let b = Bytes(PrivBytes::from(value.dest_type));
+        let v = value.src_value;
+        match value.error_kind {
+            RangeToIntErrorKind::Overrange => Self::Over(v, b),
+            RangeToIntErrorKind::Underrange => Self::Under(v),
+            RangeToIntErrorKind::PrecisionLoss(_) => Self::Float(v),
         }
     }
 }
 
-// TODO these errors could be combined since truncation is a subset of the latter
-#[derive(From, Debug, Error)]
-#[error(
-    "{pnr} ({r}) is larger than {b} bytes allowed by {pnb}",
-    pnr = Range::std(_0.index),
-    pnb = Width::std(_0.index),
-    r = _0.error.value,
-    b = _0.error.bytes,
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-pub struct IndexedBitmaskTruncationError(IndexedError<BitmaskTruncationError>);
-
-/// Error when converting $PnR to integer bitmask.
+/// Error when converting $PnR to integer range for ASCII layout.
 ///
-/// An error will occur if $PnR either exceeds the number of bytes allowed via
-/// $PnB or is a decimal.
+/// An error will occur if $PnR exceeds the upper limit of a 64-bit unsigned
+/// integer. This is effectively a special case of $PnR to bitmask conversion.
 #[derive(From, Debug, Error)]
 #[error(
-    "{k} could not be converted to integer because {e}",
+    "{k} could not be converted to integer ASCII upper bound because {e}",
     k = Range::std(_0.index),
     e = _0.error,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-pub struct IndexedRangeToIntError(pub(crate) IndexedError<RangeToIntError<()>>);
+pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
+
+/// Inner error for IndexedRangeToAsciiError without the index
+#[derive(Debug, Error)]
+pub enum RangeToAsciiError {
+    #[error("its value {0} cannot be represented with 8 bytes")]
+    Over(BigDecimal),
+    #[error("its value {0} is less than zero")]
+    Under(BigDecimal),
+    #[error("its value {0} has decimal precision which will be lost")]
+    Float(BigDecimal),
+}
+
+impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
+    fn from(value: RangeToIntError<T>) -> Self {
+        let v = value.src_value;
+        match value.error_kind {
+            RangeToIntErrorKind::Overrange => Self::Over(v),
+            RangeToIntErrorKind::Underrange => Self::Under(v),
+            RangeToIntErrorKind::PrecisionLoss(_) => Self::Float(v),
+        }
+    }
+}
 
 /// Error when checking $PnB for float layouts.
 ///
@@ -4752,11 +4790,37 @@ pub struct MixedToNonMixedError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub enum InsertRangeError {
     #[error("could not insert range into ASCII layout because {0}")]
-    Ascii(RangeToIntError<()>),
+    #[from(RangeToAsciiError)]
+    Ascii(RangeToAsciiError),
     #[error("could not insert range into integer layout because {0}")]
-    Int(RangeToBitmaskError),
+    #[from(RangeToBitmaskError)]
+    Int(RangeToNewBitmaskError),
     #[error("could not insert range into float layout because {0}")]
+    #[from(DecimalToFloatError)]
     Float(DecimalToFloatError),
+}
+
+/// Inner error for converting range to bitmask.
+///
+/// This is separate from RangeToBitmaskError since we need different error
+/// messages here given that $PnR and $PnB do not apply to newly supply ranges.
+#[derive(From, Debug)]
+pub struct RangeToNewBitmaskError(RangeToBitmaskError);
+
+impl fmt::Display for RangeToNewBitmaskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match &self.0 {
+            RangeToBitmaskError::Over(v, b) => {
+                write!(f, "{v} cannot fit into {b} bytes as constrained by layout")
+            }
+            RangeToBitmaskError::Under(v) => {
+                write!(f, "{v} is less than zero")
+            }
+            RangeToBitmaskError::Float(v) => {
+                write!(f, "{v} has decimal precision which would be lost")
+            }
+        }
+    }
 }
 
 /// Error when layout and measurement vector do not match.
@@ -4856,11 +4920,15 @@ pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
     [Width::std_blank(), Range::std_blank()]
 }
 
+/// Inner helper type to add index data to an error message.
+///
+/// This does not implement any error-specific functions on its own because
+/// the index will be used in a context-specific manner.
 #[derive(new, Debug)]
 pub(crate) struct IndexedError<E> {
     #[new(into)]
-    pub index: IndexFromOne,
-    pub error: E,
+    pub(crate) index: IndexFromOne,
+    pub(crate) error: E,
 }
 
 #[cfg(feature = "python")]

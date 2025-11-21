@@ -236,7 +236,7 @@ pub(crate) trait Optional: Sized {
         res
     }
 
-    fn transfer_opt<I>(
+    fn remove_or_transfer_opt<I>(
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
@@ -253,7 +253,7 @@ pub(crate) trait Optional: Sized {
         })
     }
 
-    fn transfer_opt_with<I>(
+    fn remove_or_transfer_opt_with<I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
@@ -271,7 +271,7 @@ pub(crate) trait Optional: Sized {
         })
     }
 
-    fn drop_opt<I>(
+    fn remove_or_drop_opt<I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
@@ -285,13 +285,15 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        Self::transfer_opt(std, nonstd, k, conf)
+        // TODO don't actually move any keys if we are simply going to return
+        // a fatal error
+        Self::remove_or_transfer_opt(std, nonstd, k, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
             .nowarn_into_switchable(conf.allow_optional_dropping)
     }
 
-    fn drop_opt_with<I>(
+    fn remove_or_drop_opt_with<I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
@@ -306,7 +308,7 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
     {
-        Self::transfer_opt_with(std, nonstd, k, data, conf)
+        Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
             .nowarn_into_switchable(conf.allow_optional_dropping)
@@ -420,28 +422,28 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
 
 /// An optional metaroot key
 pub(crate) trait OptMetarootKey: Sized + Optional + Key {
-    fn get_metaroot_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
+    fn get_root_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
     {
         Self::get_opt(kws, SpecificKey::default())
     }
 
-    fn remove_metaroot_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
+    fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
     {
         Self::remove_opt(kws, SpecificKey::default())
     }
 
-    fn remove_metaroot_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
+    fn remove_root_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {
         Self::remove_opt_nofail(kws, SpecificKey::default())
     }
 
-    fn transfer_metaroot_opt(
+    fn remove_or_transfer_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
@@ -449,10 +451,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStr,
     {
-        Self::transfer_opt(std, nonstd, SpecificKey::default(), conf)
+        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
-    fn transfer_metaroot_opt_with(
+    fn remove_or_transfer_root_opt_with(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
@@ -461,10 +463,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStrWith,
     {
-        Self::transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
 
-    fn drop_metaroot_opt(
+    fn remove_or_drop_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
@@ -472,10 +474,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStr,
     {
-        Self::drop_opt(std, nonstd, SpecificKey::default(), conf)
+        Self::remove_or_drop_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
-    fn drop_metaroot_opt_with(
+    fn remove_or_drop_root_opt_with(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
@@ -484,17 +486,17 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStrWith,
     {
-        Self::drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+        Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
 
-    fn metaroot_pair_std(&self) -> (StdKey, String)
+    fn root_pair_std(&self) -> (StdKey, String)
     where
         Self: fmt::Display,
     {
         (Self::std(), self.to_string())
     }
 
-    fn metaroot_pair(&self) -> (String, String)
+    fn root_pair(&self) -> (String, String)
     where
         Self: fmt::Display,
     {
@@ -521,7 +523,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_nofail(kws, SpecificKey::new_i1(i.into()))
     }
 
-    fn transfer_meas_opt(
+    fn remove_or_transfer_meas_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
@@ -530,10 +532,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self: FromStr,
     {
-        Self::transfer_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
     }
 
-    fn drop_meas_opt(
+    fn remove_or_drop_meas_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
@@ -542,10 +544,10 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self: FromStr,
     {
-        Self::drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+        Self::remove_or_drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
     }
 
-    fn drop_meas_opt_with(
+    fn remove_or_drop_meas_opt_with(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne> + Copy,
@@ -556,7 +558,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::Outer: PartialEq,
         Self: FromStrWith,
     {
-        Self::drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
+        Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }
 
     fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)

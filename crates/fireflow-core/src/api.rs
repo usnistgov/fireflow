@@ -1187,7 +1187,7 @@ fn lookup_nextdata(
             .into_log()
             .set_err_value(None)
     } else {
-        Nextdata::get_metaroot_opt(kws).into_succ()
+        Nextdata::get_root_opt(kws).into_succ()
     };
     ret.map_deferred_value(|x| x.map(|y| u64::from(y.0)))
 }

@@ -1232,7 +1232,7 @@ impl IsNumType for Option<NumType> {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
-        NumType::drop_meas_opt(std, nonstd, i, conf)
+        NumType::remove_or_drop_meas_opt(std, nonstd, i, conf)
     }
 
     // TODO make these "get" functions "drop" (really ignore) errors based on config
@@ -3569,7 +3569,6 @@ impl VersionedDataLayout for DataLayout3_2 {
     type NumType = Option<NumType>;
     type Tot = Identity<Tot>;
 
-    // TODO each instance we use both keyword types can just be ValidKeywords
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,

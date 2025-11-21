@@ -454,14 +454,14 @@ where
     }
 
     fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
-        let x0 = Self::B::get_metaroot_opt(kws);
-        let x1 = Self::E::get_metaroot_opt(kws);
+        let x0 = Self::B::get_root_opt(kws);
+        let x1 = Self::E::get_root_opt(kws);
         (x0, x1)
     }
 
     fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
-        let x0 = Self::B::remove_metaroot_opt(kws);
-        let x1 = Self::E::remove_metaroot_opt(kws);
+        let x0 = Self::B::remove_root_opt(kws);
+        let x1 = Self::E::remove_root_opt(kws);
         (x0, x1)
     }
 }

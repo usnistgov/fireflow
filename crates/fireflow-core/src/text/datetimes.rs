@@ -102,10 +102,10 @@ impl Datetimes {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
-        let b = BeginDateTime::transfer_metaroot_opt(std, nonstd, conf)
+        let b = BeginDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
-        let e = EndDateTime::transfer_metaroot_opt(std, nonstd, conf)
+        let e = EndDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;

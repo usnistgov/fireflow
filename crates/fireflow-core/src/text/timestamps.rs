@@ -172,9 +172,9 @@ impl<X> Timestamps<X> {
                     .into_deferred_nowarn()
             };
         }
-        let b = go!(Btim::transfer_metaroot_opt_with(std, nonstd, (), conf));
-        let e = go!(Etim::transfer_metaroot_opt_with(std, nonstd, (), conf));
-        let d = go!(FCSDate::transfer_metaroot_opt_with(std, nonstd, (), conf));
+        let b = go!(Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
+        let e = go!(Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
+        let d = go!(FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
         let flag = conf.allow_optional_dropping;
         b.zip_f3_once(e, d)
             .and_then_deferred(|(btim, etim, date)| {

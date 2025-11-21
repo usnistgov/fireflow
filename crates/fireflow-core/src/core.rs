@@ -1786,10 +1786,10 @@ impl<O> Optical<O> {
             };
         }
         let filter = Filter::remove_meas_opt_nofail(std, i);
-        let power = go!(Power::drop_meas_opt(std, &mut nonstd, i, conf));
+        let power = go!(Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit = go!(PercentEmitted::drop_meas_opt(std, &mut nonstd, i, conf));
-        let det_volt = go!(DetectorVoltage::drop_meas_opt(std, &mut nonstd, i, conf));
+        let perc_emit = go!(PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
+        let det_volt = go!(DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         power
@@ -1982,20 +1982,20 @@ where
                     .into_semigroup()
             };
         }
-        let com = Com::remove_metaroot_opt_nofail(std);
-        let cells = Cells::remove_metaroot_opt_nofail(std);
-        let exp = Exp::remove_metaroot_opt_nofail(std);
-        let fil = Fil::remove_metaroot_opt_nofail(std);
-        let inst = Inst::remove_metaroot_opt_nofail(std);
-        let op = Op::remove_metaroot_opt_nofail(std);
-        let proj = Proj::remove_metaroot_opt_nofail(std);
-        let smno = Smno::remove_metaroot_opt_nofail(std);
-        let src = Src::remove_metaroot_opt_nofail(std);
-        let sys = Sys::remove_metaroot_opt_nofail(std);
+        let com = Com::remove_root_opt_nofail(std);
+        let cells = Cells::remove_root_opt_nofail(std);
+        let exp = Exp::remove_root_opt_nofail(std);
+        let fil = Fil::remove_root_opt_nofail(std);
+        let inst = Inst::remove_root_opt_nofail(std);
+        let op = Op::remove_root_opt_nofail(std);
+        let proj = Proj::remove_root_opt_nofail(std);
+        let smno = Smno::remove_root_opt_nofail(std);
+        let src = Src::remove_root_opt_nofail(std);
+        let sys = Sys::remove_root_opt_nofail(std);
 
-        let abrt_res = go!(Abrt::drop_metaroot_opt(std, &mut nonstd, conf));
-        let lost_res = go!(Lost::drop_metaroot_opt(std, &mut nonstd, conf));
-        let tr_res = go!(Trigger::drop_metaroot_opt(std, &mut nonstd, conf));
+        let abrt_res = go!(Abrt::remove_or_drop_root_opt(std, &mut nonstd, conf));
+        let lost_res = go!(Lost::remove_or_drop_root_opt(std, &mut nonstd, conf));
+        let tr_res = go!(Trigger::remove_or_drop_root_opt(std, &mut nonstd, conf));
 
         let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
 
@@ -5069,8 +5069,8 @@ impl UnstainedData {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>> {
-        let i = UnstainedInfo::remove_metaroot_opt_nofail(std);
-        UnstainedCenters::drop_metaroot_opt_with(std, nonstd, (), conf)
+        let i = UnstainedInfo::remove_root_opt_nofail(std);
+        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
             .map_deferred_value(|c| Self::new(c, i))
     }
 
@@ -5100,11 +5100,11 @@ impl SubsetData {
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let b = CSVBits::drop_metaroot_opt(kws, nonstd, conf)
+        let b = CSVBits::remove_or_drop_root_opt(kws, nonstd, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let t = CSTot::drop_metaroot_opt(kws, nonstd, conf)
+        let t = CSTot::remove_or_drop_root_opt(kws, nonstd, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -5136,7 +5136,7 @@ impl CSVFlags {
         conf: &StdTextReadConfig,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
         let flag = conf.allow_optional_dropping;
-        CSMode::transfer_metaroot_opt(std, nonstd, conf)
+        CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupCSVFlagsError::from)
             .into_deferred_nowarn()
             .and_then_deferred(|m| {
@@ -5149,7 +5149,7 @@ impl CSVFlags {
                 let n = m.map(|x| x.0).unwrap_or_default();
                 (0..n)
                     .map(|i| {
-                        CSVFlag::transfer_meas_opt(std, nonstd, i, conf)
+                        CSVFlag::remove_or_transfer_meas_opt(std, nonstd, i, conf)
                             .map_err(LookupCSVFlagsError::from)
                             .into_deferred_nowarn()
                     })
@@ -5160,7 +5160,7 @@ impl CSVFlags {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let m = (!self.0.is_empty()).then(|| CSMode(self.0.len()).metaroot_pair());
+        let m = (!self.0.is_empty()).then(|| CSMode(self.0.len()).root_pair());
         self.0
             .iter()
             .enumerate()
@@ -5182,11 +5182,11 @@ impl ModificationData {
         nonstd: &mut NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
-        let last_mod = LastModifier::remove_metaroot_opt_nofail(std);
-        let last_mod_date = LastModified::transfer_metaroot_opt(std, nonstd, conf)
+        let last_mod = LastModifier::remove_root_opt_nofail(std);
+        let last_mod_date = LastModified::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let ori = Originality::transfer_metaroot_opt(std, nonstd, conf)
+        let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
         let flag = conf.allow_optional_dropping;
@@ -5215,9 +5215,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup(kws: &mut StdKeywords) -> Self {
-        let l = Locationid::remove_metaroot_opt_nofail(kws);
-        let i = Carrierid::remove_metaroot_opt_nofail(kws);
-        let t = Carriertype::remove_metaroot_opt_nofail(kws);
+        let l = Locationid::remove_root_opt_nofail(kws);
+        let i = Carrierid::remove_root_opt_nofail(kws);
+        let t = Carriertype::remove_root_opt_nofail(kws);
         Self::new(i, t, l)
     }
 
@@ -5238,9 +5238,9 @@ impl CarrierData {
 
 impl PlateData {
     fn lookup(kws: &mut StdKeywords) -> Self {
-        let w = Wellid::remove_metaroot_opt_nofail(kws);
-        let n = Platename::remove_metaroot_opt_nofail(kws);
-        let i = Plateid::remove_metaroot_opt_nofail(kws);
+        let w = Wellid::remove_root_opt_nofail(kws);
+        let n = Platename::remove_root_opt_nofail(kws);
+        let i = Plateid::remove_root_opt_nofail(kws);
         Self::new(i, n, w)
     }
 
@@ -5276,11 +5276,11 @@ impl PeakData {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
-        let b = PeakBin::drop_meas_opt(std, nonstd, i, conf)
+        let b = PeakBin::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupPeakError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let s = PeakIndex::drop_meas_opt(std, nonstd, i, conf)
+        let s = PeakIndex::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupPeakError::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -6402,7 +6402,7 @@ impl ScaleTransform {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        let gain = Gain::drop_meas_opt(std, nonstd, i, conf)
+        let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .map_errors(LookupOpticalError::from)
@@ -6706,11 +6706,11 @@ impl LookupOptical for InnerOptical2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        let scale = Scale::drop_meas_opt_with(std, nonstd, i, (), conf)
+        let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
+        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -6730,7 +6730,7 @@ impl LookupOptical for InnerOptical3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupOpticalResult<Self> {
-        let wave = Wavelength::drop_meas_opt(std, nonstd, i, conf)
+        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -6758,9 +6758,9 @@ impl LookupOptical for InnerOptical3_1 {
                     .into_semigroup()
             };
         }
-        let wave = go!(Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf));
-        let cal = go!(Calibration3_1::drop_meas_opt(std, nonstd, i, conf));
-        let dpy = go!(Display::drop_meas_opt(std, nonstd, i, conf));
+        let wave = go!(Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf));
+        let cal = go!(Calibration3_1::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let dpy = go!(Display::remove_or_drop_meas_opt(std, nonstd, i, conf));
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_warnings_and_errors(LookupOpticalWarning::from);
         let scale = ScaleTransform::lookup(std, nonstd, i, conf);
@@ -6787,11 +6787,11 @@ impl LookupOptical for InnerOptical3_2 {
             };
         }
 
-        let wave = go!(Wavelengths::drop_meas_opt_with(std, nonstd, i, (), conf));
-        let cal = go!(Calibration3_2::drop_meas_opt(std, nonstd, i, conf));
-        let dpy = go!(Display::drop_meas_opt(std, nonstd, i, conf));
-        let meas = go!(OpticalType::drop_meas_opt(std, nonstd, i, conf));
-        let feat = go!(Feature::drop_meas_opt(std, nonstd, i, conf));
+        let wave = go!(Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf));
+        let cal = go!(Calibration3_2::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let dpy = go!(Display::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let meas = go!(OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let feat = go!(Feature::remove_or_drop_meas_opt(std, nonstd, i, conf));
 
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
@@ -6815,7 +6815,7 @@ impl LookupTemporal for InnerTemporal2_0 {
             nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {
-            TemporalScale2_0::drop_meas_opt(std, nonstd, i, conf)
+            TemporalScale2_0::remove_or_drop_meas_opt(std, nonstd, i, conf)
                 .map_switchable_errors(LookupTemporalWarning::from)
                 .switchable_into_commutative()
                 .into_semigroup()
@@ -6864,7 +6864,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -6892,11 +6892,11 @@ impl LookupTemporal for InnerTemporal3_2 {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::drop_meas_opt(std, nonstd, i, conf)
+        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let meas = TemporalType::drop_meas_opt(std, nonstd, i, conf)
+        let meas = TemporalType::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -7227,7 +7227,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        Tot::remove_metaroot_opt(kws)
+        Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
@@ -7245,7 +7245,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        Tot::get_metaroot_opt(kws)
+        Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
@@ -7529,7 +7529,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupShortnameResult<Self::Name> {
-        Shortname::drop_meas_opt(std, nonstd, i, conf)
+        Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
             .switchable_into_commutative()
             .map_errors(LookupShortnameError::from)
@@ -7545,7 +7545,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         let comp = Compensation2_0::lookup(std, par, conf)
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
-        let cyt = Cyt::remove_metaroot_opt_nofail(std);
+        let cyt = Cyt::remove_root_opt_nofail(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
@@ -7568,7 +7568,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         i: MeasIndex,
         conf: &StdTextReadConfig,
     ) -> LookupShortnameResult<Self::Name> {
-        Shortname::drop_meas_opt(std, nonstd, i, conf)
+        Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
             .switchable_into_commutative()
             .map_errors(LookupShortnameError::from)
@@ -7588,12 +7588,12 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             };
         }
 
-        let cyt = Cyt::remove_metaroot_opt_nofail(std);
-        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
+        let cyt = Cyt::remove_root_opt_nofail(std);
+        let cytsn = Cytsn::remove_root_opt_nofail(std);
 
-        let comp = go!(Compensation3_0::drop_metaroot_opt(std, nonstd, conf));
+        let comp = go!(Compensation3_0::remove_or_drop_root_opt(std, nonstd, conf));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
-        let uni = go!(Unicode::drop_metaroot_opt_with(std, nonstd, (), conf));
+        let uni = go!(Unicode::remove_or_drop_root_opt_with(std, nonstd, (), conf));
 
         let subset = SubsetData::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
@@ -7656,14 +7656,14 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
             .collect();
 
-        let cyt = Cyt::remove_metaroot_opt_nofail(std);
-        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
+        let cyt = Cyt::remove_root_opt_nofail(std);
+        let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
 
         let modif = go!(ModificationData::lookup(std, nonstd, conf));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
-        let vol = go!(Vol::drop_metaroot_opt(std, nonstd, conf));
-        let spill = go!(Spillover::drop_metaroot_opt_with(
+        let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf));
+        let spill = go!(Spillover::remove_or_drop_root_opt_with(
             std,
             nonstd,
             &ordered_names[..],
@@ -7723,18 +7723,18 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
             .collect();
 
-        let flow = Flowrate::remove_metaroot_opt_nofail(std);
-        let cytsn = Cytsn::remove_metaroot_opt_nofail(std);
+        let flow = Flowrate::remove_root_opt_nofail(std);
+        let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
         let dt = go!(Datetimes::lookup(std, nonstd, conf));
         let modif = go!(ModificationData::lookup(std, nonstd, conf));
-        let mode = go!(Mode3_2::drop_metaroot_opt(std, nonstd, conf));
+        let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
-        let vol = go!(Vol::drop_metaroot_opt(std, nonstd, conf));
-        let spill = go!(Spillover::drop_metaroot_opt_with(
+        let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf));
+        let spill = go!(Spillover::remove_or_drop_root_opt_with(
             std,
             nonstd,
             &ordered_names[..],

@@ -214,7 +214,7 @@ impl Gain {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, conf.allow_optional_dropping)
         } else {
-            Self::drop_meas_opt(std, nonstd, i, conf)
+            Self::remove_or_drop_meas_opt(std, nonstd, i, conf)
                 .map_switchable_errors(LookupTemporalGain::from)
                 .into_semigroup()
                 .eval_deferred_switchable_error(|gain| {

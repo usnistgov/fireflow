@@ -339,7 +339,7 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([gate.metaroot_pair()])
+            .chain([gate.root_pair()])
             .chain(self.scheme.opt_keywords())
     }
 
@@ -461,7 +461,7 @@ impl AppliedGates3_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain(self.scheme.opt_keywords())
-            .chain(gate.map(|x| OptMetarootKey::metaroot_pair(&x)))
+            .chain(gate.map(|x| OptMetarootKey::root_pair(&x)))
     }
 
     pub(crate) fn try_into_2_0(
@@ -599,14 +599,14 @@ impl GatedMeasurement {
                     .into_semigroup()
             };
         }
-        let scale = GateScale::drop_meas_opt_with(std, nonstd, i, (), conf);
+        let scale = GateScale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let filter = GateFilter::remove_meas_opt_nofail(std, i);
-        let sname = GateShortname::drop_meas_opt(std, nonstd, i, conf);
-        let pemit = GatePercentEmitted::drop_meas_opt(std, nonstd, i, conf);
-        let range = GateRange::drop_meas_opt(std, nonstd, i, conf);
+        let sname = GateShortname::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let pemit = GatePercentEmitted::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let range = GateRange::remove_or_drop_meas_opt(std, nonstd, i, conf);
         let lname = GateLongname::remove_meas_opt_nofail(std, i);
         let dtype = GateDetectorType::remove_meas_opt_nofail(std, i);
-        let dvolt = GateDetectorVoltage::drop_meas_opt(std, nonstd, i, conf);
+        let dvolt = GateDetectorVoltage::remove_or_drop_meas_opt(std, nonstd, i, conf);
         go!(scale).lift_f5_once(
             go!(sname),
             go!(pemit),
@@ -807,7 +807,7 @@ impl<I> GatingScheme<I> {
     {
         let flag = conf.allow_optional_dropping;
         // TODO demote as necessary
-        Gating::drop_metaroot_opt(std, nonstd, conf)
+        Gating::remove_or_drop_root_opt(std, nonstd, conf)
             .map_switchable_errors(LookupGatingSchemeError::Gating)
             .switchable_into_commutative()
             .into_semigroup()
@@ -840,7 +840,7 @@ impl<I> GatingScheme<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain(self.gating.as_ref().map(OptMetarootKey::metaroot_pair))
+            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError>
@@ -900,11 +900,11 @@ impl<I> Region<I> {
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
     {
-        let index_res = RegionGateIndex::drop_meas_opt(std, nonstd, ri, conf)
+        let index_res = RegionGateIndex::remove_or_drop_meas_opt(std, nonstd, ri, conf)
             .map_switchable_errors(LookupRegionError::Region)
             .switchable_into_commutative()
             .into_semigroup();
-        let window_res = RegionWindow::drop_meas_opt_with(std, nonstd, ri, (), conf)
+        let window_res = RegionWindow::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Window)
             .switchable_into_commutative()
             .into_semigroup();
@@ -1089,7 +1089,7 @@ impl GatedMeasurements {
         conf: &StdTextReadConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasurementsError, LookupGatedMeasurementsError>
     {
-        Gate::drop_metaroot_opt(std, nonstd, conf)
+        Gate::remove_or_drop_root_opt(std, nonstd, conf)
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)
             .switchable_into_commutative()
             .into_semigroup()

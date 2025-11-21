@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::validated::keys::{
     AnyKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
@@ -199,6 +199,22 @@ pub(crate) trait Optional: Sized {
         })
     }
 
+    fn get_or_ignore_opt<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<
+        Self::Outer,
+        AllowOptionalDropping,
+        ParseKeyError<Self::Err, Self, I>,
+    >
+    where
+        SpecificKey<Self, I>: AnyKey,
+        Self: FromStr,
+    {
+        Self::get_opt(kws, k).into_deferred_switchable(conf.allow_optional_dropping)
+    }
+
     fn remove_opt<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
@@ -240,7 +256,7 @@ pub(crate) trait Optional: Sized {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
@@ -253,19 +269,21 @@ pub(crate) trait Optional: Sized {
         })
     }
 
-    fn remove_or_transfer_opt_with<I>(
+    fn remove_or_transfer_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        Self::remove_opt_with(std, k, data, conf).inspect_err(|e| {
-            if conf.transfer_dropped_optional.is_set() {
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        Self::remove_opt_with(std, k, data, conf.as_ref()).inspect_err(|e| {
+            if rconf.transfer_dropped_optional.is_set() {
                 nonstd.insert_demoted(k.as_std(), e.value.clone());
             }
         })
@@ -275,7 +293,7 @@ pub(crate) trait Optional: Sized {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<
         Self::Outer,
         AllowOptionalDropping,
@@ -293,12 +311,12 @@ pub(crate) trait Optional: Sized {
             .nowarn_into_switchable(conf.allow_optional_dropping)
     }
 
-    fn remove_or_drop_opt_with<I>(
+    fn remove_or_drop_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> DeferredSwitchableError<
         Self::Outer,
         AllowOptionalDropping,
@@ -307,11 +325,13 @@ pub(crate) trait Optional: Sized {
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
+        let rconf: &ReadLayoutConfig = conf.as_ref();
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(conf.allow_optional_dropping)
+            .nowarn_into_switchable(rconf.allow_optional_dropping)
     }
 
     fn get_opt_inner<F, E, I>(
@@ -429,6 +449,16 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::get_opt(kws, SpecificKey::default())
     }
 
+    fn get_or_ignore_root_opt(
+        kws: &StdKeywords,
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
+    }
+
     fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -446,7 +476,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     fn remove_or_transfer_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -454,14 +484,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_or_transfer_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
-    fn remove_or_transfer_root_opt_with(
+    fn remove_or_transfer_root_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> Result<Self::Outer, OptKeyStError<Self>>
     where
         Self: FromStrWith,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
@@ -469,7 +500,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     fn remove_or_drop_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -477,14 +508,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_or_drop_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
-    fn remove_or_drop_root_opt_with(
+    fn remove_or_drop_root_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
     where
         Self: FromStrWith,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
@@ -516,6 +548,17 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::get_opt(kws, SpecificKey::new_i1(i.into()))
     }
 
+    fn get_or_ignore_meas_opt(
+        kws: &StdKeywords,
+        i: impl Into<IndexFromOne>,
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::get_or_ignore_opt(kws, SpecificKey::new_i1(i.into()), conf)
+    }
+
     fn remove_meas_opt_nofail(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
@@ -527,7 +570,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
@@ -539,7 +582,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
@@ -547,16 +590,17 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_or_drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
     }
 
-    fn remove_or_drop_meas_opt_with(
+    fn remove_or_drop_meas_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyStError<Self>>
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }

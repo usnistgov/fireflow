@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
@@ -156,15 +156,16 @@ impl<X> Timestamps<X> {
         true
     }
 
-    pub(crate) fn lookup(
+    pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -175,7 +176,8 @@ impl<X> Timestamps<X> {
         let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let flag = conf.allow_optional_dropping;
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
         go!(b)
             .zip_f3_once(go!(e), go!(d))
             .and_then_deferred(|(btim, etim, date)| {
@@ -184,7 +186,7 @@ impl<X> Timestamps<X> {
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
-                        if conf.transfer_dropped_optional.is_set() {
+                        if rconf.transfer_dropped_optional.is_set() {
                             ret.date
                                 .as_ref()
                                 .inspect(|&x| nonstd.insert_demoted_metaroot(x));

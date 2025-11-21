@@ -6365,8 +6365,6 @@ impl DocArgParam {
             Self::new_time_pattern_param(version),
             Self::new_allow_pseudostandard_param(),
             Self::new_allow_unused_standard_param(),
-            Self::new_allow_optional_dropping(),
-            Self::new_transfer_dropped_optional(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -6387,6 +6385,8 @@ impl DocArgParam {
     }
 
     fn new_layout_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let allow_optional_dropping = Self::new_allow_optional_dropping();
+        let transfer_dropped_optional = Self::new_transfer_dropped_optional();
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
@@ -6394,6 +6394,8 @@ impl DocArgParam {
         let ps: Vec<_> = match version {
             Some(Version::FCS3_1 | Version::FCS3_2) => once(disallow_range_truncation).collect(),
             _ => [
+                allow_optional_dropping,
+                transfer_dropped_optional,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,

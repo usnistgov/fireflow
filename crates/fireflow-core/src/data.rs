@@ -50,17 +50,15 @@
 
 use crate::config::{
     AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig,
-    StdTextReadConfig,
 };
 use crate::core::{
     AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult,
-    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
-    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, WarningsResult,
+    DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
+    ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult, WarningOrErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsResult,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
@@ -380,19 +378,20 @@ pub trait IsNumType: Sized {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
 
     fn lookup_all(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         par: Par,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> LookupMeasLayoutResult<Self> {
         (0..par.0)
             .map(|i| Self::lookup_one(std, nonstd, i.into(), conf))
@@ -400,9 +399,13 @@ pub trait IsNumType: Sized {
     }
 
     #[must_use]
-    fn lookup_ro_all(kws: &StdKeywords, par: Par) -> LookupMeasLayoutResult<Self> {
+    fn lookup_ro_all(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadLayoutConfig,
+    ) -> LookupMeasLayoutResult<Self> {
         (0..par.0)
-            .map(|i| Self::lookup_one_ro(kws, i.into()))
+            .map(|i| Self::lookup_one_ro(kws, i.into(), conf))
             .mappend_commutative()
     }
 
@@ -410,7 +413,7 @@ pub trait IsNumType: Sized {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<
         ColumnLayoutValues<Self>,
         (),
@@ -438,6 +441,7 @@ pub trait IsNumType: Sized {
     fn lookup_one_ro(
         kws: &StdKeywords,
         i: MeasIndex,
+        conf: &ReadLayoutConfig,
     ) -> WarningsAndErrorsResult<
         ColumnLayoutValues<Self>,
         (),
@@ -453,10 +457,11 @@ pub trait IsNumType: Sized {
         w.zip_commutative(r)
             .nowarn_into_warn()
             .and_then_commutative(|(width, range)| {
-                Self::lookup_datatype_ro(kws, i)
-                    .repack::<_, _, Vec<_>>()
-                    .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
+                Self::lookup_datatype_ro(kws, i, conf)
+                    .switchable_into_commutative()
                     .map_errors(LookupMeasLayoutError::from)
+                    .into_semigroup()
+                    .map_ok_value(|datatype| ColumnLayoutValues::new(width, range, datatype))
                     .set_err_value(())
             })
     }
@@ -630,18 +635,14 @@ where
     type NumType: IsNumType;
     type Tot: IsTot;
 
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self>;
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>;
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
 
@@ -1211,7 +1212,7 @@ impl IsNumType for Nothing<NumType> {
         _: &mut StdKeywords,
         _: &mut NonStdKeywords,
         _: MeasIndex,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
     }
@@ -1219,9 +1220,9 @@ impl IsNumType for Nothing<NumType> {
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
-        LogResult::new_ok(Self::default())
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
+        LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
     }
 }
 
@@ -1230,18 +1231,17 @@ impl IsNumType for Option<NumType> {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         NumType::remove_or_drop_meas_opt(std, nonstd, i, conf)
     }
 
-    // TODO make these "get" functions "drop" (really ignore) errors based on config
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
-        NumType::get_meas_opt(kws, i).into_succ()
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
+        NumType::get_or_ignore_meas_opt(kws, i, conf)
     }
 }
 
@@ -3455,23 +3455,17 @@ impl VersionedDataLayout for DataLayout2_0 {
     type NumType = Nothing<NumType>;
     type Tot = Option<Tot>;
 
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
-        AnyOrderedLayout::lookup_ro(kws, conf, par).map_ok_value(Self::from)
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+        AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -3493,23 +3487,17 @@ impl VersionedDataLayout for DataLayout3_0 {
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
 
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Into::into)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
-        AnyOrderedLayout::lookup_ro(kws, conf, par).map_ok_value(Self::from)
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+        AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -3531,23 +3519,17 @@ impl VersionedDataLayout for DataLayout3_1 {
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
 
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         NonMixedEndianLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
-        NonMixedEndianLayout::lookup_ro(kws, conf, par).map_ok_value(Self::from)
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+        NonMixedEndianLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -3569,28 +3551,22 @@ impl VersionedDataLayout for DataLayout3_2 {
     type NumType = Option<NumType>;
     type Tot = Identity<Tot>;
 
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Option::lookup_all(std, nonstd, par, conf.as_ref());
+        let columns = Option::lookup_all(std, nonstd, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
-        let columns = Option::<NumType>::lookup_ro_all(kws, par);
+        let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
@@ -3876,15 +3852,12 @@ impl DataLayout3_2 {
         NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(vec![]))).into()
     }
 
-    fn lookup_inner<C>(
+    fn lookup_inner(
         datatype: LookupDatatypeResult<AlphaNumType>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
-        conf: &C,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -3895,7 +3868,7 @@ impl DataLayout3_2 {
             .into_semigroup()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e, cs, conf.as_ref())
+                Self::try_new(d, e, cs, conf)
                     .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })
@@ -3909,40 +3882,31 @@ impl<T> Default for AnyOrderedLayout<T> {
 }
 
 impl<T> AnyOrderedLayout<T> {
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
+        conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
-        let columns = Nothing::lookup_all(std, nonstd, par, conf.as_ref());
+        let columns = Nothing::lookup_all(std, nonstd, par, conf);
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
-        let columns = Nothing::<NumType>::lookup_ro_all(kws, par);
+        let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
-    fn lookup_inner<C>(
+    fn lookup_inner(
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         byteord: Result<ByteOrd2_0, ReqKeyError<ByteOrd2_0>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &C,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         let byteord_ = byteord.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -3952,7 +3916,7 @@ impl<T> AnyOrderedLayout<T> {
             .into_log()
             .zip3_commutative(byteord_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e, cs, conf.as_ref())
+                Self::try_new(d, e, cs, conf)
                     .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })
@@ -4073,41 +4037,32 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout<Nothing<NumType>> {
-    fn lookup<C>(
+    fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
+        conf: &ReadLayoutConfig,
         par: Par,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
-    {
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Nothing::<NumType>::lookup_all(std, nonstd, par, conf.as_ref());
+        let columns = Nothing::<NumType>::lookup_all(std, nonstd, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro<C>(kws: &StdKeywords, conf: &C, par: Par) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
-        let columns = Nothing::<NumType>::lookup_ro_all(kws, par);
+        let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
     // TODO this is almost like the 3.2 version
-    fn lookup_inner<C>(
+    fn lookup_inner(
         datatype: LookupDatatypeResult<AlphaNumType>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &C,
-    ) -> LookupLayoutResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig>,
-    {
+        conf: &ReadLayoutConfig,
+    ) -> LookupLayoutResult<Self> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -4118,7 +4073,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
             .into_semigroup()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e.0, cs, conf.as_ref())
+                Self::try_new(d, e.0, cs, conf)
                     .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })

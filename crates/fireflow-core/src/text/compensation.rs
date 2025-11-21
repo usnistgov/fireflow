@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::BiIndexedKeyLossError;
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
@@ -47,7 +47,7 @@ impl Compensation2_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement

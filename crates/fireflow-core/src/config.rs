@@ -160,18 +160,6 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     pub shared: SharedConfig,
 }
 
-/// Instructions for reading the DATA segment.
-#[derive(Default, Clone)]
-pub struct DataReadConfig {
-    /// Instructions to read and standardize TEXT.
-    pub standard: StdTextReadConfig,
-
-    // /// Shared configuration options
-    // pub shared: SharedConfig,
-    /// Configuration to make reader for DATA and ANALYSIS
-    pub reader: ReaderConfig,
-}
-
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
@@ -623,15 +611,6 @@ pub struct StdTextReadConfig {
     /// if $TIMESTEP is present but no time measurement is present.
     pub allow_unused_standard: AllowUnusedStandard,
 
-    /// If true, allow optional keys to be dropped on error with a warning.
-    pub allow_optional_dropping: AllowOptionalDropping,
-
-    /// If true, transfer dropped optional keys to nonstandard dict.
-    ///
-    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
-    /// optional keywords will produce a fatal error.
-    pub transfer_dropped_optional: TransferDroppedOptional,
-
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
@@ -664,6 +643,15 @@ pub struct StdTextReadConfig {
 
 #[derive(Default, Clone)]
 pub struct ReadLayoutConfig {
+    /// If true, allow optional keys to be dropped on error with a warning.
+    pub allow_optional_dropping: AllowOptionalDropping,
+
+    /// If true, transfer dropped optional keys to nonstandard dict.
+    ///
+    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
+    /// optional keywords will produce a fatal error.
+    pub transfer_dropped_optional: TransferDroppedOptional,
+
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column

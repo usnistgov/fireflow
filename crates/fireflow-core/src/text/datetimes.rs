@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
@@ -100,7 +100,7 @@ impl Datetimes {
     pub(crate) fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &ReadLayoutConfig,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
         let b = BeginDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupDatetimesError::from)

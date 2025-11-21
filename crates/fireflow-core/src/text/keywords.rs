@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -204,17 +204,21 @@ impl LogRangeError {
 pub struct Gain(pub PositiveFloat);
 
 impl Gain {
-    pub(crate) fn lookup_temporal_3_0(
+    pub(crate) fn lookup_temporal_3_0<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &StdTextReadConfig,
-    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGain> {
-        if conf.ignore_time_gain {
+        conf: &C,
+    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGain>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        if AsRef::<StdTextReadConfig>::as_ref(conf).ignore_time_gain {
             nonstd.transfer_demoted(std, Self::std(i));
-            LogResult::new_switchable_ok(None, conf.allow_optional_dropping)
+            let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
+            LogResult::new_switchable_ok(None, flag)
         } else {
-            Self::remove_or_drop_meas_opt(std, nonstd, i, conf)
+            Self::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGain::from)
                 .into_semigroup()
                 .eval_deferred_switchable_error(|gain| {

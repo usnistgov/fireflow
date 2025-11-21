@@ -271,7 +271,7 @@ impl From<bool> for Endian {
 }
 
 impl TryFrom<Width> for Chars {
-    type Error = WidthToCharsError;
+    type Error = WidthToFixedError<CharsError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
         let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
@@ -411,17 +411,15 @@ impl fmt::Display for PrivBytes {
     }
 }
 
-#[derive(Debug, Display, From)]
+#[derive(Debug, From)]
 pub(crate) enum WidthToFixedError<X> {
     #[from]
     Variable(VariableWidthError),
     Fixed(X),
 }
 
-#[derive(Debug, Display)]
+#[derive(Debug)]
 pub(crate) struct VariableWidthError;
-
-pub(crate) type WidthToCharsError = WidthToFixedError<CharsError>;
 
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]

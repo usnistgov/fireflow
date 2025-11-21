@@ -5,9 +5,9 @@ use crate::config::{
     WriteConfig,
 };
 use crate::data::{
-    AnyRangeError, ColumnLossError, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _,
-    LookupLayoutError, LookupLayoutWarning, LookupRawError, LookupRawWarning,
+    ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
+    IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
+    LayoutOps as _, LookupLayoutWarning, LookupRawLayoutError, LookupStdLayoutError,
     MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
     ReadDataframeWarning, VersionedDataLayout,
 };
@@ -1327,7 +1327,7 @@ pub trait Versioned {
         Self::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let layout_res = Self::Layout::lookup_ro(kws, st.conf.as_ref())
+        let layout_res = Self::Layout::lookup_ro(kws, &st.conf)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, st)
@@ -3289,7 +3289,7 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<(), (), AnyRangeError, PushTemporalError> {
+    ) -> WarningAndErrorsResult<(), (), InsertRangeError, PushTemporalError> {
         self.measurements
             .check_push_center(&n)
             .map_errors(PushTemporalError::from)
@@ -3314,7 +3314,7 @@ where
         m: Temporal<M::Temporal>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<(), (), AnyRangeError, InsertTemporalError> {
+    ) -> WarningAndErrorsResult<(), (), InsertRangeError, InsertTemporalError> {
         self.measurements
             .check_insert_center(i, &n)
             .map_errors(InsertTemporalError::from)
@@ -3337,7 +3337,7 @@ where
         m: Optical<M::Optical>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<Shortname, (), AnyRangeError, PushOpticalError> {
+    ) -> WarningAndErrorsResult<Shortname, (), InsertRangeError, PushOpticalError> {
         self.measurements
             .check_push(&n)
             .map(Cow::into_owned)
@@ -3366,7 +3366,7 @@ where
         m: Optical<M::Optical>,
         r: Range,
         flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<Shortname, (), AnyRangeError, InsertOpticalError> {
+    ) -> WarningAndErrorsResult<Shortname, (), InsertRangeError, InsertOpticalError> {
         self.measurements
             .check_insert(i, &n)
             .map_ok_value(Cow::into_owned)
@@ -4018,7 +4018,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<(), AnyRangeError, PushTemporalError, PushTemporalSummary> {
+    ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalError, PushTemporalSummary> {
         self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4034,7 +4034,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Temporal<M::Temporal>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalError, InsertTemporalSummary> {
+    ) -> WarningAndGroupResult<(), InsertRangeError, InsertTemporalError, InsertTemporalSummary>
+    {
         self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4048,7 +4049,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<Shortname, AnyRangeError, PushOpticalError, PushOpticalSummary> {
+    ) -> WarningAndGroupResult<Shortname, InsertRangeError, PushOpticalError, PushOpticalSummary>
+    {
         self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
     }
@@ -4063,7 +4065,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         m: Optical<M::Optical>,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<Shortname, AnyRangeError, InsertOpticalError, InsertOpticalSummary>
+    ) -> WarningAndGroupResult<Shortname, InsertRangeError, InsertOpticalError, InsertOpticalSummary>
     {
         self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
             .group()
@@ -4350,7 +4352,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), ColumnLossError, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<(), IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
@@ -4469,7 +4471,7 @@ where
     ///
     /// This will copy the entire dataframe regardless of whether or not the
     /// data needs to be truncated. This will hopefully be fixed in the future.
-    pub fn truncate_data(&mut self, skip_conv_check: bool) -> WarningsResult<(), ColumnLossError> {
+    pub fn truncate_data(&mut self, skip_conv_check: bool) -> WarningsResult<(), IndexedLossError> {
         // TODO this function is hilariously not-optimized; each column will be
         // cast into a totally new vector even if they are they exact same
         // type with no possible truncation. This also means that the new
@@ -4529,7 +4531,7 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<(), AnyRangeError, PushTemporalToDatasetError, PushTemporalSummary>
+    ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
         self.data
             .check_new_column(&col)
@@ -4555,8 +4557,12 @@ where
         col: AnyFCSColumn,
         r: Range,
         disallow_trunc: bool,
-    ) -> WarningAndGroupResult<(), AnyRangeError, InsertTemporalToDatasetError, InsertTemporalSummary>
-    {
+    ) -> WarningAndGroupResult<
+        (),
+        InsertRangeError,
+        InsertTemporalToDatasetError,
+        InsertTemporalSummary,
+    > {
         self.data
             .check_new_column(&col)
             .map_err(InsertTemporalToDatasetError::from)
@@ -4582,7 +4588,7 @@ where
         disallow_trunc: bool,
     ) -> WarningAndGroupResult<
         Shortname,
-        AnyRangeError,
+        InsertRangeError,
         PushOpticalToDatasetError,
         PushOpticalSummary,
     > {
@@ -4611,7 +4617,7 @@ where
         disallow_trunc: bool,
     ) -> WarningAndGroupResult<
         Shortname,
-        AnyRangeError,
+        InsertRangeError,
         InsertOpticalInDatasetError,
         InsertOpticalSummary,
     > {
@@ -8389,7 +8395,7 @@ pub struct NameConversionError(Key1<Shortname>);
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
-    Check(ColumnLossError),
+    Check(IndexedLossError),
     Overflow(Uint8DigitOverflow),
 }
 
@@ -8457,28 +8463,28 @@ pub enum RemoveMeasByIndexError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalError {
     Center(PushCenterError),
-    Layout(AnyRangeError),
+    Layout(InsertRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
     Center(InsertCenterError),
-    Layout(AnyRangeError),
+    Layout(InsertRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
     Unique(NonUniqueKeyError),
-    Layout(AnyRangeError),
+    Layout(InsertRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalError {
     Insert(InsertError),
-    Layout(AnyRangeError),
+    Layout(InsertRangeError),
 }
 
 #[derive(From, Display, Debug, Error)]
@@ -8543,7 +8549,7 @@ pub enum StdTEXTFromRawError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
-    Layout(LookupLayoutError),
+    Layout(LookupStdLayoutError),
     Offsets(LookupTEXTOffsetsError),
     Pseudostandard(PseudostandardError),
     Unused(UnusedStandardError),
@@ -8838,7 +8844,7 @@ pub enum UnstainedLossError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
-    Layout(LookupRawError),
+    Layout(LookupRawLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
@@ -8847,7 +8853,7 @@ pub enum LookupAndReadDataAnalysisError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
-    Layout(LookupRawWarning),
+    Layout(LookupLayoutWarning),
     Data(ReadDataframeWarning),
 }
 

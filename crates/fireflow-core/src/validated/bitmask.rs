@@ -181,16 +181,16 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 }
 
 // NOTE this Display message is concated into larger message in
-// data::RangeToBitmaskError, consult this enum first before changing
+// data::InsertRangeError, consult this enum first before changing
 #[derive(Debug, Display)]
 #[display("{value} cannot fit into {bytes} bytes")]
 pub struct BitmaskTruncationError {
-    bytes: u8,
-    value: u64,
+    pub(crate) bytes: u8,
+    pub(crate) value: u64,
 }
 
 #[derive(Clone, Copy, Debug, Display)]
-#[display("integer data truncated to {_0}")]
+#[display("integer value truncated to {_0}")]
 pub(crate) struct BitmaskLossError(pub u64);
 
 #[cfg(test)]

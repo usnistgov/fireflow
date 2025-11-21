@@ -1,11 +1,15 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::config::DisallowRangeTrunc;
+use crate::data::{IndexedError, IndexedRangeToIntError};
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
-use crate::text::byteord::WidthToCharsError;
+use crate::text::byteord::WidthToFixedError;
+use crate::text::index::MeasIndex;
 use crate::text::keywords::{Range, RangeToIntError, Width};
+use crate::validated::keys::IndexedKey as _;
 
 use derive_more::{Display, From, Into};
+use std::fmt;
 use std::num::{NonZero, NonZeroU8};
 use thiserror::Error;
 
@@ -13,7 +17,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::DisplayAsPyErr;
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The type of an ASCII column in all versions
 ///
@@ -95,22 +99,30 @@ impl AsciiRange {
     pub(crate) fn from_width_and_range(
         width: Width,
         range: Range,
+        i: MeasIndex,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), RangeToIntError<()>, NewAsciiRangeError> {
+    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToIntError, AsciiRangeFromKeywordsError>
+    {
         let rng_res = range
             .into_uint()
+            .map_errors(|e| IndexedError::new(i, e))
+            .map_errors(IndexedRangeToIntError)
             .nowarn_into_switchable(flag)
             .switchable_into_commutative()
-            .map_errors(NewAsciiRangeError::from)
+            .map_errors(AsciiRangeFromKeywordsError::from)
             .into_semigroup();
         let chars_res = Chars::try_from(width)
-            .map_err(NewAsciiRangeError::from)
+            .map_err(|e| IndexedError::new(i, e))
+            .map_err(IndexedWidthToCharsError)
+            .map_err(AsciiRangeFromKeywordsError::from)
             .into_log();
         rng_res
             .zip_commutative(chars_res)
             .and_then_commutative(|(rng, chars)| {
                 Self::try_new_from_chars(rng, chars)
-                    .map_err(NewAsciiRangeError::from)
+                    .map_err(|e| IndexedError::new(i, e))
+                    .map_err(IndexedNotEnoughCharsError)
+                    .map_err(AsciiRangeFromKeywordsError::from)
                     .into_log()
             })
     }
@@ -188,14 +200,45 @@ impl TryFrom<u8> for OtherWidth {
 pub(crate) struct CharsError(u8);
 
 #[derive(From, Display, Debug)]
-pub(crate) enum NewAsciiRangeError {
-    New(NotEnoughCharsError),
-    Width(WidthToCharsError),
-    Range(RangeToIntError<()>),
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AsciiRangeFromKeywordsError {
+    New(IndexedNotEnoughCharsError),
+    Width(IndexedWidthToCharsError),
+    Range(IndexedRangeToIntError),
 }
 
-#[derive(Debug, Display)]
-#[display("not enough chars to hold {value}, got {chars}")]
+#[derive(From, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
+pub struct IndexedWidthToCharsError(IndexedError<WidthToFixedError<CharsError>>);
+
+impl fmt::Display for IndexedWidthToCharsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let k = Width::std(self.0.index);
+        match &self.0.error {
+            WidthToFixedError::Fixed(e) => {
+                write!(f, "could not convert {k} to chars because {e}")
+            }
+            WidthToFixedError::Variable(_) => {
+                write!(f, "{k} is variable ('*') when fixed is needed")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error(
+    "{pnr} ({r}) is longer than {b} digits allowed by {pnb}",
+    pnr = Range::std(_0.index),
+    pnb = Width::std(_0.index),
+    r = _0.error.value,
+    b = _0.error.chars,
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
+pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
+
+#[derive(Debug)]
 pub(crate) struct NotEnoughCharsError {
     chars: Chars,
     value: u64,

@@ -608,19 +608,31 @@ pub enum AlphaNumType {
     Double,
 }
 
-impl AlphaNumType {
-    pub(crate) fn lookup_req_check_ascii(
-        kws: &mut StdKeywords,
-    ) -> WarningAndErrorResult<Self, (), DeprecatedDatatypeWarning, ReqKeyError<Self>> {
-        let res = Self::remove_metaroot_req(kws);
-        if let Ok(dt) = res
+macro_rules! check_ascii {
+    ($res:expr) => {
+        if let Ok(dt) = $res
             && dt == Self::Ascii
         {
             let w = Some(DeprecatedDatatypeWarning);
-            res.into_log().set_commutative_warnings(w)
+            $res.into_log().set_commutative_warnings(w)
         } else {
-            res.into_log()
+            $res.into_log()
         }
+    };
+}
+
+pub(crate) type LookupDatatypeResult<T> =
+    WarningAndErrorResult<T, (), DeprecatedDatatypeWarning, ReqKeyError<T>>;
+
+impl AlphaNumType {
+    pub(crate) fn get_req_check_ascii(kws: &StdKeywords) -> LookupDatatypeResult<Self> {
+        let res = Self::get_metaroot_req(kws);
+        check_ascii!(res)
+    }
+
+    pub(crate) fn remove_req_check_ascii(kws: &mut StdKeywords) -> LookupDatatypeResult<Self> {
+        let res = Self::remove_metaroot_req(kws);
+        check_ascii!(res)
     }
 }
 

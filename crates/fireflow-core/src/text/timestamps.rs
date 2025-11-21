@@ -172,11 +172,12 @@ impl<X> Timestamps<X> {
                     .into_deferred_nowarn()
             };
         }
-        let b = go!(Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
-        let e = go!(Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
-        let d = go!(FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf));
+        let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let flag = conf.allow_optional_dropping;
-        b.zip_f3_once(e, d)
+        go!(b)
+            .zip_f3_once(go!(e), go!(d))
             .and_then_deferred(|(btim, etim, date)| {
                 Self::try_new(btim, etim, date)
                     .map_errors(LookupTimestampsError::Reversed)

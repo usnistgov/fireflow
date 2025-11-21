@@ -1786,14 +1786,14 @@ impl<O> Optical<O> {
             };
         }
         let filter = Filter::remove_meas_opt_nofail(std, i);
-        let power = go!(Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
+        let power = Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf);
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit = go!(PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
-        let det_volt = go!(DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf));
+        let perc_emit = PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf);
+        let det_volt = DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf);
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
-        power
-            .zip4_commutative(perc_emit, det_volt, specific)
+        go!(power)
+            .zip4_commutative(go!(perc_emit), go!(det_volt), specific)
             .map_ok_value(|(p, e, v, s)| Self::new(common, filter, p, det_type, e, v, s))
     }
 
@@ -6758,13 +6758,14 @@ impl LookupOptical for InnerOptical3_1 {
                     .into_semigroup()
             };
         }
-        let wave = go!(Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf));
-        let cal = go!(Calibration3_1::remove_or_drop_meas_opt(std, nonstd, i, conf));
-        let dpy = go!(Display::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
+        let cal = Calibration3_1::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf);
         let peak = PeakData::lookup(std, nonstd, i, conf)
             .map_warnings_and_errors(LookupOpticalWarning::from);
         let scale = ScaleTransform::lookup(std, nonstd, i, conf);
-        wave.zip4_commutative(cal, dpy, peak)
+        go!(wave)
+            .zip4_commutative(go!(cal), go!(dpy), peak)
             .map_errors(LookupOpticalError::from)
             .zip_commutative(scale)
             .map_ok_value(|((w, c, d, p), s)| Self::new(s, w, c, d, p))
@@ -6787,11 +6788,11 @@ impl LookupOptical for InnerOptical3_2 {
             };
         }
 
-        let wave = go!(Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf));
-        let cal = go!(Calibration3_2::remove_or_drop_meas_opt(std, nonstd, i, conf));
-        let dpy = go!(Display::remove_or_drop_meas_opt(std, nonstd, i, conf));
-        let meas = go!(OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf));
-        let feat = go!(Feature::remove_or_drop_meas_opt(std, nonstd, i, conf));
+        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
+        let cal = Calibration3_2::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf);
+        let feat = Feature::remove_or_drop_meas_opt(std, nonstd, i, conf);
 
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
@@ -6799,7 +6800,8 @@ impl LookupOptical for InnerOptical3_2 {
 
         let scale = ScaleTransform::lookup(std, nonstd, i, conf);
 
-        wave.zip6_commutative(cal, dpy, meas, feat, scale)
+        go!(wave)
+            .zip6_commutative(go!(cal), go!(dpy), go!(meas), go!(feat), scale)
             .map_ok_value(|(w, c, d, m, f, s)| Self::new(s, w, c, d, anal, f, m, tag, det_name))
     }
 }

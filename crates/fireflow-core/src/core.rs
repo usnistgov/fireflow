@@ -7,9 +7,9 @@ use crate::config::{
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
     IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
-    LayoutOps as _, LookupLayoutWarning, LookupRawLayoutError, LookupStdLayoutError,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
-    ReadDataframeWarning, VersionedDataLayout,
+    LayoutOps as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
+    VersionedDataLayout,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -1327,9 +1327,14 @@ pub trait Versioned {
         Self::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let layout_res = Self::Layout::lookup_ro(kws, &st.conf)
-            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-            .map_errors(LookupAndReadDataAnalysisError::from);
+        let layout_res = Par::get_metaroot_req(kws)
+            .map_err(LookupAndReadDataAnalysisError::from)
+            .into_log()
+            .and_then_commutative(|par| {
+                Self::Layout::lookup_ro(kws, &st.conf, par)
+                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                    .map_errors(LookupAndReadDataAnalysisError::from)
+            });
         let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, st)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
@@ -8549,7 +8554,7 @@ pub enum StdTEXTFromRawError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
-    Layout(LookupStdLayoutError),
+    Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
     Pseudostandard(PseudostandardError),
     Unused(UnusedStandardError),
@@ -8843,8 +8848,9 @@ pub enum UnstainedLossError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
+    Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
-    Layout(LookupRawLayoutError),
+    Layout(LookupLayoutError),
     Dataframe(ReadDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
 }

@@ -64,8 +64,8 @@ use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    BitsOrChars, ByteOrdToSizedError, Bytes, WidthToBytesError, Endian, HasByteOrd, NoByteOrd,
-    NoByteOrd3_1, OrderedToEndianError, PrivBytes, SizedByteOrd, WidthToFixedError,
+    BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
+    OrderedToEndianError, PrivBytes, SizedByteOrd, WidthToBytesError, WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -332,7 +332,8 @@ type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native,
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatRange<T, const LEN: usize> {
-    pub range: FloatDecimal<T>,
+    // TODO make a way to create a FloatRange from a BigDecimal in rust
+    range: FloatDecimal<T>,
 }
 
 pub type F32Range = FloatRange<f32, 4>;

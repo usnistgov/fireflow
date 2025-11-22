@@ -60,6 +60,7 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
+/// Error when parsing string to float with restricted range
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum RangedFloatError {

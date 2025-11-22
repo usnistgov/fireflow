@@ -76,6 +76,7 @@ newtype_index!(
     RegionIndex
 );
 
+/// Error when index referring to position of elements is out of range.
 #[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i < {len}, got {x}", x = usize::from(self.index))]
 pub struct IndexError {
@@ -83,6 +84,7 @@ pub struct IndexError {
     pub len: usize,
 }
 
+/// Error when index referring to position between elements is out of range.
 #[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]

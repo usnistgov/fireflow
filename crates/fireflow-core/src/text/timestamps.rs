@@ -228,6 +228,10 @@ impl Timestamps<FCSTime100> {
     }
 }
 
+/// Error when $ETIM occurs before $BTIM.
+///
+/// This can only happen when $DATE is also given, because otherwise it cannot
+/// be assumed that $BTIM and $ETIM occur on the same day.
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

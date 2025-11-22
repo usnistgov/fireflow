@@ -49,7 +49,7 @@ use crate::text::keywords::{
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
     DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
     Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier, Locationid, LogScale,
-    Longname, LookupTemporalGain, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
+    Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
     OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
     Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
     TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters,
@@ -61,8 +61,8 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
-    InsertCenterError, InsertError, KeyNotFoundError, NameMapping, NamedVec, NewNamedVecError,
-    NonCenterElement, NonUniqueKeyError, PushCenterError, RenameError, SetCenterError,
+    InsertCenterError, InsertError, NameNotFoundError, NameMapping, NamedVec, NewNamedVecError,
+    NonCenterElement, NamePresentError, PushCenterError, RenameError, SetCenterError,
     SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
@@ -2458,7 +2458,7 @@ where
         &mut self,
         name: &Shortname,
         m: Optical<M::Optical>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError> {
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError> {
         self.measurements.replace_named(name, m)
     }
 
@@ -2516,7 +2516,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, KeyNotFoundError>
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -8524,7 +8524,7 @@ pub enum ColumnsToDataframeError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkErrors),
-    Name(KeyNotFoundError),
+    Name(NameNotFoundError),
 }
 
 /// Error when removing measurement by index
@@ -8555,7 +8555,7 @@ pub enum InsertTemporalError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
-    Unique(NonUniqueKeyError),
+    Unique(NamePresentError),
     Layout(InsertRangeError),
 }
 
@@ -8696,7 +8696,7 @@ pub enum ReplaceTemporalErrorByIndex {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceTemporalErrorByName {
     ToOptical(AnyTemporalToOpticalKeyLossError),
-    Name(KeyNotFoundError),
+    Name(NameNotFoundError),
 }
 
 /// Error when setting a new temporal measurement by name ($PnN)
@@ -8704,7 +8704,7 @@ pub enum ReplaceTemporalErrorByName {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalByNameError {
     Inner(SetTemporalError),
-    Name(KeyNotFoundError),
+    Name(NameNotFoundError),
 }
 
 /// Error when setting a new temporal measurement by index
@@ -9149,7 +9149,7 @@ pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
     Gain(OptIndexedKeyError<Gain>),
-    TemporalGain(LookupTemporalGain),
+    TemporalGain(LookupTemporalGainError),
     Feature(OptIndexedKeyError<Feature>),
     Wavelengths(OptIndexedKeyStError<Wavelengths>),
     Wavelength(OptIndexedKeyError<Wavelength>),
@@ -9181,7 +9181,7 @@ pub enum LookupTemporalError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
     TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
-    TemporalGain(LookupTemporalGain),
+    TemporalGain(LookupTemporalGainError),
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),
     Peak(LookupPeakError),

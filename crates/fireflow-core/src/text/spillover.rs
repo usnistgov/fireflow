@@ -234,6 +234,7 @@ impl FromStr for Spillover {
     }
 }
 
+/// Error when building a new $SPILLOVER value
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum NewSpilloverError {
@@ -247,6 +248,7 @@ pub enum NewSpilloverError {
     TooSmall,
 }
 
+/// Error when parsing $SPILLOVER from string
 #[derive(From, Debug, Display, Error)]
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
@@ -254,6 +256,7 @@ pub enum ParseSpilloverError {
     IndexLink(KeyToIndexLinkError<Spillover>),
 }
 
+/// Error when parsing spillover matrix from string with generalized rownames
 #[derive(Debug, Error)]
 pub enum ParseGenericSpilloverError {
     #[error("{0}")]
@@ -266,6 +269,10 @@ pub enum ParseGenericSpilloverError {
     BadN,
 }
 
+/// Error when parsing a measurement index in $SPILLOVER
+///
+/// Note that this is non-standard behavior. $SPILLOVER should refer to $PnN,
+/// but many vendors refer to measurements using their indices instead.
 #[derive(Debug, Error)]
 #[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);

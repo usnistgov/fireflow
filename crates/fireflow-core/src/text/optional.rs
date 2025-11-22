@@ -9,7 +9,6 @@ use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
 use std::string::ToString;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -257,22 +256,11 @@ impl<T> From<T> for Identity<T> {
     }
 }
 
-impl<T> TryFrom<Option<T>> for Identity<T> {
-    type Error = MaybeToAlwaysError;
-    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
-        value.ok_or(MaybeToAlwaysError).map(Identity)
-    }
-}
-
 impl<T> From<Identity<T>> for Option<T> {
     fn from(value: Identity<T>) -> Self {
         Some(value.0)
     }
 }
-
-#[derive(Debug, Error)]
-#[error("optional keyword value is blank")]
-pub struct MaybeToAlwaysError;
 
 #[cfg(feature = "python")]
 mod python {

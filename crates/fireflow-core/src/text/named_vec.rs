@@ -582,7 +582,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Get reference with name.
-    pub fn get_name(&self, n: &Shortname) -> Result<(MeasIndex, Element<&U, &V>), KeyNotFoundError>
+    pub fn get_name(&self, n: &Shortname) -> Result<(MeasIndex, Element<&U, &V>), NameNotFoundError>
     where
         K: MightHave<Shortname>,
     {
@@ -596,7 +596,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 )
                 .then_some((i.into(), e.bimap_once(|p| &p.value, |p| &p.value)))
             })
-            .ok_or_else(|| KeyNotFoundError(n.clone()))
+            .ok_or_else(|| NameNotFoundError(n.clone()))
     }
 
     // /// Get mutable reference at position.
@@ -658,10 +658,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     // }
 
     /// Check if new name can be pushed
-    pub(crate) fn check_push<'a>(
-        &self,
-        name: &'a K,
-    ) -> Result<Cow<'a, Shortname>, NonUniqueKeyError>
+    pub(crate) fn check_push<'a>(&self, name: &'a K) -> Result<Cow<'a, Shortname>, NamePresentError>
     where
         K: MightHave<Shortname>,
     {
@@ -775,7 +772,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         &mut self,
         name: &Shortname,
         value: V,
-    ) -> Result<Element<U, V>, KeyNotFoundError>
+    ) -> Result<Element<U, V>, NameNotFoundError>
     where
         K: MightHave<Shortname>,
     {
@@ -807,7 +804,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             .enumerate()
             .any(|(j, n)| j != i && n == k)
         {
-            Err(RenameError::NonUnique(NonUniqueKeyError { name: k }))
+            Err(RenameError::NonUnique(NamePresentError { name: k }))
         } else {
             let old = match self {
                 Self::Split(s) => {
@@ -945,7 +942,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn remove_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, Element<U, V>), KeyNotFoundError>
+    ) -> Result<(MeasIndex, Element<U, V>), NameNotFoundError>
     where
         K: MightHave<Shortname>,
     {
@@ -964,7 +961,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let new = Self::new_unsplit(xs);
                     (new, Ok((i, Element::Center(s.center.value))))
                 } else {
-                    (Self::Split(s), Err(KeyNotFoundError(n.clone())))
+                    (Self::Split(s), Err(NameNotFoundError(n.clone())))
                 }
             }
             Self::Unsplit(mut u) => {
@@ -1116,7 +1113,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     ) -> LogResult<Element<U, V>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(MeasIndex, U) -> LogResult<V, U, LWC, RWC, (), E, EC>,
-        E: From<KeyNotFoundError>,
+        E: From<NameNotFoundError>,
         EC: Default,
         LWC: Default,
         RWC: Default,
@@ -1134,7 +1131,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         n: &Shortname,
         value: U,
         to_v: F,
-    ) -> Result<Element<U, V>, KeyNotFoundError>
+    ) -> Result<Element<U, V>, NameNotFoundError>
     where
         F: FnOnce(MeasIndex, U) -> V,
         K: MightHave<Shortname>,
@@ -1287,7 +1284,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             (MeasIndex, V),
         ) -> LogResult<(V, U), (U, V), LWC, RWC, (), E, EC>,
         FtoU: FnOnce(MeasIndex, V) -> LogResult<U, V, LWC, RWC, (), E, EC>,
-        E: From<KeyNotFoundError>,
+        E: From<NameNotFoundError>,
         EC: Default,
         LWC: Default,
         RWC: Default,
@@ -1483,13 +1480,13 @@ impl<K, U, V> NamedVec<K, U, V> {
     //     }
     // }
 
-    fn position_by_name(xs: &PairedVec<K, V>, n: &Shortname) -> Result<usize, KeyNotFoundError>
+    fn position_by_name(xs: &PairedVec<K, V>, n: &Shortname) -> Result<usize, NameNotFoundError>
     where
         K: MightHave<Shortname>,
     {
         xs.iter()
             .position(|p| p.key.as_opt().is_some_and(|kn| kn == n))
-            .ok_or(KeyNotFoundError(n.to_owned()))
+            .ok_or(NameNotFoundError(n.to_owned()))
     }
 
     // fn value_by_name_mut<'a>(
@@ -1506,7 +1503,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         &self,
         key: &'a K,
         index: MeasIndex,
-    ) -> Result<Cow<'a, Shortname>, NonUniqueKeyError>
+    ) -> Result<Cow<'a, Shortname>, NamePresentError>
     where
         K: MightHave<Shortname>,
     {
@@ -1514,18 +1511,18 @@ impl<K, U, V> NamedVec<K, U, V> {
             .as_opt()
             .map_or_else(|| Cow::Owned(Shortname::from(index)), Cow::Borrowed);
         if self.iter_all_names().any(|n| &n == name.as_ref()) {
-            Err(NonUniqueKeyError::new(name.into_owned()))
+            Err(NamePresentError::new(name.into_owned()))
         } else {
             Ok(name)
         }
     }
 
-    fn check_name(&self, name: &Shortname) -> Result<(), NonUniqueKeyError>
+    fn check_name(&self, name: &Shortname) -> Result<(), NamePresentError>
     where
         K: MightHave<Shortname>,
     {
         if self.iter_all_names().any(|n| &n == name) {
-            Err(NonUniqueKeyError::new(name.clone()))
+            Err(NamePresentError::new(name.clone()))
         } else {
             Ok(())
         }
@@ -1592,7 +1589,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         Ok(())
     }
 
-    fn find_with_name(&self, name: &Shortname) -> Result<MeasIndex, KeyNotFoundError>
+    fn find_with_name(&self, name: &Shortname) -> Result<MeasIndex, NameNotFoundError>
     where
         K: MightHave<Shortname>,
     {
@@ -1604,7 +1601,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 )
             })
             .map(|(i, _)| i.into())
-            .ok_or(KeyNotFoundError(name.to_owned()))
+            .ok_or(NameNotFoundError(name.to_owned()))
     }
 
     fn new_split(left: PairedVec<K, V>, center: Center<U>, right: PairedVec<K, V>) -> Self {
@@ -1878,19 +1875,26 @@ impl<K, U, V> SplitVec<K, U, V> {
     }
 }
 
+/// Error when inserting new element into named vector
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
+    /// Index out of range
     Index(BoundaryIndexError),
-    NonUnique(NonUniqueKeyError),
+    /// New name is not unique
+    NonUnique(NamePresentError),
 }
 
+/// Error when renaming element's name at index
 #[derive(Debug, Display, Error)]
 pub enum RenameError {
+    /// Index not found
     Index(ElementIndexError),
-    NonUnique(NonUniqueKeyError),
+    /// Name change results in duplicates
+    NonUnique(NamePresentError),
 }
 
+/// Error when inserting new center element into named vector
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
@@ -1898,13 +1902,18 @@ pub enum InsertCenterError {
     Index(BoundaryIndexError),
 }
 
+/// Error when pushing new center element to the right of named vector
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushCenterError {
-    NonUnique(NonUniqueKeyError),
+    NonUnique(NamePresentError),
     Present(CenterPresentError),
 }
 
+/// Error when setting all keys in a named vector.
+///
+/// This is distinct from setting "names" which are Shortname types. "Keys"
+/// are names in containers which may or may not contain them.
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetKeysError {
@@ -1912,6 +1921,7 @@ pub enum SetKeysError {
     MissingCenter(MissingCenterError),
 }
 
+/// Error when setting names (Shortname) in a named vector.
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamesError {
@@ -1919,6 +1929,7 @@ pub enum SetNamesError {
     NonUnique(NonUniqueKeysError),
 }
 
+/// Error when assigning an element in named vector to be the center element
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetCenterError {
@@ -1926,6 +1937,7 @@ pub enum SetCenterError {
     NoName(NoNameError),
 }
 
+/// Error when building new named vector from list of elements
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewNamedVecError {
@@ -1933,6 +1945,7 @@ pub enum NewNamedVecError {
     MultiCenter(CenterPresentError),
 }
 
+/// Error when setting/altering the elements of a named vector
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
@@ -1941,43 +1954,50 @@ pub enum SetElementsError<E> {
     Mismatch(E),
 }
 
+/// Error when the center element of a named vector is already present
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct CenterPresentError;
 
+/// Error when the specified element does not have a name but one is expected.
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NoNameError;
 
+/// Error when the center element of a named vector is missing but expected
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct MissingCenterError;
 
+/// Error when final state of keys in named vector results in duplicates
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NonUniqueKeysError;
 
+/// Error when name in named vector is not found
 #[derive(Debug, Error)]
 #[error("'{0}' matches no measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
-pub struct KeyNotFoundError(pub Shortname);
+pub struct NameNotFoundError(pub Shortname);
 
+/// Error when name is already present in named vector
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
-pub struct NonUniqueKeyError {
+pub struct NamePresentError {
     name: Shortname,
 }
 
+/// Error when index is out of bounds for named vector, optionally including center.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {

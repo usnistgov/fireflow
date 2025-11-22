@@ -75,6 +75,7 @@ def_group!(
 
 pub type ExistingLinkErrors = ErrorGroup<ExistingLinkError, ExistingLinkFailure>;
 
+/// Error when any keyword has references to it which would be broken if dropped
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ExistingLinkError {
@@ -82,6 +83,7 @@ pub enum ExistingLinkError {
     Index(AnyExistingIndexLinkError),
 }
 
+/// Error when any keyword has named references to it which would be broken if dropped
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyExistingNamedLinkError {
@@ -90,6 +92,7 @@ pub enum AnyExistingNamedLinkError {
     Spillover(ExistingNamedLinkError<Spillover, ()>),
 }
 
+/// Error when any keyword has indexed references to it which would be broken if dropped
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyExistingIndexLinkError {
@@ -101,6 +104,7 @@ pub enum AnyExistingIndexLinkError {
 pub(crate) type ExistingGateRegionLinkError =
     ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
 
+/// Error when a keyword has named references to it which would be broken if dropped
 #[derive(Debug, Error, new)]
 #[error(
     "{key} references existing $PnN: {xs}",
@@ -117,6 +121,7 @@ pub struct ExistingNamedLinkError<T, I> {
     pub names: NonEmpty<Shortname>,
 }
 
+/// Error when a keyword has indexed references to it which would be broken if dropped
 #[derive(Debug, Error, new)]
 #[error(
     "{key} references existing $PnN: {xs}",

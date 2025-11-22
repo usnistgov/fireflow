@@ -7,7 +7,7 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use super::lookup::{OptKeyError, OptMetarootKey as _};
 use super::optional::KeywordPairMaybe as _;
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
+use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::mem;
 use std::str::FromStr;
@@ -151,14 +151,11 @@ impl FromStr for FCSDateTime {
         // TODO this should probably be a warning since it is ambiguous to
         // parse a timezone based solely on localtime
         if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-            Local::now()
-                .timezone()
-                .from_local_datetime(&naive)
-                .single()
-                .map_or_else(
-                    || Err(FCSDateTimeError::Unmapped(s.into())),
-                    |t| Ok(Self(t.fixed_offset())),
-                )
+            match Local::now().timezone().from_local_datetime(&naive) {
+                MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
+                MappedLocalTime::Ambiguous(t0, t1) => Err(FCSDateTimeError::Fold),
+                MappedLocalTime::None => Err(FCSDateTimeError::Gap),
+            }
         } else {
             // If zone information is present, try any number of formats which
             // are valid and mostly equivalent which contain the timezone
@@ -173,7 +170,7 @@ impl FromStr for FCSDateTime {
                     return Ok(Self(t));
                 }
             }
-            Err(FCSDateTimeError::Other)
+            Err(FCSDateTimeError::Format)
         }
     }
 }
@@ -186,12 +183,22 @@ impl FromStr for FCSDateTime {
 pub struct ReversedDatetimesError;
 
 #[derive(Debug, Error)]
-#[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
 pub enum FCSDateTimeError {
-    Unmapped(String),
-    Other,
+    #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
+    Format,
+    #[error(
+        "timestamp parsed using localtime due to missing timezone, but this time \
+         occurred when clock was turned backward which resulted in ambiguous UTC time"
+    )]
+    Fold,
+    #[error(
+        "timestamp parsed using localtime due to missing timezone, but this time \
+         occurred when clock was turned forward and could not be mapped to UTC"
+    )]
+    Gap,
 }
 
+/// Error when parsing $BEGINDATETIME and $ENDDATETIME
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDatetimesError {
@@ -200,6 +207,7 @@ pub enum LookupDatetimesError {
     Datetime(ReversedDatetimesError),
 }
 
+/// Error when $BEGINDATETIME or $ENDDATETIME are dropped due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DatetimeLossError {

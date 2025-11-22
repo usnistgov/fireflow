@@ -766,21 +766,14 @@ impl<I> GatingScheme<I> {
             .flat_map(|(ri, v)| v.meas_indices().map(|mi| (*ri, mi)))
     }
 
-    #[allow(clippy::type_complexity)]
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Self,
-        LookupGatingSchemeError<
-            OptIndexedKeyError<RegionGateIndex<I>>,
-            OptIndexedKeyError<RegionWindow>,
-        >,
-        LookupGatingSchemeError<
-            OptIndexedKeyError<RegionGateIndex<I>>,
-            OptIndexedKeyError<RegionWindow>,
-        >,
+        LookupGatingSchemeError<LookupRegionIndexError<I>>,
+        LookupGatingSchemeError<LookupRegionIndexError<I>>,
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
@@ -899,7 +892,6 @@ impl<I> Region<I> {
         }
     }
 
-    #[allow(clippy::type_complexity)]
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -907,8 +899,8 @@ impl<I> Region<I> {
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         Option<Self>,
-        LookupRegionError<OptIndexedKeyError<RegionGateIndex<I>>, OptIndexedKeyError<RegionWindow>>,
-        LookupRegionError<OptIndexedKeyError<RegionGateIndex<I>>, OptIndexedKeyError<RegionWindow>>,
+        LookupRegionError<LookupRegionIndexError<I>>,
+        LookupRegionError<LookupRegionIndexError<I>>,
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
@@ -1326,36 +1318,35 @@ pub enum GatedMeasurementLossError {
     DetVolt(IndexedKeyLossError<GateDetectorVoltage>),
 }
 
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<LookupRegionIndex2_0Error>;
+
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 3.0 and 3.1
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<LookupRegionIndex3_0Error>;
+
+/// Error when parsing $GATING/$RnI/$RnW keywords for 3.2
+pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<LookupRegionIndex3_2Error>;
+
+/// Error when parsing $RnI keyword for 2.0
+pub type LookupRegionIndex2_0Error = LookupRegionIndexError<GateIndex>;
+
+/// Error when parsing $RnI keyword for 3.0/3.1
+pub type LookupRegionIndex3_0Error = LookupRegionIndexError<MeasOrGateIndex>;
+
+/// Error when parsing $RnI keyword for 3.2
+pub type LookupRegionIndex3_2Error = LookupRegionIndexError<PrefixedMeasIndex>;
+
+/// Error when parsing $RnI keyword (generic)
+pub type LookupRegionIndexError<I> = OptIndexedKeyError<RegionGateIndex<I>>;
+
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
 #[derive(Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E0: Into<Self>))]
-pub enum LookupAppliedGatesError<E0> {
-    Scheme(E0),
+#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E: Into<Self>))]
+pub enum LookupAppliedGatesError<E> {
+    Scheme(LookupGatingSchemeError<E>),
     GatedMeas(LookupGatedMeasurementsError),
     Link(GateMeasurementLinkError),
 }
-
-/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0
-pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 3.0 and 3.1
-pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-/// Error when parsing $GATING/$RnI/$RnW keywords for 3.2
-pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
-    OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
-    OptIndexedKeyError<RegionWindow>,
->;
 
 /// Error when $RnI keywords reference nonexistent $Gn* keywords
 // TODO this seems like it should be a general link error
@@ -1368,25 +1359,21 @@ pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 /// Error when parsing $GATING/$RnI/$RnW keywords
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(LookupRegionError<E0, E1>: Into<Self>))]
-pub enum LookupGatingSchemeError<E0, E1> {
+#[cfg_attr(feature = "python", bound(E: Into<Self>))]
+pub enum LookupGatingSchemeError<E> {
     Link(DependentKeyError<Gating>),
     Gating(OptKeyError<Gating>),
-    Region(LookupRegionError<E0, E1>),
+    Region(LookupRegionError<E>),
 }
 
 /// Error when parsing $RnI/$RnW keywords
 #[derive(Display, Debug, Error)]
-#[cfg_attr(
-    feature = "python",
-    derive(AllIntoPyErr),
-    bound(E0: Into<Self>),
-    bound(E1: Into<Self>)
-)]
-pub enum LookupRegionError<E0, E1> {
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Into<Self>))]
+pub enum LookupRegionError<E> {
     Mismatch(IndexWindowMismatchError),
-    Region(E0),
-    Window(E1),
+    Region(E),
+    Window(OptIndexedKeyError<RegionWindow>),
 }
 
 /// Error when $RnI and $RnW keywords mismatch

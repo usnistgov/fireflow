@@ -7,7 +7,7 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use super::lookup::{OptKeyError, OptMetarootKey as _};
 use super::optional::KeywordPairMaybe as _;
 
-use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone};
+use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::mem;
 use std::str::FromStr;
@@ -153,7 +153,7 @@ impl FromStr for FCSDateTime {
         if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
             match Local::now().timezone().from_local_datetime(&naive) {
                 MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
-                MappedLocalTime::Ambiguous(t0, t1) => Err(FCSDateTimeError::Fold),
+                MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
                 MappedLocalTime::None => Err(FCSDateTimeError::Gap),
             }
         } else {

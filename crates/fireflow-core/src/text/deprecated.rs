@@ -38,6 +38,7 @@ pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
 pub type DepKey0<T> = DepKeyWarning<T, ()>;
 pub type DepKey1<T> = DepKeyWarning<T, IndexFromOne>;
 
+/// Error when a deprecated key is encountered for any FCS version
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyDepKeyError {
@@ -64,8 +65,13 @@ pub enum AnyDepKeyError {
     PcntEmit(DepKey1<PercentEmitted>),
 }
 
+/// A mutable reference to a deprecated key.
+///
+/// Using mutable references allows one to gather all deprecated keys into one
+/// batch for easy error reporting as well as dropping/transferring keywords if
+/// desired. Note that all deprecated keys are optional by definition.
 #[derive(From)]
-pub enum DeprecatedRef<'a> {
+pub(crate) enum DeprecatedRef<'a> {
     Plate(DeprecatedPlateRef<'a>),
     Peak(DeprecatedPeakRef<'a>),
     Timestamps(DeprecatedTimestampsRef<'a>),
@@ -75,37 +81,43 @@ pub enum DeprecatedRef<'a> {
     Scheme(DeprecatedGatingSchemeRef<'a>),
 }
 
+/// A mutable reference to a deprecated key with an index.
 #[derive(new)]
-pub struct IndexedDepRef<T> {
+pub(crate) struct IndexedDepRef<T> {
     index: IndexFromOne,
     value: T,
 }
 
+/// A mutable reference to a deprecated key whose value is a string.
 #[derive(From)]
-pub struct DeprecatedStrRef<'a, T>(pub(crate) &'a mut T);
+pub(crate) struct DeprecatedStrRef<'a, T>(pub(crate) &'a mut T);
 
+/// A mutable reference to $BTIM/$ETIM/$DATE keys which are deprecated.
 #[derive(From)]
-pub enum DeprecatedTimestampsRef<'a> {
+pub(crate) enum DeprecatedTimestampsRef<'a> {
     Btim(&'a mut Option<Btim<FCSTime100>>),
     Etim(&'a mut Option<Etim<FCSTime100>>),
     Date(&'a mut Option<FCSDate>),
 }
 
+/// A mutable reference to $PKn and $PKNn keys which are deprecated.
 #[derive(From)]
-pub enum DeprecatedPeakRef<'a> {
+pub(crate) enum DeprecatedPeakRef<'a> {
     Index(IndexedDepRef<&'a mut Option<PeakIndex>>),
     Bin(IndexedDepRef<&'a mut Option<PeakBin>>),
 }
 
+/// A mutable reference to $PLATEID/$PLATENAME/$WELLID keys which are deprecated.
 #[derive(From)]
-pub enum DeprecatedPlateRef<'a> {
+pub(crate) enum DeprecatedPlateRef<'a> {
     Plateid(DeprecatedStrRef<'a, Plateid>),
     Platename(DeprecatedStrRef<'a, Platename>),
     Wellid(DeprecatedStrRef<'a, Wellid>),
 }
 
+/// A mutable reference to $Gn* keys which are deprecated.
 #[derive(From)]
-pub enum DepGatedMeasRef<'a> {
+pub(crate) enum DepGatedMeasRef<'a> {
     Scale(IndexedDepRef<&'a mut Option<GateScale>>),
     Filter(IndexedDepRef<DeprecatedStrRef<'a, GateFilter>>),
     Sname(IndexedDepRef<&'a mut Option<GateShortname>>),
@@ -116,13 +128,14 @@ pub enum DepGatedMeasRef<'a> {
     DetVolt(IndexedDepRef<&'a mut Option<GateDetectorVoltage>>),
 }
 
+/// A mutable reference to $GATING/$RnI/$RnW keys which are deprecated.
 #[derive(From)]
-pub enum DeprecatedGatingSchemeRef<'a> {
+pub(crate) enum DeprecatedGatingSchemeRef<'a> {
     Gating(&'a mut Option<Gating>),
     Region(&'a mut HashMap<RegionIndex, Region<PrefixedMeasIndex>>),
 }
 
-/// Process mutable references to optional keys which are deprecated
+/// Process mutable references to keys which are deprecated
 pub(crate) trait IsDeprecated {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool);
 

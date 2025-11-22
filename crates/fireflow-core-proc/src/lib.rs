@@ -1,7 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Fields, Path, Visibility, WherePredicate, parse_macro_input, parse_quote,
+    Data, DeriveInput, Fields, GenericParam, Generics, Ident, Path, Visibility, WherePredicate,
+    parse_macro_input, parse_quote,
 };
 
 #[proc_macro_derive(AllIntoPyErr, attributes(bound))]
@@ -9,6 +10,7 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
     let generics = &parsed.generics;
+    let gen_idents = generic_idents(generics);
 
     let bounds = parse_bounds(&parsed);
 
@@ -31,11 +33,11 @@ pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {
     }
 
     let ret = quote! {
-        impl #generics From<#name #generics> for pyo3::PyErr
+        impl #generics From<#name<#(#gen_idents),*>> for pyo3::PyErr
         where
             #(#bounds),*
         {
-            fn from(value: #name #generics) -> Self {
+            fn from(value: #name<#(#gen_idents),*>) -> Self {
                 match value {
                     #(#into_clauses),*
                 }
@@ -54,6 +56,7 @@ pub fn derive_display_as_pyerr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
     let generics = &parsed.generics;
+    let gen_idents = generic_idents(generics);
 
     let bounds = parse_bounds(&parsed);
 
@@ -74,11 +77,11 @@ pub fn derive_display_as_pyerr(input: TokenStream) -> TokenStream {
     };
 
     let ret = quote! {
-        impl #generics From<#name #generics> for pyo3::PyErr
+        impl #generics From<#name<#(#gen_idents),*>> for pyo3::PyErr
         where
             #(#bounds),*
         {
-            fn from(value: #name #generics) -> Self {
+            fn from(value: #name<#(#gen_idents),*>) -> Self {
                 #full_epath::new_err(value.to_string())
             }
         }
@@ -198,5 +201,17 @@ fn parse_bounds(parsed: &DeriveInput) -> Vec<WherePredicate> {
             let x = (m.path.get_ident().unwrap() == "bound").then_some(&m.tokens)?;
             Some(parse_quote!(#x))
         })
+        .collect()
+}
+
+fn generic_idents(gs: &Generics) -> Vec<Ident> {
+    gs.params
+        .iter()
+        .filter_map(|g| match g {
+            GenericParam::Const(c) => Some(&c.ident),
+            GenericParam::Type(p) => Some(&p.ident),
+            GenericParam::Lifetime(_) => None,
+        })
+        .cloned()
         .collect()
 }

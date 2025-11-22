@@ -1108,6 +1108,10 @@ impl<V, WC> Success<V, (), WC> {
     {
         Self::new(value, (), WC::default())
     }
+
+    fn set_flag<X>(self, flag: X) -> Success<V, X, WC> {
+        Success::new(self.value, flag, self.warnings)
+    }
 }
 
 //
@@ -1122,7 +1126,7 @@ impl<V> Success<V, (), Nothing<()>> {
         Success::new(self.value, (), ws)
     }
 
-    pub(crate) fn nowarn_and_then<F, Vf, P, LWC, RWC, X, E, EC>(
+    pub(crate) fn nowarn_with_log<F, Vf, P, LWC, RWC, X, E, EC>(
         self,
         f: F,
     ) -> LogResult<Vf, P, LWC, RWC, X, E, EC>
@@ -1207,15 +1211,15 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    // fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
-    // where
-    //     F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-    // {
-    //     match f(self.value) {
-    //         Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
-    //         Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
-    //     }
-    // }
+    fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+    {
+        match f(self.value) {
+            Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
+            Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
+        }
+    }
 
     pub(crate) fn with_failure<F, P, Pf, E, EC>(
         self,
@@ -1458,20 +1462,20 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         }
     }
 
-    // fn with_log_nowarn<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
-    // where
-    //     Fr: FnOnce(P) -> NowarnResult<V, Pf, E, EC>,
-    //     Fp: FnOnce(V) -> Pf,
-    //     EC: Extend<E> + IntoIterator<Item = E>,
-    // {
-    //     match fr(self.value) {
-    //         Succ(s) => Failure::new(self.warnings, self.errors, fp(s.value)),
-    //         Fail(e) => {
-    //             self.errors.extend(e.errors);
-    //             Failure::new(self.warnings, self.errors, e.value)
-    //         }
-    //     }
-    // }
+    fn with_log_nowarn<Fr, Fp, V, Pf>(mut self, fp: Fp, fr: Fr) -> Failure<Pf, WC, E, EC>
+    where
+        Fr: FnOnce(P) -> NowarnResult<V, Pf, E, EC>,
+        Fp: FnOnce(V) -> Pf,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        match fr(self.value) {
+            Succ(s) => Failure::new(self.warnings, self.errors, fp(s.value)),
+            Fail(e) => {
+                self.errors.extend(e.errors);
+                Failure::new(self.warnings, self.errors, e.value)
+            }
+        }
+    }
 
     fn with_success<F, V, X, PF>(self, other: Success<V, X, WC>, f: F) -> Failure<PF, WC, E, EC>
     where
@@ -2123,7 +2127,7 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
         RWC: Default,
     {
         match self {
-            Succ(x) => x.nowarn_and_then(fr),
+            Succ(x) => x.nowarn_with_log(fr),
             Fail(x) => Fail(x.nowarn_into_warn().fmap_once(fp)),
         }
     }
@@ -2485,6 +2489,30 @@ where
                 }
                 Fail(fail)
             }
+        }
+    }
+
+    pub(crate) fn and_then_switchable<Vf, F>(self, f: F) -> DeferredSwitchable<Vf, X, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        self.and_then_switchable_(|v| v, f)
+    }
+
+    pub(crate) fn and_then_switchable_<Vf, Pf, Fp, Fr>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> SwitchableResult<Vf, Pf, X, E, EC>
+    where
+        Fp: FnOnce(Vf) -> Pf,
+        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E>,
+    {
+        match self {
+            Succ(x) => fr(x.value).map(|s| s.set_warnings(x.warnings).set_flag(x.flag)),
+            Fail(x) => Fail(x.with_log_nowarn(fp, fr)),
         }
     }
 }

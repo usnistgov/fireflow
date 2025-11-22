@@ -40,9 +40,8 @@ use crate::text::deprecated::{
 };
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
-    AppliedGates3_0To3_2Error, AppliedGates3_2, GateToMeasIndexError, GatingSchemeLossError,
-    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
-    MeasToGateIndexError, RegionToGateIndexError, RegionToMeasIndexError,
+    AppliedGates3_0To3_2Error, AppliedGates3_2, GatingSchemeLossError, LookupAppliedGates2_0Error,
+    LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
@@ -5920,6 +5919,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         let ag_res = value
             .applied_gates
             .try_into_2_0(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         check_res.zip_commutative(ag_res).map_ok_value(|((), ag)| {
@@ -5963,6 +5963,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let ag_res = value
             .applied_gates
             .try_into_2_0(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let ts = value.timestamps.map(Into::into);
@@ -6286,6 +6287,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
@@ -6338,6 +6340,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
+            .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
@@ -8785,10 +8788,6 @@ impl fmt::Display for OpticalNonLinearError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
-    GateLink(RegionToGateIndexError),
-    MeasLink(RegionToMeasIndexError),
-    GateToMeas(GateToMeasIndexError),
-    MeasToGate(MeasToGateIndexError),
     Mode(ModeUpgradeError),
     Gates3_0To2_0(AppliedGates3_0To2_0Error),
     Gates3_0To3_2(AppliedGates3_0To3_2Error),

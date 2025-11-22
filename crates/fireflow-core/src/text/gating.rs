@@ -2,7 +2,8 @@ use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, StdTextReadCon
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::data::IndexedError;
 use crate::logging::{
-    DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
+    DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
+    ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
@@ -470,83 +471,31 @@ impl AppliedGates3_0 {
     pub(crate) fn try_into_2_0(
         self,
         flag: AllowLoss,
-    ) -> DeferredWarningsAndErrors<
-        AppliedGates2_0,
-        AppliedGates3_0To2_0Error,
-        AppliedGates3_0To2_0Error,
-    > {
-        // ASSUME region indices will still be unique in new hash table
-        // let (regions, es): (HashMap<_, _>, Vec<_>) = self
-        //     .scheme
-        //     .regions
-        //     .into_iter()
-        //     .map(|(ri, r)| r.try_index_into().map(|x| (ri, x)))
-        //     .partition_result();
-
-        let mut regions = HashMap::new();
-        let es = self
-            .scheme
-            .regions
-            .into_iter()
-            .filter_map(|(ri, r)| match r.try_index_into() {
-                Ok(r_) => {
-                    regions.insert(ri, r_);
-                    None
-                }
-                Err(e) => Some(IndexedError::new(ri, e)),
-            })
-            .map(ConvertIndexForRegionError)
-            .map(RegionToGateIndexError)
-            .map(AppliedGates3_0To2_0Error::Index);
-        let index_res = SwitchableErrorsResult::new_switchable_iter((), (), es, flag)
+    ) -> DeferredSwitchableErrors<AppliedGates2_0, AllowLoss, AppliedGates3_0To2_0Error> {
+        self.scheme
+            .convert_indices(flag)
             .map_switchable_errors(AppliedGates3_0To2_0Error::from)
-            .switchable_into_commutative();
-        let scheme_res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred_switchable::<_, Vec<_>>(flag)
-            .map_switchable_errors(AppliedGates3_0To2_0Error::from)
-            .switchable_into_commutative();
-        index_res
-            .lift_f2_once(scheme_res, |(), scheme| scheme)
-            .and_then_deferred_switchable_result(flag, |scheme| {
+            .and_then_switchable(|scheme| {
                 AppliedGates2_0::try_new(self.gated_measurements.0, scheme)
                     .map_err(AppliedGates3_0To2_0Error::from)
+                    .into_nowarn()
+                    .set_err_value(AppliedGates2_0::default())
             })
     }
 
     pub(crate) fn try_into_3_2(
         self,
         flag: AllowLoss,
-    ) -> DeferredWarningsAndErrors<
-        AppliedGates3_2,
-        AppliedGates3_0To3_2Error,
-        AppliedGates3_0To3_2Error,
-    > {
-        // ASSUME region indices will still be unique in new hash table
-        let mut regions = HashMap::new();
-        let es = self
-            .scheme
-            .regions
-            .into_iter()
-            .filter_map(|(ri, r)| match r.try_index_into() {
-                Ok(r_) => {
-                    regions.insert(ri, r_);
-                    None
-                }
-                Err(e) => Some(IndexedError::new(ri, e)),
-            })
-            .map(ConvertIndexForRegionError)
-            .map(RegionToMeasIndexError)
-            .map(AppliedGates3_0To3_2Error::Index);
-        SwitchableErrorsResult::new_switchable_iter((), (), es, flag)
-            .eval_deferred_switchable_error(|()| {
-                let n_gates = self.gated_measurements.0.len();
-                (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
-            })
-            .switchable_into_commutative()
-            .and_then_deferred_switchable_result(flag, |()| {
-                AppliedGates3_2::try_new(self.scheme.gating, regions)
-                    .map_err(AppliedGates3_0To3_2Error::from)
-            })
+    ) -> DeferredSwitchableErrors<AppliedGates3_2, AllowLoss, AppliedGates3_0To3_2Error> {
+        let gs = self
+            .gated_measurements
+            .loss_errors()
+            .map(AppliedGates3_0To3_2Error::from);
+        self.scheme
+            .convert_indices(flag)
+            .map_switchable_errors(AppliedGates3_0To3_2Error::from)
+            .extend_deferred_switchable_errors(gs)
+            .map_deferred_value(AppliedGates3_2)
     }
 
     pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
@@ -890,6 +839,37 @@ impl<I> GatingScheme<I> {
             .map(GatingSchemeLossError::from)
             .chain(gating)
     }
+
+    fn convert_indices<J0, J1, const GATE_IS_INDEX: bool>(
+        self,
+        flag: AllowLoss,
+    ) -> DeferredSwitchableErrors<GatingScheme<J0>, AllowLoss, ConvertSchemeError<J1, GATE_IS_INDEX>>
+    where
+        I: Copy,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+        AnyIndexForRegionError<J1>: From<J0::Error> + From<BiIndexForRegionError<J1>>,
+    {
+        // ASSUME region indices will still be unique in new hash table
+        let mut regions = HashMap::new();
+        let es = self
+            .regions
+            .into_iter()
+            .filter_map(|(ri, r)| match r.try_index_into() {
+                Ok(r_) => {
+                    regions.insert(ri, r_);
+                    None
+                }
+                Err(e) => Some(IndexedError::new(ri, e)),
+            })
+            .map(ConvertIndexForRegionError)
+            .map(ConvertSchemeError::from);
+        SwitchableErrorsResult::new_switchable_iter((), (), es, flag).and_then_switchable(|()| {
+            GatingScheme::try_new(self.gating, regions)
+                .map_err(ConvertSchemeError::from)
+                .into_nowarn()
+                .set_err_value(GatingScheme::default())
+        })
+    }
 }
 
 impl GatingScheme<PrefixedMeasIndex> {
@@ -1107,20 +1087,6 @@ impl TryFrom<MeasOrGateIndex> for GateIndex {
     }
 }
 
-impl TryFrom<GateIndex> for PrefixedMeasIndex {
-    type Error = GateToMeasIndexError;
-    fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
-        Err(GateToMeasIndexError(value))
-    }
-}
-
-impl TryFrom<PrefixedMeasIndex> for GateIndex {
-    type Error = MeasToGateIndexError;
-    fn try_from(value: PrefixedMeasIndex) -> Result<Self, Self::Error> {
-        Err(MeasToGateIndexError(value))
-    }
-}
-
 impl GatedMeasurements {
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -1179,27 +1145,68 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     }
 }
 
-/// Error when converting from 3.0/3.1 to 3.2 and $RnI keywords which point gates
+/// Error when building new applied gates object with both scheme and gated measurements.
 ///
-/// $RnI keywords in 3.2 only support indices which point to measurements so this
-/// conversion is impossible.
-#[derive(Debug, Display, Error, From)]
+/// This only applies to 2.0/3.0/3.1
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewAppliedGatesWithSchemeError {
+    Link(GateMeasurementLinkError),
+    Scheme(DependentKeyError<Gating>),
+}
+
+/// Error when converting gating keywords from 3.0/3.1 to 2.0
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppliedGates3_0To2_0Error {
+    Scheme(ConvertSchemeError<MeasIndex, false>),
+    Link(GateMeasurementLinkError),
+}
+
+/// Error when converting gating keywords from 3.0/3.1 to 3.2
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppliedGates3_0To3_2Error {
+    Scheme(ConvertSchemeError<GateIndex, true>),
+    GatedMeas(GatedMeasurementsLossError),
+}
+
+/// Error when converting gating keywords from 2.0 to 3.2
+///
+/// This conversion is actually impossible, so all this will signify is the
+/// keywords that are to be dropped.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppliedGates2_0To3_2LossError {
+    GatedMeas(GatedMeasurementsLossError),
+    Scheme(GatingSchemeLossError),
+}
+
+/// Error when converting $GATING/$RnI/$RnW keywords to new version.
+///
+/// $RnI can fail because it may contain indices that refer to something
+/// that is unsupported in the target version.
+///
+/// $GATING can fail because it may refer to $RnI/$RnW keywords which are
+/// no longer valid as described above.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
+    Region(ConvertIndexForRegionError<I, INDEX_IS_GATE>),
+    Scheme(DependentKeyError<Gating>),
+}
+
+/// Error when converting 3.0./3.1 $RnI keywords to either 2.0 or 3.2
+///
+/// In 3.0/3.1, these can point to either gates or measurements. In either
+/// target version they can only point to one, in which case any with the other
+/// should lead to this error.
+#[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct RegionToMeasIndexError(ConvertIndexForRegionError<GateIndex, true>);
-
-/// Error when converting from 3.0/3.1 to 2.0 and $RnI keywords which point measurements
-///
-/// $RnI keywords in 2.0 only support indices which point to gates so this
-/// conversion is impossible.
-#[derive(Debug, Display, Error, From)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct RegionToGateIndexError(ConvertIndexForRegionError<MeasIndex, false>);
-
-/// Inner error for converting $RnI indices
-#[derive(Debug, Display)]
-struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
+#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+pub struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
     IndexedError<AnyIndexForRegionError<I>>,
 );
 
@@ -1281,59 +1288,7 @@ impl<J1> BiIndexForRegionError<J1> {
     }
 }
 
-#[derive(Debug, Error)]
-#[error("cannot convert gate index ({0}) to measurement index")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct GateToMeasIndexError(GateIndex);
-
-#[derive(Debug, Error)]
-#[error("cannot convert measurement index ({0}) to gate index")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct MeasToGateIndexError(PrefixedMeasIndex);
-
-// TODO this seems like it should be a general link error
-#[derive(Debug, Error)]
-#[error("$RnI regions reference nonexistent gates: {}", .0.iter().join(","))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
-pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewAppliedGatesWithSchemeError {
-    Link(GateMeasurementLinkError),
-    Scheme(DependentKeyError<Gating>),
-}
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AppliedGates3_0To2_0Error {
-    Index(RegionToGateIndexError),
-    Scheme(DependentKeyError<Gating>),
-    Link(GateMeasurementLinkError),
-}
-
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
-pub enum AppliedGates3_0To3_2Error {
-    #[error("{0}")]
-    Index(#[from] RegionToMeasIndexError),
-    #[error("$GATING references {0} $Gn* keywords")]
-    HasGates(usize),
-    #[error("{0}")]
-    Scheme(#[from] DependentKeyError<Gating>),
-}
-
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AppliedGates2_0To3_2LossError {
-    GatedMeas(GatedMeasurementsLossError),
-    Scheme(GatingSchemeLossError),
-}
-
+/// Error when $GATING/$RnI/$RnW keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatingSchemeLossError {
@@ -1341,6 +1296,7 @@ pub enum GatingSchemeLossError {
     Gating(UnitaryKeyLossError<Gating>),
 }
 
+/// Error when $RnI/$RnW keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GateRegionLossError {
@@ -1348,6 +1304,7 @@ pub enum GateRegionLossError {
     Window(IndexedKeyLossError<RegionWindow>),
 }
 
+/// Error when $Gn* or $GATE keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatedMeasurementsLossError {
@@ -1355,6 +1312,7 @@ pub enum GatedMeasurementsLossError {
     GatedMeas(GatedMeasurementLossError),
 }
 
+/// Error when $Gn* keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatedMeasurementLossError {
@@ -1368,30 +1326,56 @@ pub enum GatedMeasurementLossError {
     DetVolt(IndexedKeyLossError<GateDetectorVoltage>),
 }
 
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
-pub enum IndexWindowMismatchError {
-    #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
-    Both(RegionIndex),
-    #[error("$R{0}I not found when $R{0}W was given")]
-    NoIndex(RegionIndex),
-    #[error("$R{0}W not found when $R{0}I was given")]
-    NoWindow(RegionIndex),
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E0: Into<Self>))]
+pub enum LookupAppliedGatesError<E0> {
+    Scheme(E0),
+    GatedMeas(LookupGatedMeasurementsError),
+    Link(GateMeasurementLinkError),
 }
 
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+>;
+
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 3.0 and 3.1
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
+    LookupGatingSchemeError<
+        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
+        OptIndexedKeyError<RegionWindow>,
+    >,
+>;
+
+/// Error when parsing $GATING/$RnI/$RnW keywords for 3.2
+pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
+    OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
+    OptIndexedKeyError<RegionWindow>,
+>;
+
+/// Error when $RnI keywords reference nonexistent $Gn* keywords
+// TODO this seems like it should be a general link error
+#[derive(Debug, Error)]
+#[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
+
+/// Error when parsing $GATING/$RnI/$RnW keywords
 #[derive(Display, Debug, Error)]
-#[cfg_attr(
-    feature = "python",
-    derive(AllIntoPyErr),
-    bound(LookupRegionError<E0, E1>: Into<Self>)
-)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(LookupRegionError<E0, E1>: Into<Self>))]
 pub enum LookupGatingSchemeError<E0, E1> {
     Link(DependentKeyError<Gating>),
     Gating(OptKeyError<Gating>),
     Region(LookupRegionError<E0, E1>),
 }
 
+/// Error when parsing $RnI/$RnW keywords
 #[derive(Display, Debug, Error)]
 #[cfg_attr(
     feature = "python",
@@ -1405,33 +1389,20 @@ pub enum LookupRegionError<E0, E1> {
     Window(E1),
 }
 
-#[derive(Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E0: Into<Self>))]
-pub enum LookupAppliedGatesError<E0> {
-    Scheme(E0),
-    GatedMeas(LookupGatedMeasurementsError),
-    Link(GateMeasurementLinkError),
+/// Error when $RnI and $RnW keywords mismatch
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+pub enum IndexWindowMismatchError {
+    #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
+    Both(RegionIndex),
+    #[error("$R{0}I not found when $R{0}W was given")]
+    NoIndex(RegionIndex),
+    #[error("$R{0}W not found when $R{0}I was given")]
+    NoWindow(RegionIndex),
 }
 
-pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<GateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<
-    LookupGatingSchemeError<
-        OptIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>,
-        OptIndexedKeyError<RegionWindow>,
-    >,
->;
-
-pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<
-    OptIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>,
-    OptIndexedKeyError<RegionWindow>,
->;
-
+/// Error when parsing $Gn* and $GATE keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasurementsError {
@@ -1439,6 +1410,7 @@ pub enum LookupGatedMeasurementsError {
     Meas(LookupGatedMeasError),
 }
 
+/// Error when parsing $Gn* keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasError {

@@ -279,7 +279,7 @@ impl TryFrom<Width> for Chars {
 }
 
 impl TryFrom<Width> for PrivBytes {
-    type Error = WidthToFixedError<BytesError>;
+    type Error = WidthToFixedError<WidthToBytesError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
         let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
@@ -305,16 +305,16 @@ impl TryFrom<PrivBitsOrChars> for Chars {
 }
 
 impl TryFrom<PrivBitsOrChars> for PrivBytes {
-    type Error = BytesError;
+    type Error = WidthToBytesError;
     /// Return number of bytes represented by this.
     ///
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
         if x.trailing_zeros() >= 3 {
-            return (x >> 3).try_into().or(Err(BytesError(x)));
+            return (x >> 3).try_into().or(Err(WidthToBytesError(x)));
         }
-        Err(BytesError(x))
+        Err(WidthToBytesError(x))
     }
 }
 
@@ -411,36 +411,26 @@ impl fmt::Display for PrivBytes {
     }
 }
 
-#[derive(Debug, From)]
-pub(crate) enum WidthToFixedError<X> {
-    #[from]
-    Variable(VariableWidthError),
-    Fixed(X),
-}
-
-#[derive(Debug)]
-pub(crate) struct VariableWidthError;
-
+/// Error when making a new byte order of some size from a sequence of digits.
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
 // TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NewByteOrdError(usize);
 
+/// Error when parsing Endian from string
 #[derive(Debug, Error)]
 #[error("endian must be either 1,2,3,4 or 4,3,2,1")]
 pub struct NewEndianError;
 
-#[derive(Debug, Display)]
-#[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
-pub(crate) struct BytesError(u8);
-
+/// Error when converting $BYTEORD from 2.0/3.0 to 3.1/3.2
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
 pub struct OrderedToEndianError;
 
+/// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
 #[derive(Debug, Error, new)]
 // TODO probably wrong exception type
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
@@ -450,6 +440,26 @@ pub struct ByteOrdToSizedError {
     bytes: PrivBytes,
     length: usize,
 }
+
+/// Error when converting $PnB to a fixed value.
+///
+/// This is a helper type meant to construct more specific errors, namely those
+/// for converting $PnB to bytes (numeric layouts) and chars (ASCII layouts).
+#[derive(Debug, From)]
+pub(crate) enum WidthToFixedError<X> {
+    #[from]
+    Variable(VariableWidthError),
+    Fixed(X),
+}
+
+/// Dummy type to indicate that $PnB is variable width ('*')
+#[derive(Debug)]
+pub(crate) struct VariableWidthError;
+
+/// Error when converting $PnB (in bits) to bytes.
+#[derive(Debug, Display)]
+#[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
+pub(crate) struct WidthToBytesError(u8);
 
 #[cfg(test)]
 mod tests {

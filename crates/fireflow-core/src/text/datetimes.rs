@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
@@ -26,15 +26,14 @@ use {
 #[derive(Clone, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
-    /// Value for the $BEGINDATETIME key.
     #[as_ref(Option<BeginDateTime>)]
     begin: Option<BeginDateTime>,
 
-    /// Value for the $ENDDATETIME key.
     #[as_ref(Option<EndDateTime>)]
     end: Option<EndDateTime>,
 }
 
+/// The $BEGINDATETIME key.
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
@@ -42,6 +41,7 @@ pub struct Datetimes {
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
+/// The $ENDDATETIME key.
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
@@ -178,6 +178,7 @@ impl FromStr for FCSDateTime {
     }
 }
 
+/// Error when $ENDDATETIME occurs before $BEGINDATETIME
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

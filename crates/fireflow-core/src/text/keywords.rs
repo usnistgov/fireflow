@@ -8,7 +8,8 @@ use crate::nonempty::FCSNonEmpty;
 use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::keys::{
-    BiIndexedKey, IndexedKey, Key, Key0, Key1, NonStdKeywords, StdKeywords,
+    AnyKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
+    StdKeywords,
 };
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
@@ -21,7 +22,7 @@ use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use super::index::{GateIndex, MeasIndex, RegionIndex};
 use super::lookup::{
     FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
 };
 use super::named_vec::NameMapping;
 use super::optional::{
@@ -2616,6 +2617,21 @@ impl BiIndexedKey for Dfc {
     const MIDDLE: &'static str = "TO";
     const SUFFIX: &'static str = "";
 }
+
+impl Dfc {
+    pub(crate) fn lookup(
+        kws: &mut StdKeywords,
+        k: Key2<Self>,
+    ) -> Result<Option<f32>, LookupDfcError> {
+        kws.remove(&k.as_std()).map_or(Ok(None), |v| {
+            v.parse::<f32>()
+                .map_err(|e| ParseKeyError::new(e, k, v.clone()))
+                .map(Some)
+        })
+    }
+}
+
+pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, "CSMODE");

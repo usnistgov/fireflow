@@ -1,22 +1,18 @@
-use crate::config::{AllowOptionalDropping, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{AllowOptionalDropping, ReadLayoutConfig};
 use crate::core::BiIndexedKeyLossError;
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
-use crate::text::lookup::ParseKeyError;
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{
-    AnyKey as _, BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords,
-};
+use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use std::fmt;
-use std::num::ParseFloatError;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -24,6 +20,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+
+use super::keywords::LookupDfcError;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
@@ -34,7 +32,7 @@ pub struct Compensation2_0(pub Compensation);
 
 /// A compensation matrix.
 ///
-/// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
+/// This is encoded in the $DFCiTOj keywords in 2.0 and $COMP in 3.0.
 #[derive(Clone, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
@@ -58,7 +56,7 @@ impl Compensation2_0 {
             .cartesian_product(0..n)
             .map(|(r, c)| {
                 let k = SpecificKey::new_i2(c.into(), r.into());
-                match lookup_dfc(kws, k) {
+                match Dfc::lookup(kws, k) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
@@ -181,6 +179,7 @@ impl Compensation {
     }
 }
 
+/// Error when making new compensation matrix from any float matrix.
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum NewCompError {
@@ -202,21 +201,11 @@ impl fmt::Display for Compensation {
     }
 }
 
-pub(crate) fn lookup_dfc(
-    kws: &mut StdKeywords,
-    k: SpecificKey<Dfc, BiIndex>,
-) -> Result<Option<f32>, ParseKeyError<ParseFloatError, Dfc, BiIndex>> {
-    kws.remove(&k.as_std()).map_or(Ok(None), |v| {
-        v.parse::<f32>()
-            .map_err(|e| ParseKeyError::new(e, k, v.clone()))
-            .map(Some)
-    })
-}
-
+/// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupComp2_0Error {
-    Dfc(ParseKeyError<ParseFloatError, Dfc, BiIndex>),
+    Dfc(LookupDfcError),
     Matrix(NewCompError),
 }
 

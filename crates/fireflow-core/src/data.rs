@@ -64,7 +64,7 @@ use crate::macros::{def_group, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    BitsOrChars, ByteOrdToSizedError, Bytes, BytesError, Endian, HasByteOrd, NoByteOrd,
+    BitsOrChars, ByteOrdToSizedError, Bytes, WidthToBytesError, Endian, HasByteOrd, NoByteOrd,
     NoByteOrd3_1, OrderedToEndianError, PrivBytes, SizedByteOrd, WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -4262,7 +4262,7 @@ pub enum NewUintTypeError {
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<BytesError>>);
+pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<WidthToBytesError>>);
 
 impl fmt::Display for IndexedWidthToBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

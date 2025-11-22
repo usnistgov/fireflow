@@ -1,5 +1,6 @@
 use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::data::IndexedError;
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, LogResult, ResultExt as _, SwitchableErrorsResult,
 };
@@ -256,12 +257,9 @@ impl<I> UnivariateRegion<I> {
 impl<I> BivariateRegion<I> {
     fn try_map<F, J, E>(self, f: F) -> Result<BivariateRegion<J>, E>
     where
-        F: FnMut(I) -> Result<J, E>,
+        F: FnMut(I, I) -> Result<(J, J), E>,
     {
-        Ok(BivariateRegion {
-            vertices: self.vertices,
-            index: self.index.try_map(f)?,
-        })
+        Ok(BivariateRegion::new(self.vertices, self.index.try_map(f)?))
     }
 }
 
@@ -478,14 +476,29 @@ impl AppliedGates3_0 {
         AppliedGates3_0To2_0Error,
     > {
         // ASSUME region indices will still be unique in new hash table
-        let (regions, es): (HashMap<_, _>, Vec<_>) = self
+        // let (regions, es): (HashMap<_, _>, Vec<_>) = self
+        //     .scheme
+        //     .regions
+        //     .into_iter()
+        //     .map(|(ri, r)| r.try_index_into().map(|x| (ri, x)))
+        //     .partition_result();
+
+        let mut regions = HashMap::new();
+        let es = self
             .scheme
             .regions
             .into_iter()
-            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
-            .partition_result();
-        let index_res = SwitchableErrorsResult::new_switchable_ok((), flag)
-            .extend_deferred_switchable_errors(es.into_iter().map(AppliedGates3_0To2_0Error::Index))
+            .filter_map(|(ri, r)| match r.try_index_into() {
+                Ok(r_) => {
+                    regions.insert(ri, r_);
+                    None
+                }
+                Err(e) => Some(IndexedError::new(ri, e)),
+            })
+            .map(ConvertIndexForRegionError)
+            .map(RegionToGateIndexError)
+            .map(AppliedGates3_0To2_0Error::Index);
+        let index_res = SwitchableErrorsResult::new_switchable_iter((), (), es, flag)
             .map_switchable_errors(AppliedGates3_0To2_0Error::from)
             .switchable_into_commutative();
         let scheme_res = GatingScheme::try_new(self.scheme.gating, regions)
@@ -509,14 +522,22 @@ impl AppliedGates3_0 {
         AppliedGates3_0To3_2Error,
     > {
         // ASSUME region indices will still be unique in new hash table
-        let (regions, es): (HashMap<_, _>, Vec<_>) = self
+        let mut regions = HashMap::new();
+        let es = self
             .scheme
             .regions
             .into_iter()
-            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
-            .partition_result();
-        SwitchableErrorsResult::new_switchable_ok((), flag)
-            .extend_deferred_switchable_errors(es.into_iter().map(AppliedGates3_0To3_2Error::Index))
+            .filter_map(|(ri, r)| match r.try_index_into() {
+                Ok(r_) => {
+                    regions.insert(ri, r_);
+                    None
+                }
+                Err(e) => Some(IndexedError::new(ri, e)),
+            })
+            .map(ConvertIndexForRegionError)
+            .map(RegionToMeasIndexError)
+            .map(AppliedGates3_0To3_2Error::Index);
+        SwitchableErrorsResult::new_switchable_iter((), (), es, flag)
             .eval_deferred_switchable_error(|()| {
                 let n_gates = self.gated_measurements.0.len();
                 (n_gates > 0).then_some(AppliedGates3_0To3_2Error::HasGates(n_gates))
@@ -1004,13 +1025,17 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn try_map<F, J, E>(self, f: F) -> Result<Region<J>, E>
+    fn try_index_into<J0, J1>(self) -> Result<Region<J0>, AnyIndexForRegionError<J1>>
     where
-        F: FnMut(I) -> Result<J, E>,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+        AnyIndexForRegionError<J1>: From<J0::Error> + From<BiIndexForRegionError<J1>>,
+        I: Copy,
     {
         match self {
-            Self::Univariate(x) => Ok(Region::Univariate(x.try_map(f)?)),
-            Self::Bivariate(x) => Ok(Region::Bivariate(x.try_map(f)?)),
+            Self::Univariate(x) => Ok(Region::Univariate(x.try_map(TryFrom::try_from)?)),
+            Self::Bivariate(x) => Ok(Region::Bivariate(
+                x.try_map(BiIndexForRegionError::try_from2)?,
+            )),
         }
     }
 
@@ -1057,11 +1082,11 @@ impl<I> Region<I> {
 }
 
 impl TryFrom<MeasOrGateIndex> for PrefixedMeasIndex {
-    type Error = RegionToMeasIndexError;
+    type Error = UniIndexForRegionError<GateIndex>;
     fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
         match value {
             MeasOrGateIndex::Meas(i) => Ok(i.into()),
-            MeasOrGateIndex::Gate(i) => Err(RegionToMeasIndexError(i)),
+            MeasOrGateIndex::Gate(i) => Err(UniIndexForRegionError(i)),
         }
     }
 }
@@ -1073,11 +1098,11 @@ impl From<PrefixedMeasIndex> for MeasOrGateIndex {
 }
 
 impl TryFrom<MeasOrGateIndex> for GateIndex {
-    type Error = RegionToGateIndexError;
+    type Error = UniIndexForRegionError<MeasIndex>;
     fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
         match value {
             MeasOrGateIndex::Gate(i) => Ok(i),
-            MeasOrGateIndex::Meas(i) => Err(RegionToGateIndexError(i)),
+            MeasOrGateIndex::Meas(i) => Err(UniIndexForRegionError(i)),
         }
     }
 }
@@ -1154,24 +1179,107 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     }
 }
 
-// TODO make these errors refer to $RnI
-#[derive(Debug, Error)]
-#[error(
-    "cannot convert region index ({0}) to measurement \
-     index since it refers to a gate"
-)]
+/// Error when converting from 3.0/3.1 to 3.2 and $RnI keywords which point gates
+///
+/// $RnI keywords in 3.2 only support indices which point to measurements so this
+/// conversion is impossible.
+#[derive(Debug, Display, Error, From)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct RegionToMeasIndexError(GateIndex);
+pub struct RegionToMeasIndexError(ConvertIndexForRegionError<GateIndex, true>);
 
-#[derive(Debug, Error)]
-#[error(
-    "cannot convert region index ({0}) to gating index since \
-     it refers to a measurement"
-)]
+/// Error when converting from 3.0/3.1 to 2.0 and $RnI keywords which point measurements
+///
+/// $RnI keywords in 2.0 only support indices which point to gates so this
+/// conversion is impossible.
+#[derive(Debug, Display, Error, From)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionException))]
-pub struct RegionToGateIndexError(MeasIndex);
+pub struct RegionToGateIndexError(ConvertIndexForRegionError<MeasIndex, false>);
+
+/// Inner error for converting $RnI indices
+#[derive(Debug, Display)]
+struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
+    IndexedError<AnyIndexForRegionError<I>>,
+);
+
+impl<I: fmt::Display + Copy, const INDEX_IS_GATE: bool> fmt::Display
+    for ConvertIndexForRegionError<I, INDEX_IS_GATE>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let region_key = RegionGateIndex::<()>::std(self.0.index);
+        let keys = |i: I, is_plural: bool, is_gate: bool| {
+            let prefix = if is_gate { "G" } else { "P" };
+            let key = format!("{prefix}{i}*");
+            if is_plural {
+                format!("{key} keywords")
+            } else {
+                format!("a {key} keyword")
+            }
+        };
+        let target_keys = |i: I, is_plural: bool| {
+            let meas = keys(i, is_plural, false);
+            let gate = keys(i, is_plural, true);
+            if INDEX_IS_GATE {
+                (gate, meas)
+            } else {
+                (meas, gate)
+            }
+        };
+        let (which, (from, to)) = match &self.0.error {
+            AnyIndexForRegionError::Univariate(UniIndexForRegionError(i)) => {
+                ("index", target_keys(*i, false))
+            }
+            AnyIndexForRegionError::Bivariate(b) => match b {
+                BiIndexForRegionError::LeftBivariate(i) => ("left index", target_keys(*i, true)),
+                BiIndexForRegionError::RightBivariate(i) => ("right index", target_keys(*i, true)),
+                BiIndexForRegionError::Bivariate(i0, i1) => {
+                    let (from0, to0) = target_keys(*i0, true);
+                    let (from1, to1) = target_keys(*i1, true);
+                    let from = format!("{from0} and {from1}");
+                    let to = format!("{to0} and {to1}");
+                    ("indices", (from, to))
+                }
+            },
+        };
+        write!(
+            f,
+            "cannot convert {which} in {region_key} to refer \
+             to {to} because they currently refer to {from}"
+        )
+    }
+}
+
+#[derive(From, Debug)]
+enum AnyIndexForRegionError<I> {
+    Univariate(UniIndexForRegionError<I>),
+    Bivariate(BiIndexForRegionError<I>),
+}
+
+#[derive(Debug)]
+enum BiIndexForRegionError<I> {
+    LeftBivariate(I),
+    RightBivariate(I),
+    Bivariate(I, I),
+}
+
+#[derive(Debug, Display)]
+pub struct UniIndexForRegionError<I>(I);
+
+impl<J1> BiIndexForRegionError<J1> {
+    fn try_from2<I, J0>(x0: I, x1: I) -> Result<(J0, J0), Self>
+    where
+        I: Copy,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+    {
+        match (J0::try_from(x0), J0::try_from(x1)) {
+            (Ok(y0), Ok(y1)) => Ok((y0, y1)),
+            (Err(y0), Ok(_)) => Err(Self::LeftBivariate(y0.0)),
+            (Ok(_), Err(y1)) => Err(Self::RightBivariate(y1.0)),
+            (Err(y0), Err(y1)) => Err(Self::Bivariate(y0.0, y1.0)),
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 #[error("cannot convert gate index ({0}) to measurement index")]

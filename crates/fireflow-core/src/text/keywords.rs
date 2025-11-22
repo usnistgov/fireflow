@@ -1260,12 +1260,10 @@ impl_functor!(IndexPair, self, mut f, IndexPair::new(f(self.x), f(self.y)));
 impl<I> IndexPair<I> {
     pub(crate) fn try_map<F, J, E>(self, mut f: F) -> Result<IndexPair<J>, E>
     where
-        F: FnMut(I) -> Result<J, E>,
+        F: FnMut(I, I) -> Result<(J, J), E>,
     {
-        Ok(IndexPair {
-            x: f(self.x)?,
-            y: f(self.y)?,
-        })
+        let (x, y) = f(self.x, self.y)?;
+        Ok(IndexPair { x, y })
     }
 }
 

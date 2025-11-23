@@ -784,6 +784,39 @@ impl ParsedKeywords {
     }
 }
 
+/// Error when parsing standard key
+#[derive(From, PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+pub enum StdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("standard key must start with '$', found '{0}'")]
+    Prefix(KeyString),
+    #[error("standard key must not be empty, got '$'")]
+    Empty,
+}
+
+/// Error when parsing nonstandard key
+#[derive(From, PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+pub enum NonStdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("non-standard key must not start with '$', found '{0}'")]
+    Prefix(KeyString),
+}
+
+/// Error when parsing key as ASCII-only string
+#[derive(PartialEq, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+pub enum AsciiStringError {
+    #[error("string should only have ASCII characters, found '{0}'")]
+    Ascii(String),
+    #[error("key string must not be empty")]
+    Empty,
+}
+
+/// Error when parsing literal keys or pattern strings for configuration
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum KeyOrStringPatternsError {
@@ -791,6 +824,7 @@ pub enum KeyOrStringPatternsError {
     Ascii(AsciiStringError),
 }
 
+/// Error when parsed keyword cannot be inserted into (non)standard hash table
 #[derive(Debug, Display, From, PartialEq, Error)]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
@@ -798,6 +832,7 @@ pub enum KeywordInsertError {
     Blank(BlankValueError),
 }
 
+/// Error when key has blank value
 #[derive(Debug, PartialEq, Error)]
 pub struct BlankValueError(pub Vec<u8>);
 
@@ -811,6 +846,7 @@ impl fmt::Display for BlankValueError {
     }
 }
 
+/// Error when key is already present in hash table.
 #[derive(Debug, PartialEq, Error, new)]
 #[error("key '{key}' already present, has value '{value}'")]
 pub struct KeyPresent<T> {
@@ -821,35 +857,7 @@ pub struct KeyPresent<T> {
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-#[derive(PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
-pub enum AsciiStringError {
-    #[error("string should only have ASCII characters, found '{0}'")]
-    Ascii(String),
-    #[error("key string must not be empty")]
-    Empty,
-}
-
-#[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
-pub enum StdKeyError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("standard key must start with '$', found '{0}'")]
-    Prefix(KeyString),
-    #[error("standard key must not be empty, got '$'")]
-    Empty,
-}
-
-#[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
-pub enum NonStdKeyError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("non-standard key must not start with '$', found '{0}'")]
-    Prefix(KeyString),
-}
-
+/// Error when parsing non-standard measurement pattern for configuration
 #[derive(Error, Debug)]
 #[error(
     "non standard measurement pattern must not \
@@ -858,6 +866,7 @@ pub enum NonStdKeyError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct NonStdMeasPatternError(String);
 
+/// Error when converting `NonStdMeasPatternError` to regular expression
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 // TODO this error is weird because it pertains to the downstream value
@@ -869,6 +878,7 @@ pub struct NonStdMeasRegexError {
     index: IndexFromOne,
 }
 
+/// Error when parsing pairs of keys for configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]

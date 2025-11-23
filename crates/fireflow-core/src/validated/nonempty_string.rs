@@ -11,6 +11,11 @@ use {
     pyo3::prelude::*,
 };
 
+/// A string which can never be empty
+///
+/// This is useful for required keywords which are strings. For optional
+/// strings, empty string means the value is missing, so required keys simply
+/// forbid empty strings.
 #[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
@@ -28,6 +33,7 @@ impl FromStr for NonEmptyString {
     }
 }
 
+/// Error when string is empty which is not supposed to be empty
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]

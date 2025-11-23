@@ -15,20 +15,12 @@ use {
 
 /// The value for the $PnN key (all versions).
 ///
-/// This cannot contain commas.
+/// This cannot contain commas or be empty.
 #[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
 pub struct Shortname(String);
-
-// /// A prefix that can be made into a shortname by appending an index
-// ///
-// /// This cannot contain commas.
-// #[derive(Clone, Eq, PartialEq, Hash, AsRef, Display, FromStr)]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// #[as_ref(str)]
-// pub struct ShortnamePrefix(Shortname);
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
@@ -56,18 +48,7 @@ impl From<MeasIndex> for Shortname {
     }
 }
 
-// impl ShortnamePrefix {
-//     pub fn as_indexed(&self, i: MeasIndex) -> Shortname {
-//         Shortname(format!("{}{i}", self))
-//     }
-// }
-
-// impl Default for ShortnamePrefix {
-//     fn default() -> Self {
-//         Self(Shortname("P".into()))
-//     }
-// }
-
+/// Error when parsing $PnN
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub enum ShortnameError {

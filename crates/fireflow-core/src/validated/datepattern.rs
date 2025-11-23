@@ -38,6 +38,7 @@ impl FromStr for DatePattern {
     }
 }
 
+/// Error when paring date pattern for configuration
 #[derive(Debug, Error)]
 #[error(
     "date pattern must contain specifier for year (%y or %Y), \

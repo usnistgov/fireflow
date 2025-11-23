@@ -134,6 +134,7 @@ impl FromStr for TimePattern {
     }
 }
 
+/// Error when parsing time pattern for configuration
 #[derive(Debug, Error)]
 #[error(
     "time pattern must contain specifier for hour (%H/%k for 24 hours \
@@ -145,6 +146,7 @@ impl FromStr for TimePattern {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct TimePatternError(String);
 
+/// Error when parsing a string to a timestamp using time pattern
 #[derive(From, Debug, Error)]
 pub enum ParseWithTimePatternError {
     #[error("{0}")]

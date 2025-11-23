@@ -86,7 +86,7 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskLossError, BitmaskTruncationError,
 };
 use crate::validated::dataframe::{
-    AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, FCSDataType,
+    AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
     LossError,
 };
 use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
@@ -1466,7 +1466,7 @@ impl Readable<Endian> for AnyReaderBitmask {
 impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + Ord,
+    T: Copy + Ord + IsFCSDataType,
     u64: From<T>,
 {
     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
@@ -1482,7 +1482,7 @@ where
 impl<T, const LEN: usize> Castable for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy,
+    T: Copy + IsFCSDataType,
 {
     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
         let t = x.as_err().map(LossError::Cast).map(AnyLossError::Float);
@@ -1500,7 +1500,7 @@ impl Castable for AsciiRange {
 impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
     u64: From<T>,
 {
     fn h_write<W: Write>(
@@ -1518,7 +1518,7 @@ where
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
     u64: From<T>,
 {
     fn h_write<W: Write>(
@@ -1536,7 +1536,7 @@ where
 impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
 {
     fn h_write<W: Write>(
         &self,
@@ -1553,7 +1553,7 @@ where
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
 {
     fn h_write<W: Write>(
         &self,
@@ -1775,7 +1775,7 @@ impl<'a, T> AnySource<'a, T> {
             + From<FCSColIter<'a, f64, T>>,
     {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::as_col_iter(xs).into()
+            IsFCSDataType::as_col_iter(xs).into()
         })
     }
 }

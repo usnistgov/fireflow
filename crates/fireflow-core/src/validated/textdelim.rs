@@ -26,6 +26,7 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
+/// Error when creating TEXT delimiter
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]

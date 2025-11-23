@@ -51,7 +51,7 @@ impl From<MeasIndex> for Shortname {
 /// Error when parsing $PnN
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 pub enum ShortnameError {
     #[error("commas are not allowed in name '{0}'")]
     Commas(String),

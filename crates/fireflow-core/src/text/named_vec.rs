@@ -1955,28 +1955,28 @@ pub enum SetElementsError<E> {
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct CenterPresentError;
 
 /// Error when the specified element does not have a name but one is expected.
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NoNameError;
 
 /// Error when the center element of a named vector is missing but expected
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct MissingCenterError;
 
 /// Error when final state of keys in named vector results in duplicates
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NonUniqueKeysError;
 
 /// Error when name in named vector is not found
@@ -1989,7 +1989,7 @@ pub struct NameNotFoundError(pub Shortname);
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NamePresentError {
     name: Shortname,
 }
@@ -2024,7 +2024,7 @@ impl fmt::Display for ElementIndexError {
     c = if self.include_center { "" } else { "not " }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,

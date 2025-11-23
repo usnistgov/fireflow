@@ -3,92 +3,85 @@ use pyo3::exceptions::{PyException, PyWarning};
 
 create_exception!(
     _pyreflow,
-    PyreflowException,
+    PyreflowError,
     PyException,
     "Exception created by internal pyreflow."
 );
 
 create_exception!(
     _pyreflow,
-    MeasurementException,
-    PyreflowException,
-    "Exception caused by manipulating measurement vector"
-);
-
-create_exception!(
-    _pyreflow,
     FileLayoutError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by a malformed FCS file"
 );
 
 create_exception!(
     _pyreflow,
     ParseKeyError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by parsing a standard or nonstandard key from string"
 );
 
 create_exception!(
     _pyreflow,
     ParseKeywordValueError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by parsing a keyword from a string to its native type"
 );
 
 create_exception!(
     _pyreflow,
     InvalidKeywordValueError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by an individual, invalid keyword assignment"
 );
 
 create_exception!(
     _pyreflow,
     ExtraKeywordError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused when extra standard keywords are found and not used"
 );
 
 create_exception!(
     _pyreflow,
     FCSDeprecatedError,
-    PyreflowException,
+    PyreflowError,
     "Exception for FCS features/keywords which are deprecated"
 );
 
 create_exception!(
     _pyreflow,
-    ConversionException,
-    PyreflowException,
+    ConversionError,
+    PyreflowError,
     "Exception caused by converting FCS data between versions"
 );
 
 create_exception!(
     _pyreflow,
-    RelationalException,
-    PyreflowException,
+    RelationalError,
+    PyreflowError,
     "Exception caused by an FCS keyword that incorrectly references another"
 );
 
 create_exception!(
     _pyreflow,
     EventDataError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by invalid values in DATA segment"
 );
 
 create_exception!(
     _pyreflow,
     DataLossError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by loss of precision for values in DATA segment"
 );
 
 create_exception!(
     _pyreflow,
     ConfigError,
-    PyreflowException,
+    PyreflowError,
     "Exception caused by invalid values for configuration"
 );
 

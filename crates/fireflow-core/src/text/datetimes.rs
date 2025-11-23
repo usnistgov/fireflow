@@ -176,7 +176,7 @@ impl FromStr for FCSDateTime {
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ReversedDatetimesError;
 
 #[derive(Debug, Error)]

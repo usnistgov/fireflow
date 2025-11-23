@@ -1,29 +1,30 @@
-use fireflow_core::python::{
-    ConversionException, InvalidKeywordValueError, MeasurementException, PyreflowException,
-    PyreflowWarning, RelationalException,
-};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
-// use pyo3::wrap_pymodule;
 
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
-    m.add("PyreflowException", py.get_type::<PyreflowException>())?;
-    m.add(
-        "MeasurementException",
-        py.get_type::<MeasurementException>(),
-    )?;
+    macro_rules! exc {
+        ($s:expr, $t:ident) => {
+            m.add($s, py.get_type::<fireflow_core::python::$t>())?;
+        };
+    }
 
-    m.add(
-        "InvalidKeywordValueError",
-        py.get_type::<InvalidKeywordValueError>(),
-    )?;
-    m.add("ConversionException", py.get_type::<ConversionException>())?;
-    m.add("RelationalException", py.get_type::<RelationalException>())?;
-    m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
+    exc!("PyreflowError", PyreflowError);
+    exc!("FileLayoutError", FileLayoutError);
+    exc!("ParseKeyError", ParseKeyError);
+    exc!("ParseKeywordValueError", ParseKeywordValueError);
+    exc!("InvalidKeywordValueError", InvalidKeywordValueError);
+    exc!("ExtraKeywordError", ExtraKeywordError);
+    exc!("FCSDeprecatedError", FCSDeprecatedError);
+    exc!("ConversionError", ConversionError);
+    exc!("RelationalError", RelationalError);
+    exc!("EventDataError", EventDataError);
+    exc!("DataLossError", DataLossError);
+    exc!("ConfigError", ConfigError);
+    exc!("PyreflowWarning", PyreflowWarning);
 
     m.add_class::<ff::PyCoreTEXT2_0>()?;
     m.add_class::<ff::PyCoreTEXT3_0>()?;

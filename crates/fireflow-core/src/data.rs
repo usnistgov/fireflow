@@ -4190,7 +4190,7 @@ pub enum SingleFixedWidthError {
 /// Error when $PnB does not match width implied by $BYTEORD (2.0/3.0 only)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
     found: NonEmpty<PrivBytes>,
@@ -4287,7 +4287,7 @@ pub enum FloatWidthError {
 /// Error when converting $PnR to bitmask for integer layout based on $PnB.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
 
 impl fmt::Display for IndexedBitmaskError {
@@ -4390,7 +4390,7 @@ impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
     k = Range::std(self.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct WrongFloatWidth {
     width: PrivBytes,
     expected: usize,
@@ -4648,7 +4648,7 @@ pub enum LayoutConvertError {
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
 /// Error when converting a 3.2 mixed layout to a 3.1/3.2 non-mixed layout.
@@ -4665,7 +4665,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
 /// Error when converting a 3.2 mixed layout to a 2.0/3.0 ordered uint layout.
@@ -4763,7 +4763,7 @@ pub enum MeasLayoutMismatchError {
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
     layout_n: usize,
@@ -4795,7 +4795,7 @@ pub enum MeasurementsWithLayoutError {
 /// Error when $PnE does not match the datatype in its corresponding column (2.0)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ScaleMismatchError {
     index: MeasIndex,
     datatype: AlphaNumType,
@@ -4819,7 +4819,7 @@ impl fmt::Display for ScaleMismatchError {
 /// Error when $PnE/$PnG do not match the datatype in the corresponding column (3.0+)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ScaleTransformMismatchError {
     index: MeasIndex,
     datatype: AlphaNumType,

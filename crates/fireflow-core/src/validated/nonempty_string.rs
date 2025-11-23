@@ -37,5 +37,5 @@ impl FromStr for NonEmptyString {
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 pub struct NonEmptyStringError;

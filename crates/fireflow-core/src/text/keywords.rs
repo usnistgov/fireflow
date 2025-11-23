@@ -243,7 +243,7 @@ pub enum LookupTemporalGainError {
 #[derive(Debug, Error)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
@@ -442,7 +442,7 @@ pub struct Mode3_2Error;
 #[derive(Debug, Error)]
 #[error("$MODE must be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct ModeUpgradeError;
 
 /// The value for the $PnDISPLAY key (3.1+)
@@ -951,7 +951,7 @@ impl Wavelengths {
      be reduced to first upon conversion"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
 
 /// Error when parsing $PnL from string
@@ -2006,7 +2006,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
 #[derive(Debug, Error)]
 #[error("$CYT is missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct NoCytError;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)

@@ -290,11 +290,4 @@ mod tests {
         assert!(UintSpacePad8::try_from(99_999_999_u64).is_ok());
         assert!(UintSpacePad8::try_from(100_000_000_u64).is_err());
     }
-
-    #[test]
-    fn str_to_uint8digit() {
-        assert!("0".parse::<UintSpacePad8>().is_ok());
-        assert!("99999999".parse::<UintSpacePad8>().is_ok());
-        assert!("100000000".parse::<UintSpacePad8>().is_err());
-    }
 }

@@ -197,14 +197,14 @@ impl AnyFCSColumn {
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NewDataframeError;
 
 /// Error when new column has number of rows which are not equal to that of dataframe
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,

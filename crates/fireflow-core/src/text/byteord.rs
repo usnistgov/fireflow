@@ -427,14 +427,14 @@ pub struct NewEndianError;
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct OrderedToEndianError;
 
 /// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
 #[derive(Debug, Error, new)]
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ByteOrdToSizedError {
     bytes: PrivBytes,
     length: usize,

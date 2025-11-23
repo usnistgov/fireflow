@@ -53,7 +53,6 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     std::fmt::Display,
 };
@@ -110,12 +109,9 @@ pub(crate) type ExistingGateRegionLinkError =
     "{key} references existing $PnN: {xs}",
     xs = self.names.iter().join(", ")
 )]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(py::RelationalException),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct ExistingNamedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
     pub names: NonEmpty<Shortname>,
@@ -127,12 +123,9 @@ pub struct ExistingNamedLinkError<T, I> {
     "{key} references existing $PnN: {xs}",
     xs = self.names.iter().join(", ")
 )]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(py::RelationalException),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct ExistingIndexedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
     pub names: NonEmpty<IndexFromOne>,
@@ -225,7 +218,7 @@ pub enum AnyLinkError {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(py::RelationalException),
+    pyerr(crate::python::RelationalError),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct NamedLinkError<T, I> {
@@ -239,12 +232,9 @@ pub struct NamedLinkError<T, I> {
     "{key} references non-existent measurement indices: {bad}",
     bad = self.indices.iter().join(", ")
 )]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(py::RelationalException),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct IndexLinkError<T, I> {
     indices: NonEmpty<MeasIndex>,
     key: SpecificKey<T, I>,
@@ -256,12 +246,9 @@ pub struct IndexLinkError<T, I> {
     "{key} depends on other keys which do not exist: {bad}",
     bad = self.deps.iter().join(", "),
 )]
-#[cfg_attr(
-    feature = "python",
-    derive(DisplayAsPyErr),
-    pyerr(py::RelationalException),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct DependentKeyErrorInner<T, I> {
     deps: NonEmpty<StdKey>,
     key: SpecificKey<T, I>,

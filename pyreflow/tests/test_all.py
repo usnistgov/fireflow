@@ -384,7 +384,7 @@ class TestCore:
 
     @all_blank_core
     def test_trigger_nolink(self, core: AnyCore) -> None:
-        with pytest.raises(pf.PyreflowException):
+        with pytest.raises(pf.PyreflowError):
             core.tr = ("harold", 0)
 
     @all_core
@@ -397,7 +397,7 @@ class TestCore:
         new_name = "I can haz IP"
         core.all_shortnames = [new_name]
         assert core.all_shortnames == [new_name]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeywordValueError):
             core.all_shortnames = ["I,can,haz,IP"]
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
@@ -426,7 +426,7 @@ class TestCore:
         assert core.all_shortnames_maybe == [LINK_NAME1, LINK_NAME2]
         core.all_shortnames_maybe = [None, LINK_NAME2]
         assert core.all_shortnames_maybe == [None, "maple latte"]
-        with pytest.raises(pf.PyreflowException):
+        with pytest.raises(pf.PyreflowError):
             core.all_shortnames_maybe = [None, None]
 
     @all_core
@@ -506,7 +506,7 @@ class TestCore:
         assert core.vol == 0.0
         core.vol = 1.0
         assert core.vol == 1.0
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             core.vol = -1.0
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
@@ -539,7 +539,7 @@ class TestCore:
         assert core.mode == "L"
         core.mode = "U"
         assert core.mode == "U"
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeywordValueError):
             core.mode = "fart"  # type: ignore
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
@@ -550,7 +550,7 @@ class TestCore:
         assert core.mode is None
         core.mode = "L"
         assert core.mode == "L"
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeywordValueError):
             core.mode = "bear"  # type: ignore
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
@@ -643,7 +643,7 @@ class TestCore:
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
         ag: AppliedGates3_0 = ([], {0: ur}, None)
         core.applied_gates = ag
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
             ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
@@ -653,7 +653,7 @@ class TestCore:
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
         ag: AppliedGates3_2 = ({0: ur}, None)
         core.applied_gates = ag
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
             ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, None))
             core.applied_gates = ag_bad
@@ -703,7 +703,7 @@ class TestCore:
         newer = 0.0
         setattr(core, attr, [newer, ()])
         assert getattr(core, attr) == [newer, ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             setattr(core, attr, [-1.0, ()])
         with pytest.raises(TypeError):
             setattr(core, attr, ["pickle rick", ()])
@@ -758,7 +758,7 @@ class TestCore:
         core.all_features == [None, ()]
         core.all_features = ["Area", ()]
         assert core.all_features == ["Area", ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeywordValueError):
             core.all_features = ["Earth Minutes", ()]  # type: ignore
 
     @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
@@ -791,9 +791,9 @@ class TestCore:
         assert core.all_wavelengths == [None, ()]
         core.all_wavelengths = [1.0, ()]
         assert core.all_wavelengths == [1.0, ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             core.all_wavelengths = [0.0, ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             core.all_wavelengths = [-1.0, ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
@@ -805,9 +805,9 @@ class TestCore:
         new = [1.0, 2.0]
         core.all_wavelengths = [new, ()]
         assert core.all_wavelengths == [new, ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             core.all_wavelengths = [[0.0], ()]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             core.all_wavelengths = [[-1.0], ()]
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
@@ -830,7 +830,7 @@ class TestCore:
         assert core.nonstandard_keywords == {}
         core.nonstandard_keywords = {k: v}
         assert core.nonstandard_keywords == {k: v}
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeyError):
             core.nonstandard_keywords = {"$" + k: v}  # type: ignore
 
         # trying to get key from empty list should return None
@@ -1270,10 +1270,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE are missing
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_0()
         # and should still fail when forced since $PnE is missing
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_0(True)
         core.all_scales = [(), ()]
         new = core.to_version_3_0()
@@ -1293,10 +1293,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE are missing
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_1(True)
         core.all_scales = [(), ()]
         new = core.to_version_3_1()
@@ -1316,10 +1316,10 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         # should fail if $PnE and $CYT are missing
-        with pytest.RaisesGroup(pf.ConversionException, pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
             core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
-        with pytest.RaisesGroup(pf.ConversionException, pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
             core.to_version_3_2(True)
         core.cyt = "T cell incinerator"
         core.all_scales = [(), ()]
@@ -1373,10 +1373,10 @@ class TestCore:
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
         # should fail if $CYT is missing
-        with pytest.RaisesGroup(pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2()
         # and should still fail if forced since $CYT is missing
-        with pytest.RaisesGroup(pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2(True)
         core.cyt = "the dark eternal void from which cells will never escape"
         new = core.to_version_3_2()
@@ -1428,10 +1428,10 @@ class TestCore:
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
         # should fail if $CYT is missing
-        with pytest.RaisesGroup(pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2()
         # should still fail when forced
-        with pytest.RaisesGroup(pf.ConversionException):
+        with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2(True)
         core.cyt = "Cygnus X-1"
         new = core.to_version_3_2()
@@ -1500,7 +1500,7 @@ class TestCore:
     def test_text_to_dataset(
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
-        with pytest.raises(pf.PyreflowException):
+        with pytest.raises(pf.PyreflowError):
             core.to_dataset(pl.DataFrame([series1]), b"", [])
         new = core.to_dataset(pl.DataFrame([series1, series2]), b"", [])
         assert isinstance(new, target)
@@ -1648,7 +1648,7 @@ class TestMeas:
         assert meas.transform == new
         with pytest.raises(ValueError):
             meas.transform = 0.0
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.transform = (0.0, 0.0)
 
     @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_temporal"])
@@ -1658,7 +1658,7 @@ class TestMeas:
         assert meas.timestep == 1.0
         meas.timestep = 2.0
         assert meas.timestep == 2.0
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.timestep = 0.0
 
     @parameterize_versions("meas", ["2_0", "3_0"], ["blank_optical"])
@@ -1667,9 +1667,9 @@ class TestMeas:
         new = 1.0
         meas.wavelength = new
         assert meas.wavelength == new
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.wavelength = 0.0
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.wavelength = -1.0
 
     @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical"])
@@ -1678,9 +1678,9 @@ class TestMeas:
         new = [1.0, 2.0]
         meas.wavelengths = new
         assert meas.wavelengths == new
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.wavelengths = [-1.0]
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.wavelengths = [0.0]
 
     @parameterize_versions("meas", ["3_1"], ["blank_optical"])
@@ -1706,7 +1706,7 @@ class TestMeas:
         assert meas.feature is None
         meas.feature = "Area"
         assert meas.feature == "Area"
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeywordValueError):
             meas.feature = "under da curv"  # type: ignore
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
@@ -1722,7 +1722,9 @@ class TestMeas:
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     def test_optical_meas_type(self, meas: pf.Optical3_2) -> None:
         meas.measurement_type is None
-        new = "heavy metal kitten pix"
+        # maybe if I use enough caps, David Goggins will have mercy on my soul
+        # and my problems will magically go away
+        new = "TO THE THRESHOOOOOOOOLD!!!!!!!!!!"
         meas.measurement_type = new
         meas.measurement_type == new
         with pytest.raises(TypeError):
@@ -1737,7 +1739,7 @@ class TestMeas:
     @all_blank_meas
     def test_nonstandard(self, meas: AnyOptical) -> None:
         assert meas.nonstandard_keywords == {}
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.ParseKeyError):
             meas.nonstandard_keywords = {"$GOD": "MONEY"}
         k = "my bitwarden password"
         v0 = "SSBzb2xlbW5seSBzd2VhciBJIGFtIHVwIHRvIG5vIGdvb2QK"
@@ -1942,7 +1944,7 @@ class TestReadWrite:
         core.data = pl.DataFrame([ser])
         # this should fail because we are trying to write a non-integer float
         # as an integer
-        with pytest.RaisesGroup(pf.PyreflowException):
+        with pytest.RaisesGroup(pf.PyreflowError):
             core.write_dataset(p)
         with pytest.warns(pf.PyreflowWarning):
             core.write_dataset(p, skip_conversion_check=True)

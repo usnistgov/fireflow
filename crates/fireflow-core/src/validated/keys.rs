@@ -901,6 +901,7 @@ pub struct NonStdMeasRegexError {
 /// Error when parsing pairs of keys for configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 

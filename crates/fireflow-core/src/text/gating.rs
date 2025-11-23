@@ -34,7 +34,6 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::HashMap;
 use std::fmt;
-use std::iter::once;
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -1109,13 +1108,15 @@ impl GatedMeasurements {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = GatedMeasurementsLossError> {
-        let g = GatedMeasurementsLossError::Gate(UnitaryKeyLossError::default());
-        self.0
-            .iter()
+        let xs = &self.0;
+        let g = (!xs.is_empty()).then_some(GatedMeasurementsLossError::Gate(
+            UnitaryKeyLossError::default(),
+        ));
+        xs.iter()
             .enumerate()
             .flat_map(|(i, m)| m.loss_errors(i.into()))
             .map(GatedMeasurementsLossError::from)
-            .chain(once(g))
+            .chain(g)
     }
 }
 

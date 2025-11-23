@@ -6392,7 +6392,13 @@ impl DocArgParam {
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         let ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => once(disallow_range_truncation).collect(),
+            Some(Version::FCS3_1 | Version::FCS3_2) => [
+                allow_optional_dropping,
+                transfer_dropped_optional,
+                disallow_range_truncation,
+            ]
+            .into_iter()
+            .collect(),
             _ => [
                 allow_optional_dropping,
                 transfer_dropped_optional,

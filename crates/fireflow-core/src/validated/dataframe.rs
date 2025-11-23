@@ -45,7 +45,7 @@ pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
 
-#[derive(Clone, Copy, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub enum FCSDatatype {
     #[display("u8")]
     U08,
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn u16_to_u8() {
-        assert_eq!(u8::from_truncated(1_u16).lossy, None);
+        assert!(u8::from_truncated(1_u16).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u16),
             CastResult::new::<u16>(0xFF, true)
@@ -641,7 +641,7 @@ mod tests {
 
     #[test]
     fn u32_to_u8() {
-        assert_eq!(u8::from_truncated(1_u32).lossy, None);
+        assert!(u8::from_truncated(1_u32).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u32),
             CastResult::new::<u32>(0xFF, true)
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn u64_to_u8() {
-        assert_eq!(u8::from_truncated(1_u64).lossy, None);
+        assert!(u8::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u64),
             CastResult::new::<u64>(0xFF, true)
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn u32_to_u16() {
-        assert_eq!(u16::from_truncated(1_u32).lossy, None);
+        assert!(u16::from_truncated(1_u32).lossy.is_none());
         assert_eq!(
             u16::from_truncated(0x0001_0000_u32),
             CastResult::new::<u32>(0xFFFF, true)
@@ -668,7 +668,7 @@ mod tests {
 
     #[test]
     fn u64_to_u16() {
-        assert_eq!(u16::from_truncated(1_u64).lossy, None);
+        assert!(u16::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u16::from_truncated(0x0001_0000_u64),
             CastResult::new::<u64>(0xFFFF, true)
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn u64_to_u32() {
-        assert_eq!(u32::from_truncated(1_u64).lossy, None);
+        assert!(u32::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u32::from_truncated(0x0001_0000_0000_u64),
             CastResult::new::<u64>(0xFFFF_FFFF, true)

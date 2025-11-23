@@ -2004,15 +2004,16 @@ pub struct ElementIndexError {
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let len = self.index.len;
+        let x = usize::from(self.index.index);
         if let Some(c) = self.center.as_ref() {
             write!(
                 f,
-                "0-index must be 0 <= i < {} and not include center at {c}, got {}",
-                self.index.len,
-                usize::from(self.index.index)
+                "0-index must be 0 <= i < {len} and not \
+                 include center at {c}, got {x}",
             )
         } else {
-            self.index.fmt(f)
+            write!(f, "0-index must be 0 <= i < {len}, got {x}")
         }
     }
 }

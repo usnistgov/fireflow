@@ -37,7 +37,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
@@ -415,7 +414,7 @@ pub enum HeaderError {
 #[derive(Debug, Error)]
 #[error("version must be followed by 4 spaces")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct HeaderSpacesError;
 
 /// Error when validating segments in HEADER
@@ -430,12 +429,13 @@ pub enum HeaderValidationError {
 #[derive(Debug, Error)]
 #[error("{0} is within HEADER region")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
 /// Error when parsing FCS version
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {

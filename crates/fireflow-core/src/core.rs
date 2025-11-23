@@ -49,9 +49,9 @@ use crate::text::keywords::{
     Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
     DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
     Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier, Locationid, LogScale,
-    Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
-    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
+    Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError,
+    Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename,
+    Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
     TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters,
     UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
@@ -61,8 +61,8 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
-    InsertCenterError, InsertError, NameNotFoundError, NameMapping, NamedVec, NewNamedVecError,
-    NonCenterElement, NamePresentError, PushCenterError, RenameError, SetCenterError,
+    InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
+    NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
     SetElementsError, SetKeysError, SetNamesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
@@ -114,7 +114,6 @@ use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     pyo3::prelude::*,
 };
@@ -8463,7 +8462,7 @@ pub enum OpticalConvertWarning {
 #[derive(Debug, Error)]
 #[error("{0} is required in target version but missing in current version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 pub struct NameConversionError(Key1<Shortname>);
 
 /// Error when writing CoreDataset to file
@@ -8603,7 +8602,7 @@ pub enum InsertOpticalInDatasetError {
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
@@ -8613,14 +8612,14 @@ pub struct MeasDataMismatchError {
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct NonLinearTemporalScaleError;
 
 /// Error when attempting to set temporal $PnE/$PnG to non-unitary transform (3.0+)
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct NonLinearTemporalTransformError;
 
 /// Error when reading standardized TEXT from keyword pairs
@@ -8680,7 +8679,7 @@ pub enum StdDatasetFromRawWarning {
 #[derive(Debug, Error)]
 #[error("{} must be set before converting measurement", Scale::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 pub struct NoScaleError(MeasIndex);
 
 /// Error when replacing temporal measurement by index
@@ -8762,7 +8761,7 @@ pub enum OpticalToTemporalError {
 /// Error when optical measurement is non-unitary but is to be converted to temporal.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
     version: Version,
@@ -9226,17 +9225,18 @@ pub enum LookupModifiedDataError {
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct MissingTime(pub TimeMeasNamePattern);
 
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
+/// Error when non-indexed key would be lost upon conversion
 #[derive(Debug, Error, Display)]
 #[display(bound(T: Key))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: Key))]
 pub struct UnitaryKeyLossError<T>(pub Key0<T>);
 
@@ -9246,45 +9246,42 @@ impl<T> Default for UnitaryKeyLossError<T> {
     }
 }
 
+/// Error when indexed key would be lost upon conversion
 #[derive(Debug, Error, Display)]
 #[display(bound(T: IndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: IndexedKey))]
 pub struct IndexedKeyLossError<T>(pub Key1<T>);
 
+/// Error when bi-indexed key would be lost upon conversion
 #[derive(Debug, Error, Display)]
 #[display(bound(T: BiIndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 #[cfg_attr(feature = "python", bound(T: BiIndexedKey))]
 pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
-#[derive(Debug, Error)]
-#[error("number of columns is {this_len}, input should match but got {other_len}")]
-pub struct ColumnNumberError {
-    this_len: usize,
-    other_len: usize,
-}
-
+/// Error when $PnE is log and $PnG is not 1.0 or None
 #[derive(Debug, Error)]
 #[error(
     "could not make scale transform with log scale \
      '{scale}' and non-unit gain '{gain}'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
 }
 
+/// Error when $COMP does not have the same number of rows/columns as $PAR
 #[derive(Debug, Error)]
 #[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
@@ -9304,9 +9301,10 @@ def_group!(
     "attempted to assign incompatible optical and temporal measurement values"
 );
 
+/// Error when temporal type is assigned to optical measurement and vice versa.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct MeasMismatchError {
     key_is_optical: bool,
     index: MeasIndex,

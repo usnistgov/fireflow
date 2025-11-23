@@ -1136,7 +1136,6 @@ pub enum HeaderSegmentError<S> {
 
 /// Error when creating a new segment
 #[derive(Debug, Error)]
-// TODO better error choice?
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(T: Into<u64> + Copy))]

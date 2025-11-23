@@ -44,12 +44,9 @@ pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, Ind
 
 /// An error caused when parsing a required standard key
 #[derive(From, Display, Debug, Error)]
-#[cfg_attr(
-    feature = "python",
-    derive(AllIntoPyErr),
-    bound(E: Display),
-    bound(SpecificKey<T, I>: Display)
-)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Display))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub enum ReqKeyErrorInner<E, T, I> {
     /// Error due to parsing
     Parse(ParseKeyError<E, T, I>),
@@ -61,7 +58,7 @@ pub enum ReqKeyErrorInner<E, T, I> {
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
@@ -73,7 +70,7 @@ pub struct ParseKeyError<E, T, I> {
 #[derive(Debug, Error)]
 #[error("missing required key: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 

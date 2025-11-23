@@ -607,9 +607,11 @@ impl<T> KeyOrStringPatterns<T> {
         })
     }
 
-    fn try_from_patterns(xs: impl IntoIterator<Item = (String, T)>) -> Result<Self, regex::Error> {
+    fn try_from_patterns(xs: impl IntoIterator<Item = (String, T)>) -> Result<Self, KeyRegexError> {
         Self::try_from_iter(xs, |k| {
-            k.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)
+            k.parse::<CaseInsRegex>()
+                .map(KeyStringOrPattern::Pattern)
+                .map_err(KeyRegexError)
         })
     }
 
@@ -786,7 +788,8 @@ impl ParsedKeywords {
 
 /// Error when parsing standard key
 #[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub enum StdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -798,7 +801,8 @@ pub enum StdKeyError {
 
 /// Error when parsing nonstandard key
 #[derive(From, PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub enum NonStdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -808,7 +812,8 @@ pub enum NonStdKeyError {
 
 /// Error when parsing key as ASCII-only string
 #[derive(PartialEq, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),
@@ -818,11 +823,18 @@ pub enum AsciiStringError {
 
 /// Error when parsing literal keys or pattern strings for configuration
 #[derive(Debug, Display, From, PartialEq, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeyOrStringPatternsError {
-    Regexp(regex::Error),
+    Regexp(KeyRegexError),
     Ascii(AsciiStringError),
 }
+
+#[derive(Debug, Display, From, PartialEq, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// TODO technically this is a pattern error if we want to stick with python's
+// error conventions for regexp
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
+pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into (non)standard hash table
 #[derive(Debug, Display, From, PartialEq, Error)]
@@ -835,7 +847,8 @@ pub enum KeywordInsertError {
 
 /// Error when key has blank value
 #[derive(Debug, PartialEq, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub struct BlankValueError(pub Vec<u8>);
 
 impl fmt::Display for BlankValueError {
@@ -851,7 +864,8 @@ impl fmt::Display for BlankValueError {
 /// Error when key is already present in hash table.
 #[derive(Debug, PartialEq, Error, new)]
 #[error("key '{key}' already present, has value '{value}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 #[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
     pub key: T,
@@ -867,7 +881,9 @@ pub type NonStdPresent = KeyPresent<NonStdKey>;
     "non standard measurement pattern must not \
      start with '$' and should have one '%n', found '{0}'"
 )]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// TODO what exception for this
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub struct NonStdMeasPatternError(String);
 
 /// Error when converting `NonStdMeasPatternError` to regular expression
@@ -875,7 +891,8 @@ pub struct NonStdMeasPatternError(String);
 #[error("regexp error for measurement {index}: {error}")]
 // TODO this error is weird because it pertains to the downstream value
 // of a regex given in the config
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]
@@ -885,6 +902,7 @@ pub struct NonStdMeasRegexError {
 /// Error when parsing pairs of keys for configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
+// TODO what error for this?
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 

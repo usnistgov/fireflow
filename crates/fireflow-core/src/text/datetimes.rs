@@ -17,10 +17,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {
-    crate::python as py,
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
-};
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Default, AsRef, PartialEq)]
@@ -179,7 +176,7 @@ impl FromStr for FCSDateTime {
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct ReversedDatetimesError;
 
 #[derive(Debug, Error)]

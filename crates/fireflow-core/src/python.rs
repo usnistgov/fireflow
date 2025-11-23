@@ -24,6 +24,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    ParseKeyError,
+    PyreflowException,
+    "Exception caused by parsing a standard or nonstandard key from string"
+);
+
+create_exception!(
+    _pyreflow,
     ParseKeywordValueError,
     PyreflowException,
     "Exception caused by parsing a keyword from a string to its native type"

@@ -77,9 +77,10 @@ newtype_index!(
 );
 
 /// Error when index referring to position of elements is out of range.
-#[derive(Debug, Error, new)]
-#[error("0-index must be 0 <= i < {len}, got {x}", x = usize::from(self.index))]
-pub struct IndexError {
+///
+/// Used internally for creating more specific errors
+#[derive(Debug, new)]
+pub(crate) struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }

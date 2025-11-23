@@ -236,7 +236,8 @@ impl FromStr for Spillover {
 
 /// Error when building a new $SPILLOVER value
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum NewSpilloverError {
     #[error("Matrix is not square")]
     NonSquare,

@@ -36,5 +36,6 @@ impl FromStr for NonEmptyString {
 /// Error when string is empty which is not supposed to be empty
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub struct NonEmptyStringError;

@@ -10,7 +10,6 @@ use num_traits::ops::checked::CheckedSub;
 use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -230,13 +229,6 @@ impl TryFrom<i128> for UintSpacePad8 {
     }
 }
 
-#[derive(Display, From, Debug, Error)]
-pub enum ParseFixedUintError {
-    Int(ParseIntError),
-    NotAscii(BytesNotAscii),
-    Negative(NegativeOffsetError),
-}
-
 impl TryFrom<u64> for UintSpacePad8 {
     type Error = Uint8DigitOverflow;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
@@ -252,15 +244,6 @@ impl TryFrom<u64> for UintSpacePad8 {
     }
 }
 
-impl FromStr for UintSpacePad8 {
-    type Err = ParseUint8DigitError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let x = s.parse::<u64>().map_err(ParseUint8DigitError::Int)?;
-        x.try_into().map_err(ParseUint8DigitError::Overflow)
-    }
-}
-
 pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     if xs.is_ascii() {
         // SAFETY: we just checked that all bytes are ASCII
@@ -270,11 +253,14 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     }
 }
 
-/// Error when parsing 8-digit unsigned integer
-#[derive(Display, From)]
-pub enum ParseUint8DigitError {
-    Overflow(Uint8DigitOverflow),
+/// Error when parsing fixed unsigned integer from ASCII
+///
+/// Used internally to create other errors
+#[derive(Display, From, Debug)]
+pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
+    NotAscii(BytesNotAscii),
+    Negative(NegativeOffsetError),
 }
 
 /// Error when unsigned integer exceeds 8 digits

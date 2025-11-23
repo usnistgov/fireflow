@@ -42,10 +42,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {
-    crate::python as py,
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
-};
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -1197,7 +1194,7 @@ pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
 /// should lead to this error.
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 #[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
 pub struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
     IndexedError<AnyIndexForRegionError<I>>,
@@ -1354,7 +1351,7 @@ pub enum LookupAppliedGatesError<E> {
 #[derive(Debug, Error)]
 #[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 /// Error when parsing $GATING/$RnI/$RnW keywords
@@ -1380,7 +1377,7 @@ pub enum LookupRegionError<E> {
 /// Error when $RnI and $RnW keywords mismatch
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub enum IndexWindowMismatchError {
     #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
     Both(RegionIndex),

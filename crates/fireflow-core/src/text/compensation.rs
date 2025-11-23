@@ -181,7 +181,8 @@ impl Compensation {
 
 /// Error when making new compensation matrix from any float matrix.
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum NewCompError {
     #[error("compensation matrix must be square")]
     NotSquare,

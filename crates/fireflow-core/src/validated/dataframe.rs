@@ -13,8 +13,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py, crate::validated::shortname::Shortname,
-    fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
+    crate::validated::shortname::Shortname, fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
 };
 
 /// A dataframe without NULL and only types that make sense for FCS files.
@@ -197,17 +196,15 @@ impl AnyFCSColumn {
 /// Error when building a new dataframe from individual columns
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
-// TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct NewDataframeError;
 
 /// Error when new column has number of rows which are not equal to that of dataframe
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
-// TODO not sure about this exception
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,

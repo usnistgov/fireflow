@@ -210,7 +210,7 @@ pub enum AsciiRangeFromKeywordsError {
 /// Error when $PnB could not be converted to number of characters
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct IndexedWidthToCharsError(IndexedError<WidthToFixedError<CharsError>>);
 
 impl fmt::Display for IndexedWidthToCharsError {
@@ -237,7 +237,7 @@ impl fmt::Display for IndexedWidthToCharsError {
     b = _0.error.chars,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
 /// Error when creating `OtherWidth` for configuration struct

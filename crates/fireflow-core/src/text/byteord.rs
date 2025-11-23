@@ -16,7 +16,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
+use fireflow_core_proc::DisplayAsPyErr;
 
 use super::lookup::ReqMetarootKey;
 
@@ -414,8 +414,8 @@ impl fmt::Display for PrivBytes {
 /// Error when making a new byte order of some size from a sequence of digits.
 #[derive(Debug, Error)]
 #[error("byte order must include 1-{0} uniquely")]
-// TODO not sure about this exception
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct NewByteOrdError(usize);
 
 /// Error when parsing Endian from string
@@ -427,15 +427,14 @@ pub struct NewEndianError;
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionException))]
 pub struct OrderedToEndianError;
 
 /// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
 #[derive(Debug, Error, new)]
-// TODO probably wrong exception type
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionException))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalException))]
 pub struct ByteOrdToSizedError {
     bytes: PrivBytes,
     length: usize,

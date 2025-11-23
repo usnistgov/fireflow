@@ -62,7 +62,8 @@ impl_ranged_float!(NonNegFloat, <=, true);
 
 /// Error when parsing string to float with restricted range
 #[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },

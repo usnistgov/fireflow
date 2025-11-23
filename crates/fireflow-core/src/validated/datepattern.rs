@@ -44,7 +44,8 @@ impl FromStr for DatePattern {
     "date pattern must contain specifier for year (%y or %Y), \
      month (%m, %b, or %B), and day (%d or %e), got {0}"
 )]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct DatePatternError(String);
 
 // TODO property tests would likely be useful here

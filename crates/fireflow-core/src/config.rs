@@ -852,8 +852,8 @@ impl FromStr for TemporalOpticalKey {
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
      'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
 )]
-// TODO which python error
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {

@@ -242,10 +242,9 @@ pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
 /// Error when creating `OtherWidth` for configuration struct
 #[derive(Debug, Error)]
-// TODO what python error?
 #[error("OTHER width should be integer b/t 1 and 20, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(PyValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct OtherWidthError(u8);
 
 /// Error when $PnR exceeds number of characters allowed by $PnB.

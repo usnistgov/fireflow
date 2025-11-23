@@ -813,7 +813,9 @@ pub enum NonStdKeyError {
 /// Error when parsing key as ASCII-only string
 #[derive(PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+// NOTE this python exception is overridden for standard key lookups above,
+// this error is also used for constructing keys in the configuration struct
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),
@@ -833,7 +835,7 @@ pub enum KeyOrStringPatternsError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 // TODO technically this is a pattern error if we want to stick with python's
 // error conventions for regexp
-#[cfg_attr(feature = "python", pyerr(PyValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into (non)standard hash table
@@ -882,17 +884,14 @@ pub type NonStdPresent = KeyPresent<NonStdKey>;
      start with '$' and should have one '%n', found '{0}'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// TODO what exception for this
-#[cfg_attr(feature = "python", pyerr(PyValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasPatternError(String);
 
 /// Error when converting `NonStdMeasPatternError` to regular expression
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
-// TODO this error is weird because it pertains to the downstream value
-// of a regex given in the config
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(PyValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]
@@ -902,8 +901,7 @@ pub struct NonStdMeasRegexError {
 /// Error when parsing pairs of keys for configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
-// TODO what error for this?
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 fn is_printable_ascii(xs: &[u8]) -> bool {

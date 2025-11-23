@@ -143,7 +143,8 @@ impl FromStr for TimePattern {
      %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
      corresponds to centiseconds; got {0}"
 )]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TimePatternError(String);
 
 /// Error when parsing a string to a timestamp using time pattern

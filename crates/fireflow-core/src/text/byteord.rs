@@ -516,8 +516,8 @@ mod python {
 
     #[derive(Debug, Error)]
     #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
-    // TODO not sure about this exception
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
     pub struct VecToArrayError {
         vec_len: usize,
         req_len: usize,

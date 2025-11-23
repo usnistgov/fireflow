@@ -959,7 +959,7 @@ pub(crate) mod python {
     }
 
     #[derive(DisplayAsPyErr)]
-    #[pyerr(PyValueError)]
+    #[pyerr(crate::python::EventDataError)]
     pub enum SeriesToColumnError {
         InvalidDatatype(PlSmallStr, DataType),
         HasNull(PlSmallStr),

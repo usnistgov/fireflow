@@ -87,6 +87,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    ConfigError,
+    PyreflowException,
+    "Exception caused by invalid values for configuration"
+);
+
+create_exception!(
+    _pyreflow,
     PyreflowWarning,
     PyWarning,
     "Warning created by internal pyreflow."

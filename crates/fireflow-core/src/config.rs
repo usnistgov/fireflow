@@ -846,6 +846,7 @@ impl FromStr for TemporalOpticalKey {
     }
 }
 
+/// Error when creating a `TemporalOpticalKey` from string
 #[derive(Debug, Error)]
 #[error(
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \

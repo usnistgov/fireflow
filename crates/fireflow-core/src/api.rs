@@ -35,7 +35,7 @@ use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
-    StdKeywords, ValidKeywords,
+    StdKeywords, StdPresent, ValidKeywords,
 };
 
 use derive_more::{Display, From};
@@ -335,6 +335,7 @@ pub struct RawTEXTParseData {
     pub byte_pairs: BytesPairs,
 }
 
+/// Warning when parsing TEXT in standard mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
@@ -342,6 +343,7 @@ pub enum StdTEXTWarning {
     Std(StdTEXTFromRawWarning),
 }
 
+/// Error when parsing TEXT in standard mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
@@ -350,6 +352,7 @@ pub enum StdTEXTError {
     Warn(StdTEXTWarning),
 }
 
+/// Warning when parsing TEXT+DATA in standard mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
@@ -357,6 +360,7 @@ pub enum StdDatasetWarning {
     Std(StdDatasetFromRawWarning),
 }
 
+/// Error when parsing TEXT+DATA in standard mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
@@ -365,6 +369,7 @@ pub enum StdDatasetError {
     Warn(StdDatasetWarning),
 }
 
+/// Warning when parsing TEXT+DATA in raw mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetWarning {
@@ -372,6 +377,7 @@ pub enum RawDatasetWarning {
     Read(LookupAndReadDataAnalysisWarning),
 }
 
+/// Warning when parsing TEXT+DATA in standard mode
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetError {
@@ -380,16 +386,7 @@ pub enum RawDatasetError {
     Warn(RawDatasetWarning),
 }
 
-#[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ParseRawTEXTWarning {
-    Char(DelimCharError),
-    Keywords(ParseKeywordsIssue),
-    SuppOffsets(STextSegmentWarning),
-    Nextdata(OptKeyError<Nextdata>),
-    Nonstandard(NonstandardError),
-}
-
+/// Error when parsing HEADER or TEXT segments
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrRawError {
@@ -398,6 +395,7 @@ pub enum HeaderOrRawError {
     Warn(ParseRawTEXTWarning),
 }
 
+/// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
@@ -405,23 +403,36 @@ pub enum STextSegmentError {
     Dup(DuplicatedSuppTEXT),
 }
 
+/// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
 #[derive(From, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentWarning {
-    ReqSegment(ReqSegmentError<Beginstext, Endstext>),
     OptSegment(OptSegmentError<Beginstext, Endstext>),
-    Dup(DuplicatedSuppTEXT),
+    Error(STextSegmentError),
 }
 
+/// Error when primary and supplemental TEXT offsets are equal
 #[derive(Debug, Error)]
-#[error("primary and supplemental TEXT are duplicated")]
+#[error("primary and supplemental TEXT offsets are the same")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DuplicatedSuppTEXT;
 
+/// Warning when parsing TEXT segment
 #[derive(From, Display)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseRawTEXTWarning {
+    Char(DelimCharError),
+    Primary(ParseKeywordsIssue),
+    Supplemental(ParseSupplementalTEXTError),
+    SuppOffsets(STextSegmentWarning),
+    Nextdata(OptKeyError<Nextdata>),
+    AppendSupp(StdPresent),
+}
+
+/// Error when parsing TEXT segment
+#[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseRawTEXTError {
     Delim(DelimVerifyError),
     Primary(ParsePrimaryTEXTError),
@@ -430,53 +441,90 @@ pub enum ParseRawTEXTError {
     Nextdata(ReqKeyError<Nextdata>),
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
-    Nonstandard(NonstandardError),
     Header(HeaderValidationError),
+    AppendSupp(StdPresent),
 }
 
+/// Error when parsing primary TEXT
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParsePrimaryTEXTError {
+    Keywords(ParseKeywordsIssue),
+    Empty(NoTEXTWordsError),
+}
+
+/// Error when parsing supplemental TEXT
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseSupplementalTEXTError {
+    Keywords(ParseKeywordsIssue),
+    Mismatch(DelimMismatch),
+}
+
+/// Error when extracting keywords from TEXT segment (primary or supplemental)
+#[derive(Display, From, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseKeywordsIssue {
+    BlankKey(BlankKeyError),
+    BlankValue(BlankValueError),
+    Uneven(UnevenWordsError),
+    Final(FinalDelimError),
+    EvenFinal(EvenFinalDelimError),
+    Insert(KeywordInsertError),
+    Bound(DelimBoundError),
+}
+
+/// Error when verifying TEXT delimiter
 #[derive(From, Display)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DelimVerifyError {
     Empty(EmptyTEXTError),
     Char(DelimCharError),
 }
 
+/// Error when TEXT delimiter is not ASCII
 #[derive(Debug, Error)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimCharError(u8);
 
+/// Error when primary TEXT segment is empty
 #[derive(Debug, Error)]
 #[error("Primary TEXT segment is empty")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct EmptyTEXTError;
 
+/// Error when primary TEXT segment only has a delimiter
 #[derive(Debug, Error)]
 #[error("Primary TEXT has a delimiter and no words")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NoTEXTWordsError;
 
+/// Error when blank key is encounter in TEXT
 #[derive(Debug, Error)]
 #[error("encountered blank key in {0} TEXT, skipping key and its value")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct BlankKeyError(TEXTKind);
 
+/// Error when number of words in TEXT is not even
 #[derive(Debug, Error)]
 #[error("{0} TEXT segment has uneven number of words")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct UnevenWordsError(TEXTKind);
 
-#[derive(Debug, new)]
+/// Error when final character in TEXT is not a delimiter
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct FinalDelimError {
     kind: TEXTKind,
     bytes: NonEmpty<u8>,
 }
-
-// this can only happen in escaped TEXT
-#[derive(Debug, Error)]
-#[error("Primary TEXT ends with an even number of delimiters and thus are all escaped")]
-pub struct EvenFinalDelimError;
-
-// this can only happen in escaped TEXT
-#[derive(Debug, Error)]
-#[error("delimiter encountered at word boundary in Primary TEXT")]
-pub struct DelimBoundError;
 
 #[derive(Clone, Copy, Debug, Display)]
 pub enum TEXTKind {
@@ -486,58 +534,101 @@ pub enum TEXTKind {
     Supplemental,
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum ParsePrimaryTEXTError {
-    Keywords(ParseKeywordsIssue),
-    Empty(NoTEXTWordsError),
+impl fmt::Display for FinalDelimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        const MAX_FINAL_BYTES: usize = 20;
+        let n = self.bytes.len();
+        let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
+        let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
+            ("string", format!("'{s}'"))
+        } else {
+            ("bytestring", xs.iter().join(","))
+        };
+        let cont = if let Some(diff) = n
+            .checked_sub(MAX_FINAL_BYTES)
+            .and_then(|x| NonZeroUsize::try_from(x).ok())
+        {
+            format!(" ({diff} more)")
+        } else {
+            String::new()
+        };
+        write!(
+            f,
+            "{} TEXT does not end with delim; ends with {what} of length {n}: \
+             {s}{cont}",
+            self.kind
+        )
+    }
 }
 
-#[derive(Display, From, Debug, Error)]
+/// Error when TEXT ends with even number of delimiters
+///
+/// This can only happen in escaped TEXT
+#[derive(Debug, Error)]
+#[error("Primary TEXT ends with an even number of delimiters and thus are all escaped")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub enum ParseKeywordsIssue {
-    BlankKey(BlankKeyError),
-    BlankValue(BlankValueError),
-    Uneven(UnevenWordsError),
-    Final(FinalDelimError),
-    EvenFinal(EvenFinalDelimError),
-    Insert(KeywordInsertError),
-    Bound(DelimBoundError),
-    // this is only for supp TEXT but seems less wasteful/convoluted to put here
-    Mismatch(DelimMismatch),
-}
+pub struct EvenFinalDelimError;
 
-#[derive(From, Display, Debug, Error)]
-pub enum ParseSupplementalTEXTError {
-    Keywords(ParseKeywordsIssue),
-    Mismatch(DelimMismatch),
-}
+/// Error when delimiter is found at word boundary.
+///
+/// This can only happen in escaped TEXT
+#[derive(Debug, Error)]
+#[error("delimiter encountered at word boundary in Primary TEXT")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct DelimBoundError;
 
+/// Error when delimiter of supplemental TEXT does not match primary TEXT
 #[derive(Debug, Clone, Error, new)]
 #[error(
     "first byte of supplemental TEXT ({supp}) does not match \
      delimiter of primary TEXT ({delim})"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimMismatch {
     supp: u8,
     delim: u8,
 }
 
+/// Error when non-ASCII key is encounter when parsing TEXT
 #[derive(Debug, Clone, Error)]
 #[error("non-ASCII key encountered and dropped: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NonAsciiKeyError(String);
 
+/// Error when key or value with invalid UTF-8 characters is encountered
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NonUtf8KeywordError {
     key: Vec<u8>,
     value: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Error)]
-#[error("nonstandard keywords detected")]
-// TODO use better error class here
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct NonstandardError;
+impl fmt::Display for NonUtf8KeywordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = 20;
+        let go = |xs: &Vec<u8>| {
+            let s = xs
+                .iter()
+                .take(n + 1)
+                .copied()
+                .map(char::from)
+                .collect::<String>();
+            truncate_string(s.as_str(), n)
+        };
+        write!(
+            f,
+            "non UTF-8 key/value pair encountered and dropped, \
+             first {n} chars of both as Latin-1 are '{}' and '{}'",
+            go(&self.key),
+            go(&self.value),
+        )
+    }
+}
 
 #[allow(clippy::type_complexity)]
 fn read_fcs_raw_text_inner<C>(
@@ -764,11 +855,8 @@ where
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
-                .map_switchable_errors(KeywordInsertError::from)
-                .map_switchable_errors(ParseKeywordsIssue::from)
                 .switchable_into_commutative()
                 .map_commutative_warnings(ParseRawTEXTWarning::from)
-                .map_errors(ParsePrimaryTEXTError::from)
                 .map_errors(ParseRawTEXTError::from);
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
@@ -816,11 +904,10 @@ fn h_read_raw_supp_text<R: Read + Seek>(
     buf: &mut Vec<u8>,
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndIOGroupResult<(), ParseKeywordsIssue, ParseSupplementalTEXTError, ()> {
+) -> WarningsAndIOGroupResult<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError, ()> {
     if let Some(seg) = maybe_seg {
         io_to_log!(seg.h_read_contents(h, buf));
         split_raw_supp_text(kws, delim, buf, conf)
-            .map_commutative_warnings(ParseKeywordsIssue::from)
             .group()
             .map_error(IOErrorGroup::Pure)
     } else {
@@ -863,14 +950,14 @@ fn split_raw_supp_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParseSupplementalTEXTError> {
+) -> DeferredWarningsAndErrors<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+            .map_warnings_and_errors(ParseSupplementalTEXTError::from)
             .eval_deferred_warning_or_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
             })
-            .map_errors(ParseSupplementalTEXTError::from)
     } else {
         // if empty do nothing, this is expected for most files
         LogResult::new_ok(())
@@ -1136,8 +1223,8 @@ where
                     let flag = conf.allow_missing_supp_text;
                     SwitchableErrorsResult::new_deferred_switchable(None, e0, flag)
                         .extend_deferred_switchable_errors(e1)
+                        .map_switchable_errors(STextSegmentError::from)
                         .switchable_into_commutative()
-                        .map_errors(STextSegmentError::from)
                         .map_commutative_warnings(STextSegmentWarning::from)
                 }
             }
@@ -1161,8 +1248,8 @@ where
                 let flag = conf.allow_duplicated_supp_text;
                 // TODO why return None?
                 SwitchableErrorsResult::new_deferred_switchable(None, DuplicatedSuppTEXT, flag)
+                    .map_switchable_errors(STextSegmentError::from)
                     .switchable_into_commutative()
-                    .map_errors(STextSegmentError::from)
                     .map_commutative_warnings(STextSegmentWarning::from)
             } else {
                 LogResult::new_ok(Some(seg))
@@ -1240,55 +1327,6 @@ impl RawTEXTParseData {
         } else {
             LogResult::new_ok(())
         }
-    }
-}
-
-impl fmt::Display for FinalDelimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        const MAX_FINAL_BYTES: usize = 20;
-        let n = self.bytes.len();
-        let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
-        let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
-            ("string", format!("'{s}'"))
-        } else {
-            ("bytestring", xs.iter().join(","))
-        };
-        let cont = if let Some(diff) = n
-            .checked_sub(MAX_FINAL_BYTES)
-            .and_then(|x| NonZeroUsize::try_from(x).ok())
-        {
-            format!(" ({diff} more)")
-        } else {
-            String::new()
-        };
-        write!(
-            f,
-            "{} TEXT does not end with delim; ends with {what} of length {n}: \
-             {s}{cont}",
-            self.kind
-        )
-    }
-}
-
-impl fmt::Display for NonUtf8KeywordError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = 20;
-        let go = |xs: &Vec<u8>| {
-            let s = xs
-                .iter()
-                .take(n + 1)
-                .copied()
-                .map(char::from)
-                .collect::<String>();
-            truncate_string(s.as_str(), n)
-        };
-        write!(
-            f,
-            "non UTF-8 key/value pair encountered and dropped, \
-             first {n} chars of both as Latin-1 are '{}' and '{}'",
-            go(&self.key),
-            go(&self.value),
-        )
     }
 }
 

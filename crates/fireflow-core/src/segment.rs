@@ -1139,6 +1139,8 @@ pub struct SegmentError<T> {
 
 #[derive(Debug, Error)]
 #[error("{seg0} overlaps with {seg1}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct SegmentOverlapError {
     seg0: GenericSegment,
     seg1: GenericSegment,

@@ -38,7 +38,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     crate::python as py,
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
 
@@ -413,6 +413,7 @@ pub enum HeaderError {
 }
 
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderValidationError {
     Overlap(SegmentOverlapError),
     InHeader(InHeaderError),
@@ -420,6 +421,8 @@ pub enum HeaderValidationError {
 
 #[derive(Debug, Error)]
 #[error("{0} is within HEADER region")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
 #[derive(Debug, Error)]

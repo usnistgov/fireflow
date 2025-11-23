@@ -27,7 +27,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
 
@@ -826,6 +826,7 @@ pub enum KeyOrStringPatternsError {
 
 /// Error when parsed keyword cannot be inserted into (non)standard hash table
 #[derive(Debug, Display, From, PartialEq, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
@@ -834,6 +835,7 @@ pub enum KeywordInsertError {
 
 /// Error when key has blank value
 #[derive(Debug, PartialEq, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct BlankValueError(pub Vec<u8>);
 
 impl fmt::Display for BlankValueError {
@@ -849,6 +851,8 @@ impl fmt::Display for BlankValueError {
 /// Error when key is already present in hash table.
 #[derive(Debug, PartialEq, Error, new)]
 #[error("key '{key}' already present, has value '{value}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
+#[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
     pub key: T,
     pub value: String,

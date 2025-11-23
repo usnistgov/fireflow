@@ -183,15 +183,21 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 }
 
-// NOTE this Display message is concated into larger message in
-// data::InsertRangeError, consult this enum first before changing
-#[derive(Debug, Display)]
-#[display("{value} cannot fit into {bytes} bytes")]
-pub struct BitmaskTruncationError {
+/// Error when integer from $PnR must be truncated to fit into desired byte width.
+///
+/// This only occurs when attempting to bitmask a native type to a number of
+/// bytes which is not a power of two (for instance, u32 to 3 bytes).  If $PnR
+/// is bigger than the native type itself, this is different error.
+///
+/// This error is meant for internal use and converted to other errors which
+/// add context.
+#[derive(Debug)]
+pub(crate) struct BitmaskTruncationError {
     pub(crate) bytes: PrivBytes,
     pub(crate) value: u64,
 }
 
+/// Error when integer is truncated using a bitmask which results in data loss
 #[derive(Clone, Copy, Debug, Display)]
 #[display("integer value truncated to {_0}")]
 pub(crate) struct BitmaskLossError(pub u64);

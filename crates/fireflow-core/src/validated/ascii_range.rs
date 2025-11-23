@@ -21,6 +21,8 @@ use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The type of an ASCII column in all versions
 ///
+/// This represents the value of $PnB and $PnR for one measurement.
+///
 /// Fields are private to guarantee they are always in sync.
 #[derive(PartialEq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -196,10 +198,7 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
-#[derive(Debug, Display)]
-#[display("bits must be <= 20 to be used as number of characters, got {_0}")]
-pub(crate) struct CharsError(u8);
-
+/// Error when creating `AsciiRange` ($PnB and $PnR for one index)
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AsciiRangeFromKeywordsError {
@@ -208,6 +207,7 @@ pub enum AsciiRangeFromKeywordsError {
     Range(IndexedRangeToAsciiError),
 }
 
+/// Error when $PnB could not be converted to number of characters
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
@@ -227,6 +227,7 @@ impl fmt::Display for IndexedWidthToCharsError {
     }
 }
 
+/// Error when $PnR exceeds number of characters allowed by $PnB.
 #[derive(Debug, Error)]
 #[error(
     "{pnr} ({r}) is longer than {b} digits allowed by {pnb}",
@@ -239,18 +240,30 @@ impl fmt::Display for IndexedWidthToCharsError {
 #[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
-#[derive(Debug)]
-pub(crate) struct NotEnoughCharsError {
-    chars: Chars,
-    value: u64,
-}
-
+/// Error when creating `OtherWidth` for configuration struct
 #[derive(Debug, Error)]
 // TODO what python error?
 #[error("OTHER width should be integer b/t 1 and 20, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub struct OtherWidthError(u8);
+
+/// Error when $PnR exceeds number of characters allowed by $PnB.
+///
+/// This is not meant for external use since it is more useful when index is
+/// provided as context.
+#[derive(Debug)]
+pub(crate) struct NotEnoughCharsError {
+    chars: Chars,
+    value: u64,
+}
+
+/// Error when converting $PnB to number of characters.
+///
+/// This is a helper type meant to be used in making more specific errors.
+#[derive(Debug, Display)]
+#[display("bits must be <= 20 to be used as number of characters, got {_0}")]
+pub(crate) struct CharsError(u8);
 
 #[cfg(test)]
 mod tests {

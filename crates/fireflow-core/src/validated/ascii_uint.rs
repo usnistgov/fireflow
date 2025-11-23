@@ -270,21 +270,25 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     }
 }
 
+/// Error when parsing 8-digit unsigned integer
 #[derive(Display, From)]
 pub enum ParseUint8DigitError {
     Overflow(Uint8DigitOverflow),
     Int(ParseIntError),
 }
 
+/// Error when unsigned integer exceeds 8 digits
 #[derive(Debug, Error)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyOverflowError))]
 pub struct Uint8DigitOverflow(u64);
 
+/// Error when parsing integer from ASCII with invalid ASCII characters
 #[derive(Debug, Error)]
 #[error("could not convert to ASCII string: {0:?}")]
 pub struct BytesNotAscii(Vec<u8>);
 
+/// Error when offsets in HEADER are negative (this happens for some reason)
 #[derive(Debug, Error)]
 #[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i32);

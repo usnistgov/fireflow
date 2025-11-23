@@ -179,6 +179,7 @@ impl AnyFCSColumn {
     }
 }
 
+/// Error when building a new dataframe from individual columns
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
 // TODO not sure about this exception
@@ -186,6 +187,7 @@ impl AnyFCSColumn {
 #[cfg_attr(feature = "python", pyerr(py::RelationalException))]
 pub struct NewDataframeError;
 
+/// Error when new column has number of rows which are not equal to that of dataframe
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 // TODO not sure about this exception
@@ -203,14 +205,14 @@ impl FCSDataFrame {
         let mut it = columns.into_iter();
         if let Some(c0) = it.by_ref().next() {
             let nrows = c0.len();
-            let mut columns = vec![c0];
+            let mut cs = vec![c0];
             for c in it {
                 if c.len() != nrows {
                     return Err(NewDataframeError);
                 }
-                columns.push(c);
+                cs.push(c);
             }
-            Ok(Self::new(columns, nrows))
+            Ok(Self::new(cs, nrows))
         } else {
             Ok(Self::default())
         }
@@ -395,12 +397,14 @@ where
     }
 }
 
+/// Error when value in dataframe loses information (type conversion or something else)
 #[derive(Clone, Copy, Display, Debug, Error)]
 pub enum LossError<E> {
     Cast(#[from] CastError),
     Other(E),
 }
 
+/// Error when value in dataframe loses information due to type conversion
 #[derive(Clone, Copy, Debug, Error)]
 #[error("data loss occurred when converting from {from} to {to}")]
 pub struct CastError {

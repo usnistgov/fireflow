@@ -449,15 +449,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::get_opt(kws, SpecificKey::default())
     }
 
-    fn get_or_ignore_root_opt(
-        kws: &StdKeywords,
-        conf: &ReadLayoutConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
-    where
-        Self: FromStr,
-    {
-        Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
-    }
+    // fn get_or_ignore_root_opt(
+    //     kws: &StdKeywords,
+    //     conf: &ReadLayoutConfig,
+    // ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
+    // }
 
     fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
@@ -538,15 +538,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
 
 /// Any optional key with an index
 pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
-    fn get_meas_opt(
-        kws: &StdKeywords,
-        i: impl Into<IndexFromOne>,
-    ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
-    where
-        Self: FromStr,
-    {
-        Self::get_opt(kws, SpecificKey::new_i1(i.into()))
-    }
+    // fn get_meas_opt(
+    //     kws: &StdKeywords,
+    //     i: impl Into<IndexFromOne>,
+    // ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::get_opt(kws, SpecificKey::new_i1(i.into()))
+    // }
 
     fn get_or_ignore_meas_opt(
         kws: &StdKeywords,

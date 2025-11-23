@@ -298,8 +298,13 @@ where
     let data_cor = conf.data_correction;
     let anal_cor = conf.analysis_correction;
 
-    let vers_res = split_io!(Version::h_read(h)).ungroup();
-    let space_res = split_io!(h_read_spaces(h)).ungroup();
+    let vers_res = split_io!(Version::h_read(h))
+        .ungroup()
+        .map_errors(HeaderError::from);
+    let space_res = split_io!(h_read_spaces(h))
+        .ungroup()
+        .map_errors(HeaderError::from);
+
     let text_res = split_io!(HeaderSegment::h_read_primary(h, false, text_cor, st)).ungroup();
     let data_res = split_io!(HeaderSegment::h_read_primary(h, true, data_cor, st)).ungroup();
     let anal_res = split_io!(HeaderSegment::h_read_primary(h, true, anal_cor, st)).ungroup();
@@ -308,7 +313,6 @@ where
         .zip3_commutative(data_res, anal_res)
         .map_errors(HeaderError::from);
     vers_res
-        .map_errors(HeaderError::from)
         .zip3_commutative(space_res, offset_res)
         .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
         .group()
@@ -316,13 +320,13 @@ where
         .map_err(IOErrorGroup::Pure)
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderError, ()> {
+fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderSpacesError, ()> {
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
         Ok(())
     } else {
-        Err(IOErrorGroup::new_pure_one(HeaderError::Space))
+        Err(IOErrorGroup::new_pure_one(HeaderSpacesError))
     }
 }
 
@@ -396,22 +400,25 @@ impl str::FromStr for Version {
     }
 }
 
-#[derive(From, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+/// Error when parsing HEADER segment
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
-    #[error("{0}")]
     Primary(PrimarySegmentError),
-    #[error("{0}")]
     Other(OtherSegmentError),
-    #[error("{0}")]
     Version(VersionError),
-    #[error("{0}")]
     Validation(HeaderValidationError),
-    #[error("version must be followed by 4 spaces")]
-    Space,
+    Space(HeaderSpacesError),
 }
 
+/// Error when version is not follow by proper number of spaces in HEADER
+#[derive(Debug, Error)]
+#[error("version must be followed by 4 spaces")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct HeaderSpacesError;
+
+/// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderValidationError {
@@ -419,12 +426,14 @@ pub enum HeaderValidationError {
     InHeader(InHeaderError),
 }
 
+/// Error when a non-empty segment occurs within the first 58 bytes of the file.
 #[derive(Debug, Error)]
 #[error("{0} is within HEADER region")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
+/// Error when parsing FCS version
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct VersionError(Vec<u8>);

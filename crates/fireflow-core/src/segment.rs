@@ -19,7 +19,6 @@ use crate::validated::keys::{Key, StdKeywords};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
@@ -131,6 +130,14 @@ pub struct AnalysisSegmentId;
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
+
+/// Configuration for making a new segment
+#[derive(Default, new)]
+pub struct NewSegmentConfig<T, I, S> {
+    corr: OffsetCorrection<I, S>,
+    file_len: Option<T>,
+    truncate_offsets: TruncateOffsets,
+}
 
 pub type PrimaryTextSegment = Segment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
 pub type SupplementalTextSegment =
@@ -308,16 +315,16 @@ where
                 let (seg, warn) = default.unless(text_seg);
                 SwitchableErrorsResult::new_switchable_maybe(seg, (), warn, *mismatch_flag)
                     .map_switchable_errors(SegmentMismatchWarning::from)
+                    .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .map_errors(ReqSegmentWithDefaultErrorInner::from)
             }
             Err((e0, e1)) => {
                 let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
                     .extend_deferred_switchable_errors(e1)
+                    .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .map_errors(ReqSegmentWithDefaultErrorInner::from)
                     .set_ok_value(header_seg);
                 let w = SegmentDefaultWarning::default().into();
                 res.eval_warning(|_| Some(w));
@@ -547,24 +554,6 @@ impl HasRegion for PrimaryTextSegmentId {
 
 impl HasRegion for OtherSegmentId {
     const REGION: AnyRegion = AnyRegion::Other;
-}
-
-#[derive(Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
-pub enum ReqSegmentError<B, E> {
-    BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
-    EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
-}
-
-#[derive(Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
-pub enum OptSegmentError<B, E> {
-    BeginKey(ParseKeyError<ParseIntError, B, ()>),
-    EndKey(ParseKeyError<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
 }
 
 impl<I, S> From<(i32, i32)> for OffsetCorrection<I, S> {
@@ -1112,16 +1101,40 @@ impl<T> NonEmptySegment<T> {
     }
 }
 
+/// Error when parsing required segment offsets from TEXT
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+pub enum ReqSegmentError<B, E> {
+    BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
+    EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
+    Segment(SegmentError<UintZeroPad20>),
+}
+
+/// Error when parsing optional segment offsets from TEXT
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+pub enum OptSegmentError<B, E> {
+    BeginKey(ParseKeyError<ParseIntError, B, ()>),
+    EndKey(ParseKeyError<ParseIntError, E, ()>),
+    Segment(SegmentError<UintZeroPad20>),
+}
+
 pub type PrimarySegmentError = HeaderSegmentError<UintSpacePad8>;
 
 pub type OtherSegmentError = HeaderSegmentError<UintSpacePad20>;
 
+/// Error when parsing a segment from HEADER
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(S: Into<u64> + Copy))]
 pub enum HeaderSegmentError<S> {
     New(SegmentError<S>),
     Parse(ParseOffsetError),
 }
 
+/// Error when creating a new segment
 #[derive(Debug, Error)]
 // TODO better error choice?
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1137,42 +1150,12 @@ pub struct SegmentError<T> {
     src: AnySrc,
 }
 
-#[derive(Debug, Error)]
-#[error("{seg0} overlaps with {seg1}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct SegmentOverlapError {
-    seg0: GenericSegment,
-    seg1: GenericSegment,
-}
-
 #[derive(Debug)]
 pub enum SegmentErrorKind {
     Range,
     Inverted,
     InHeader,
     Truncated(u64),
-}
-
-#[derive(Debug, new)]
-pub struct ParseOffsetError {
-    pub(crate) error: ParseFixedUintError,
-    pub(crate) is_begin: bool,
-    pub(crate) location: AnyRegion,
-    pub(crate) source: Vec<u8>,
-}
-
-impl fmt::Display for ParseOffsetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let which = if self.is_begin { "begin" } else { "end" };
-        write!(
-            f,
-            "parse error for {which} offset in {} segment from source '{}': {}",
-            self.location,
-            self.source.iter().join(","),
-            self.error
-        )
-    }
 }
 
 impl<T> fmt::Display for SegmentError<T>
@@ -1205,6 +1188,32 @@ where
     }
 }
 
+/// Error when one segment overlaps with another
+#[derive(Debug, Error)]
+#[error("{seg0} overlaps with {seg1}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct SegmentOverlapError {
+    seg0: GenericSegment,
+    seg1: GenericSegment,
+}
+
+/// Error when parsing the offset for a segment
+#[derive(Debug, Error, new)]
+#[error(
+    "parse error for {which} offset in {location} segment from source '{src:?}': {error}",
+    which = if self.is_begin { "begin" } else { "end" },
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct ParseOffsetError {
+    error: ParseFixedUintError,
+    is_begin: bool,
+    location: AnyRegion,
+    src: Vec<u8>,
+}
+
+/// Error when TEXT offsets are overridden using corresponding offsets from HEADER
 #[derive(Debug, Error, Display)]
 #[display(bound(I: HasRegion))]
 #[display(
@@ -1222,6 +1231,7 @@ impl<I> Default for SegmentDefaultWarning<I> {
     }
 }
 
+/// Error when segments from TEXT and HEADER do not match
 #[derive(Debug, Error, Display)]
 #[display(bound(I: HasRegion))]
 #[display(
@@ -1238,6 +1248,7 @@ pub struct SegmentMismatchWarning<I> {
     text: TEXTSegment<I>,
 }
 
+/// Error when parsing required segments from TEXT when HEADER is allowed to override
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
@@ -1246,28 +1257,22 @@ pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Mismatch(SegmentMismatchWarning<I>),
 }
 
+/// Warning when parsing required segments from TEXT when HEADER is allowed to override
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
-    Mismatch(SegmentMismatchWarning<I>),
+    Error(ReqSegmentWithDefaultErrorInner<I, B, E>),
     Lookup(SegmentDefaultWarning<I>),
-    Req(ReqSegmentError<B, E>),
 }
 
+/// Warning when parsing optional segments from TEXT when HEADER is allowed to override
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
-}
-
-#[derive(Default, new)]
-pub struct NewSegmentConfig<T, I, S> {
-    pub(crate) corr: OffsetCorrection<I, S>,
-    pub(crate) file_len: Option<T>,
-    pub(crate) truncate_offsets: TruncateOffsets,
 }
 
 #[cfg(feature = "serde")]

@@ -1211,15 +1211,15 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
-    where
-        F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-    {
-        match f(self.value) {
-            Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
-            Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
-        }
-    }
+    // fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    // where
+    //     F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+    // {
+    //     match f(self.value) {
+    //         Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
+    //         Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
+    //     }
+    // }
 
     pub(crate) fn with_failure<F, P, Pf, E, EC>(
         self,

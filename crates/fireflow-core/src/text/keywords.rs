@@ -66,7 +66,7 @@ use {
 };
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display)]
+#[derive(From, Into, FromStr, Display, Debug)]
 pub struct Nextdata(pub UintZeroPad20);
 
 /// The value for the $PnE key (all versions).

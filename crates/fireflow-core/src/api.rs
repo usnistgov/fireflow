@@ -336,7 +336,7 @@ pub struct RawTEXTParseData {
 }
 
 /// Warning when parsing TEXT in standard mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Raw(ParseRawTEXTWarning),
@@ -344,7 +344,7 @@ pub enum StdTEXTWarning {
 }
 
 /// Error when parsing TEXT in standard mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
     Raw(HeaderOrRawError),
@@ -353,7 +353,7 @@ pub enum StdTEXTError {
 }
 
 /// Warning when parsing TEXT+DATA in standard mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
     Raw(ParseRawTEXTWarning),
@@ -361,7 +361,7 @@ pub enum StdDatasetWarning {
 }
 
 /// Error when parsing TEXT+DATA in standard mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
     Raw(HeaderOrRawError),
@@ -370,7 +370,7 @@ pub enum StdDatasetError {
 }
 
 /// Warning when parsing TEXT+DATA in raw mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetWarning {
     Raw(ParseRawTEXTWarning),
@@ -378,7 +378,7 @@ pub enum RawDatasetWarning {
 }
 
 /// Warning when parsing TEXT+DATA in standard mode
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RawDatasetError {
     Raw(HeaderOrRawError),
@@ -387,7 +387,7 @@ pub enum RawDatasetError {
 }
 
 /// Error when parsing HEADER or TEXT segments
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrRawError {
     Header(HeaderError),
@@ -396,7 +396,7 @@ pub enum HeaderOrRawError {
 }
 
 /// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
@@ -404,7 +404,7 @@ pub enum STextSegmentError {
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentWarning {
     OptSegment(OptSegmentError<Beginstext, Endstext>),
@@ -419,7 +419,7 @@ pub enum STextSegmentWarning {
 pub struct DuplicatedSuppTEXT;
 
 /// Warning when parsing TEXT segment
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseRawTEXTWarning {
     Char(DelimCharError),
@@ -431,7 +431,7 @@ pub enum ParseRawTEXTWarning {
 }
 
 /// Error when parsing TEXT segment
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseRawTEXTError {
     Delim(DelimVerifyError),
@@ -475,7 +475,7 @@ pub enum ParseKeywordsIssue {
 }
 
 /// Error when verifying TEXT delimiter
-#[derive(From, Display)]
+#[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DelimVerifyError {
     Empty(EmptyTEXTError),

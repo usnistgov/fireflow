@@ -577,6 +577,8 @@ class TestCore:
         assert core.cyt == new
         with pytest.raises(TypeError):
             core.cyt = cast(str, None)
+        with pytest.raises(pf.ParseKeywordValueError):
+            core.cyt = ""
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(

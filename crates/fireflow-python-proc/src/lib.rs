@@ -5784,11 +5784,12 @@ impl ArgPyType {
             Self::Tuple(xs) => {
                 let fmt = |i, x: Self| x.map_exc(|e| e.map_mod(|m| ExcNameMod::add_field(m, i)));
                 let mut ys = xs.inner.iter().cloned().enumerate().map(|(i, x)| fmt(i, x));
+                let acc0 = xs.exc.clone().into_iter().collect();
                 if let Some(y) = ys.next() {
-                    let acc = walk(vec![], &y);
+                    let acc = walk(acc0, &y);
                     ys.fold(acc, |a, x| walk(a, &x))
                 } else {
-                    vec![]
+                    acc0
                 }
             }
             Self::Literal(_) => vec![],

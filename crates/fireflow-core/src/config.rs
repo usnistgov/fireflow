@@ -921,20 +921,19 @@ impl<C> ReadState<C> {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::PatternError;
     use crate::segment::OffsetCorrection;
 
     use super::TimeMeasNamePattern;
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
-            // this should be an error from regexp parsing
             let n = s
                 .parse::<Self>()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PatternError::new_err(e.to_string()))?;
             Ok(n)
         }
     }

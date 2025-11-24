@@ -104,10 +104,11 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::InvalidKeywordValueError;
+
     use super::FCSNonEmpty;
 
     use nonempty::NonEmpty;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyList;
 
@@ -120,7 +121,8 @@ mod python {
             if let Some(ys) = NonEmpty::from_vec(xs) {
                 Ok(ys.into())
             } else {
-                Err(PyValueError::new_err("list must not be empty"))
+                // ASSUME this is only used for keywords that cannot be an empty list
+                Err(InvalidKeywordValueError::new_err("list must not be empty"))
             }
         }
     }

@@ -9415,12 +9415,12 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::InvalidKeywordValueError;
     use crate::text::ranged_float::PositiveFloat;
 
     use super::ScaleTransform;
 
     use pyo3::IntoPyObjectExt as _;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
@@ -9431,8 +9431,7 @@ mod python {
             } else if let Ok(log) = ob.extract::<(f32, f32)>() {
                 Ok(Self::Log(log.try_into()?))
             } else {
-                // TODO make this into a general "argument value error"
-                Err(PyValueError::new_err(
+                Err(InvalidKeywordValueError::new_err(
                     "scale transform must be a positive \
                      float or a 2-tuple of positive floats",
                 ))

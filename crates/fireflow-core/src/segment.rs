@@ -1300,17 +1300,15 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::ConfigError;
+
     use super::{InnerSegment, NonEmptySegment, Segment, Zero};
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
     // segments will be returned as tuples like (u32, u32) reflecting their
     // exact representation in an FCS file
-    //
-    // pyo3 apparently can't deal with phantomdata, this is basically just
-    // converting the inner segment which already has this trait
     impl<'py, I, S, T> FromPyObject<'py> for Segment<I, S, T>
     where
         T: FromPyObject<'py> + Zero + Ord,
@@ -1319,7 +1317,13 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (T, T) = ob.extract()?;
             let ret = if begin > end {
-                Err(PyValueError::new_err("offset begin is greater than end"))
+                // TODO this choice of error seems weird. It isn't really a
+                // FileLayoutError since this conversion will be used for cases
+                // where segments are supplied as arguments, in which case they
+                // are not part of a file. But this also isn't really a "config"
+                // option, unless we think about this as "configuring" the
+                // reader function to tell it where to scan in the file
+                Err(ConfigError::new_err("offset begin is greater than end"))
             } else if begin == T::zero() && end == T::zero() {
                 Ok(InnerSegment::Empty)
             } else {

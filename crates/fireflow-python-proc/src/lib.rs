@@ -3417,7 +3417,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let desc = "if field 2 of %x is less than ``0`` or greater than ``2**64-1`` \
                 when field 1 is ``\"A\"`` or ``\"I\"``";
-    let exc = PyException::new_value().desc(desc);
+    let exc = PyException::new_invalid_keyword().desc(desc);
     let range_pytype = PyList::new1(PyUnion::new2(
         PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
         PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
@@ -4769,6 +4769,10 @@ impl PyException {
         Self::new(format!("~pyreflow.{p}"))
     }
 
+    fn new_invalid_keyword() -> Self {
+        Self::new_pyreflow(&PyreflowError::InvalidKeywordValue)
+    }
+
     fn new_non_ascii() -> Self {
         Self::new_pyreflow(&PyreflowError::ParseKey).desc(
             "If any keys from *TEXT* contain non-ASCII characters and \
@@ -5037,7 +5041,7 @@ impl<E: From<PyException>> PyInt<E> {
             5..=8 => RsInt::U64,
             _ => panic!("invalid number of uint bytes: {nbytes}"),
         };
-        let e = PyException::new_value().desc(r.exc_desc());
+        let e = PyException::new_invalid_keyword().desc(r.exc_desc());
         let path = parse_quote!(fireflow_core::validated::bitmask::#i);
         Self::from(r).rstype(path).exc(e)
     }
@@ -5064,12 +5068,13 @@ impl<E> PyFloat<E> {
 
 impl<E: From<PyException>> PyFloat<E> {
     fn new_non_negative_float() -> Self {
-        let e = PyException::new_value().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
+        let e = PyException::new_invalid_keyword()
+            .desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
         Self::from(RsFloat::F32).exc(e)
     }
 
     fn new_positive_float() -> Self {
-        let e = PyException::new_value()
+        let e = PyException::new_invalid_keyword()
             .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
         Self::from(RsFloat::F32).exc(e)
     }
@@ -5086,7 +5091,7 @@ impl<E: From<PyException>> PyFloat<E> {
              or outside the bounds of a {}-bit float",
             nbytes * 8,
         );
-        let e = PyException::new_value().desc(msg);
+        let e = PyException::new_invalid_keyword().desc(msg);
         let path = parse_quote!(fireflow_core::data::#i);
         Self::from(r).rstype(path).exc(e)
     }
@@ -5126,7 +5131,7 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_meas_or_gate_index() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        let e = PyException::new_value().desc(
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKeywordValue).desc(
             "if %x is not like ``P<X>`` or ``G<X>`` \
              where ``X`` is an integer one or greater",
         );
@@ -5134,7 +5139,7 @@ impl<E: From<PyException>> PyStr<E> {
     }
 
     fn new_non_empty_str(path: Path) -> Self {
-        let e = PyException::new_value().desc("if %x is empty");
+        let e = PyException::new_invalid_keyword().desc("if %x is empty");
         Self::default().rstype(path).exc(e)
     }
 }
@@ -5250,7 +5255,7 @@ impl<E> PyList<E> {
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
         let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
-        let e = PyException::new_value().desc("if %x is empty");
+        let e = PyException::new_invalid_keyword().desc("if %x is empty");
         Self::new(
             inner,
             Some(parse_quote!(#nonempty<#inner_path>)),
@@ -5392,7 +5397,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_sub_pattern() -> Self {
         let desc = "if references in replacement string in %x \
                     do not match captures in regular expression";
-        let exc = PyException::new_value().desc(desc);
+        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
         Self::new1(PyStr::new_regexp())
             .add(PyStr::default())
             .add(PyBool::default())
@@ -5554,8 +5559,8 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_scale(is_gate: bool) -> Self {
         let name = if is_gate { "GateScale" } else { "Scale" };
-        let exc =
-            PyException::new_value().desc("if %x has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword()
+            .desc("if %x has log scale floats which are not both positive");
         Self::new2(
             PyTuple::default(),
             PyTuple::new2(vec![RsFloat::F32; 2]),
@@ -5566,15 +5571,15 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_transform() -> Self {
         let path = parse_quote! {fireflow_core::core::ScaleTransform};
-        let exc =
-            PyException::new_value().desc("if %x has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword()
+            .desc("if %x has log scale floats which are not both positive");
         // TODO the linear gain should also be positive
         Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
     }
 
     fn new_byteord(nbytes: usize) -> Self {
         let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-        let exc = PyException::new_value().desc(format!(
+        let exc = PyException::new_invalid_keyword().desc(format!(
             "if %x is not \"little\", \"big\", or a list of \
              all integers from 1 to {nbytes} in any order"
         ));
@@ -6090,14 +6095,13 @@ impl DocArgRWIvar {
 
     fn new_spillover_ivar() -> Self {
         let rstype: Path = parse_quote!(fireflow_core::text::spillover::Spillover);
-        let matrix_exc =
-            PyException::new_value().desc("if %x is not a square matrix that is 2x2 or larger");
-        let spill_exc = PyException::new_value().desc(
+        let matrix_exc = PyException::new_invalid_keyword()
+            .desc("if %x is not a square matrix that is 2x2 or larger");
+        let spill_exc = PyException::new_invalid_keyword().desc(
             "if matrix in %x does not have the same number of rows \
              and columns as the measurement vector",
         );
-        // TODO return exception if PnN don't match
-        // TODO exception on non-unique names
+        // TODO add exception for when $PnN don't match
         Self::new_opt_ivar_rw(
             "spillover",
             PyTuple::new1(PyList::new1(PyStr::new_shortname()))
@@ -6880,7 +6884,7 @@ impl DocArgParam {
 
     fn new_integer_byteord_override_param() -> Self {
         let path = keyword_path("ByteOrd2_0");
-        let exc = PyException::new_pyreflow(&PyreflowError::InvalidKeywordValue).desc(
+        let exc = PyException::new_invalid_keyword().desc(
             "if %x is not a list of integers including all from 1 to ``N`` \
              where ``N`` is the length of the list (up to 8)",
         );

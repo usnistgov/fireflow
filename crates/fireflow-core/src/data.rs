@@ -329,7 +329,6 @@ type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native,
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatRange<T, const LEN: usize> {
-    // TODO make a way to create a FloatRange from a BigDecimal in rust
     range: FloatDecimal<T>,
 }
 
@@ -4714,7 +4713,7 @@ pub struct MixedToNonMixedError {
 /// Error when attempting to insert a new range into a layout.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum InsertRangeError {
     #[error("could not insert range into ASCII layout because {0}")]
     #[from(RangeToAsciiError)]
@@ -4860,6 +4859,7 @@ pub(crate) struct IndexedError<E> {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::InvalidKeywordValueError;
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::AsciiRange;
@@ -4868,7 +4868,6 @@ mod python {
 
     use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
     use std::fmt;
@@ -4883,8 +4882,9 @@ mod python {
             let x = ob.extract::<BigDecimal>()?;
             FloatDecimal::try_from(x)
                 .map(Self::new)
-                // this is a ParseBigDecimalError
-                .map_err(|e| PyValueError::new_err(e.to_string()))
+                // TODO all this conversion shouldn't be necessary, we need
+                // to manually specify the same error for each rust->py conversion
+                .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))
         }
     }
 
@@ -4905,13 +4905,13 @@ mod python {
                 AlphaNumType::Float => {
                     let x = value.extract::<f32>()?;
                     let y = FloatDecimal::try_from(x)
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
                     Ok(FloatRange::new(y).into())
                 }
                 AlphaNumType::Double => {
                     let x = value.extract::<f64>()?;
                     let y = FloatDecimal::try_from(x)
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                        .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
                     Ok(FloatRange::new(y).into())
                 }
                 AlphaNumType::Integer => Ok(AnyNullBitmask::from(value.extract::<u64>()?).into()),

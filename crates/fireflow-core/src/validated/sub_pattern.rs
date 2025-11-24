@@ -145,9 +145,10 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::PatternError;
+
     use super::{SubPattern, SubPatterns};
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use regex::Regex;
 
@@ -156,7 +157,7 @@ mod python {
             let (r, to, global): (String, String, bool) = ob.extract()?;
             let from = r
                 .parse::<Regex>()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PatternError::new_err(e.to_string()))?;
             Ok(Self::try_new(from, to, global)?)
         }
     }

@@ -497,12 +497,14 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::InvalidKeywordValueError;
+
     use super::{Endian, NewByteOrdError, SizedByteOrd};
 
     use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
     use derive_more::{Display, From};
-    use pyo3::{IntoPyObjectExt as _, exceptions::PyValueError, prelude::*, types::PyString};
+    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
     use thiserror::Error;
@@ -549,13 +551,18 @@ mod python {
     impl_vec_to_sized!(7);
     impl_vec_to_sized!(8);
 
+    // on the python side, represent big and little endian with string literals
+    // "big" and "little" (to avoid using a boolean for which the direction
+    // of meaning is not obvious)
     impl<'py> FromPyObject<'py> for Endian {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs = ob.extract::<String>()?;
             match xs.as_str() {
                 "big" => Ok(Self::Big),
                 "little" => Ok(Self::Little),
-                _ => Err(PyValueError::new_err("must be \"big\" or \"little\"")),
+                _ => Err(InvalidKeywordValueError::new_err(
+                    "must be \"big\" or \"little\"",
+                )),
             }
         }
     }
@@ -574,12 +581,15 @@ mod python {
         }
     }
 
+    // for mixed byte, order use literals "big" and "little" like above and also
+    // check for appropriate lists which represent mixed order
     impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
     where
         Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
+            let err =
+                || InvalidKeywordValueError::new_err("must be \"little\", \"big\", or a list");
             if let Ok(s) = ob.extract::<String>() {
                 match s.as_str() {
                     "little" => Ok(Endian::Little),

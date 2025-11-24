@@ -2972,6 +2972,14 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             } else {
                 PyClass::new_coretext(v)
             };
+            let exc0 = PyException::new_pyreflow(&PyreflowError::Conversion).desc(format!(
+                "If keywords which are unsupported in FCS {vs} exist in current \
+                 data and ``allow_loss`` is ``False``"
+            ));
+            let exc1 = PyException::new_pyreflow(&PyreflowError::Conversion).desc(format!(
+                "If optional keywords are that are missing in current \
+                 version are required in FCS {vs}"
+            ));
             let target_pytype = target_type.as_rust_type();
             let param = DocArg::new_bool_param("allow_loss", param_desc);
             let doc = DocString::new_method(format!("Convert to FCS {vs}."))
@@ -2979,7 +2987,8 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 .arg(param)
                 .returns(
                     DocReturn::new(target_type)
-                        .desc(format!("A new class conforming to FCS {vs}.")),
+                        .desc(format!("A new class conforming to FCS {vs}."))
+                        .exc([exc0, exc1]),
                 );
             quote! {
                 #doc

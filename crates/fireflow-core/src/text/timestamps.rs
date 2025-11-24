@@ -1,13 +1,16 @@
-use crate::config::StdTextReadConfig;
-use crate::error::ResultExt as _;
-use crate::validated::keys::{Key, StdKeywords};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
+use crate::type_families::ApplyOnce as _;
+use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
+use super::deprecated::DeprecatedTimestampsRef;
+use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 use super::optional::KeywordPairMaybe;
-use super::parser::{FromStrStateful, LookupTentative, OptMetarootKey, Optional, ParseOptKeyError};
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_new::new;
 use regex::Regex;
 use std::fmt;
 use std::mem;
@@ -18,12 +21,15 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+
 /// A convenient bundle holding data/time keyword values.
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Clone, AsRef, PartialEq)]
+#[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
     /// The value of the $BTIM key
@@ -41,29 +47,25 @@ pub struct Timestamps<X> {
 
 impl<X> Default for Timestamps<X> {
     fn default() -> Self {
-        Self {
-            btim: None,
-            etim: None,
-            date: None,
-        }
+        Self::new(None, None, None)
     }
 }
 
 pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
-#[derive(Clone, Copy, Display, FromStr, From, PartialEq)]
+#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
-impl<const IS_ETIM: bool, T> FromStrStateful for Xtim<IS_ETIM, T>
+impl<const IS_ETIM: bool, T> FromStrWith for Xtim<IS_ETIM, T>
 where
     T: FromStr + From<NaiveTime>,
 {
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_st<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
@@ -74,8 +76,9 @@ where
 }
 
 /// A date as used in the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(FCS_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
@@ -84,15 +87,15 @@ impl<X> Timestamps<X> {
         btim: Option<Btim<X>>,
         etim: Option<Etim<X>>,
         date: Option<FCSDate>,
-    ) -> TimestampsResult<Self>
+    ) -> DeferredError<Self, ReversedTimestampsError>
     where
         X: PartialOrd,
     {
-        let ret = Self { btim, etim, date };
+        let ret = Self::new(btim, etim, date);
         if ret.valid() {
-            Ok(ret)
+            LogResult::new_ok(ret)
         } else {
-            Err(ReversedTimestampsError)
+            LogResult::new_err(ReversedTimestampsError).set_err_value(ret)
         }
     }
 
@@ -136,48 +139,69 @@ impl<X> Timestamps<X> {
     where
         F: Fn(X) -> Y,
     {
-        Timestamps {
-            btim: self.btim.map(|x| Xtim(f(x.0))),
-            etim: self.etim.map(|x| Xtim(f(x.0))),
-            date: self.date,
-        }
+        Timestamps::new(
+            self.btim.map(|x| Xtim(f(x.0))),
+            self.etim.map(|x| Xtim(f(x.0))),
+            self.date,
+        )
     }
 
     pub fn valid(&self) -> bool
     where
         X: PartialOrd,
     {
-        if self.date.is_some() {
-            if let (Some(b), Some(e)) = (&self.btim, &self.etim) {
-                b.0 < e.0
-            } else {
-                true
-            }
-        } else {
-            true
+        if let (Some(b), Some(e), Some(_)) = (&self.btim, &self.etim, &self.date) {
+            return b.0 < e.0;
         }
+        true
     }
 
-    pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self>
+    pub(crate) fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        ParseOptKeyError:
-            From<<Btim<X> as FromStrStateful>::Err> + From<<Etim<X> as FromStrStateful>::Err>,
-        for<'a> X: PartialOrd + FromStr + From<NaiveTime>,
+        X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        let b = Btim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        let e = Etim::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        let d = FCSDate::lookup_metatroot_opt_st(kws, is_deprecated, (), conf);
-        b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-            Self::try_new(btim, etim, date)
-                .into_tentative_def(!conf.allow_optional_dropping)
-                .inner_into()
-        })
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_err(LookupTimestampsError::from)
+                    .into_deferred_nowarn()
+            };
+        }
+        let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
+        go!(b)
+            .zip_f3_once(go!(e), go!(d))
+            .and_then_deferred(|(btim, etim, date)| {
+                Self::try_new(btim, etim, date)
+                    .map_errors(LookupTimestampsError::Reversed)
+                    .map_err_value(|ret| {
+                        // If creating the new timestamp object failed,
+                        // optionally transfer component keys to nonstandard
+                        if rconf.transfer_dropped_optional.is_set() {
+                            ret.date
+                                .as_ref()
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
+                            ret.btim
+                                .as_ref()
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
+                            ret.etim
+                                .as_ref()
+                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
+                        }
+                        ret
+                    })
+                    .into_semigroup()
+            })
+            .nowarn_into_switchable(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
@@ -188,18 +212,30 @@ impl<X> Timestamps<X> {
         Option<Etim<X>>: KeywordPairMaybe<Inner = Etim<X>>,
         X: Copy + fmt::Display,
     {
-        [
-            self.btim.metaroot_opt_pair(),
-            self.etim.metaroot_opt_pair(),
-            self.date.metaroot_opt_pair(),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+        let a = self.btim.metaroot_opt_pair();
+        let b = self.etim.metaroot_opt_pair();
+        let c = self.date.metaroot_opt_pair();
+        [a, b, c].into_iter().filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
+impl Timestamps<FCSTime100> {
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedTimestampsRef<'_>> {
+        let a = DeprecatedTimestampsRef::from(&mut self.btim);
+        let b = DeprecatedTimestampsRef::from(&mut self.etim);
+        let c = DeprecatedTimestampsRef::from(&mut self.date);
+        [a, b, c].into_iter()
+    }
+}
+
+/// Error when $ETIM occurs before $BTIM.
+///
+/// This can only happen when $DATE is also given, because otherwise it cannot
+/// be assumed that $BTIM and $ETIM occur on the same day.
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ReversedTimestampsError;
 
 type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
@@ -208,11 +244,11 @@ type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 // "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 
-impl FromStrStateful for FCSDate {
+impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
 
-    fn from_str_st(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
@@ -242,8 +278,9 @@ impl FromStr for FCSDate {
 pub struct FCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
 
@@ -273,8 +310,9 @@ pub enum FCSFixedTimeError<E> {
 pub struct FCSTimeError;
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime60(pub NaiveTime);
 
 impl FromStr for FCSTime60 {
@@ -314,8 +352,9 @@ impl fmt::Display for FCSTime60 {
 pub struct FCSTime60Error;
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime100(pub NaiveTime);
 
 impl FromStr for FCSTime100 {
@@ -356,6 +395,58 @@ impl fmt::Display for FCSTime100 {
 )]
 pub struct FCSTime100Error;
 
+#[derive(Display, Debug, Error, From)]
+#[cfg_attr(
+    feature = "python",
+    derive(AllIntoPyErr),
+    bound(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<Self>),
+    bound(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<Self>)
+)]
+pub enum LookupTimestampsError<T, E> {
+    Date(OptKeyStError<FCSDate>),
+    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
+    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>),
+    Reversed(ReversedTimestampsError),
+}
+
+impl From<FCSTime> for FCSTime60 {
+    fn from(value: FCSTime) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime> for FCSTime100 {
+    fn from(value: FCSTime) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime60> for FCSTime {
+    fn from(value: FCSTime60) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        Self(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime100> for FCSTime {
+    fn from(value: FCSTime100) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        Self(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime60> for FCSTime100 {
+    fn from(value: FCSTime60) -> Self {
+        Self(value.0)
+    }
+}
+
+impl From<FCSTime100> for FCSTime60 {
+    fn from(value: FCSTime100) -> Self {
+        Self(value.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,17 +478,9 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FCSDate, FCSTime, FCSTime100, FCSTime60, ReversedTimestampsError, Xtim};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
+    use super::Xtim;
 
     use pyo3::prelude::*;
-
-    impl_pyreflow_err!(ReversedTimestampsError);
-
-    impl_from_py_transparent!(FCSDate);
-    impl_from_py_transparent!(FCSTime);
-    impl_from_py_transparent!(FCSTime60);
-    impl_from_py_transparent!(FCSTime100);
 
     impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
     where

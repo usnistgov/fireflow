@@ -11,17 +11,20 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
+
 /// A non-negative float
 #[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
 /// A positive float
 #[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
 pub struct PositiveFloat(f32);
 
@@ -57,7 +60,10 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
+/// Error when parsing string to float with restricted range
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },
@@ -96,14 +102,4 @@ mod tests {
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());
         assert!(NonNegFloat::try_from(-1.0_f32).is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{NonNegFloat, PositiveFloat, RangedFloatError};
-    use crate::python::macros::{impl_try_from_py, impl_value_err};
-
-    impl_value_err!(RangedFloatError);
-    impl_try_from_py!(PositiveFloat, f32);
-    impl_try_from_py!(NonNegFloat, f32);
 }

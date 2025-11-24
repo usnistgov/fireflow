@@ -1,14 +1,14 @@
-use crate::core::{AnyMetarootKeyLossError, IndexedKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, Tentative};
-use crate::validated::keys::{IndexedKey, Key, MeasHeader};
+use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::type_families::{Pointed, Sibling1};
+use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader};
 
 use super::index::IndexFromOne;
 
 use derive_more::{AsMut, AsRef, From, FromStr};
 use std::fmt;
+use std::iter;
 use std::marker::PhantomData;
 use std::string::ToString;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -17,15 +17,37 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 /// A value that always exists.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, AsRef, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct AlwaysValue<T>(pub T);
+pub struct Identity<T>(pub T);
 
-/// A value that always exists.
-#[derive(Clone)]
+impl<T> IntoIterator for Identity<T> {
+    type Item = T;
+    type IntoIter = iter::Once<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        iter::once(self.0)
+    }
+}
+
+/// A value that never exists.
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct NeverValue<T>(pub PhantomData<T>);
+pub struct Nothing<T>(pub PhantomData<T>);
+
+impl<T> IntoIterator for Nothing<T> {
+    type Item = T;
+    type IntoIter = iter::Empty<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        iter::empty()
+    }
+}
+
+impl<T> Default for Nothing<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
 
 /// A string that is stored as-is but will not be displayed/written if blank.
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
@@ -108,42 +130,19 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn check_key_transfer(&self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError>
+    fn root_key_loss_error<E>(&self) -> Option<E>
     where
-        AnyMetarootKeyLossError: From<UnitaryKeyLossError<Self::Inner>>,
+        E: From<UnitaryKeyLossError<Self::Inner>>,
     {
-        if self.is_default() {
-            Tentative::default()
-        } else {
-            Tentative::new_either((), [UnitaryKeyLossError::<Self::Inner>::new()], !allow_loss)
-        }
+        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::default().into())
     }
 
-    fn check_indexed_key_transfer_tnt<E>(
-        &self,
-        i: impl Into<IndexFromOne>,
-        allow_loss: bool,
-    ) -> BiTentative<(), E>
+    fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
         E: From<IndexedKeyLossError<Self::Inner>>,
     {
-        if self.is_default() {
-            Tentative::default()
-        } else {
-            let e = IndexedKeyLossError::<Self::Inner>::new(i);
-            Tentative::new_either((), [e], !allow_loss)
-        }
-    }
-
-    fn check_indexed_key_transfer<E>(&self, i: impl Into<IndexFromOne>) -> Result<(), E>
-    where
-        E: From<IndexedKeyLossError<Self::Inner>>,
-    {
-        if self.is_default() {
-            Ok(())
-        } else {
-            Err(IndexedKeyLossError::<Self::Inner>::new(i).into())
-        }
+        let k = Key1::new_i1(i.into());
+        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>(k).into())
     }
 }
 
@@ -190,67 +189,44 @@ impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
 /// Encodes a type which might have something in it.
 ///
 /// Intended to be used as a "type family" pattern.
-pub trait MightHave {
-    /// Concrete wrapper type which might have something
-    type Wrapper<T>: From<T>;
-
+pub trait MightHave<A>: Pointed<A> + Sized {
     /// If true, the wrapper will always have a value.
     ///
     /// Obviously, the implementation needs to ensure this is in sync with the
     /// meaning of Wrapper<T>.
     const INFALLABLE: bool;
 
-    /// Consume a value and return it as a wrapped value
-    fn wrap<T>(n: T) -> Self::Wrapper<T> {
-        n.into()
-    }
-
     /// Consume a wrapped value and possibly return its contents.
     ///
     /// If no contents exist, return the original input so the caller can
     /// take back ownership.
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>>;
+    fn unwrap(self) -> Result<A, Self>;
 
     /// Borrow a wrapped value and return a new wrapper with borrowed contents.
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
+    fn as_ref(&self) -> Sibling1<Self, &A>;
 
     /// Consume a wrapped value and possibly return its contents.
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
-        Self::unwrap(x).ok()
+    fn to_opt(self) -> Option<A> {
+        self.unwrap().ok()
     }
 
     /// Borrow a wrapped value and possibly return borrowed contents.
-    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
-        Self::to_opt(Self::as_ref(x))
-    }
-
-    /// Apply function to inner value.
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0;
+    fn as_opt(&self) -> Option<&A>;
 }
 
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct MaybeFamily;
+impl<A> MightHave<A> for Option<A> {
+    const INFALLABLE: bool = true;
 
-impl MightHave for MaybeFamily {
-    type Wrapper<T> = Option<T>;
-    const INFALLABLE: bool = false;
-
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        x.ok_or(None)
+    fn unwrap(self) -> Result<A, Self> {
+        self.ok_or(None)
     }
 
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
-        x.as_ref()
+    fn as_ref(&self) -> Option<&A> {
+        Self::as_ref(self)
     }
 
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0,
-    {
-        x.map(f)
+    fn as_opt(&self) -> Option<&A> {
+        Self::as_ref(self)
     }
 }
 
@@ -258,61 +234,43 @@ impl MightHave for MaybeFamily {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AlwaysFamily;
 
-impl MightHave for AlwaysFamily {
-    type Wrapper<T> = AlwaysValue<T>;
+impl<A> MightHave<A> for Identity<A> {
     const INFALLABLE: bool = true;
 
-    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
-        Ok(x.0)
+    fn unwrap(self) -> Result<A, Self> {
+        Ok(self.0)
     }
 
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
-        AlwaysValue(&x.0)
+    fn as_ref(&self) -> Identity<&A> {
+        Identity(&self.0)
     }
 
-    fn map<T, T0, F>(x: Self::Wrapper<T>, f: F) -> Self::Wrapper<T0>
-    where
-        F: FnOnce(T) -> T0,
-    {
-        AlwaysValue(f(x.0))
+    fn as_opt(&self) -> Option<&A> {
+        Some(&self.0)
     }
 }
 
-impl<T> From<T> for AlwaysValue<T> {
+impl<T> From<T> for Identity<T> {
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
-impl<T> TryFrom<Option<T>> for AlwaysValue<T> {
-    type Error = MaybeToAlwaysError;
-    fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
-        value.ok_or(MaybeToAlwaysError).map(AlwaysValue)
-    }
-}
-
-impl<T> From<AlwaysValue<T>> for Option<T> {
-    fn from(value: AlwaysValue<T>) -> Self {
+impl<T> From<Identity<T>> for Option<T> {
+    fn from(value: Identity<T>) -> Self {
         Some(value.0)
     }
 }
 
-#[derive(Debug, Error)]
-#[error("optional keyword value is blank")]
-pub struct MaybeToAlwaysError;
-
 #[cfg(feature = "python")]
 mod python {
-    use super::{AlwaysValue, OptionalZST};
+    use super::{Identity, OptionalZST};
 
     use pyo3::prelude::*;
     use pyo3::types::PyBool;
     use std::convert::Infallible;
 
-    impl<'py, T> FromPyObject<'py> for AlwaysValue<T>
-    where
-        T: FromPyObject<'py>,
-    {
+    impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for Identity<T> {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             Ok(Self(ob.extract()?))
         }

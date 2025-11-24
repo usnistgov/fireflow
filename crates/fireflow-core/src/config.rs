@@ -14,7 +14,6 @@ use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::byteord::ByteOrd2_0;
 use crate::text::index::MeasIndex;
 use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
@@ -28,6 +27,7 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr};
+use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::File;
@@ -36,6 +36,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
+    pyo3::prelude::*,
+};
+
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
@@ -43,6 +49,8 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     pub shared: SharedConfig,
@@ -51,6 +59,8 @@ pub struct ReadRawTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
@@ -68,6 +78,8 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadLayoutConfig)]
@@ -97,6 +109,8 @@ pub struct NewCoreTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
@@ -146,18 +160,6 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     pub shared: SharedConfig,
 }
 
-/// Instructions for reading the DATA segment.
-#[derive(Default, Clone)]
-pub struct DataReadConfig {
-    /// Instructions to read and standardize TEXT.
-    pub standard: StdTextReadConfig,
-
-    // /// Shared configuration options
-    // pub shared: SharedConfig,
-    /// Configuration to make reader for DATA and ANALYSIS
-    pub reader: ReaderConfig,
-}
-
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
@@ -167,7 +169,7 @@ pub struct ReaderConfig {
     /// offsets are incorrect.
     ///
     /// Does not apply to delimited ASCII, which does not have a fixed width.
-    pub allow_uneven_event_width: bool,
+    pub allow_uneven_event_width: AllowUnevenEventWidth,
 
     /// If `true`, allow $TOT to not match number of events in DATA.
     ///
@@ -175,7 +177,7 @@ pub struct ReaderConfig {
     /// computed by dividing the bytes in DATA by the event width computed from
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If
     /// `false`, throw an error on mismatch, and warning otherwise.
-    pub allow_tot_mismatch: bool,
+    pub allow_tot_mismatch: AllowTotMismatch,
 }
 
 /// Configuration for writing an FCS file
@@ -208,7 +210,7 @@ pub struct WriteConfig {
     pub big_other: bool,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 pub struct HeaderConfigInner {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -277,7 +279,8 @@ pub struct HeaderConfigInner {
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_offsets: bool,
+    #[as_ref(TruncateOffsets)]
+    pub truncate_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -287,12 +290,14 @@ pub struct HeaderConfigInner {
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
+    #[as_ref(TruncateOffsets)]
     pub header: HeaderConfigInner,
 
     /// Override the version
     pub version_override: Option<Version>,
 
     /// Corrections for supplemental TEXT segment
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
     /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
@@ -304,13 +309,13 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_supp_text: bool,
+    pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
     /// If true, totally ignore STEXT and its offsets.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
-    pub ignore_supp_text: bool,
+    pub ignore_supp_text: IgnoreSuppTEXT,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -327,23 +332,23 @@ pub struct ReadHeaderAndTEXTConfig {
     pub use_literal_delims: bool,
 
     /// If true, allow delimiter to be character outside 1-126.
-    pub allow_non_ascii_delim: bool,
+    pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
     /// If true, allow TEXT to not end with a delimiter.
-    pub allow_missing_final_delim: bool,
+    pub allow_missing_final_delim: AllowMissingFinalDelim,
 
     /// If true, allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
     /// this to true merely changes a duplicate key to emit a warning and not
     /// an error.
-    pub allow_nonunique: bool,
+    pub allow_nonunique: AllowNonunique,
 
     /// If true, allow TEXT to contain an odd number of words.
     ///
     /// Regardless, the final "dangling" word in the case of an odd number
     /// will be dropped as it has no obvious interpretation.
-    pub allow_odd: bool,
+    pub allow_odd: AllowOdd,
 
     /// If true, allow keys with blank values.
     ///
@@ -351,7 +356,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// cannot exist when delimiters are escaped. Blank values will be dropped
     /// regardless of this flag; setting it to false will trigger an error,
     /// otherwise a warning.
-    pub allow_empty: bool,
+    pub allow_empty: AllowEmpty,
 
     /// If true, allow delimiters at word boundaries.
     ///
@@ -363,7 +368,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Regardless of this value, delimiters at word boundaries will not be
     /// included due to their ambiguity. Setting this to true will emit an
     /// error rather than a warning if this is encountered.
-    pub allow_delim_at_boundary: bool,
+    pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
     /// If true, allow non-utf8 byte sequences in TEXT.
     ///
@@ -387,10 +392,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If true, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
-    pub allow_missing_supp_text: bool,
+    pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
-    pub allow_supp_text_own_delim: bool,
+    pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
     /// If true, allow $NEXTDATA to be missing.
     ///
@@ -485,13 +490,15 @@ pub struct ReadHeaderAndTEXTConfig {
     pub substitute_standard_key_values: SubPatterns,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, ignore DATA offsets in TEXT.
@@ -499,32 +506,37 @@ pub struct ReadTEXTOffsetsConfig {
     /// This may be useful if DATA offsets are different from those in HEADER,
     /// either inherently or after a correction. This obviously assumes the
     /// offsets in HEADER are correct.
-    pub ignore_text_data_offsets: bool,
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
     /// If true, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in
     /// HEADER, either inherently or after a correction. This obviously assumes
     /// the offsets in HEADER are correct.
-    pub ignore_text_analysis_offsets: bool,
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
 
     /// If true, throw error if offsets in HEADER and TEXT differ.
     ///
     /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
 
     /// If true, throw error if required TEXT offsets are missing.
     ///
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
+    #[as_ref(AllowMissingRequiredOffsets)]
+    pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
 
     /// If true, truncate TEXT offsets that exceed the end of the file.
     ///
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_text_offsets: bool,
+    #[as_ref(TruncateOffsets)]
+    pub truncate_text_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
@@ -546,7 +558,7 @@ pub struct StdTextReadConfig {
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
     /// If true, allow time to not be present even if we specify [`pattern`].
-    pub allow_missing_time: bool,
+    pub allow_missing_time: AllowMissingTime,
 
     /// If ``true`` force, force scale to be linear for temporal measurement.
     pub force_time_linear: bool,
@@ -591,21 +603,18 @@ pub struct StdTextReadConfig {
     /// the version in the HEADER is wrong and that the file actually follows a
     /// different FCS standard (usually higher) in which these keywords are
     /// standard.
-    pub allow_pseudostandard: bool,
+    pub allow_pseudostandard: AllowPseudostandard,
 
     /// If true, allow unused standard keywords.
     ///
     /// These may arise if some $Pn* keywords are present which exceed $PAR or
     /// if $TIMESTEP is present but no time measurement is present.
-    pub allow_unused_standard: bool,
-
-    /// If true, allow optional keys to be dropped on error with a warning.
-    pub allow_optional_dropping: bool,
+    pub allow_unused_standard: AllowUnusedStandard,
 
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
-    pub disallow_deprecated: bool,
+    pub disallow_deprecated: DisallowDeprecated,
 
     /// If true, try to fix log-scale $PnE and $GnE keywords.
     ///
@@ -634,6 +643,15 @@ pub struct StdTextReadConfig {
 
 #[derive(Default, Clone)]
 pub struct ReadLayoutConfig {
+    /// If true, allow optional keys to be dropped on error with a warning.
+    pub allow_optional_dropping: AllowOptionalDropping,
+
+    /// If true, transfer dropped optional keys to nonstandard dict.
+    ///
+    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
+    /// optional keywords will produce a fatal error.
+    pub transfer_dropped_optional: TransferDroppedOptional,
+
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -660,7 +678,7 @@ pub struct ReadLayoutConfig {
     /// Obviously this must match the actual layout of the numbers in DATA. If
     /// $PnB is also incorrect, use [`integer_widths_from_byteord`] to override
     /// those values as well.
-    pub integer_byteord_override: Option<ByteOrd2_0>,
+    pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///
@@ -683,7 +701,7 @@ pub struct ReadLayoutConfig {
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
-    pub disallow_range_truncation: bool,
+    pub disallow_range_truncation: DisallowRangeTrunc,
 }
 
 /// Configuration options for both reading and writing
@@ -696,6 +714,82 @@ pub struct SharedConfig {
     pub hide_warnings: bool,
 }
 
+pub trait ConfigFlag {
+    fn is_set(&self) -> bool;
+}
+
+pub trait ErrorFlag: ConfigFlag {
+    const TRUE_IS_ERROR: bool;
+
+    fn is_error(&self) -> bool {
+        self.is_set() == Self::TRUE_IS_ERROR
+    }
+}
+
+macro_rules! impl_config_flag {
+    ($n:ident) => {
+        #[derive(From, Clone, Copy, Default)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        pub struct $n(pub bool);
+
+        impl ConfigFlag for $n {
+            fn is_set(&self) -> bool {
+                self.0
+            }
+        }
+    };
+}
+
+macro_rules! impl_error_flag {
+    (true_is_error $n:ident) => {
+        impl_error_flag!($n, true);
+    };
+
+    (false_is_error $n:ident) => {
+        impl_error_flag!($n, false);
+    };
+
+    ($n:ident, $true_is_error:expr) => {
+        impl_config_flag!($n);
+
+        impl ErrorFlag for $n {
+            const TRUE_IS_ERROR: bool = $true_is_error;
+        }
+    };
+}
+
+impl_config_flag!(TruncateOffsets);
+
+impl_error_flag!(true_is_error AllowUnevenEventWidth);
+impl_error_flag!(true_is_error AllowTotMismatch);
+
+impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
+impl_error_flag!(false_is_error IgnoreSuppTEXT);
+impl_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_error_flag!(false_is_error AllowNonunique);
+impl_error_flag!(false_is_error AllowOdd);
+impl_error_flag!(false_is_error AllowEmpty);
+impl_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+
+impl_config_flag!(IgnoreTEXTDataOffsets);
+impl_config_flag!(IgnoreTEXTAnalysisOffsets);
+impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
+impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
+
+impl_error_flag!(false_is_error AllowMissingTime);
+impl_error_flag!(false_is_error AllowPseudostandard);
+impl_error_flag!(false_is_error AllowUnusedStandard);
+impl_error_flag!(false_is_error AllowOptionalDropping);
+impl_config_flag!(TransferDroppedOptional);
+impl_error_flag!(true_is_error DisallowDeprecated);
+
+impl_error_flag!(true_is_error DisallowRangeTrunc);
+
+impl_error_flag!(false_is_error AllowLoss);
+
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
@@ -706,6 +800,7 @@ pub struct TimeMeasNamePattern(pub Regex);
 ///
 /// These can optionally be ignored via config.
 #[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TemporalOpticalKey {
     /// PnF
     Filter,
@@ -751,11 +846,14 @@ impl FromStr for TemporalOpticalKey {
     }
 }
 
+/// Error when creating a `TemporalOpticalKey` from string
 #[derive(Debug, Error)]
 #[error(
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
      'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {
@@ -797,6 +895,7 @@ impl Default for TimeMeasNamePattern {
 }
 
 /// State pertinent to reading a file
+#[derive(new)]
 pub struct ReadState<C> {
     pub(crate) file_len: u64,
     pub(crate) conf: C,
@@ -809,33 +908,32 @@ impl<C> ReadState<C> {
     }
 
     pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
-        f.metadata().map(|m| Self {
-            file_len: m.len(),
-            conf,
-        })
+        f.metadata().map(|m| Self::new(m.len(), conf))
+    }
+
+    pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
+    where
+        C: AsRef<X>,
+    {
+        ReadState::new(self.file_len, self.conf.as_ref())
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use crate::python::PatternError;
     use crate::segment::OffsetCorrection;
 
-    use super::{ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern};
+    use super::TimeMeasNamePattern;
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-
-    impl_from_py_via_fromstr!(TemporalOpticalKey);
-    impl_value_err!(ParseTemporalOpticalKeyError);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
-            // this should be an error from regexp parsing
             let n = s
                 .parse::<Self>()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PatternError::new_err(e.to_string()))?;
             Ok(n)
         }
     }

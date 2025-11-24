@@ -6,11 +6,19 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString},
+    pyo3::prelude::*,
+};
 
-#[derive(Clone, PartialEq, Eq, Default, Display, Into)]
+/// A string which can never be empty
+///
+/// This is useful for required keywords which are strings. For optional
+/// strings, empty string means the value is missing, so required keys simply
+/// forbid empty strings.
+#[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 pub struct NonEmptyString(String);
 
 impl FromStr for NonEmptyString {
@@ -25,15 +33,9 @@ impl FromStr for NonEmptyString {
     }
 }
 
+/// Error when string is empty which is not supposed to be empty
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 pub struct NonEmptyStringError;
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{NonEmptyString, NonEmptyStringError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
-
-    impl_value_err!(NonEmptyStringError);
-    impl_from_py_via_fromstr!(NonEmptyString);
-}

@@ -3,10 +3,9 @@ use fireflow_core::api::{
 };
 use fireflow_core::config;
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::error::{Terminal, TerminalFailure};
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
-use fireflow_core::text::byteord::ByteOrd2_0;
+use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{
     KeyOrStringPatterns, KeyOrStringPatternsError, KeyString, NonStdMeasPattern,
@@ -17,13 +16,11 @@ use regex::Regex;
 
 use ansi_term::{ANSIString, Style};
 use clap::{
-    builder::IntoResettable, builder::StyledStr, value_parser, Arg, ArgAction, ArgMatches, Command,
+    Arg, ArgAction, ArgMatches, Command, builder::IntoResettable, builder::StyledStr, value_parser,
 };
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
 use serde::ser::Serialize;
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::fmt::Display;
 use std::iter::once;
 use std::path::PathBuf;
@@ -398,11 +395,6 @@ fn main() -> Result<(), ()> {
         ),
     );
 
-    let allow_optional_dropping = flag_arg(
-        ALLOW_OPTIONAL_DROPPING,
-        "Drop optional keys if they cause an error.",
-    );
-
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
         "Throw error if any deprecated keywords are present.",
@@ -456,7 +448,6 @@ fn main() -> Result<(), ()> {
         time_pattern,
         allow_pseudostandard,
         allow_unused_standard,
-        allow_optional_dropping,
         disallow_deprecated,
         fix_log_scale_offset,
         ns_meas_pattern,
@@ -516,6 +507,16 @@ fn main() -> Result<(), ()> {
 
     // layout args
 
+    let allow_optional_dropping = flag_arg(
+        ALLOW_OPTIONAL_DROPPING,
+        "Drop optional keys if they cause an error.",
+    );
+
+    let transfer_dropped_optional = flag_arg(
+        TRANSFER_DROPPED_OPTIONAL,
+        "Transfer optional keys to non-standard dict if they are dropped.",
+    );
+
     let int_widths_from_byteord = flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
         format!(
@@ -548,6 +549,8 @@ fn main() -> Result<(), ()> {
     );
 
     let all_layout_args = [
+        allow_optional_dropping,
+        transfer_dropped_optional,
         int_widths_from_byteord,
         int_byteord_override,
         disallow_range_truncation,
@@ -673,56 +676,51 @@ fn main() -> Result<(), ()> {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
             fcs_read_header(filepath, &conf.into())
-                .map(|h| print_json(&h.inner()))
-                .map_err(handle_failure_nowarn)
+                .map_err(|s| print_errors(&s))
+                .map(|h| print_json(&h))
         }
 
         Some((SUBCMD_RAW, sargs)) => {
             let conf = parse_raw_config(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_raw_text(filepath, &conf)
-                .map(handle_warnings)
-                .map(|raw| print_json(&raw))
-                .map_err(handle_failure)
+            let ((), res) = fcs_read_raw_text(filepath, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|raw| print_json(&raw))
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_std_text(filepath, &conf)
-                .map(handle_warnings)
-                .map(|(core, _)| core.print_comp_or_spillover_table(delim))
-                .map_err(handle_failure)
+            let ((), res) = fcs_read_std_text(filepath, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|(core, _)| core.print_comp_or_spillover_table(delim))
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_std_text(filepath, &conf)
-                .map(handle_warnings)
-                .map(|(core, _)| core.print_meas_table(delim))
-                .map_err(handle_failure)
+            let ((), res) = fcs_read_std_text(filepath, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|(core, _)| core.print_meas_table(delim))
         }
 
         Some((SUBCMD_STD, sargs)) => {
             let conf = parse_std_config(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_std_text(filepath, &conf)
-                .map(handle_warnings)
-                .map(|(core, _)| print_json(&core))
-                .map_err(handle_failure)
+            let ((), res) = fcs_read_std_text(filepath, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|(core, _)| print_json(&core))
         }
 
         Some((SUBCMD_DATA, sargs)) => {
             let conf = parse_dataset_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_std_dataset(filepath, &conf)
-                .map(handle_warnings)
-                .map(|(core, _)| print_parsed_data(&core, delim))
-                .map_err(handle_failure)
+            let ((), res) = fcs_read_std_dataset(filepath, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|(core, _)| print_parsed_data(&core, delim))
         }
 
         _ => Ok(()),
@@ -772,7 +770,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
         other_width,
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS),
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE),
-        truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS),
+        truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
     }
 }
 
@@ -814,20 +812,20 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
-        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT),
-        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT),
+        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT).into(),
+        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         use_literal_delims: sargs.get_flag(LIT_DELIMS),
-        allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM),
-        allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM),
-        allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE),
-        allow_odd: sargs.get_flag(ALLOW_ODD),
-        allow_empty: sargs.get_flag(ALLOW_EMPTY),
-        allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY),
+        allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
+        allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
+        allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
+        allow_odd: sargs.get_flag(ALLOW_ODD).into(),
+        allow_empty: sargs.get_flag(ALLOW_EMPTY).into(),
+        allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY).into(),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1),
         allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT),
-        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM),
+        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT).into(),
+        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM).into(),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
         ignore_standard_keys,
@@ -875,14 +873,13 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
         ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
         ignore_time_optical_keys,
-        allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME),
+        allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME).into(),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
         date_pattern,
         time_pattern,
-        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD),
-        allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD),
-        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING),
-        disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED),
+        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
+        allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
+        disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
         nonstandard_measurement_pattern,
     }
@@ -928,11 +925,11 @@ fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
     config::ReadTEXTOffsetsConfig {
         text_data_correction,
         text_analysis_correction,
-        ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS),
-        ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS),
-        allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
-        allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS),
-        truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS),
+        ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
+        ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
+        allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
+        allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
+        truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
     }
 }
 
@@ -941,16 +938,18 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
     config::ReadLayoutConfig {
+        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
+        transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD),
         integer_byteord_override,
-        disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION),
+        disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
     }
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReaderConfig {
     config::ReaderConfig {
-        allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH),
-        allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH),
+        allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
+        allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
     }
 }
 
@@ -1050,44 +1049,14 @@ pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
     }
 }
 
-fn handle_warnings<X, W>(t: Terminal<X, W>) -> X
-where
-    W: Display,
-{
-    t.resolve(print_warnings).0
-}
-
-fn print_warnings<W>(ws: Vec<W>)
-where
-    W: Display,
-{
+fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
     for w in ws {
         eprintln!("WARNING: {w}");
     }
 }
 
-fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>)
-where
-    E: Display,
-    T: Display,
-    W: Display,
-{
-    f.resolve(print_warnings, print_errors);
-}
-
-fn handle_failure_nowarn<E, T>(f: TerminalFailure<Infallible, E, T>)
-where
-    E: Display,
-    T: Display,
-{
-    f.resolve(|_| (), print_errors);
-}
-
-fn print_errors<E: Display, T: Display>(es: NonEmpty<E>, r: T) {
-    eprintln!("TOPLEVEL ERROR: {r}");
-    for e in es {
-        eprintln!("  ERROR: {e}");
-    }
+fn print_errors<E: Display>(e: &E) {
+    eprintln!("{e}");
 }
 
 const SUBCMD_HEADER: &str = "header";
@@ -1207,6 +1176,8 @@ const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 const ALLOW_UNUSED_STANDARD: &str = "allow-unused-standard";
 
 const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
+
+const TRANSFER_DROPPED_OPTIONAL: &str = "transfer-dropped-optional";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

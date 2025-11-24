@@ -1,15 +1,17 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
-use crate::error::{BiTentative, ErrorIter as _, MultiResult};
+use crate::logging::{
+    CommutativeResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _,
+};
+use crate::text::byteord::PrivBytes;
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{IntRangeError, Range};
+use crate::text::keywords::Range;
 
 use bigdecimal::BigDecimal;
-use derive_more::{Display, From};
-use num_traits::identities::One as _;
+use derive_more::Display;
 use num_traits::PrimInt;
+use num_traits::identities::One as _;
 use std::mem::size_of;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -80,20 +82,17 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         (e, b.min(value))
     }
 
-    pub(crate) fn from_native_tnt(
-        value: T,
-        disallow_trunc: bool,
-    ) -> BiTentative<Self, BitmaskTruncationError>
+    pub(crate) fn try_from_native(value: T) -> DeferredError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
     {
         let (bitmask, truncated) = Self::from_native(value);
         let error = truncated.then(|| BitmaskTruncationError {
-            bytes: Self::bits(),
+            bytes: Self::bytes(),
             value: u64::from(value),
         });
-        BiTentative::new_either1(bitmask, error, disallow_trunc)
+        LogResult::new_deferred_maybe(bitmask, error)
     }
 
     // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
@@ -154,45 +153,54 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         Self::from_native(T::max_value()).0
     }
 
-    fn bytes() -> u8 {
-        // ASSUME 'LEN' will never exceed 8
-        LEN.try_into().unwrap()
+    fn bytes() -> PrivBytes {
+        u8::try_from(LEN)
+            .unwrap()
+            .try_into()
+            .expect("Bytes greater than 8")
     }
 
     fn bits() -> u8 {
-        Self::bytes() * 8
+        u8::from(Self::bytes()) * 8
     }
 
     pub(crate) fn try_from_many<E, X>(
         xs: Vec<X>,
         starting_index: usize,
-    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
+    ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
     where
         Self: TryFrom<X, Error = E>,
     {
         xs.into_iter()
             .enumerate()
-            .map(|(i, c)| Self::try_from(c).map_err(|e| ((i + starting_index).into(), e)))
-            .gather()
+            .map(|(i, c)| {
+                Self::try_from(c)
+                    .map_err(|e| ((i + starting_index).into(), e))
+                    .into_nowarn1()
+                    .repack()
+            })
+            .mappend_commutative()
     }
 }
 
-#[derive(Debug, Error)]
-#[error("could not make bitmask for {value} which exceeds {bytes} bytes")]
-pub struct BitmaskTruncationError {
-    bytes: u8,
-    value: u64,
+/// Error when integer from $PnR must be truncated to fit into desired byte width.
+///
+/// This only occurs when attempting to bitmask a native type to a number of
+/// bytes which is not a power of two (for instance, u32 to 3 bytes).  If $PnR
+/// is bigger than the native type itself, this is different error.
+///
+/// This error is meant for internal use and converted to other errors which
+/// add context.
+#[derive(Debug)]
+pub(crate) struct BitmaskTruncationError {
+    pub(crate) bytes: PrivBytes,
+    pub(crate) value: u64,
 }
 
-#[derive(Display, From, Debug, Error)]
-pub enum BitmaskError {
-    ToInt(IntRangeError<()>),
-    Trunc(BitmaskTruncationError),
-}
-
-#[derive(Clone, Copy, Debug, Error)]
-#[error("integer data was too big and truncated to bitmask {0}")]
-pub struct BitmaskLossError(pub u64);
+/// Error when integer is truncated using a bitmask which results in data loss
+#[derive(Clone, Copy, Debug, Display)]
+#[display("integer value truncated to {_0}")]
+pub(crate) struct BitmaskLossError(pub u64);
 
 #[cfg(test)]
 mod tests {

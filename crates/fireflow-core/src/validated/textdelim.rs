@@ -1,8 +1,12 @@
 use derive_more::Into;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
+
 /// The delimiter used when writing TEXT
 #[derive(Clone, Copy, Into)]
+#[cfg_attr(feature = "python", derive(TryFromPyObject))]
 pub struct TEXTDelim(u8);
 
 impl Default for TEXTDelim {
@@ -22,19 +26,12 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
+/// Error when creating TEXT delimiter
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TEXTDelimError(u8);
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::macros::{impl_try_from_py, impl_value_err};
-
-    use super::{TEXTDelim, TEXTDelimError};
-
-    impl_value_err!(TEXTDelimError);
-    impl_try_from_py!(TEXTDelim, u8);
-}
 
 #[cfg(test)]
 mod tests {

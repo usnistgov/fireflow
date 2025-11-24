@@ -54,32 +54,26 @@
 //!   and can't cause compile errors. This is also almost-necessary since the
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
-
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps as _, NoMeasDatatype, NonMixedEndianLayout,
+    F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt as _, ResultExt as _};
 use fireflow_core::header;
-use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt as _, PyTerminalNoWarnResultExt as _, PyTerminalResultExt as _,
-};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
 };
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::Eithers;
-use fireflow_core::text::optional::MightHave;
-use fireflow_core::text::parser;
+use fireflow_core::text::named_vec::{Eithers, Element};
+use fireflow_core::text::optional::{Identity, Nothing};
+use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
-use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
@@ -127,7 +121,7 @@ def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords)
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
 impl_py_valid_keywords!(keys::ValidKeywords);
-impl_py_extra_std_keywords!(parser::ExtraStdKeywords);
+impl_py_extra_std_keywords!(kws::ExtraStdKeywords);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_raw_text_output!(api::RawTEXTOutput);
@@ -489,12 +483,11 @@ impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
+struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
 impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
 where
-    K: MightHave,
-    K::Wrapper<Shortname>: FromPyObject<'py>,
+    K: FromPyObject<'py>,
     U: FromPyObject<'py>,
     V: FromPyObject<'py>,
 {
@@ -506,12 +499,11 @@ where
 
 impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
 where
-    K: MightHave,
     X: From<U>,
     Y: From<V>,
 {
     fn from(value: PyEithers<K, U, V>) -> Self {
-        value.0.inner_into()
+        value.0.fmap(Element::values_into)
     }
 }
 
@@ -601,10 +593,10 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
 }
 
 // Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_fixed_ascii_layout!(FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
 
 // Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_delim_ascii_layout!(DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
 
 // Implement __new__ and attributes for all PyOrderedUint*Layout structs
 impl_new_ordered_layout!(1, false);
@@ -700,23 +692,23 @@ pub enum PyOrderedLayout {
 pub enum PyNonMixedLayout {
     #[from(
         PyFixedAsciiLayout,
-        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+        FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
     )]
     AsciiFixed(PyFixedAsciiLayout),
 
     #[from(
         PyDelimAsciiLayout,
-        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+        DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
     )]
     AsciiDelim(PyDelimAsciiLayout),
 
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
+    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, Nothing<kws::NumType>>)]
     Uint(PyEndianUintLayout),
 
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
+    #[from(PyEndianF32Layout, EndianLayout<F32Range, Nothing<kws::NumType>>)]
     F32(PyEndianF32Layout),
 
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
+    #[from(PyEndianF64Layout, EndianLayout<F64Range, Nothing<kws::NumType>>)]
     F64(PyEndianF64Layout),
 }
 
@@ -782,7 +774,7 @@ impl From<DataLayout3_2> for PyLayout3_2 {
     }
 }
 
-impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
+impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
     fn from(value: PyOrderedLayout) -> Self {
         match value {
             PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
@@ -801,8 +793,8 @@ impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
     }
 }
 
-impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
+impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
+    fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
         match value {
             AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
                 AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
@@ -824,8 +816,8 @@ impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
     }
 }
 
-impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<Nothing<kws::NumType>>) -> Self {
         match value {
             NonMixedEndianLayout::Ascii(x) => match x {
                 AnyAsciiLayout::Fixed(y) => y.into(),
@@ -838,7 +830,7 @@ impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
     }
 }
 
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
     fn from(value: PyNonMixedLayout) -> Self {
         match value {
             PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),

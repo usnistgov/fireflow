@@ -7,7 +7,6 @@ use derive_new::new;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -102,7 +101,11 @@ impl HasFloatBounds for f64 {
     const ZEROS: u16 = 292;
 }
 
-#[derive(Debug, Error)]
+/// Error when converting BigDecimal to f32 or f64
+///
+/// The only reason this may fail is due to being over or under the max/min
+/// range of the target value.
+#[derive(Debug)]
 pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,

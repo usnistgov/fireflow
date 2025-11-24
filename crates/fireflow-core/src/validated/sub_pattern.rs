@@ -3,6 +3,9 @@ use super::keys::KeyOrStringPatterns;
 use regex::Regex;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::DisplayAsPyErr;
+
 /// Pattern to match a sed-like substitution operation.
 #[derive(Clone)]
 pub struct SubPattern {
@@ -78,8 +81,11 @@ impl SubPattern {
     }
 }
 
+/// Error when parsing subpattern for configuration
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct SubPatternError {
     from: Regex,
     to: String,
@@ -139,22 +145,19 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_value_err;
+    use crate::python::PatternError;
 
-    use super::{SubPattern, SubPatternError, SubPatterns};
+    use super::{SubPattern, SubPatterns};
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use regex::Regex;
-
-    impl_value_err!(SubPatternError);
 
     impl<'py> FromPyObject<'py> for SubPattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (r, to, global): (String, String, bool) = ob.extract()?;
             let from = r
                 .parse::<Regex>()
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .map_err(|e| PatternError::new_err(e.to_string()))?;
             Ok(Self::try_new(from, to, global)?)
         }
     }

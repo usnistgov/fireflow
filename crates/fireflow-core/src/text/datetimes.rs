@@ -1,12 +1,13 @@
-use crate::config::StdTextReadConfig;
-use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
-use crate::error::{BiTentative, ResultExt as _, Tentative};
-use crate::validated::keys::StdKeywords;
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig};
+use crate::core::UnitaryKeyLossError;
+use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
+use crate::type_families::ApplyOnce as _;
+use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
+use super::lookup::{OptKeyError, OptMetarootKey as _};
 use super::optional::KeywordPairMaybe as _;
-use super::parser::{LookupTentative, OptMetarootKey as _};
 
-use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeZone as _};
+use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use std::mem;
 use std::str::FromStr;
@@ -15,27 +16,32 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
-    /// Value for the $BEGINDATETIME key.
     #[as_ref(Option<BeginDateTime>)]
     begin: Option<BeginDateTime>,
 
-    /// Value for the $ENDDATETIME key.
     #[as_ref(Option<EndDateTime>)]
     end: Option<EndDateTime>,
 }
 
+/// The $BEGINDATETIME key.
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct BeginDateTime(pub FCSDateTime);
 
+/// The $ENDDATETIME key.
 #[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
 pub struct EndDateTime(pub FCSDateTime);
@@ -43,19 +49,21 @@ pub struct EndDateTime(pub FCSDateTime);
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
+    #[must_use]
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
-    ) -> DatetimesResult<Self> {
+    ) -> DeferredError<Self, ReversedDatetimesError> {
         let ret = Self { begin, end };
         if ret.valid() {
-            Ok(ret)
+            LogResult::new_ok(ret)
         } else {
-            Err(ReversedDatetimesError)
+            LogResult::new_err(ReversedDatetimesError).set_err_value(ret)
         }
     }
 
@@ -86,14 +94,34 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup(kws: &mut StdKeywords, conf: &StdTextReadConfig) -> LookupTentative<Self> {
-        let b = BeginDateTime::lookup_metaroot_opt(kws, false, conf);
-        let e = EndDateTime::lookup_metaroot_opt(kws, false, conf);
-        b.zip(e).and_tentatively(|(begin, end)| {
-            Self::try_new(begin, end)
-                .into_tentative_def(!conf.allow_optional_dropping)
-                .inner_into()
-        })
+    pub(crate) fn lookup(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
+        let b = BeginDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
+            .map_err(LookupDatetimesError::from)
+            .into_deferred_nowarn();
+        let e = EndDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
+            .map_err(LookupDatetimesError::from)
+            .into_deferred_nowarn();
+        let flag = conf.allow_optional_dropping;
+        b.zip_f2_once(e)
+            .and_then_deferred(|(begin, end)| {
+                Self::try_new(begin, end)
+                    .map_errors(LookupDatetimesError::from)
+                    .map_err_value(|ret| {
+                        // If creating the new datetime object failed,
+                        // optionally transfer component keys to nonstandard
+                        if conf.transfer_dropped_optional.is_set() {
+                            ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
+                            ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
+                        }
+                        ret
+                    })
+                    .into_semigroup()
+            })
+            .nowarn_into_switchable(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -102,23 +130,14 @@ impl Datetimes {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
     }
 
-    pub(crate) fn check_loss(self, allow_loss: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
-        let mut tnt = Tentative::new1(());
-        if self.begin.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::new(), allow_loss);
-        }
-        if self.end.is_some() {
-            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::new(), allow_loss);
-        }
-        tnt
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
+        let x0 = UnitaryKeyLossError::<BeginDateTime>::default();
+        let y0 = self.begin.is_some().then_some(x0.into());
+        let x1 = UnitaryKeyLossError::<EndDateTime>::default();
+        let y1 = self.end.is_some().then_some(x1.into());
+        [y0, y1].into_iter().flatten()
     }
 }
-
-#[derive(Debug, Error)]
-#[error("$BEGINDATETIME is after $ENDDATETIME")]
-pub struct ReversedDatetimesError;
-
-type DatetimesResult<T> = Result<T, ReversedDatetimesError>;
 
 impl FromStr for FCSDateTime {
     type Err = FCSDateTimeError;
@@ -129,14 +148,11 @@ impl FromStr for FCSDateTime {
         // TODO this should probably be a warning since it is ambiguous to
         // parse a timezone based solely on localtime
         if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-            Local::now()
-                .timezone()
-                .from_local_datetime(&naive)
-                .single()
-                .map_or_else(
-                    || Err(FCSDateTimeError::Unmapped(s.into())),
-                    |t| Ok(Self(t.fixed_offset())),
-                )
+            match Local::now().timezone().from_local_datetime(&naive) {
+                MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
+                MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
+                MappedLocalTime::None => Err(FCSDateTimeError::Gap),
+            }
         } else {
             // If zone information is present, try any number of formats which
             // are valid and mostly equivalent which contain the timezone
@@ -151,16 +167,49 @@ impl FromStr for FCSDateTime {
                     return Ok(Self(t));
                 }
             }
-            Err(FCSDateTimeError::Other)
+            Err(FCSDateTimeError::Format)
         }
     }
 }
 
+/// Error when $ENDDATETIME occurs before $BEGINDATETIME
 #[derive(Debug, Error)]
-#[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
+#[error("$BEGINDATETIME is after $ENDDATETIME")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct ReversedDatetimesError;
+
+#[derive(Debug, Error)]
 pub enum FCSDateTimeError {
-    Unmapped(String),
-    Other,
+    #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
+    Format,
+    #[error(
+        "timestamp parsed using localtime due to missing timezone, but this time \
+         occurred when clock was turned backward which resulted in ambiguous UTC time"
+    )]
+    Fold,
+    #[error(
+        "timestamp parsed using localtime due to missing timezone, but this time \
+         occurred when clock was turned forward and could not be mapped to UTC"
+    )]
+    Gap,
+}
+
+/// Error when parsing $BEGINDATETIME and $ENDDATETIME
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupDatetimesError {
+    Begindatetime(OptKeyError<BeginDateTime>),
+    Enddatetime(OptKeyError<EndDateTime>),
+    Datetime(ReversedDatetimesError),
+}
+
+/// Error when $BEGINDATETIME or $ENDDATETIME are dropped due to version change
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DatetimeLossError {
+    Begin(UnitaryKeyLossError<BeginDateTime>),
+    End(UnitaryKeyLossError<EndDateTime>),
 }
 
 #[cfg(test)]
@@ -204,16 +253,4 @@ mod tests {
             "2112-01-01T00:00:00+00:01",
         );
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{BeginDateTime, EndDateTime, FCSDateTime, ReversedDatetimesError};
-    use crate::python::macros::{impl_from_py_transparent, impl_pyreflow_err};
-
-    impl_pyreflow_err!(ReversedDatetimesError);
-
-    impl_from_py_transparent!(FCSDateTime);
-    impl_from_py_transparent!(BeginDateTime);
-    impl_from_py_transparent!(EndDateTime);
 }

@@ -10,11 +10,13 @@ use num_traits::ops::checked::CheckedSub;
 use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
 
 /// An unsigned int which may only be 20 chars wide.
 ///
@@ -42,6 +44,7 @@ use serde::Serialize;
     Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
@@ -88,6 +91,7 @@ impl CheckedSub for UintZeroPad20 {
     Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(NonZeroU64, UintSpacePad8)]
@@ -162,6 +166,7 @@ impl HeaderString for UintSpacePad20 {
     Debug,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
@@ -224,13 +229,6 @@ impl TryFrom<i128> for UintSpacePad8 {
     }
 }
 
-#[derive(Display, From, Debug, Error)]
-pub enum ParseFixedUintError {
-    Int(ParseIntError),
-    NotAscii(BytesNotAscii),
-    Negative(NegativeOffsetError),
-}
-
 impl TryFrom<u64> for UintSpacePad8 {
     type Error = Uint8DigitOverflow;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
@@ -246,15 +244,6 @@ impl TryFrom<u64> for UintSpacePad8 {
     }
 }
 
-impl FromStr for UintSpacePad8 {
-    type Err = ParseUint8DigitError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let x = s.parse::<u64>().map_err(ParseUint8DigitError::Int)?;
-        x.try_into().map_err(ParseUint8DigitError::Overflow)
-    }
-}
-
 pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     if xs.is_ascii() {
         // SAFETY: we just checked that all bytes are ASCII
@@ -264,20 +253,28 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
     }
 }
 
-#[derive(Display, From)]
-pub enum ParseUint8DigitError {
-    Overflow(Uint8DigitOverflow),
+/// Error when parsing fixed unsigned integer from ASCII
+///
+/// Used internally to create other errors
+#[derive(Display, From, Debug)]
+pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
+    NotAscii(BytesNotAscii),
+    Negative(NegativeOffsetError),
 }
 
+/// Error when unsigned integer exceeds 8 digits
 #[derive(Debug, Error)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyOverflowError))]
 pub struct Uint8DigitOverflow(u64);
 
+/// Error when parsing integer from ASCII with invalid ASCII characters
 #[derive(Debug, Error)]
 #[error("could not convert to ASCII string: {0:?}")]
 pub struct BytesNotAscii(Vec<u8>);
 
+/// Error when offsets in HEADER are negative (this happens for some reason)
 #[derive(Debug, Error)]
 #[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i32);
@@ -293,22 +290,4 @@ mod tests {
         assert!(UintSpacePad8::try_from(99_999_999_u64).is_ok());
         assert!(UintSpacePad8::try_from(100_000_000_u64).is_err());
     }
-
-    #[test]
-    fn str_to_uint8digit() {
-        assert!("0".parse::<UintSpacePad8>().is_ok());
-        assert!("99999999".parse::<UintSpacePad8>().is_ok());
-        assert!("100000000".parse::<UintSpacePad8>().is_err());
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20};
-    use crate::python::macros::{impl_from_py_transparent, impl_try_from_py, impl_value_err};
-
-    impl_from_py_transparent!(UintZeroPad20);
-    impl_from_py_transparent!(UintSpacePad20);
-    impl_try_from_py!(UintSpacePad8, u64);
-    impl_value_err!(Uint8DigitOverflow);
 }

@@ -1,25 +1,23 @@
 use crate::macros::match_many_to_one;
-use crate::text::index::BoundaryIndexError;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
+use derive_new::new;
 use num_traits::identities::Zero as _;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
-use std::any::type_name;
 use std::iter;
 use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use polars::prelude::*;
-
-#[cfg(feature = "python")]
-use crate::validated::shortname::Shortname;
+use {
+    crate::validated::shortname::Shortname, fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
+};
 
 /// A dataframe without NULL and only types that make sense for FCS files.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq, new)]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
@@ -46,6 +44,22 @@ pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
 
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+pub enum FCSDatatype {
+    #[display("u8")]
+    U08,
+    #[display("u16")]
+    U16,
+    #[display("u32")]
+    U32,
+    #[display("u64")]
+    U64,
+    #[display("f32")]
+    F32,
+    #[display("f64")]
+    F64,
+}
+
 impl PartialEq for AnyFCSColumn {
     /// Test for numeric equality between two columns.
     ///
@@ -56,8 +70,8 @@ impl PartialEq for AnyFCSColumn {
     fn eq(&self, other: &Self) -> bool {
         fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
         where
-            To: NumCast<From> + FCSDataType + PartialEq,
-            From: FCSDataType,
+            To: NumCast<From> + IsFCSDataType + PartialEq,
+            From: IsFCSDataType,
         {
             From::as_col_iter::<To>(xs)
                 .zip(ys.0.iter())
@@ -128,7 +142,7 @@ impl AnyFCSColumn {
         ToType: AllFCSCast,
     {
         match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::check_writer(xs, f)
+            IsFCSDataType::check_writer(xs, f)
         })
     }
 
@@ -179,31 +193,38 @@ impl AnyFCSColumn {
     }
 }
 
+/// Error when building a new dataframe from individual columns
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NewDataframeError;
 
+/// Error when new column has number of rows which are not equal to that of dataframe
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,
 }
 
-#[derive(From, Display, Debug, Error)]
-pub enum InsertColumnError {
-    Index(BoundaryIndexError),
-    Column(ColumnLengthError),
-}
-
 impl FCSDataFrame {
-    pub fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
-        if let Some(nrows) = columns.first().map(AnyFCSColumn::len) {
-            if columns.iter().all(|c| c.len() == nrows) {
-                Ok(Self { columns, nrows })
-            } else {
-                Err(NewDataframeError)
+    pub fn try_new(
+        columns: impl IntoIterator<Item = AnyFCSColumn>,
+    ) -> Result<Self, NewDataframeError> {
+        let mut it = columns.into_iter();
+        if let Some(c0) = it.by_ref().next() {
+            let nrows = c0.len();
+            let mut cs = vec![c0];
+            for c in it {
+                if c.len() != nrows {
+                    return Err(NewDataframeError);
+                }
+                cs.push(c);
             }
+            Ok(Self::new(cs, nrows))
         } else {
             Ok(Self::default())
         }
@@ -228,10 +249,15 @@ impl FCSDataFrame {
 
     #[must_use]
     pub fn nrows(&self) -> usize {
+        self.nrows_nonempty().unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn nrows_nonempty(&self) -> Option<usize> {
         if self.is_empty() {
-            0
+            None
         } else {
-            self.nrows
+            Some(self.nrows)
         }
     }
 
@@ -257,42 +283,57 @@ impl FCSDataFrame {
         }
     }
 
-    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+    // pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
+    //     if self.is_empty() {
+    //         None
+    //     } else {
+    //         Some(self.columns.remove(self.ncols()))
+    //     }
+    // }
+
+    pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
         if self.is_empty() {
             *self = Self::new1(col);
-            return Ok(());
-        }
-        let df_len = self.nrows();
-        let col_len = col.len();
-        if col_len == df_len {
-            self.columns.push(col);
-            Ok(())
         } else {
-            Err(ColumnLengthError { df_len, col_len })
+            self.columns.push(col);
         }
     }
 
+    // pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+    //     self.check_new_column(&col)?;
+    //     self.push_column_nocheck(col);
+    //     Ok(())
+    // }
+
     // will panic if index is out of bounds
-    pub(crate) fn insert_column_nocheck(
-        &mut self,
-        i: usize,
-        col: AnyFCSColumn,
-    ) -> Result<(), ColumnLengthError> {
-        // don't use Self::new1 here since we want to panic if i is out of
-        // bounds
+    pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
         if self.is_empty() {
             self.nrows = col.len();
-            self.columns.insert(i, col);
-            return Ok(());
         }
-        let df_len = self.nrows();
-        let col_len = col.len();
-        if col_len == df_len {
-            self.columns.insert(i, col);
-            Ok(())
-        } else {
-            Err(ColumnLengthError { df_len, col_len })
+        // don't use Self::new1 here since we want to panic if i is out of
+        // bounds
+        self.columns.insert(i, col);
+    }
+
+    // // will panic if index is out of bounds
+    // pub(crate) fn insert_column(
+    //     &mut self,
+    //     i: usize,
+    //     col: AnyFCSColumn,
+    // ) -> Result<(), ColumnLengthError> {
+    //     self.check_new_column(&col)?;
+    //     self.insert_column_nocheck(i, col);
+    //     Ok(())
+    // }
+
+    pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        if let Some(df_len) = self.nrows_nonempty() {
+            let col_len = col.len();
+            if col_len != df_len {
+                return Err(ColumnLengthError { df_len, col_len });
+            }
         }
+        Ok(())
     }
 
     /// Return number of bytes this will occupy if written as delimited ASCII
@@ -324,11 +365,14 @@ impl FCSDataFrame {
 pub(crate) type FCSColIter<'a, FromType, ToType> =
     iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;
 
-pub(crate) trait FCSDataType
+pub(crate) trait IsFCSDataType
 where
     Self: Sized + Copy,
     [Self]: ToOwned,
 {
+    // TODO this feels very similar to the existing trait which encodes native types
+    const NATIVE: FCSDatatype;
+
     /// Return iterator for column, converting to native type on the fly.
     fn as_col_iter<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
     where
@@ -350,10 +394,11 @@ where
     /// occur. If we only wish to warn the user and use lossy conversion
     /// anyways, this only requires one iteration since the iterator itself will
     /// return a [`CastResult`] which carries a flag if loss occurred.
-    fn check_writer<E, F: Fn(ToType) -> Option<E>, ToType: NumCast<Self>>(
-        c: &FCSColumn<Self>,
-        f: F,
-    ) -> Result<(), LossError<E>> {
+    fn check_writer<E, F, ToType>(c: &FCSColumn<Self>, f: F) -> Result<(), LossError<E>>
+    where
+        F: Fn(ToType) -> Option<E>,
+        ToType: NumCast<Self>,
+    {
         for x in Self::as_col_iter::<ToType>(c) {
             x.resolve()?;
             if let Some(err) = f(x.new) {
@@ -368,51 +413,73 @@ where
     }
 }
 
+/// Error when value in dataframe loses information (type conversion or something else)
 #[derive(Clone, Copy, Display, Debug, Error)]
 pub enum LossError<E> {
     Cast(#[from] CastError),
     Other(E),
 }
 
-#[derive(Clone, Copy, Debug, Error)]
+/// Error when value in dataframe loses information due to type conversion
+#[derive(Clone, Copy, Debug, Error, new)]
 #[error("data loss occurred when converting from {from} to {to}")]
 pub struct CastError {
-    from: &'static str,
-    to: &'static str,
+    from: FCSDatatype,
+    to: FCSDatatype,
 }
 
-impl FCSDataType for u8 {}
-impl FCSDataType for u16 {}
-impl FCSDataType for u32 {}
-impl FCSDataType for u64 {}
-impl FCSDataType for f32 {}
-impl FCSDataType for f64 {}
+impl IsFCSDataType for u8 {
+    const NATIVE: FCSDatatype = FCSDatatype::U08;
+}
+
+impl IsFCSDataType for u16 {
+    const NATIVE: FCSDatatype = FCSDatatype::U16;
+}
+
+impl IsFCSDataType for u32 {
+    const NATIVE: FCSDatatype = FCSDatatype::U32;
+}
+
+impl IsFCSDataType for u64 {
+    const NATIVE: FCSDatatype = FCSDatatype::U64;
+}
+
+impl IsFCSDataType for f32 {
+    const NATIVE: FCSDatatype = FCSDatatype::F32;
+}
+
+impl IsFCSDataType for f64 {
+    const NATIVE: FCSDatatype = FCSDatatype::F64;
+}
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,
-    pub(crate) lossy: Option<&'static str>,
+    pub(crate) lossy: Option<FCSDatatype>,
 }
 
 impl<T> CastResult<T> {
-    fn new<FromT>(new: T, has_loss: bool) -> Self {
-        let lossy = has_loss.then_some(type_name::<FromT>());
+    fn new<FromT: IsFCSDataType>(new: T, has_loss: bool) -> Self {
+        let lossy = has_loss.then_some(FromT::NATIVE);
         Self { new, lossy }
     }
 
-    pub(crate) fn as_err(&self) -> Option<CastError> {
-        self.lossy.map(|from| {
-            let to = type_name::<T>();
-            CastError { from, to }
-        })
+    pub(crate) fn as_err(&self) -> Option<CastError>
+    where
+        T: IsFCSDataType,
+    {
+        self.lossy.map(|from| CastError::new(from, T::NATIVE))
     }
 
-    pub(crate) fn resolve(&self) -> Result<(), CastError> {
+    pub(crate) fn resolve(&self) -> Result<(), CastError>
+    where
+        T: IsFCSDataType,
+    {
         self.as_err().map_or(Ok(()), Err)
     }
 }
 
-pub(crate) trait NumCast<T>: Sized {
+pub(crate) trait NumCast<T>: Sized + IsFCSDataType {
     fn from_truncated(x: T) -> CastResult<Self>;
 }
 
@@ -562,7 +629,7 @@ mod tests {
 
     #[test]
     fn u16_to_u8() {
-        assert_eq!(u8::from_truncated(1_u16).lossy, None);
+        assert!(u8::from_truncated(1_u16).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u16),
             CastResult::new::<u16>(0xFF, true)
@@ -571,7 +638,7 @@ mod tests {
 
     #[test]
     fn u32_to_u8() {
-        assert_eq!(u8::from_truncated(1_u32).lossy, None);
+        assert!(u8::from_truncated(1_u32).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u32),
             CastResult::new::<u32>(0xFF, true)
@@ -580,7 +647,7 @@ mod tests {
 
     #[test]
     fn u64_to_u8() {
-        assert_eq!(u8::from_truncated(1_u64).lossy, None);
+        assert!(u8::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u8::from_truncated(0x100_u64),
             CastResult::new::<u64>(0xFF, true)
@@ -589,7 +656,7 @@ mod tests {
 
     #[test]
     fn u32_to_u16() {
-        assert_eq!(u16::from_truncated(1_u32).lossy, None);
+        assert!(u16::from_truncated(1_u32).lossy.is_none());
         assert_eq!(
             u16::from_truncated(0x0001_0000_u32),
             CastResult::new::<u32>(0xFFFF, true)
@@ -598,7 +665,7 @@ mod tests {
 
     #[test]
     fn u64_to_u16() {
-        assert_eq!(u16::from_truncated(1_u64).lossy, None);
+        assert!(u16::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u16::from_truncated(0x0001_0000_u64),
             CastResult::new::<u64>(0xFFFF, true)
@@ -607,7 +674,7 @@ mod tests {
 
     #[test]
     fn u64_to_u32() {
-        assert_eq!(u32::from_truncated(1_u64).lossy, None);
+        assert!(u32::from_truncated(1_u64).lossy.is_none());
         assert_eq!(
             u32::from_truncated(0x0001_0000_0000_u64),
             CastResult::new::<u64>(0xFFFF_FFFF, true)
@@ -794,7 +861,8 @@ mod tests {
 #[cfg(feature = "python")]
 pub(crate) mod python {
     use super::{AnyFCSColumn, FCSColumn, FCSDataFrame};
-    use crate::python::macros::impl_value_err;
+
+    use fireflow_core_proc::DisplayAsPyErr;
 
     use polars::prelude::*;
     use polars_arrow::array::PrimitiveArray;
@@ -890,6 +958,8 @@ pub(crate) mod python {
         }
     }
 
+    #[derive(DisplayAsPyErr)]
+    #[pyerr(crate::python::EventDataError)]
     pub enum SeriesToColumnError {
         InvalidDatatype(PlSmallStr, DataType),
         HasNull(PlSmallStr),
@@ -908,6 +978,4 @@ pub(crate) mod python {
             }
         }
     }
-
-    impl_value_err!(SeriesToColumnError);
 }

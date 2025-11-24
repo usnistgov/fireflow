@@ -1,31 +1,48 @@
-use crate::config::StdTextReadConfig;
-use crate::error::{
-    BiDeferredResult, DeferredExt as _, PassthruExt as _, ResultExt as _, Tentative,
+use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::data::IndexedError;
+use crate::logging::{
+    DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
+    ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
-use crate::text::keywords::{
+use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
+use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
+use crate::type_families::{
+    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
+    impl_functor_once, impl_kind1,
+};
+use crate::validated::keys::{
+    IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
+};
+
+use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
+use super::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
+use super::optional::{CheckMaybe as _, KeywordPairMaybe as _};
+
+use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use super::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
-    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
+    RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::optional::KeywordPairMaybe as _;
-use crate::text::parser::{
-    LookupOptional, LookupTentative, OptIndexedKey as _, OptMetarootKey, ParseOptKeyError,
-};
-use crate::validated::keys::StdKeywords;
+use super::relational::{ExistingIndexedLinkError, MeasIndicesNoTime};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
+use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
@@ -68,7 +85,7 @@ pub struct AppliedGates3_2(pub GatingScheme<PrefixedMeasIndex>);
 /// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
 /// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
 /// or bivariate)
-#[derive(Clone, PartialEq, AsRef)]
+#[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GatingScheme<I> {
     #[as_ref(Option<Gating>)]
@@ -76,6 +93,8 @@ pub struct GatingScheme<I> {
     #[as_ref(HashMap<RegionIndex, Region<I>>)]
     regions: HashMap<RegionIndex, Region<I>>,
 }
+
+impl_kind1!(GatingSchemeFamily, GatingScheme);
 
 /// A list of $Gn* keywords for indices 1-n.
 ///
@@ -93,12 +112,16 @@ pub enum Region<I> {
     Bivariate(BivariateRegion<I>),
 }
 
+impl_kind1!(RegionFamily, Region);
+impl_kind1!(UnivariateRegionFamily, UnivariateRegion);
+impl_kind1!(BivariateRegionFamily, BivariateRegion);
+
 pub type Region2_0 = Region<GateIndex>;
 pub type Region3_0 = Region<MeasOrGateIndex>;
 pub type Region3_2 = Region<PrefixedMeasIndex>;
 
 /// A univariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
@@ -106,7 +129,7 @@ pub struct UnivariateRegion<I> {
 }
 
 /// A bivariate region corresponding to an $RnI/$RnW keyword pair
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
     pub vertices: FCSNonEmpty<Vertex>,
@@ -192,17 +215,31 @@ impl LinkedMeasIndex for PrefixedMeasIndex {
     }
 }
 
-impl<I> UnivariateRegion<I> {
-    fn map<F, J>(self, f: F) -> UnivariateRegion<J>
-    where
-        F: FnOnce(I) -> J,
-    {
-        UnivariateRegion {
-            gate: self.gate,
-            index: f(self.index),
-        }
-    }
+impl_functor_once!(
+    UnivariateRegion,
+    self,
+    mut f,
+    UnivariateRegion::new(self.gate, f(self.index))
+);
 
+impl_functor!(
+    BivariateRegion,
+    self,
+    f,
+    BivariateRegion::new(self.vertices, self.index.fmap(f))
+);
+
+impl_functor!(
+    Region,
+    self,
+    f,
+    match self {
+        Self::Univariate(x) => Region::Univariate(x.fmap_once(f)),
+        Self::Bivariate(x) => Region::Bivariate(x.fmap(f)),
+    }
+);
+
+impl<I> UnivariateRegion<I> {
     fn try_map<F, J, E>(self, f: F) -> Result<UnivariateRegion<J>, E>
     where
         F: FnOnce(I) -> Result<J, E>,
@@ -215,24 +252,11 @@ impl<I> UnivariateRegion<I> {
 }
 
 impl<I> BivariateRegion<I> {
-    fn map<F, J>(self, f: F) -> BivariateRegion<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        BivariateRegion {
-            vertices: self.vertices,
-            index: self.index.map(f),
-        }
-    }
-
     fn try_map<F, J, E>(self, f: F) -> Result<BivariateRegion<J>, E>
     where
-        F: FnMut(I) -> Result<J, E>,
+        F: FnMut(I, I) -> Result<(J, J), E>,
     {
-        Ok(BivariateRegion {
-            vertices: self.vertices,
-            index: self.index.try_map(f)?,
-        })
+        Ok(BivariateRegion::new(self.vertices, self.index.try_map(f)?))
     }
 }
 
@@ -282,29 +306,28 @@ impl AppliedGates2_0 {
         )
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        // ASSUME if this is empty then the gating regions will also be empty
-        // since they will have nothing to refer
-        self.gated_measurements.0.is_empty()
-    }
-
-    pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        let ag = GatingScheme::lookup(
-            kws,
-            |k| Gating::lookup_metaroot_opt(k, false, conf),
-            |k, j| Region::lookup(k, j, par, false, conf),
-            conf,
-        );
-        let gm = GatedMeasurements::lookup(kws, false, conf);
-        ag.zip(gm).and_tentatively(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_def(!conf.allow_optional_dropping)
-                .inner_into()
-        })
+    pub(crate) fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates2_0Error, LookupAppliedGates2_0Error>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        let ag = GatingScheme::lookup(std, nonstd, conf)
+            .map_errors(LookupAppliedGatesError::Scheme)
+            .map_commutative_warnings(LookupAppliedGatesError::Scheme);
+        let gm = GatedMeasurements::lookup(std, nonstd, conf)
+            .map_errors(LookupAppliedGatesError::GatedMeas)
+            .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
+        ag.zip_f2_once(gm).and_then_deferred_switchable_result(
+            flag,
+            |(scheme, gated_measurements)| {
+                Self::try_new(gated_measurements.0, scheme).map_err(LookupAppliedGatesError::Link)
+            },
+        )
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -314,8 +337,20 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([gate.metaroot_pair()])
+            .chain([gate.root_pair()])
             .chain(self.scheme.opt_keywords())
+    }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = AppliedGates2_0To3_2LossError> {
+        let gs = self
+            .gated_measurements
+            .loss_errors()
+            .map(AppliedGates2_0To3_2LossError::from);
+        let ss = self
+            .scheme
+            .loss_errors()
+            .map(AppliedGates2_0To3_2LossError::from);
+        gs.chain(ss)
     }
 }
 
@@ -374,49 +409,47 @@ impl AppliedGates3_0 {
         self.scheme.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn indices_difference(
+    // pub(crate) fn indices_difference(
+    //     &self,
+    //     indices: &MeasIndicesNoTime,
+    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
+    //     self.scheme.indices_difference(indices)
+    // }
+
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = RemovedLink> {
+        self.scheme.remove_invalid_links(indices)
+    }
+
+    pub(crate) fn existing_link_errors(
         &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = MeasIndex> {
-        self.scheme.indices_difference(indices)
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+        self.scheme.existing_link_errors(indices)
     }
 
-    pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Self::lookup_inner(
-            kws,
-            |k| {
-                GatingScheme::lookup(
-                    k,
-                    |kws_| Gating::lookup_metaroot_opt(kws_, is_deprecated, conf),
-                    |kk, j| Region::lookup(kk, j, par, is_deprecated, conf),
-                    conf,
-                )
-            },
-            |k| GatedMeasurements::lookup(k, is_deprecated, conf),
-        )
-    }
-
-    fn lookup_inner<F0, F1>(
-        kws: &mut StdKeywords,
-        lookup_scheme: F0,
-        lookup_meas: F1,
-    ) -> LookupTentative<Self>
+    pub(crate) fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_0Error, LookupAppliedGates3_0Error>
     where
-        F0: FnOnce(&mut StdKeywords) -> LookupTentative<GatingScheme<MeasOrGateIndex>>,
-        F1: FnOnce(&mut StdKeywords) -> LookupTentative<GatedMeasurements>,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        let s = lookup_scheme(kws);
-        let ms = lookup_meas(kws);
-        s.zip(ms).and_tentatively(|(scheme, gated_measurements)| {
-            Self::try_new(gated_measurements.0, scheme)
-                .into_tentative_warn_def()
-                .warnings_into()
-        })
+        let s = GatingScheme::lookup(std, nonstd, conf)
+            .map_errors(LookupAppliedGatesError::Scheme)
+            .map_commutative_warnings(LookupAppliedGatesError::Scheme);
+        let ms = GatedMeasurements::lookup(std, nonstd, conf)
+            .map_errors(LookupAppliedGatesError::GatedMeas)
+            .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
+        s.zip_f2_once(ms)
+            .and_then_deferred(|(scheme, gated_measurements)| {
+                Self::try_new(gated_measurements.0, scheme)
+                    .map_err(LookupAppliedGatesError::Link)
+                    .into_succ()
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -428,54 +461,45 @@ impl AppliedGates3_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain(self.scheme.opt_keywords())
-            .chain(gate.map(|x| OptMetarootKey::metaroot_pair(&x)))
+            .chain(gate.map(|x| OptMetarootKey::root_pair(&x)))
     }
 
     pub(crate) fn try_into_2_0(
         self,
-        allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
-        // ASSUME region indices will still be unique in new hash table
-        let (regions, es): (HashMap<_, _>, Vec<_>) = self
-            .scheme
-            .regions
-            .into_iter()
-            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
-            .partition_result();
-        let mut res = GatingScheme::try_new(self.scheme.gating, regions)
-            .into_deferred()
-            .def_and_maybe(|scheme| {
-                AppliedGates2_0::try_new(self.gated_measurements.0, scheme).into_deferred()
-            });
-        for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), !allow_loss);
-        }
-        res
+        flag: AllowLoss,
+    ) -> DeferredSwitchableErrors<AppliedGates2_0, AllowLoss, AppliedGates3_0To2_0Error> {
+        self.scheme
+            .convert_indices(flag)
+            .map_switchable_errors(AppliedGates3_0To2_0Error::from)
+            .and_then_switchable(|scheme| {
+                AppliedGates2_0::try_new(self.gated_measurements.0, scheme)
+                    .map_err(AppliedGates3_0To2_0Error::from)
+                    .into_nowarn()
+                    .set_err_value(AppliedGates2_0::default())
+            })
     }
 
     pub(crate) fn try_into_3_2(
         self,
-        allow_loss: bool,
-    ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
-        // ASSUME region indices will still be unique in new hash table
-        let (regions, es): (HashMap<_, _>, Vec<_>) = self
-            .scheme
-            .regions
-            .into_iter()
-            .map(|(ri, r)| r.try_map(TryInto::try_into).map(|x| (ri, x)))
-            .partition_result();
-        let mut res = AppliedGates3_2::try_new(self.scheme.gating, regions).into_deferred();
-        for e in es {
-            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), !allow_loss);
-        }
-        let n_gates = self.gated_measurements.0.len();
-        if n_gates > 0 {
-            res.def_push_error_or_warning(
-                AppliedGates3_0To3_2Error::HasGates(n_gates),
-                !allow_loss,
-            );
-        }
-        res
+        flag: AllowLoss,
+    ) -> DeferredSwitchableErrors<AppliedGates3_2, AllowLoss, AppliedGates3_0To3_2Error> {
+        let gs = self
+            .gated_measurements
+            .loss_errors()
+            .map(AppliedGates3_0To3_2Error::from);
+        self.scheme
+            .convert_indices(flag)
+            .map_switchable_errors(AppliedGates3_0To3_2Error::from)
+            .extend_deferred_switchable_errors(gs)
+            .map_deferred_value(AppliedGates3_2)
+    }
+
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
+        self.gated_measurements
+            .0
+            .iter_mut()
+            .enumerate()
+            .flat_map(|(i, g)| g.deprecated(i.into()))
     }
 }
 
@@ -483,7 +507,7 @@ impl AppliedGates3_2 {
     pub fn try_new(
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<PrefixedMeasIndex>>,
-    ) -> Result<Self, NewGatingSchemeError> {
+    ) -> Result<Self, DependentKeyError<Gating>> {
         GatingScheme::try_new(gating, regions).map(Self)
     }
 
@@ -500,141 +524,151 @@ impl AppliedGates3_2 {
         self.0.shift_meas_indices_after_insert(i);
     }
 
-    pub(crate) fn indices_difference(
+    // pub(crate) fn indices_difference(
+    //     &self,
+    //     indices: &MeasIndicesNoTime,
+    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
+    //     self.0.indices_difference(indices)
+    // }
+
+    pub(crate) fn existing_link_errors(
         &self,
-        indices: &HashSet<MeasIndex>,
-    ) -> impl Iterator<Item = MeasIndex> {
-        self.0.indices_difference(indices)
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+        self.0.existing_link_errors(indices)
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub(crate) fn lookup(
-        kws: &mut StdKeywords,
-        par: Par,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        GatingScheme::lookup(
-            kws,
-            |k| Gating::lookup_metaroot_opt(k, false, conf),
-            |k, i| Region::lookup(k, i, par, false, conf),
-            conf,
-        )
-        .map(Self)
+    pub(crate) fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        GatingScheme::lookup(std, nonstd, conf).map_deferred_value(Self)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.0.opt_keywords()
     }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError> {
+        self.0.loss_errors()
+    }
 }
 
 impl GatedMeasurement {
-    fn lookup(
-        kws: &mut StdKeywords,
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         i: GateIndex,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Self::lookup_inner(
-            kws,
-            i,
-            |k, j| GateScale::lookup_meas_opt_st(k, j, is_deprecated, (), conf),
-            |k, j| GateFilter::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateShortname::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GatePercentEmitted::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateRange::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateLongname::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateDetectorType::lookup_meas_opt(k, j, is_deprecated, conf),
-            |k, j| GateDetectorVoltage::lookup_meas_opt(k, j, is_deprecated, conf),
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasError, LookupGatedMeasError>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupGatedMeasError::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            };
+        }
+        let scale = GateScale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
+        let filter = GateFilter::remove_meas_opt_nofail(std, i);
+        let sname = GateShortname::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let pemit = GatePercentEmitted::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let range = GateRange::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let lname = GateLongname::remove_meas_opt_nofail(std, i);
+        let dtype = GateDetectorType::remove_meas_opt_nofail(std, i);
+        let dvolt = GateDetectorVoltage::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        go!(scale).lift_f5_once(
+            go!(sname),
+            go!(pemit),
+            go!(range),
+            go!(dvolt),
+            |s, n, p, r, v| Self::new(s, filter, n, p, r, lname, dtype, v),
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn lookup_inner<F0, F1, F2, F3, F4, F5, F6, F7>(
-        kws: &mut StdKeywords,
-        i: GateIndex,
-        lookup_scale: F0,
-        lookup_filter: F1,
-        lookup_shortname: F2,
-        lookup_pe: F3,
-        lookup_range: F4,
-        lookup_longname: F5,
-        lookup_det_type: F6,
-        lookup_det_volt: F7,
-    ) -> LookupTentative<Self>
-    where
-        F0: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateScale>,
-        F1: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateFilter>,
-        F2: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateShortname>,
-        F3: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GatePercentEmitted>,
-        F4: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateRange>,
-        F5: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateLongname>,
-        F6: FnOnce(&mut StdKeywords, GateIndex) -> LookupTentative<GateDetectorType>,
-        F7: FnOnce(&mut StdKeywords, GateIndex) -> LookupOptional<GateDetectorVoltage>,
-    {
-        let scale = lookup_scale(kws, i);
-        let filter = lookup_filter(kws, i);
-        let shortname = lookup_shortname(kws, i);
-        let perc_emit = lookup_pe(kws, i);
-        let rng = lookup_range(kws, i);
-        let longname = lookup_longname(kws, i);
-        let det_type = lookup_det_type(kws, i);
-        let det_volt = lookup_det_volt(kws, i);
-        scale
-            .zip4(filter, shortname, perc_emit)
-            .zip5(rng, longname, det_type, det_volt)
-            .map(|((e, f, n, p), r, s, t, v)| Self::new(e, f, n, p, r, s, t, v))
+    fn deprecated(&mut self, i: GateIndex) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
+        let j = i.into();
+        macro_rules! go {
+            ($j:expr, $x:expr) => {
+                DepGatedMeasRef::from(IndexedDepRef::new($j, $x))
+            };
+        }
+        let x0 = go!(j, &mut self.scale);
+        let x1 = go!(j, DeprecatedStrRef(&mut self.filter));
+        let x2 = go!(j, &mut self.shortname);
+        let x3 = go!(j, &mut self.percent_emitted);
+        let x4 = go!(j, &mut self.range);
+        let x5 = go!(j, DeprecatedStrRef(&mut self.longname));
+        let x6 = go!(j, DeprecatedStrRef(&mut self.detector_type));
+        let x7 = go!(j, &mut self.detector_voltage);
+        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
-    pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
-        [
-            self.scale.meas_opt_pair(i),
-            self.filter.meas_opt_pair(i),
-            self.shortname.meas_opt_pair(i),
-            self.percent_emitted.meas_opt_pair(i),
-            self.range.meas_opt_pair(i),
-            self.longname.meas_opt_pair(i),
-            self.detector_type.meas_opt_pair(i),
-            self.detector_voltage.meas_opt_pair(i),
-        ]
-        .into_iter()
-        .filter_map(|(k, v)| v.map(|x| (k, x)))
+    fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
+        let x0 = self.scale.meas_opt_pair(i);
+        let x1 = self.filter.meas_opt_pair(i);
+        let x2 = self.shortname.meas_opt_pair(i);
+        let x3 = self.percent_emitted.meas_opt_pair(i);
+        let x4 = self.range.meas_opt_pair(i);
+        let x5 = self.longname.meas_opt_pair(i);
+        let x6 = self.detector_type.meas_opt_pair(i);
+        let x7 = self.detector_voltage.meas_opt_pair(i);
+        [x0, x1, x2, x3, x4, x5, x6, x7]
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
+    }
+
+    fn loss_errors(&self, i: GateIndex) -> impl Iterator<Item = GatedMeasurementLossError> {
+        let x0 = self.scale.indexed_key_loss_error(i);
+        let x1 = self.filter.indexed_key_loss_error(i);
+        let x2 = self.shortname.indexed_key_loss_error(i);
+        let x3 = self.percent_emitted.indexed_key_loss_error(i);
+        let x4 = self.range.indexed_key_loss_error(i);
+        let x5 = self.longname.indexed_key_loss_error(i);
+        let x6 = self.detector_type.indexed_key_loss_error(i);
+        let x7 = self.detector_voltage.indexed_key_loss_error(i);
+        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 }
 
 impl<I> Default for GatingScheme<I> {
     fn default() -> Self {
-        Self {
-            gating: None,
-            regions: HashMap::new(),
-        }
+        Self::new(None, HashMap::new())
     }
 }
+
+impl_functor!(
+    GatingScheme,
+    self,
+    mut f,
+    GatingScheme::new(self.gating, self.regions.fmap(|ri| ri.fmap(&mut f)))
+);
 
 impl<I> GatingScheme<I> {
     pub fn try_new(
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<I>>,
-    ) -> Result<Self, NewGatingSchemeError> {
+    ) -> Result<Self, DependentKeyError<Gating>> {
+        // NOTE generic parameter in RegionGateIndex is a dummy, all should
+        // format to the same string
         if let Some(ris) = gating.as_ref().and_then(|g| {
             NonEmpty::collect(
                 g.region_indices()
                     .into_iter()
-                    .filter(|ri| !regions.contains_key(ri)),
+                    .filter(|ri| !regions.contains_key(ri))
+                    .map(RegionGateIndex::<GateIndex>::std),
             )
         }) {
-            Err(NewGatingSchemeError(ris))
+            Err(DependentKeyError::new1(ris))
         } else {
             Ok(Self { gating, regions })
         }
-    }
-
-    pub(crate) fn is_empty(&self) -> bool {
-        // ASSUME gating will also be empty since it will have nothing to
-        // refer to if this is also empty
-        self.regions.is_empty()
     }
 
     /// Shift indices when a new measurement is inserted.
@@ -650,48 +684,124 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    fn indices_difference(&self, indices: &HashSet<MeasIndex>) -> impl Iterator<Item = MeasIndex>
+    fn indices_difference(
+        &self,
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
     where
         I: LinkedMeasIndex,
     {
-        self.meas_indices().filter(|i| !indices.contains(i))
+        self.meas_indices()
+            .filter(|(_, mi)| !indices.as_ref().contains(mi))
     }
 
-    fn meas_indices(&self) -> impl Iterator<Item = MeasIndex>
+    pub(crate) fn existing_link_errors(
+        &self,
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
     where
         I: LinkedMeasIndex,
     {
-        self.regions.iter().flat_map(|(_, v)| v.meas_indices())
+        // TODO this will print one error for every measurement index even in
+        // cases where one RnI keyword has a pair of indices. This isn't a huge
+        // deal but it means we could have twice as many error messages as
+        // otherwise.
+        self.indices_difference(indices).map(|(ri, mi)| {
+            let js = NonEmpty::new(mi.into());
+            ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
+        })
     }
 
-    fn lookup<F0, F1>(
-        kws: &mut StdKeywords,
-        lookup_gating: F0,
-        lookup_region: F1,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self>
+    pub(crate) fn remove_invalid_links(
+        &mut self,
+        indices: &MeasIndicesNoTime,
+    ) -> impl Iterator<Item = RemovedLink>
     where
-        F0: Fn(&mut StdKeywords) -> LookupOptional<Gating>,
-        F1: Fn(&mut StdKeywords, RegionIndex) -> LookupOptional<Region<I>>,
+        I: LinkedMeasIndex,
+        RemovedLink: From<RemovedGateLink<I>>,
     {
-        lookup_gating(kws).and_tentatively(|gating| {
-            gating
-                .as_ref()
-                .map(|g| {
-                    Tentative::mconcat(
+        // Check the $GATING keyword to see if it has any links to $RnI/$RnW
+        // which in turn reference measurement indices that don't exist. If it
+        // has any, rip it out and return it.
+        let gating = if let Some(g) = self.gating.as_ref() {
+            let xs = g.region_indices();
+            let ys = xs.iter().copied().filter(|&rni| {
+                self.regions
+                    .get(&rni)
+                    .into_iter()
+                    .any(|rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
+            });
+            NonEmpty::collect(ys).map(|zs| {
+                // ASSUME this won't fail because we are inside an if let Some
+                // block
+                let ret = take(&mut self.gating).unwrap();
+                RemovedGating::new(zs, ret)
+            })
+        } else {
+            None
+        };
+        // Then remove any $RnI/$RnW keywords which reference measurements that
+        // don't exist.
+        self.regions
+            .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
+            .map(|(rni, rnw)| {
+                let bad_indices = rnw.meas_indices().filter(|x| !indices.as_ref().contains(x));
+                // ASSUME this won't fail because we pre-filtered above
+                let js = NonEmpty::collect(bad_indices).unwrap();
+                RemovedLink::from(RemovedGateLink::new(rni, rnw, js))
+            })
+            .chain(gating.map(RemovedLink::Gating))
+    }
+
+    fn meas_indices(&self) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
+    where
+        I: LinkedMeasIndex,
+    {
+        self.regions
+            .iter()
+            .flat_map(|(ri, v)| v.meas_indices().map(|mi| (*ri, mi)))
+    }
+
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupGatingSchemeError<LookupRegionIndexError<I>>,
+        LookupGatingSchemeError<LookupRegionIndexError<I>>,
+    >
+    where
+        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
+        // TODO demote as necessary
+        Gating::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+            .map_switchable_errors(LookupGatingSchemeError::Gating)
+            .switchable_into_commutative()
+            .into_semigroup()
+            .and_then_deferred(|gating| {
+                gating
+                    .as_ref()
+                    .map_or(LogResult::new_ok_default(), |g| {
                         g.region_indices()
                             .into_iter()
-                            .map(|ri| lookup_region(kws, ri).map(|x| x.map(|y| (ri, y)))),
-                    )
-                })
-                .unwrap_or_default()
-                .and_tentatively(|rs| {
-                    let regions = rs.into_iter().flatten().collect();
-                    Self::try_new(gating, regions)
-                        .into_tentative_def(!conf.allow_optional_dropping)
-                        .inner_into()
-                })
-        })
+                            .map(|ri| {
+                                Region::lookup(std, nonstd, ri, conf)
+                                    .map_deferred_value(|x| x.map(|y| (ri, y)))
+                                    .map_errors(LookupGatingSchemeError::Region)
+                                    .map_commutative_warnings(LookupGatingSchemeError::Region)
+                            })
+                            .mappend_def()
+                    })
+                    .and_then_deferred_switchable_result(flag, |rs| {
+                        // TODO impl iterator for try_new
+                        let regions = rs.into_iter().flatten().collect();
+                        Self::try_new(gating, regions).map_err(LookupGatingSchemeError::Link)
+                    })
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
@@ -701,89 +811,170 @@ impl<I> GatingScheme<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain(self.gating.as_ref().map(OptMetarootKey::metaroot_pair))
+            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
     }
 
-    fn inner_into<J: From<I>>(self) -> GatingScheme<J> {
-        GatingScheme {
-            gating: self.gating,
-            regions: self
-                .regions
-                .into_iter()
-                .map(|(ri, r)| (ri, r.inner_into()))
-                .collect(),
-        }
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError>
+    where
+        I: Copy,
+    {
+        let gating = self
+            .gating
+            .root_key_loss_error()
+            .map(GatingSchemeLossError::Gating);
+        self.regions
+            .keys()
+            .flat_map(|ri| Region::<I>::loss_errors(*ri))
+            .map(GatingSchemeLossError::from)
+            .chain(gating)
+    }
+
+    fn convert_indices<J0, J1, const GATE_IS_INDEX: bool>(
+        self,
+        flag: AllowLoss,
+    ) -> DeferredSwitchableErrors<GatingScheme<J0>, AllowLoss, ConvertSchemeError<J1, GATE_IS_INDEX>>
+    where
+        I: Copy,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+        AnyIndexForRegionError<J1>: From<J0::Error> + From<BiIndexForRegionError<J1>>,
+    {
+        // ASSUME region indices will still be unique in new hash table
+        let mut regions = HashMap::new();
+        let es = self
+            .regions
+            .into_iter()
+            .filter_map(|(ri, r)| match r.try_index_into() {
+                Ok(r_) => {
+                    regions.insert(ri, r_);
+                    None
+                }
+                Err(e) => Some(IndexedError::new(ri, e)),
+            })
+            .map(ConvertIndexForRegionError)
+            .map(ConvertSchemeError::from);
+        SwitchableErrorsResult::new_switchable_iter((), (), es, flag).and_then_switchable(|()| {
+            GatingScheme::try_new(self.gating, regions)
+                .map_err(ConvertSchemeError::from)
+                .into_nowarn()
+                .set_err_value(GatingScheme::default())
+        })
+    }
+}
+
+impl GatingScheme<PrefixedMeasIndex> {
+    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedGatingSchemeRef<'_>> {
+        let g = DeprecatedGatingSchemeRef::from(&mut self.gating);
+        let r = DeprecatedGatingSchemeRef::from(&mut self.regions);
+        [g, r].into_iter()
     }
 }
 
 impl<I> Region<I> {
-    pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
+    pub(crate) fn try_new(
+        r_index: RegionGateIndex<I>,
+        window: RegionWindow,
+    ) -> Result<Self, (RegionGateIndex<I>, RegionWindow)> {
         match (r_index, window) {
             (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
-                Some(Self::Univariate(UnivariateRegion { gate, index }))
+                Ok(Self::Univariate(UnivariateRegion { gate, index }))
             }
             (RegionGateIndex::Bivariate(index), RegionWindow::Bivariate(vs)) => {
-                Some(Self::Bivariate(BivariateRegion {
+                Ok(Self::Bivariate(BivariateRegion {
                     index,
                     vertices: vs.into(),
                 }))
             }
-            _ => None,
+            (r, w) => Err((r, w)),
         }
     }
 
-    fn lookup(
-        kws: &mut StdKeywords,
-        i: RegionIndex,
-        par: Par,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        ri: RegionIndex,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<
+        Option<Self>,
+        LookupRegionError<LookupRegionIndexError<I>>,
+        LookupRegionError<LookupRegionIndexError<I>>,
+    >
     where
-        I: FromStr + fmt::Display + LinkedMeasIndex,
-        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
+        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
     {
-        Self::lookup_inner(
-            kws,
-            i,
-            |k, j| RegionGateIndex::lookup_region_opt(k, j, par, is_deprecated, conf),
-            |k, j| RegionWindow::lookup_meas_opt_st(k, j, is_deprecated, (), conf),
-            conf,
-        )
+        let index_res = RegionGateIndex::remove_or_drop_meas_opt(std, nonstd, ri, conf.as_ref())
+            .map_switchable_errors(LookupRegionError::Region)
+            .switchable_into_commutative()
+            .into_semigroup();
+        let window_res = RegionWindow::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
+            .map_switchable_errors(LookupRegionError::Window)
+            .switchable_into_commutative()
+            .into_semigroup();
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
+        index_res
+            .zip_f2_once(window_res)
+            .and_then_deferred_switchable_result(flag, |(gi_opt, w_opt)| {
+                // Try to combine the gateindex and window together to make a
+                // region. This will only work if both are present and
+                // they are both the same type (uni/bi-variate). If anything
+                // fails, return none, log an error (or warning if we allow
+                // dropping), and demote the keywords if applicable.
+                let res = match (gi_opt, w_opt) {
+                    (Some(gi), Some(w)) => match Self::try_new(gi, w) {
+                        Ok(x) => Ok(Some(x.fmap_into())),
+                        Err((gi_, w_)) => {
+                            if flag.is_set() {
+                                nonstd.insert_demoted_meas(ri.into(), &gi_);
+                                nonstd.insert_demoted_meas(ri.into(), &w_);
+                            }
+                            Err(IndexWindowMismatchError::Both(ri))
+                        }
+                    },
+                    (Some(gi), None) => {
+                        if flag.is_set() {
+                            nonstd.insert_demoted_meas(ri.into(), &gi);
+                        }
+                        Err(IndexWindowMismatchError::NoWindow(ri))
+                    }
+                    (None, Some(w)) => {
+                        if flag.is_set() {
+                            nonstd.insert_demoted_meas(ri.into(), &w);
+                        }
+                        Err(IndexWindowMismatchError::NoIndex(ri))
+                    }
+                    (None, None) => Ok(None),
+                };
+                res.map_err(LookupRegionError::Mismatch)
+            })
     }
 
-    fn lookup_inner<F0, F1>(
-        kws: &mut StdKeywords,
-        i: RegionIndex,
-        lookup_index: F0,
-        lookup_window: F1,
-        conf: &StdTextReadConfig,
-    ) -> LookupOptional<Self>
+    pub(crate) fn opt_keywords_std(&self, i: RegionIndex) -> impl Iterator<Item = (StdKey, String)>
     where
-        F0: FnOnce(&mut StdKeywords, RegionIndex) -> LookupOptional<RegionGateIndex<I>>,
-        F1: FnOnce(&mut StdKeywords, IndexFromOne) -> LookupOptional<RegionWindow>,
-        I: FromStr + fmt::Display,
-        ParseOptKeyError: From<<RegionGateIndex<I> as FromStr>::Err>,
+        I: Copy + FromStr + fmt::Display,
     {
-        let n = lookup_index(kws, i);
-        let w = lookup_window(kws, i.into());
-        n.zip(w)
-            .and_tentatively(|(n_, y_)| {
-                n_.zip(y_)
-                    .and_then(|(gi, win)| Self::try_new(gi, win).map(Self::inner_into))
-                    .ok_or(MismatchedIndexAndWindowError)
-                    .into_tentative_opt(!conf.allow_optional_dropping)
-                    .inner_into()
-            })
-            .value_into()
+        let (ri, rw) = self.split();
+        [ri.meas_pair_std(i), rw.meas_pair_std(i)].into_iter()
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
     where
         I: Copy + FromStr + fmt::Display,
     {
-        let (ri, rw) = self.split();
-        [ri.meas_pair(i), rw.meas_pair(i)].into_iter()
+        self.opt_keywords_std(i).map(|(k, v)| (k.to_string(), v))
+    }
+
+    fn loss_errors(i: RegionIndex) -> impl Iterator<Item = GateRegionLossError>
+    where
+        I: Copy,
+    {
+        let ri = IndexedKeyLossError(Key1::new_i1(i.into()));
+        let rw = IndexedKeyLossError(Key1::new_i1(i.into()));
+        [
+            GateRegionLossError::Index(ri),
+            GateRegionLossError::Window(rw),
+        ]
+        .into_iter()
     }
 
     pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
@@ -802,28 +993,18 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn map<F, J>(self, f: F) -> Region<J>
+    fn try_index_into<J0, J1>(self) -> Result<Region<J0>, AnyIndexForRegionError<J1>>
     where
-        F: FnMut(I) -> J,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+        AnyIndexForRegionError<J1>: From<J0::Error> + From<BiIndexForRegionError<J1>>,
+        I: Copy,
     {
         match self {
-            Self::Univariate(x) => Region::Univariate(x.map(f)),
-            Self::Bivariate(x) => Region::Bivariate(x.map(f)),
+            Self::Univariate(x) => Ok(Region::Univariate(x.try_map(TryFrom::try_from)?)),
+            Self::Bivariate(x) => Ok(Region::Bivariate(
+                x.try_map(BiIndexForRegionError::try_from2)?,
+            )),
         }
-    }
-
-    pub(crate) fn try_map<F, J, E>(self, f: F) -> Result<Region<J>, E>
-    where
-        F: FnMut(I) -> Result<J, E>,
-    {
-        match self {
-            Self::Univariate(x) => Ok(Region::Univariate(x.try_map(f)?)),
-            Self::Bivariate(x) => Ok(Region::Bivariate(x.try_map(f)?)),
-        }
-    }
-
-    pub(crate) fn inner_into<J: From<I>>(self) -> Region<J> {
-        self.map(Into::into)
     }
 
     pub(crate) fn indices(&self) -> NonEmpty<I>
@@ -869,11 +1050,11 @@ impl<I> Region<I> {
 }
 
 impl TryFrom<MeasOrGateIndex> for PrefixedMeasIndex {
-    type Error = RegionToMeasIndexError;
+    type Error = UniIndexForRegionError<GateIndex>;
     fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
         match value {
             MeasOrGateIndex::Meas(i) => Ok(i.into()),
-            MeasOrGateIndex::Gate(i) => Err(RegionToMeasIndexError(i)),
+            MeasOrGateIndex::Gate(i) => Err(UniIndexForRegionError(i)),
         }
     }
 }
@@ -885,43 +1066,54 @@ impl From<PrefixedMeasIndex> for MeasOrGateIndex {
 }
 
 impl TryFrom<MeasOrGateIndex> for GateIndex {
-    type Error = RegionToGateIndexError;
+    type Error = UniIndexForRegionError<MeasIndex>;
     fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
         match value {
             MeasOrGateIndex::Gate(i) => Ok(i),
-            MeasOrGateIndex::Meas(i) => Err(RegionToGateIndexError(i)),
+            MeasOrGateIndex::Meas(i) => Err(UniIndexForRegionError(i)),
         }
     }
 }
 
-impl TryFrom<GateIndex> for PrefixedMeasIndex {
-    type Error = GateToMeasIndexError;
-    fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
-        Err(GateToMeasIndexError(value))
-    }
-}
-
-impl TryFrom<PrefixedMeasIndex> for GateIndex {
-    type Error = MeasToGateIndexError;
-    fn try_from(value: PrefixedMeasIndex) -> Result<Self, Self::Error> {
-        Err(MeasToGateIndexError(value))
-    }
-}
-
 impl GatedMeasurements {
-    fn lookup(
-        kws: &mut StdKeywords,
-        is_deprecated: bool,
-        conf: &StdTextReadConfig,
-    ) -> LookupTentative<Self> {
-        Gate::lookup_metaroot_opt(kws, is_deprecated, conf).and_tentatively(|maybe| {
-            if let Some(n) = maybe {
-                let xs =
-                    (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), is_deprecated, conf));
-                return Tentative::mconcat(xs).map(Self);
-            }
-            Tentative::default()
-        })
+    fn lookup<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        conf: &C,
+    ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasurementsError, LookupGatedMeasurementsError>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        Gate::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+            .map_switchable_errors(LookupGatedMeasurementsError::Gate)
+            .switchable_into_commutative()
+            .into_semigroup()
+            .and_then_deferred(|maybe| {
+                if let Some(n) = maybe {
+                    (0..n.0)
+                        .map(|i| {
+                            GatedMeasurement::lookup(std, nonstd, i.into(), conf)
+                                .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
+                                .map_errors(LookupGatedMeasurementsError::Meas)
+                        })
+                        .mappend_def()
+                        .map_deferred_value(Self)
+                } else {
+                    LogResult::new_ok_default()
+                }
+            })
+    }
+
+    fn loss_errors(&self) -> impl Iterator<Item = GatedMeasurementsLossError> {
+        let xs = &self.0;
+        let g = (!xs.is_empty()).then_some(GatedMeasurementsLossError::Gate(
+            UnitaryKeyLossError::default(),
+        ));
+        xs.iter()
+            .enumerate()
+            .flat_map(|(i, m)| m.loss_errors(i.into()))
+            .map(GatedMeasurementsLossError::from)
+            .chain(g)
     }
 }
 
@@ -929,7 +1121,7 @@ impl From<AppliedGates2_0> for AppliedGates3_0 {
     fn from(value: AppliedGates2_0) -> Self {
         Self {
             gated_measurements: value.gated_measurements,
-            scheme: value.scheme.inner_into(),
+            scheme: value.scheme.fmap_into(),
         }
     }
 }
@@ -938,101 +1130,278 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
     fn from(value: AppliedGates3_2) -> Self {
         Self {
             gated_measurements: vec![].into(),
-            scheme: value.0.inner_into(),
+            scheme: value.0.fmap_into(),
         }
     }
 }
 
-#[derive(Debug, Error)]
-#[error(
-    "cannot convert region index ({0}) to measurement \
-     index since it refers to a gate"
-)]
-pub struct RegionToMeasIndexError(GateIndex);
-
-#[derive(Debug, Error)]
-#[error(
-    "cannot convert region index ({0}) to gating index since \
-     it refers to a measurement"
-)]
-pub struct RegionToGateIndexError(MeasIndex);
-
-#[derive(Debug, Error)]
-#[error("cannot convert gate index ({0}) to measurement index")]
-pub struct GateToMeasIndexError(GateIndex);
-
-#[derive(Debug, Error)]
-#[error("cannot convert measurement index ({0}) to gate index")]
-pub struct MeasToGateIndexError(PrefixedMeasIndex);
-
-#[derive(Debug, Error)]
-#[error("$GATING regions reference nonexistent gates: {}", .0.iter().join(","))]
-pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
-
+/// Error when building new applied gates object with both scheme and gated measurements.
+///
+/// This only applies to 2.0/3.0/3.1
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
-    Scheme(NewGatingSchemeError),
+    Scheme(DependentKeyError<Gating>),
 }
 
+/// Error when converting gating keywords from 3.0/3.1 to 2.0
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppliedGates3_0To2_0Error {
-    Index(RegionToGateIndexError),
-    Scheme(NewGatingSchemeError),
+    Scheme(ConvertSchemeError<MeasIndex, false>),
     Link(GateMeasurementLinkError),
 }
 
-#[derive(Debug, Error)]
+/// Error when converting gating keywords from 3.0/3.1 to 3.2
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppliedGates3_0To3_2Error {
-    #[error("{0}")]
-    Index(#[from] RegionToMeasIndexError),
-    #[error("$GATING references {0} $Gn* keywords")]
-    HasGates(usize),
-    #[error("{0}")]
-    Scheme(#[from] NewGatingSchemeError),
+    Scheme(ConvertSchemeError<GateIndex, true>),
+    GatedMeas(GatedMeasurementsLossError),
 }
 
+/// Error when converting gating keywords from 2.0 to 3.2
+///
+/// This conversion is actually impossible, so all this will signify is the
+/// keywords that are to be dropped.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppliedGates2_0To3_2LossError {
+    GatedMeas(GatedMeasurementsLossError),
+    Scheme(GatingSchemeLossError),
+}
+
+/// Error when converting $GATING/$RnI/$RnW keywords to new version.
+///
+/// $RnI can fail because it may contain indices that refer to something
+/// that is unsupported in the target version.
+///
+/// $GATING can fail because it may refer to $RnI/$RnW keywords which are
+/// no longer valid as described above.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
+    Region(ConvertIndexForRegionError<I, INDEX_IS_GATE>),
+    Scheme(DependentKeyError<Gating>),
+}
+
+/// Error when converting 3.0./3.1 $RnI keywords to either 2.0 or 3.2
+///
+/// In 3.0/3.1, these can point to either gates or measurements. In either
+/// target version they can only point to one, in which case any with the other
+/// should lead to this error.
+#[derive(Debug, Display, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+pub struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
+    IndexedError<AnyIndexForRegionError<I>>,
+);
+
+impl<I: fmt::Display + Copy, const INDEX_IS_GATE: bool> fmt::Display
+    for ConvertIndexForRegionError<I, INDEX_IS_GATE>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let region_key = RegionGateIndex::<()>::std(self.0.index);
+        let keys = |i: I, is_plural: bool, is_gate: bool| {
+            let prefix = if is_gate { "G" } else { "P" };
+            let key = format!("{prefix}{i}*");
+            if is_plural {
+                format!("{key} keywords")
+            } else {
+                format!("a {key} keyword")
+            }
+        };
+        let target_keys = |i: I, is_plural: bool| {
+            let meas = keys(i, is_plural, false);
+            let gate = keys(i, is_plural, true);
+            if INDEX_IS_GATE {
+                (gate, meas)
+            } else {
+                (meas, gate)
+            }
+        };
+        let (which, (from, to)) = match &self.0.error {
+            AnyIndexForRegionError::Univariate(UniIndexForRegionError(i)) => {
+                ("index", target_keys(*i, false))
+            }
+            AnyIndexForRegionError::Bivariate(b) => match b {
+                BiIndexForRegionError::LeftBivariate(i) => ("left index", target_keys(*i, true)),
+                BiIndexForRegionError::RightBivariate(i) => ("right index", target_keys(*i, true)),
+                BiIndexForRegionError::Bivariate(i0, i1) => {
+                    let (from0, to0) = target_keys(*i0, true);
+                    let (from1, to1) = target_keys(*i1, true);
+                    let from = format!("{from0} and {from1}");
+                    let to = format!("{to0} and {to1}");
+                    ("indices", (from, to))
+                }
+            },
+        };
+        write!(
+            f,
+            "cannot convert {which} in {region_key} to refer \
+             to {to} because they currently refer to {from}"
+        )
+    }
+}
+
+#[derive(From, Debug)]
+enum AnyIndexForRegionError<I> {
+    Univariate(UniIndexForRegionError<I>),
+    Bivariate(BiIndexForRegionError<I>),
+}
+
+#[derive(Debug)]
+enum BiIndexForRegionError<I> {
+    LeftBivariate(I),
+    RightBivariate(I),
+    Bivariate(I, I),
+}
+
+#[derive(Debug, Display)]
+pub struct UniIndexForRegionError<I>(I);
+
+impl<J1> BiIndexForRegionError<J1> {
+    fn try_from2<I, J0>(x0: I, x1: I) -> Result<(J0, J0), Self>
+    where
+        I: Copy,
+        J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
+    {
+        match (J0::try_from(x0), J0::try_from(x1)) {
+            (Ok(y0), Ok(y1)) => Ok((y0, y1)),
+            (Err(y0), Ok(_)) => Err(Self::LeftBivariate(y0.0)),
+            (Ok(_), Err(y1)) => Err(Self::RightBivariate(y1.0)),
+            (Err(y0), Err(y1)) => Err(Self::Bivariate(y0.0, y1.0)),
+        }
+    }
+}
+
+/// Error when $GATING/$RnI/$RnW keywords need to be dropped when converting versions
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatingSchemeLossError {
+    Region(GateRegionLossError),
+    Gating(UnitaryKeyLossError<Gating>),
+}
+
+/// Error when $RnI/$RnW keywords need to be dropped when converting versions
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GateRegionLossError {
+    Index(IndexedKeyLossError<RegionGateIndex<()>>),
+    Window(IndexedKeyLossError<RegionWindow>),
+}
+
+/// Error when $Gn* or $GATE keywords need to be dropped when converting versions
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatedMeasurementsLossError {
+    Gate(UnitaryKeyLossError<Gate>),
+    GatedMeas(GatedMeasurementLossError),
+}
+
+/// Error when $Gn* keywords need to be dropped when converting versions
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum GatedMeasurementLossError {
+    Scale(IndexedKeyLossError<GateScale>),
+    Filter(IndexedKeyLossError<GateFilter>),
+    Shortname(IndexedKeyLossError<GateShortname>),
+    PEmit(IndexedKeyLossError<GatePercentEmitted>),
+    Range(IndexedKeyLossError<GateRange>),
+    Longname(IndexedKeyLossError<GateLongname>),
+    DetType(IndexedKeyLossError<GateDetectorType>),
+    DetVolt(IndexedKeyLossError<GateDetectorVoltage>),
+}
+
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<LookupRegionIndex2_0Error>;
+
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 3.0 and 3.1
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<LookupRegionIndex3_0Error>;
+
+/// Error when parsing $GATING/$RnI/$RnW keywords for 3.2
+pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<LookupRegionIndex3_2Error>;
+
+/// Error when parsing $RnI keyword for 2.0
+pub type LookupRegionIndex2_0Error = LookupRegionIndexError<GateIndex>;
+
+/// Error when parsing $RnI keyword for 3.0/3.1
+pub type LookupRegionIndex3_0Error = LookupRegionIndexError<MeasOrGateIndex>;
+
+/// Error when parsing $RnI keyword for 3.2
+pub type LookupRegionIndex3_2Error = LookupRegionIndexError<PrefixedMeasIndex>;
+
+/// Error when parsing $RnI keyword (generic)
+pub type LookupRegionIndexError<I> = OptIndexedKeyError<RegionGateIndex<I>>;
+
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E: Into<Self>))]
+pub enum LookupAppliedGatesError<E> {
+    Scheme(LookupGatingSchemeError<E>),
+    GatedMeas(LookupGatedMeasurementsError),
+    Link(GateMeasurementLinkError),
+}
+
+/// Error when $RnI keywords reference nonexistent $Gn* keywords
+// TODO this seems like it should be a general link error
 #[derive(Debug, Error)]
-#[error("cannot convert 2.0 $GATING/$Gn*/$RnI/$RnW keywords to 3.2")]
-pub struct AppliedGates2_0To3_2Error;
+#[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
+/// Error when parsing $GATING/$RnI/$RnW keywords
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Into<Self>))]
+pub enum LookupGatingSchemeError<E> {
+    Link(DependentKeyError<Gating>),
+    Gating(OptKeyError<Gating>),
+    Region(LookupRegionError<E>),
+}
+
+/// Error when parsing $RnI/$RnW keywords
+#[derive(Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Into<Self>))]
+pub enum LookupRegionError<E> {
+    Mismatch(IndexWindowMismatchError),
+    Region(E),
+    Window(OptIndexedKeyError<RegionWindow>),
+}
+
+/// Error when $RnI and $RnW keywords mismatch
 #[derive(Debug, Error)]
-#[error("cannot convert 3.2 $GATING/$RnI/$RnW keywords to 2.0")]
-pub struct AppliedGates3_2To2_0Error;
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub enum IndexWindowMismatchError {
+    #[error("values for $R{0}I and $R{0}W must both be univariate or bivariate")]
+    Both(RegionIndex),
+    #[error("$R{0}I not found when $R{0}W was given")]
+    NoIndex(RegionIndex),
+    #[error("$R{0}W not found when $R{0}I was given")]
+    NoWindow(RegionIndex),
+}
 
-#[derive(Debug, Error)]
-#[error("values for $RnI and $RnW must both be univariate or bivariate")]
-pub struct MismatchedIndexAndWindowError;
+/// Error when parsing $Gn* and $GATE keywords
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupGatedMeasurementsError {
+    Gate(OptKeyError<Gate>),
+    Meas(LookupGatedMeasError),
+}
 
-#[derive(Debug, Error)]
-#[error(
-    "cannot remove measurements since it is referenced by a gating region: {}",
-    .0.iter().join(",")
-)]
-pub struct RemoveGateMeasIndexError(NonEmpty<MeasIndex>);
-
-#[derive(Debug, Error)]
-#[error("could not make gating scheme, regions not found: {}", .0.iter().join(","))]
-pub struct NewGatingSchemeError(NonEmpty<RegionIndex>);
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::macros::{
-        impl_from_py_via_fromstr, impl_pyreflow_err, impl_to_py_via_display, impl_value_err,
-    };
-    use crate::text::keywords::{Gating, GatingError, MeasOrGateIndex, MeasOrGateIndexError};
-
-    use super::{GateMeasurementLinkError, NewAppliedGatesWithSchemeError, NewGatingSchemeError};
-
-    impl_from_py_via_fromstr!(Gating);
-    impl_to_py_via_display!(Gating);
-
-    impl_from_py_via_fromstr!(MeasOrGateIndex);
-    impl_to_py_via_display!(MeasOrGateIndex);
-
-    impl_value_err!(GatingError);
-    impl_value_err!(MeasOrGateIndexError);
-    impl_pyreflow_err!(GateMeasurementLinkError);
-    impl_pyreflow_err!(NewGatingSchemeError);
-    impl_pyreflow_err!(NewAppliedGatesWithSchemeError);
+/// Error when parsing $Gn* keywords
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupGatedMeasError {
+    Scale(OptIndexedKeyError<GateScale>),
+    Shortname(OptIndexedKeyError<GateShortname>),
+    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
+    Range(OptIndexedKeyError<GateRange>),
+    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
 }

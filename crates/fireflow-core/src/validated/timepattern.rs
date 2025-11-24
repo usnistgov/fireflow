@@ -3,6 +3,9 @@ use derive_more::{AsRef, From};
 use std::str::FromStr;
 use thiserror::Error;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+
 /// A String that matches a time.
 ///
 /// To be used when parsing time using [`NaiveTime::parse_from_str`].
@@ -15,6 +18,7 @@ use thiserror::Error;
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (%f) and converted after parsing.
 #[derive(Clone, Debug, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct TimePattern {
     #[as_ref(str)]
     pat: String,
@@ -130,6 +134,7 @@ impl FromStr for TimePattern {
     }
 }
 
+/// Error when parsing time pattern for configuration
 #[derive(Debug, Error)]
 #[error(
     "time pattern must contain specifier for hour (%H/%k for 24 hours \
@@ -138,8 +143,11 @@ impl FromStr for TimePattern {
      %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
      corresponds to centiseconds; got {0}"
 )]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TimePatternError(String);
 
+/// Error when parsing a string to a timestamp using time pattern
 #[derive(From, Debug, Error)]
 pub enum ParseWithTimePatternError {
     #[error("{0}")]
@@ -162,13 +170,4 @@ mod tests {
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());
         assert!("%H:%M".parse::<TimePattern>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{TimePattern, TimePatternError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
-
-    impl_from_py_via_fromstr!(TimePattern);
-    impl_value_err!(TimePatternError);
 }

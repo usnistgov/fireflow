@@ -1,4 +1,5 @@
 use derive_more::{Display, From, FromStr, Into};
+use derive_new::new;
 use std::num::NonZeroUsize;
 use thiserror::Error;
 
@@ -6,10 +7,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use crate::python::macros::impl_from_py_transparent;
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
+    pyo3::prelude::*,
+};
 
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr, Hash)]
@@ -32,15 +33,12 @@ macro_rules! newtype_index {
     ($(#[$attr:meta])* $t:ident) => {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
-        #[cfg_attr(feature = "python", derive(IntoPyObject))]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
                  FromStr, Display, From, Into, Hash)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]
         pub struct $t(pub IndexFromOne);
-
-        #[cfg(feature = "python")]
-        impl_from_py_transparent!($t);
     };
 }
 
@@ -50,16 +48,15 @@ impl IndexFromOne {
         if i < len {
             Ok(i)
         } else {
-            Err(IndexError { index: self, len })
+            Err(IndexError::new(self, len))
         }
     }
 
-    pub(crate) fn check_boundary_index(self, len: usize) -> Result<usize, BoundaryIndexError> {
-        let i = self.into();
-        if i <= len {
-            Ok(i)
+    pub(crate) fn check_boundary_index(self, len: usize) -> Result<(), BoundaryIndexError> {
+        if usize::from(self) <= len {
+            Ok(())
         } else {
-            Err(BoundaryIndexError { index: self, len })
+            Err(BoundaryIndexError::new(self, len))
         }
     }
 }
@@ -79,15 +76,19 @@ newtype_index!(
     RegionIndex
 );
 
-#[derive(Debug, Error)]
-#[error("0-index must be 0 <= i < {len}, got {x}", x = usize::from(self.index))]
-pub struct IndexError {
+/// Error when index referring to position of elements is out of range.
+///
+/// Used internally for creating more specific errors
+#[derive(Debug, new)]
+pub(crate) struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }
 
-#[derive(Debug, Error)]
+/// Error when index referring to position between elements is out of range.
+#[derive(Debug, Error, new)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct BoundaryIndexError {
     pub index: IndexFromOne, // refers to index between elements
     pub len: usize,

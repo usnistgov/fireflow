@@ -1,17 +1,20 @@
 use crate::config::{HeaderConfigInner, ReadState};
-use crate::error::{ErrorIter as _, ImpureError, MultiResult, MultiResultExt as _, ResultExt as _};
+use crate::logging::{
+    DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
+};
 use crate::segment::{
-    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderCorrection,
-    HeaderDataSegment, HeaderSegment, HeaderSegmentError, NewSegmentConfig, OffsetCorrection,
-    OtherSegment, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
-    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment,
+    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
+    OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
+    Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    TEXTSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
-use crate::text::parser::ReqMetarootKey as _;
+use crate::text::lookup::ReqMetarootKey as _;
+use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintSpacePad8, UintZeroPad20,
+    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
@@ -21,22 +24,22 @@ use super::core::Other;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
 use num_traits::identities::Zero;
 use std::iter::once;
 use thiserror::Error;
 
 use std::fmt;
-use std::io;
-use std::io::{BufReader, BufWriter, Read, Write};
-use std::iter::repeat;
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::str;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    pyo3::prelude::*,
+};
 
 /// The length of the HEADER.
 ///
@@ -49,6 +52,7 @@ pub const HEADER_LEN: u8 = 58;
 /// This appears as the first 6 bytes of any valid FCS file.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 pub enum Version {
     #[display("FCS2.0")]
     FCS2_0,
@@ -80,7 +84,7 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
@@ -126,41 +130,48 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn overlaps_with<I>(
         &self,
         s: &TEXTSegment<I>,
-    ) -> MultiResult<(), SegmentOverlapError>
+    ) -> DeferredErrors<(), SegmentOverlapError>
     where
         I: HasRegion,
         T: Copy + Into<u64>,
     {
         if let Some(q) = s.try_as_generic() {
-            self.as_generics().map(|x| x.overlaps(&q)).gather().void()
+            self.as_generics()
+                .map(|x| x.overlaps(&q).into_log())
+                .mappend_def()
+                .set_deferred_value(())
         } else {
-            Ok(())
+            LogResult::new_ok(())
         }
     }
 
     /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self) -> MultiResult<(), HeaderValidationError>
+    fn validate(&self) -> DeferredErrors<(), HeaderValidationError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
-        let x = self.overlapping_segments().mult_errors_into();
-        let y = self.contains_header_segments().mult_errors_into();
-        x.mult_zip(y).void()
+        let x = self
+            .overlapping_segments()
+            .map_errors(HeaderValidationError::from);
+        let y = self
+            .contains_header_segments()
+            .map_errors(HeaderValidationError::from);
+        x.lift_f2_once(y, |(), ()| ())
     }
 
-    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError>
+    fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
         let t = self.contains_header_segment(&self.text);
         let d = self.contains_header_segment(&self.data);
         let a = self.contains_header_segment(&self.analysis);
-        let os = self
-            .other
-            .iter()
-            .map(|o| self.contains_header_segment(o))
-            .gather();
-        t.zip3(d, a).mult_zip(os).void()
+        let os = self.other.iter().map(|o| self.contains_header_segment(o));
+        [t, d, a]
+            .into_iter()
+            .chain(os)
+            .map(ResultExt::into_log)
+            .mappend_def_void()
     }
 
     fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
@@ -185,7 +196,7 @@ impl<T> HeaderSegments<T> {
         }
     }
 
-    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError>
+    fn overlapping_segments(&self) -> DeferredErrors<(), SegmentOverlapError>
     where
         T: Copy + Into<u64>,
     {
@@ -223,7 +234,7 @@ impl<T> HeaderSegments<T> {
 /// any OTHER segments after the first 58 bytes.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
-#[derive(Clone, new, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
@@ -235,165 +246,99 @@ impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> MultiResult<Self, ImpureError<HeaderError>>
+    ) -> IOGroupResult<Self, HeaderError, ()>
     where
         C: AsRef<HeaderConfigInner>,
         R: Read,
     {
         let (version, text, data, analysis) = h_read_required_header(h, st)?;
-        let hdr = [text.try_coords(), data.try_coords(), analysis.try_coords()]
-            .iter()
-            .flatten()
-            .map(|(x, _)| x)
-            .min()
-            .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, st)
+        let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
+        let min_coord = coords.iter().flatten().map(|x| x.0).min();
+        let other_res = if let Some(m) = min_coord {
+            split_io!(OtherSegment20::h_read_others(h, m, st))
+        } else {
+            Ok(vec![])
+        };
+        other_res
+            .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
+            .ungroup()
+            .map_errors(HeaderError::from)
+            .and_then_commutative(|hdr| {
+                hdr.segments
+                    .validate()
+                    .map_errors(HeaderError::from)
+                    .map_ok_value(|()| hdr)
             })
-            .map(|other| Self {
-                version,
-                segments: HeaderSegments {
-                    text,
-                    data,
-                    analysis,
-                    other,
-                },
-            })?;
-        hdr.segments
-            .validate()
-            .mult_map_errors(Box::new)
-            .mult_map_errors(HeaderError::Validation)
-            .mult_map_errors(ImpureError::Pure)?;
-        Ok(hdr)
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
     }
 }
 
 fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> MultiResult<
+) -> IOGroupResult<
     (
         Version,
         PrimaryTextSegment,
         HeaderDataSegment,
         HeaderAnalysisSegment,
     ),
-    ImpureError<HeaderError>,
+    HeaderError,
+    (),
 >
 where
     R: Read,
     C: AsRef<HeaderConfigInner>,
 {
     let conf = &st.conf.as_ref();
-    let vers_res = Version::h_read(h)
-        .map_err(NonEmpty::new)
-        .mult_map_errors(|e| e.map_inner(HeaderError::Version));
-    let space_res = h_read_spaces(h).map_err(NonEmpty::new);
-    let text_res = h_read_primary_segment(h, false, conf.text_correction, st);
-    let data_res = h_read_primary_segment(h, true, conf.data_correction, st);
-    let anal_res = h_read_primary_segment(h, true, conf.analysis_correction, st);
+    let text_cor = conf.text_correction;
+    let data_cor = conf.data_correction;
+    let anal_cor = conf.analysis_correction;
+
+    let vers_res = split_io!(Version::h_read(h))
+        .ungroup()
+        .map_errors(HeaderError::from);
+    let space_res = split_io!(h_read_spaces(h))
+        .ungroup()
+        .map_errors(HeaderError::from);
+
+    let text_res = split_io!(HeaderSegment::h_read_primary(h, false, text_cor, st)).ungroup();
+    let data_res = split_io!(HeaderSegment::h_read_primary(h, true, data_cor, st)).ungroup();
+    let anal_res = split_io!(HeaderSegment::h_read_primary(h, true, anal_cor, st)).ungroup();
+
     let offset_res = text_res
-        .mult_zip3(data_res, anal_res)
-        .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
+        .zip3_commutative(data_res, anal_res)
+        .map_errors(HeaderError::from);
     vers_res
-        .mult_zip3(space_res, offset_res)
-        .map(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+        .zip3_commutative(space_res, offset_res)
+        .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+        .group()
+        .resolve_nowarn()
+        .map_err(IOErrorGroup::Pure)
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {
+fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderSpacesError, ()> {
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
         Ok(())
     } else {
-        Err(ImpureError::Pure(HeaderError::Space))
+        Err(IOErrorGroup::new_pure_one(HeaderSpacesError))
     }
 }
 
-fn h_read_primary_segment<C, R, I>(
-    h: &mut BufReader<R>,
-    allow_blank: bool,
-    corr: HeaderCorrection<I>,
-    st: &ReadState<C>,
-) -> MultiResult<HeaderSegment<I>, ImpureError<HeaderSegmentError>>
-where
-    R: Read,
-    C: AsRef<HeaderConfigInner>,
-    I: HasRegion + Copy,
-{
-    let conf = st.conf.as_ref();
-    let seg_conf = NewSegmentConfig {
-        corr,
-        file_len: st.file_len.try_into().ok(),
-        truncate_offsets: conf.truncate_offsets,
-    };
-    HeaderSegment::<I>::h_read_offsets(
-        h,
-        allow_blank,
-        conf.allow_negative,
-        conf.squish_offsets,
-        &seg_conf,
-    )
-}
-
-fn h_read_other_segments<C, R>(
-    h: &mut BufReader<R>,
-    text_begin: UintSpacePad8,
-    st: &ReadState<C>,
-) -> MultiResult<Vec<OtherSegment20>, ImpureError<HeaderError>>
-where
-    R: Read,
-    C: AsRef<HeaderConfigInner>,
-{
-    // ASSUME this won't fail because we checked that each offset is greater
-    // than this
-    let conf = st.conf.as_ref();
-    let n = u64::from(text_begin) - u64::from(HEADER_LEN);
-    let w = u8::from(conf.other_width);
-    let mut buf0 = vec![];
-    let mut buf1 = vec![];
-    // ASSUME this will never fail, if it does I'll be impressed ;)
-    let n_segs = usize::try_from(n / (u64::from(w) * 2)).unwrap();
-
-    conf.other_corrections
-        .iter()
-        .copied()
-        .chain(repeat(OffsetCorrection::default()))
-        .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)))
-        .map(|corr| {
-            buf0.clear();
-            buf1.clear();
-            h.take(u64::from(w)).read_to_end(&mut buf0).into_mult()?;
-            h.take(u64::from(w)).read_to_end(&mut buf1).into_mult()?;
-            let seg_conf = NewSegmentConfig {
-                corr,
-                file_len: Some(UintSpacePad20(st.file_len)),
-                truncate_offsets: conf.truncate_offsets,
-            };
-            // If any regions are entirely blank, just ignore them
-            if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                Ok(None)
-            } else {
-                OtherSegment::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf)
-                    .map(Some)
-                    .mult_map_errors(HeaderError::Segment)
-                    .mult_map_errors(ImpureError::Pure)
-            }
-        })
-        .gather()
-        .map_err(NonEmpty::flatten)
-        .map(|os| os.into_iter().flatten().collect())
-}
-
 impl Version {
-    fn h_read<R: Read>(h: &mut BufReader<R>) -> Result<Self, ImpureError<VersionError>> {
+    fn h_read<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<Self, VersionError, ()> {
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
             // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse().map_err(ImpureError::Pure)
+            s.parse().map_err(IOErrorGroup::new_pure_one)
         } else {
-            Err(ImpureError::Pure(VersionError(buf.to_vec())))
+            Err(IOErrorGroup::new_pure_one(VersionError(buf.to_vec())))
         }
     }
 
@@ -454,29 +399,43 @@ impl str::FromStr for Version {
     }
 }
 
-#[derive(Debug, Error)]
+/// Error when parsing HEADER segment
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
-    #[error("{0}")]
-    Segment(HeaderSegmentError),
-    #[error("{0}")]
+    Primary(PrimarySegmentError),
+    Other(OtherSegmentError),
     Version(VersionError),
-    #[error("{0}")]
-    Validation(Box<HeaderValidationError>),
-    #[error("version must be followed by 4 spaces")]
-    Space,
+    Validation(HeaderValidationError),
+    Space(HeaderSpacesError),
 }
 
+/// Error when version is not follow by proper number of spaces in HEADER
+#[derive(Debug, Error)]
+#[error("version must be followed by 4 spaces")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct HeaderSpacesError;
+
+/// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderValidationError {
     Overlap(SegmentOverlapError),
     InHeader(InHeaderError),
 }
 
+/// Error when a non-empty segment occurs within the first 58 bytes of the file.
 #[derive(Debug, Error)]
 #[error("{0} is within HEADER region")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
+/// Error when parsing FCS version
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct VersionError(Vec<u8>);
 
 impl fmt::Display for VersionError {
@@ -786,8 +745,7 @@ fn offsets_len() -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{HeaderSegments, UintSpacePad20, Version, VersionError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_to_py_via_display, impl_value_err};
+    use super::{HeaderSegments, UintSpacePad20};
 
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
@@ -806,8 +764,4 @@ mod python {
             Ok(dict)
         }
     }
-
-    impl_to_py_via_display!(Version);
-    impl_from_py_via_fromstr!(Version);
-    impl_value_err!(VersionError);
 }

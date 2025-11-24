@@ -1191,7 +1191,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_segment_overflow(version);
     let exc1 = PyException::new_other_overflow();
-    let exc2 = PyException::new_data_loss();
+
+    let conv_exc = PyreflowError::DataLoss.fmt_ref();
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
@@ -1203,15 +1204,17 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_bool_param(
             "skip_conversion_check",
-            "Skip check to ensure that types of the dataframe match the \
-             columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-             perform this check before writing, and raise exception on \
-             failure. If ``True``, raise warnings as file is being \
-             written. Skipping this is faster since the data needs to be \
-             traversed twice to perform the conversion check, but may \
-             result in loss of precision and/or truncation.",
+            format!(
+                "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise {conv_exc} on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+            ),
         ))
-        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1, exc2]));
+        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
 
     let fun_args = doc.fun_args();
 
@@ -1640,10 +1643,10 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
+    let exc = PyException::new_index().desc("If ``index`` not found");
     let doc = DocString::new_method("Return measurement at index.")
-        .para("Raise exception if ``index`` not found.")
         .arg(DocArg::new_index_param("Index to retrieve."))
-        .returns(DocReturn::new(PyUnion::new_measurement(version)));
+        .returns(DocReturn::new(PyUnion::new_measurement(version)).exc([exc]));
 
     let fun_args = doc.fun_args();
     let ret = doc.ret_path();
@@ -1652,7 +1655,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
-            fn measurement_at(&self, #fun_args) -> PyResult<#ret> {
+            fn measurement_at(&self, #fun_args) -> #ret {
                 let m = self.0.measurements().get(index)?;
                 Ok(m.bimap_once(|x| x.1.clone(), |x| x.1.clone()).bimap_into_once())
             }
@@ -1666,10 +1669,10 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
+    let exc = PyException::new_key().desc("If ``name`` not found");
     let doc = DocString::new_method("Return measurement with name.")
-        .para("Raise exception if ``name`` not found.")
         .arg(DocArg::new_name_param("Name to retrieve."))
-        .returns(DocReturn::new(PyUnion::new_measurement(version)));
+        .returns(DocReturn::new(PyUnion::new_measurement(version)).exc([exc]));
 
     let fun_args = doc.fun_args();
     let ret = doc.ret_path();
@@ -1678,7 +1681,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
-            fn measurement_named(&self, #fun_args) -> PyResult<#ret> {
+            fn measurement_named(&self, #fun_args) -> #ret {
                 let (_, m) = self.0.measurements().get_name(&name)?;
                 Ok(m.bimap_once(|x| x.clone(), |x| x.clone()).bimap_into_once())
             }
@@ -1907,30 +1910,36 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
     let version = split_ident_version_pycore(&ident).1;
 
     let make_replace_doc = |is_index: bool| {
-        let (i_param, m) = if is_index {
+        let (i_param, m, e) = if is_index {
             (
                 DocArg::new_index_param("Index to replace."),
                 "measurement at index",
+                PyException::new_index(),
             )
         } else {
             (
                 DocArg::new_name_param("Name to replace."),
                 "named measurement",
+                PyException::new_key(),
             )
         };
         let i = &i_param.argname;
         let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
-        let sub = format!("Raise exception if ``{i}`` does not exist.");
+        let exc_desc = format!("If ``{i}`` does not exist.");
+        let exc = e.desc(exc_desc);
         let ret = PyUnion::new_measurement(version);
         DocString::new_method(format!("Replace {m} with given optical measurement."))
-            .para(sub)
             .arg(i_param)
             .arg(DocArg::new_param(
                 "meas",
                 PyClass::new_optical(version),
                 meas_desc,
             ))
-            .returns(DocReturn::new(ret).desc("Replaced measurement object."))
+            .returns(
+                DocReturn::new(ret)
+                    .desc("Replaced measurement object.")
+                    .exc([exc]),
+            )
     };
 
     let replace_at_doc = make_replace_doc(true);
@@ -1946,12 +1955,12 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #ident {
             #replace_at_doc
-            fn replace_optical_at(&mut self, #index_fun_args) -> PyResult<#index_ret> {
+            fn replace_optical_at(&mut self, #index_fun_args) -> #index_ret {
                 Ok(self.0.replace_optical_at(index, meas.into())?.bimap_into_once())
             }
 
             #replace_named_doc
-            fn replace_optical_named(&mut self, #name_fun_args) -> PyResult<#named_ret> {
+            fn replace_optical_named(&mut self, #name_fun_args) -> #named_ret {
                 Ok(self.0.replace_optical_named(&name, meas.into())?.bimap_into_once())
             }
         }
@@ -1964,56 +1973,67 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     let ident: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&ident).1;
 
-    let allow_loss_param = DocArg::new_bool_param(
-        "allow_loss",
-        "If ``True``, do not raise exception if existing temporal measurement \
-         cannot be converted to optical measurement.",
-    );
-
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
-    let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
+    let (replace_tmp_at_body, replace_tmp_named_body, allow_loss, loss_exc) = if version
+        == Version::FCS3_2
+    {
+        let allow_loss_param = DocArg::new_bool_param(
+            "allow_loss",
+            "If ``False``, allow lossy conversion from temporal measurement \
+             to optical measurement if one already exists.",
+        );
+        let exc = PyException::new_pyreflow(&PyreflowError::Conversion).desc(
+            "If existing temporal measurement must be lossily\
+             converted and ``allow_loss`` is ``False``",
+        );
         let go =
             |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_resolve_non_commutative()?);
         (
             go(quote! {replace_temporal_at_lossy}, quote! {index}),
             go(quote! {replace_temporal_named_lossy}, quote! {&name}),
             Some(allow_loss_param),
+            Some(exc),
         )
     } else {
         (
             quote! {self.0.replace_temporal_at(index, meas.into())?},
             quote! {self.0.replace_temporal_named(&name, meas.into())?},
             None,
+            None,
         )
     };
 
     let make_replace_doc = |is_index: bool| {
-        let (i_param, m) = if is_index {
+        let (i_param, m, e) = if is_index {
             (
                 DocArg::new_index_param("Index to replace."),
                 "measurement at index",
+                PyException::new_index(),
             )
         } else {
             (
                 DocArg::new_name_param("Name to replace."),
                 "named measurement",
+                PyException::new_key(),
             )
         };
         let i = &i_param.argname;
         let meas_desc = format!("Temporal measurement to replace measurement at ``{i}``.");
-        let sub = format!(
-            "Raise exception if ``{i}`` does not exist  or there \
-             is already a temporal measurement in a different position."
-        );
+        let exc0 = e.desc(format!("If ``{i}`` does not exist"));
+        let exc1 = PyException::new_pyreflow(&PyreflowError::Relational)
+            .desc("If a temporal measurement already exists at a different position");
+        let xs = [exc0, exc1].into_iter().chain(loss_exc.clone());
         let ret = PyUnion::new_measurement(version);
         let meas = DocArg::new_param("meas", PyClass::new_temporal(version), meas_desc);
+        let dret = DocReturn::new(ret)
+            .desc("Replaced measurement object.")
+            .exc(xs);
         DocString::new_method(format!("Replace {m} with given temporal measurement."))
-            .para(sub)
             .arg(i_param)
             .arg(meas)
             .args(allow_loss.clone())
-            .returns(DocReturn::new(ret).desc("Replaced measurement object."))
+            .returns(dret)
     };
 
     let replace_at_doc = make_replace_doc(true);
@@ -2032,7 +2052,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             fn replace_temporal_at(
                 &mut self,
                 #index_fun_args
-            ) -> PyResult<#index_ret> {
+            ) -> #index_ret {
                 let ret = #replace_tmp_at_body;
                 Ok(ret.bimap_into_once())
             }
@@ -2041,7 +2061,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             fn replace_temporal_named(
                 &mut self,
                 #name_fun_args
-            ) -> PyResult<#named_ret> {
+            ) -> #named_ret {
                 let ret = #replace_tmp_named_body;
                 Ok(ret.bimap_into_once())
             }
@@ -2258,10 +2278,10 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let s = "Remove measurements and clear the layout.";
     let p0 = "This is equivalent to deleting all *$Pn\\** keywords and setting \
               *$PAR* to ``0``.";
-    let p1 = "Will raise exception if other keywords (such as *$TR*) reference \
-              a measurement.";
 
-    let doc = DocString::new_method(s).paras([p0, p1]);
+    let exc = PyException::new_existing();
+    let ret = DocReturn::new(PyTuple::default()).exc([exc]);
+    let doc = DocString::new_method(s).paras([p0]).returns(ret);
 
     quote! {
         #[pymethods]
@@ -2280,8 +2300,9 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreDataset", &i);
 
-    let doc = DocString::new_method("Remove all measurements and their data.")
-        .para("Raise exception if any keywords (such as *$TR*) reference a measurement.");
+    let exc = PyException::new_existing();
+    let ret = DocReturn::new(PyTuple::default()).exc([exc]);
+    let doc = DocString::new_method("Remove all measurements and their data.").returns(ret);
 
     quote! {
         #[pymethods]
@@ -3666,7 +3687,7 @@ struct DocArg<T> {
     #[new(into)]
     pytype: ArgPyType,
 
-    /// Description of the arg to do in docs
+    /// Description of the arg as to be shown in docs
     #[new(into)]
     desc: String,
 
@@ -3709,6 +3730,16 @@ struct DocReturn<T> {
     exceptions: Vec<ReturnPyException>,
 }
 
+// this is equivalent to returning `()` in Rust and `None` in Python
+impl<T> Default for DocReturn<PyType<T>>
+where
+    PyTuple<T>: Into<PyType<T>>,
+{
+    fn default() -> Self {
+        Self::new(PyTuple::default().into())
+    }
+}
+
 /// Documentation for a Python exception
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct PyException {
@@ -3740,6 +3771,12 @@ enum PyreflowError {
     DataLoss,
     #[display("ConfigError")]
     Config,
+}
+
+impl PyreflowError {
+    fn fmt_ref(&self) -> String {
+        format!(":py:exc:`~pyreflow.{self}`")
+    }
 }
 
 /// A Python exceptiion returned from a function
@@ -4754,6 +4791,13 @@ impl PyException {
 
     fn new_event_data() -> Self {
         Self::new_pyreflow(&PyreflowError::EventData).desc("If values in *DATA* cannot be read")
+    }
+
+    fn new_existing() -> Self {
+        Self::new_pyreflow(&PyreflowError::Relational).desc(
+            "If keywords are set which refer to measurements and would be \
+             invalidated if measurements were removed",
+        )
     }
 
     fn desc(self, desc: impl fmt::Display) -> Self {
@@ -6434,23 +6478,29 @@ impl DocArgParam {
     }
 
     fn new_allow_shared_names_param() -> Self {
-        let d = "If ``False``, raise exception if any non-measurement keywords reference \
-                 any *$PnN* keywords. If ``True`` raise exception if any non-measurement \
-                 keywords reference a *$PnN* which is not present in ``measurements``. \
-                 In other words, ``False`` forbids named references to exist, and \
-                 ``True`` allows named references to be updated. References cannot \
-                 be broken in either case.";
+        let exc = PyreflowError::Relational.fmt_ref();
+        let d = format!(
+            "If ``False``, raise {exc} if any non-measurement keywords reference \
+             any *$PnN* keywords. If ``True`` raise {exc} if any non-measurement \
+             keywords reference a *$PnN* which is not present in ``measurements``. \
+             In other words, ``False`` forbids named references to exist, and \
+             ``True`` allows named references to be updated. References cannot \
+             be broken in either case."
+        );
         Self::new_bool_param("allow_shared_names", d)
     }
 
     // TODO this can be specific to each version, for instance, we can call out
     // the exact keywords in each that may have references.
     fn new_skip_index_check_param() -> Self {
-        let desc = "If ``False``, raise exception if any non-measurement keyword \
-                    have an index reference to the current measurements. If \
-                    ``True`` allow such references to exist as long as they do \
-                    not break (which really means that the length of \
-                    ``measurements`` is such that existing indices are satisfied).";
+        let exc = PyreflowError::Relational.fmt_ref();
+        let desc = format!(
+            "If ``False``, raise {exc} if any non-measurement keyword \
+             have an index reference to the current measurements. If \
+             ``True`` allow such references to exist as long as they do \
+             not break (which really means that the length of \
+             ``measurements`` is such that existing indices are satisfied)."
+        );
         Self::new_bool_param("skip_index_check", desc)
     }
 
@@ -6475,8 +6525,11 @@ impl DocArgParam {
     }
 
     fn new_notrunc_param() -> Self {
-        let desc = "If ``False``, raise exception if ``range`` must be \
-                    truncated to fit into measurement type.";
+        let exc = PyreflowError::Relational.fmt_ref();
+        let desc = format!(
+            "If ``False``, raise {exc} if ``range`` must be \
+             truncated to fit into measurement type."
+        );
         Self::new_bool_param("disallow_trunc", desc)
     }
 

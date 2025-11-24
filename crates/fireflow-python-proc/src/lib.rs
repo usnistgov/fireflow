@@ -1362,6 +1362,9 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     quote!(#getq #setq).into()
 }
 
+// TODO there are many exceptions on these functions (and others like it) that
+// are not documented. For instance, if the name is not found it should produce
+// a keyerror.
 #[proc_macro]
 pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
     let ident: Ident = syn::parse(input).unwrap();

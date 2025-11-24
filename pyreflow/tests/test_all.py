@@ -1648,7 +1648,7 @@ class TestMeas:
         new = (4.0, 0.5)
         meas.transform = new
         assert meas.transform == new
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             meas.transform = 0.0
         with pytest.raises(pf.InvalidKeywordValueError):
             meas.transform = (0.0, 0.0)

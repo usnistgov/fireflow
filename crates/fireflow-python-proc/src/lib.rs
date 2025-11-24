@@ -1158,19 +1158,28 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let write_2_0_warning = (version == Version::FCS2_0)
-        .then_some("Will raise exception if file cannot fit within 99,999,999 bytes.");
+    let overflow_desc = if version == Version::FCS2_0 {
+        "If *TEXT*, *DATA*, or *ANALYSIS* offsets \
+         are greater than 99,999,999"
+    } else {
+        "If *TEXT* offsets are greater than 99,999,999 bytes"
+    };
+
+    let exc0 = PyException::new_overflow().desc(overflow_desc);
+    let exc1 = PyException::new_overflow().desc(
+        "If any *OTHER* offsets are greater than \
+         99,999,999 and ``big_other`` is ``False``",
+    );
 
     let doc = DocString::new_method("Write data to path.")
         .para("Resulting FCS file will include *HEADER* and *TEXT*.")
-        .paras(write_2_0_warning)
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
-        .arg(DocArg::new_big_other_param());
+        .arg(DocArg::new_big_other_param())
+        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
 
     let fun_args = doc.fun_args();
 
-    // TODO document exception here (either an IO error or an overflow, the former is implied)
     quote! {
         #[pymethods]
         impl #i {
@@ -2087,15 +2096,25 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         "Non-Standard keywords.",
     );
 
+    let exc0 = PyException::new_parse_keyval();
+    let exc1 = PyException::new_pyreflow(&PyreflowError::Relational)
+        .desc("If keywords that are referenced by other keywords do not exist");
+    let exc2 = PyException::new_extra();
+
+    let xs = [exc0, exc1, exc2];
+
     let doc = DocString::new_fun("Make new instance from keywords.")
         .args([std_param, nonstd_param])
         .args(std_args)
         .args(layout_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyTuple::new2([
-            PyClass::new_coretext(version),
-            PyClass::new_py(["api"], "ExtraStdKeywords"),
-        ])));
+        .returns(
+            DocReturn::new(PyTuple::new2([
+                PyClass::new_coretext(version),
+                PyClass::new_py(["api"], "ExtraStdKeywords"),
+            ]))
+            .exc(xs),
+        );
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -2106,7 +2125,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<#ret_path> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -2167,6 +2186,17 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let analysis_seg_param = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_segs_param = DocArg::new_other_segs_param(true);
 
+    let exc0 = PyException::new_deprecated();
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+        "If keywords are incompatible with indicated layout of *DATA* or \
+         if keywords that are referenced by other keywords do not exist",
+    );
+    let exc3 = PyException::new_event_data();
+    let exc4 = PyException::new_extra();
+
+    let xs = [exc0, exc1, exc2, exc3, exc4];
+
     let doc = DocString::new_fun("Make new instance from keywords.")
         .arg(path_param)
         .arg(std_param)
@@ -2175,10 +2205,13 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .arg(analysis_seg_param)
         .arg(other_segs_param)
         .args(config_args)
-        .returns(DocReturn::new(PyTuple::new2([
-            PyClass::new_coredataset(version),
-            PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
-        ])));
+        .returns(
+            DocReturn::new(PyTuple::new2([
+                PyClass::new_coredataset(version),
+                PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
+            ]))
+            .exc(xs),
+        );
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -2189,7 +2222,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             #[classmethod]
             #[allow(clippy::too_many_arguments)]
             #doc
-            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> PyResult<#ret_path> {
+            fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
@@ -4984,7 +5017,7 @@ impl<E> PyStr<E> {
 impl<E: From<PyException>> PyStr<E> {
     fn new_shortname() -> Self {
         let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        let e = PyException::new_value().desc("if %x is ``\"\"`` or contains commas");
+        let e = PyException::new_parse_keyval().desc("if %x is ``\"\"`` or contains commas");
         Self::default().rstype(path).exc(e)
     }
 
@@ -6337,7 +6370,8 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        let exc = PyException::new_value().desc("if %x is not between 1 and 126");
+        let exc = PyException::new_pyreflow(&PyreflowError::Config)
+            .desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = "Delimiter to use when writing *TEXT*.";
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))

@@ -1380,10 +1380,14 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             PyFloat::new_timestep(),
             "The value of *$TIMESTEP* to use.",
         ));
+        let exc = PyreflowError::Conversion.fmt_ref();
         let allow_loss = DocArg::new_bool_param(
             "allow_loss",
-            "If ``True`` remove any optical-specific metadata (detectors, \
-             lasers, etc) without raising an exception.",
+            format!(
+                "If ``True`` remove any optical-specific metadata (detectors, \
+                 lasers, etc) without raising an {exc} if an optical measurement \
+                 must be converted."
+            ),
         );
         DocString::new_method(format!("Set the temporal measurement to a given {i}."))
             .args(once(p).chain(timestep).chain([allow_loss]))
@@ -1446,14 +1450,18 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
+    let exc = PyreflowError::Conversion.fmt_ref();
+
     let make_doc = |has_timestep: bool, has_allow_loss: bool| {
         let s = "Convert the temporal measurement to an optical measurement.";
         let p = has_allow_loss
             .then_some(DocArg::new_bool_param(
                 "allow_loss",
-                "If ``True`` and current time measurement has data which cannot \
-                 be converted to optical, force the conversion anyways. \
-                 Otherwise raise an exception.",
+                format!(
+                    "If ``True`` and current time measurement has data which cannot \
+                     be converted to optical, force the conversion anyways. \
+                     Otherwise raise {exc}."
+                ),
             ))
             .into_iter();
         let (rt, rd) = if has_timestep {
@@ -1542,16 +1550,20 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
+    let exc = PyreflowError::Relational.fmt_ref();
+
     if version == Version::FCS2_0 {
         let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
                    a 2-tuple for log scaling, or ``None`` if missing.";
-        let s1 = "The temporal measurement must always be ``()``. Setting it \
-                  to another value will raise an exception.";
+        let s1 = format!(
+            "The temporal measurement must always be ``()``. \
+             Setting it to another value will raise {exc}."
+        );
         let doc = DocString::new_ivar(
             "The value for *$PnE* for all measurements.",
             PyList::new1(PyOpt::new(PyUnion::new_scale(false))),
         )
-        .paras([s0, s1]);
+        .paras([s0.into(), s1]);
 
         doc.into_impl_get_set(
             &i,
@@ -1568,11 +1580,13 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
                   return a pair of floats, corresponding to unset *$PnG* and the \
                   non-``0,0`` value of *$PnE*.";
         let s2 = "The FCS standards disallow any other combinations.";
-        let s3 = "The temporal measurement will always be ``1.0``, corresponding \
-                  to an identity transform. Setting it to another value will \
-                  raise an exception.";
-        let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_transform()))
-            .paras([s0, s1, s2, s3]);
+        let s3 = format!(
+            "The temporal measurement will always be ``1.0``, corresponding \
+             to an identity transform. Setting it to another value will \
+             raise {exc}."
+        );
+        let ss = [s0, s1, s2, s3.as_str()];
+        let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_transform())).paras(ss);
 
         doc.into_impl_get_set(
             &i,
@@ -1975,17 +1989,15 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
 
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
-    let (replace_tmp_at_body, replace_tmp_named_body, allow_loss, loss_exc) = if version
-        == Version::FCS3_2
-    {
+    let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
+        let exc = PyreflowError::Conversion.fmt_ref();
         let allow_loss_param = DocArg::new_bool_param(
             "allow_loss",
-            "If ``False``, allow lossy conversion from temporal measurement \
-             to optical measurement if one already exists.",
-        );
-        let exc = PyException::new_pyreflow(&PyreflowError::Conversion).desc(
-            "If existing temporal measurement must be lossily\
-             converted and ``allow_loss`` is ``False``",
+            format!(
+                "If ``False``, raise {exc} if conversion from temporal \
+                     measurement to optical measurement is necessary and data \
+                     keywords must be dropped."
+            ),
         );
         let go =
             |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_resolve_non_commutative()?);
@@ -1993,13 +2005,11 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
             go(quote! {replace_temporal_at_lossy}, quote! {index}),
             go(quote! {replace_temporal_named_lossy}, quote! {&name}),
             Some(allow_loss_param),
-            Some(exc),
         )
     } else {
         (
             quote! {self.0.replace_temporal_at(index, meas.into())?},
             quote! {self.0.replace_temporal_named(&name, meas.into())?},
-            None,
             None,
         )
     };
@@ -2023,7 +2033,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         let exc0 = e.desc(format!("If ``{i}`` does not exist"));
         let exc1 = PyException::new_pyreflow(&PyreflowError::Relational)
             .desc("If a temporal measurement already exists at a different position");
-        let xs = [exc0, exc1].into_iter().chain(loss_exc.clone());
+        let xs = [exc0, exc1];
         let ret = PyUnion::new_measurement(version);
         let meas = DocArg::new_param("meas", PyClass::new_temporal(version), meas_desc);
         let dret = DocReturn::new(ret)
@@ -2965,8 +2975,6 @@ where
 pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
-    let sub = "Will raise an exception if target version requires data which is \
-               not present in ``self``.";
     let param_desc = "If ``False``, do not proceed with conversion if it would \
                       result in data loss. This is most likely to happen when \
                       converting from a later to an earlier version, as many \
@@ -2998,7 +3006,6 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             let target_pytype = target_type.as_rust_type();
             let param = DocArg::new_bool_param("allow_loss", param_desc);
             let doc = DocString::new_method(format!("Convert to FCS {vs}."))
-                .para(sub)
                 .arg(param)
                 .returns(
                     DocReturn::new(target_type)
@@ -6538,7 +6545,12 @@ impl DocArgParam {
                     columns must match number of measurements. May be empty. \
                     Types do not necessarily need to correspond to those in the \
                     data layout but mismatches may result in truncation.";
-        Self::new_param("data", PyClass::new_dataframe(polars_type), desc)
+        let exc = PyException::new_pyreflow(&PyreflowError::EventData).desc(
+            "If %x contains columns which are not \
+             unsigned 8/16/32/64-bit integers or 32/64-bit floats",
+        );
+        let pt = PyClass::new_dataframe(polars_type).exc(exc);
+        Self::new_param("data", pt, desc)
     }
 
     fn new_analysis_param(default: bool) -> Self {

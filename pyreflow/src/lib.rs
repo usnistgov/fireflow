@@ -1,15 +1,30 @@
-use fireflow_core::python::exceptions::{PyreflowException, PyreflowWarning};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
-// use pyo3::wrap_pymodule;
 
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
-    m.add("PyreflowException", py.get_type::<PyreflowException>())?;
-    m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
+    macro_rules! exc {
+        ($s:expr, $t:ident) => {
+            m.add($s, py.get_type::<fireflow_core::python::$t>())?;
+        };
+    }
+
+    exc!("PyreflowError", PyreflowError);
+    exc!("FileLayoutError", FileLayoutError);
+    exc!("ParseKeyError", ParseKeyError);
+    exc!("ParseKeywordValueError", ParseKeywordValueError);
+    exc!("InvalidKeywordValueError", InvalidKeywordValueError);
+    exc!("ExtraKeywordError", ExtraKeywordError);
+    exc!("FCSDeprecatedError", FCSDeprecatedError);
+    exc!("ConversionError", ConversionError);
+    exc!("RelationalError", RelationalError);
+    exc!("EventDataError", EventDataError);
+    exc!("DataLossError", DataLossError);
+    exc!("ConfigError", ConfigError);
+    exc!("PyreflowWarning", PyreflowWarning);
 
     m.add_class::<ff::PyCoreTEXT2_0>()?;
     m.add_class::<ff::PyCoreTEXT3_0>()?;

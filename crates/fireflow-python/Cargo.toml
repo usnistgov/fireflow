@@ -7,7 +7,7 @@ Python-specific code for fireflow.
 """
 
 [dependencies]
-fireflow-core = { version = "0.1.0", path = "../fireflow-core", features = ["python"] }
+fireflow-core = { path = "../fireflow-core", features = ["python"] }
 fireflow-python-proc = { path = "../fireflow-python-proc" }
 chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into"] }
@@ -16,3 +16,6 @@ pyo3 = { workspace = true }
 pyo3-polars = { version = "0.22.0" }
 polars = { workspace = true }
 numpy = { version = "0.25", features = ["nalgebra"] }
+
+[lints]
+workspace = true

@@ -1,38 +1,39 @@
-use crate::config::StdTextReadConfig;
-use crate::error::*;
-use crate::validated::keys::{BiIndexedKey, StdKey, StdKeywords};
-
-use super::index::MeasIndex;
-use super::keywords::{Dfc, Par};
-use super::optional::*;
-use super::parser::*;
+use crate::config::{AllowOptionalDropping, ReadLayoutConfig};
+use crate::core::BiIndexedKeyLossError;
+use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
+use crate::text::index::MeasIndex;
+use crate::text::keywords::{Dfc, Par};
+use crate::text::relational::{
+    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
+};
+use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use std::fmt;
-use std::num::ParseFloatError;
-use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-/// The aggregated values of the $DFCiTOj keywords (2.0)
+#[cfg(feature = "python")]
+use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+
+use super::keywords::LookupDfcError;
+
+/// The aggregated values of the $DFCiTOj keywords (2.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
 
-/// The value of the $COMP keyword (3.0)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[as_ref(DMatrix<f32>, Compensation)]
-pub struct Compensation3_0(pub Compensation);
-
 /// A compensation matrix.
 ///
-/// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, AsRef, PartialEq)]
+/// This is encoded in the $DFCiTOj keywords in 2.0 and $COMP in 3.0.
+#[derive(Clone, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
@@ -41,53 +42,104 @@ pub struct Compensation {
 }
 
 impl Compensation2_0 {
-    pub(crate) fn lookup<E>(
+    pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
-    ) -> LookupTentative<MaybeValue<Self>, E> {
+        conf: &ReadLayoutConfig,
+    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let n = par.0;
+        let flag = conf.allow_optional_dropping;
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
-                let k = Dfc::std(c.into(), r.into());
-                match lookup_dfc(kws, k) {
+                let k = SpecificKey::new_i2(c.into(), r.into());
+                match Dfc::lookup(kws, k) {
                     Ok(x) => (x, None),
-                    Err(w) => (None, Some(LookupKeysWarning::Parse(w.inner_into()))),
+                    Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
             })
             .unzip();
-        let mut tnt = if xs.iter().all(|x| x.is_none()) || xs.is_empty() {
-            Tentative::default()
+        let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
+            LogResult::new_switchable_ok(None, flag)
         } else {
             let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
-                .map_err(|e| LookupKeysWarning::Relation(e.into()))
-                .map_or(Tentative::default(), Tentative::new1)
+                .map_err(LookupComp2_0Error::Matrix)
+                .into_deferred_switchable(flag)
         };
-        tnt.extend_warnings(warnings.into_iter().flatten());
-        tnt.map(MaybeValue)
+        res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
-    pub fn opt_keywords(&self) -> Vec<(String, String)> {
+    pub fn non_zero_indices(&self) -> impl Iterator<Item = (MeasIndex, MeasIndex, f32)> {
         let m = &self.0.matrix;
-        let n = m.ncols();
-        m.iter()
-            .enumerate()
-            .flat_map(|(i, x)| {
-                if *x != 0.0 {
-                    let row = i / n;
-                    let col = i % n;
-                    Some((Dfc::std(row.into(), col.into()).to_string(), x.to_string()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        m.iter().enumerate().filter_map(|(i, &x)| {
+            let n = m.ncols();
+            if x == 0.0 {
+                None
+            } else {
+                let row = i / n;
+                let col = i % n;
+                Some((col.into(), row.into(), x))
+            }
+        })
+    }
+
+    pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        self.non_zero_indices()
+            .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
+    }
+
+    // NOTE this shouldn't do anything for a freshly made comp matrix since
+    // the DFCmTOn lookups are bound by $PAR, so it impossible for the matrix
+    // to be greater than $PAR. This will fire whenever we assign an external
+    // matrix to the Core data struct.
+    pub(crate) fn remove_invalid_link(src: &mut Option<Self>, par: Par) -> Option<RemovedLink> {
+        let c = src.as_mut()?;
+        let n = c.0.matrix.nrows();
+        // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
+        // since the entire matrix must be removed.
+        let bad_matrix = n < par.0 || par.0 < 2;
+        let cutoff = if bad_matrix { 0 } else { par.0 };
+        // Scan through matrix and pull out all cells in rows/columns greater
+        // or equal to cutoff and whose value is not zero. These are the keywords
+        // to return.
+        let es = c.non_zero_indices().filter_map(|(col, row, value)| {
+            let which = match (usize::from(row) >= cutoff, usize::from(col) >= cutoff) {
+                (true, true) => Some(Comp2_0Missing::Both),
+                (true, false) => Some(Comp2_0Missing::Row),
+                (false, true) => Some(Comp2_0Missing::Col),
+                (false, false) => None,
+            };
+            which.map(|b| RemovedComp2_0Cell::new(row, col, value, b))
+        });
+        let ret = NonEmpty::collect(es).map(RemovedLink::Comp2_0);
+        // If resulting matrix is less than 2x2, replace with None. Otherwise
+        // truncate the matrix down to $PAR by $PAR
+        if bad_matrix {
+            *src = None;
+        } else {
+            c.0.matrix = c.0.matrix.view((0, 0), (par.0, par.0)).into();
+        }
+        ret
+    }
+
+    pub(crate) fn existing_links(
+        &self,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
+        self.non_zero_indices().map(|(col, row, _)| {
+            let xs = NonEmpty::from((col.into(), vec![row.into()]));
+            ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
+        })
+    }
+
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
+        self.non_zero_indices()
+            .map(|(col, row, _)| BiIndexedKeyLossError(Key2::new_i2(col.into(), row.into())))
     }
 }
 
@@ -127,84 +179,17 @@ impl Compensation {
     }
 }
 
-impl FromStrStateful for Compensation3_0 {
-    type Err = ParseCompError;
-    type Payload<'a> = ();
-
-    fn from_str_st(s: &str, _: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-impl FromStr for Compensation3_0 {
-    type Err = ParseCompError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
-    }
-}
-
-impl FromStrDelim for Compensation3_0 {
-    type Err = ParseCompError;
-    const DELIM: char = ',';
-
-    fn from_iter<'a>(mut ss: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        if let Some(first) = ss.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = first;
-            let nn = n * n;
-            let values: Vec<_> = ss.by_ref().take(nn).collect();
-            let remainder = ss.by_ref().count();
-            let total = values.len() + remainder;
-            if total != nn {
-                Err(ParseCompError::WrongLength {
-                    expected: nn,
-                    total,
-                })
-            } else {
-                let fvalues: Vec<_> = values
-                    .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != nn {
-                    Err(ParseCompError::BadFloat)
-                } else {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                    Ok(Compensation::try_from(matrix).map(Self)?)
-                }
-            }
-        } else {
-            Err(ParseCompError::BadLength)
-        }
-    }
-}
-
-#[derive(From)]
-pub enum ParseCompError {
-    WrongLength {
-        total: usize,
-        expected: usize,
-    },
-    BadLength,
-    BadFloat,
-    #[from]
-    New(NewCompError),
-}
-
+/// Error when making new compensation matrix from any float matrix.
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum NewCompError {
+    #[error("compensation matrix must be square")]
     NotSquare,
+    #[error("compensation matrix must be 2x2 or bigger")]
     TooSmall,
+    #[error("compensation matrix may not have Nan, +Inf, or -Inf")]
     NotFinite,
-}
-
-impl fmt::Display for NewCompError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::NotSquare => "compensation matrix must be square",
-            Self::TooSmall => "compensation matrix must be 2x2 or bigger",
-            Self::NotFinite => "compensation matrix may not have Nan, +Inf, or -Inf",
-        };
-        write!(f, "{s}")
-    }
 }
 
 impl fmt::Display for Compensation {
@@ -217,70 +202,27 @@ impl fmt::Display for Compensation {
     }
 }
 
-impl fmt::Display for ParseCompError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseCompError::BadFloat => write!(f, "Float could not be parsed"),
-            ParseCompError::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            ParseCompError::BadLength => write!(f, "Could not determine length"),
-            ParseCompError::New(x) => x.fmt(f),
-        }
-    }
-}
-
-pub(crate) fn lookup_dfc(
-    kws: &mut StdKeywords,
-    k: StdKey,
-) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
-    kws.remove(&k).map_or(Ok(None), |v| {
-        v.parse::<f32>()
-            .map_err(|e| ParseKeyError {
-                error: e,
-                key: k,
-                value: v.clone(),
-            })
-            .map(Some)
-    })
+/// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupComp2_0Error {
+    Dfc(LookupDfcError),
+    Matrix(NewCompError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::*;
     use nalgebra::DMatrix;
 
     #[test]
-    fn test_str_compensation() {
-        assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
-    }
-
-    #[test]
-    fn test_str_compensation_too_small() {
-        assert!("1,0".parse::<Compensation3_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_compensation_mismatch() {
-        assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_compensation_badfloats() {
-        assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_compensation_not_finite() {
+    fn str_compensation_not_finite() {
         let m = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, f32::NAN]);
         assert!(Compensation::try_from(m).is_err());
     }
 
     #[test]
-    fn test_str_compensation_not_square() {
+    fn str_compensation_not_square() {
         let m = DMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
         assert!(Compensation::try_from(m).is_err());
     }
@@ -288,14 +230,11 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_transparent, impl_value_err};
+    use super::Compensation;
 
-    use super::{Compensation, Compensation2_0, Compensation3_0, NewCompError};
-
-    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
     use pyo3::prelude::*;
-
-    impl_value_err!(NewCompError);
+    use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for Compensation {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -307,13 +246,10 @@ mod python {
     impl<'py> IntoPyObject<'py> for Compensation {
         type Target = PyArray2<f32>;
         type Output = Bound<'py, Self::Target>;
-        type Error = std::convert::Infallible;
+        type Error = Infallible;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             Ok(self.matrix.to_pyarray(py))
         }
     }
-
-    impl_from_py_transparent!(Compensation2_0);
-    impl_from_py_transparent!(Compensation3_0);
 }

@@ -54,30 +54,26 @@
 //!   and can't cause compile errors. This is also almost-necessary since the
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
-
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
     AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, KnownTot, LayoutOps, NoMeasDatatype, NonMixedEndianLayout,
+    F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
 };
-use fireflow_core::error::{MultiResultExt, ResultExt};
 use fireflow_core::header;
-use fireflow_core::python::exceptions::{
-    PyTerminalNoErrorResultExt, PyTerminalNoWarnResultExt, PyTerminalResultExt,
-};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
 };
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::Eithers;
-use fireflow_core::text::optional::MightHave;
+use fireflow_core::text::named_vec::{Eithers, Element};
+use fireflow_core::text::optional::{Identity, Nothing};
+use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
-use fireflow_core::validated::shortname::Shortname;
+use fireflow_core::validated::keys;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
@@ -89,28 +85,30 @@ use fireflow_python_proc::{
     impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt,
     impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
     impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
-    impl_core_get_measurements, impl_core_get_set_timestep, impl_core_get_temporal,
-    impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
-    impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
-    impl_core_replace_temporal, impl_core_set_measurements, impl_core_set_measurements_and_layout,
-    impl_core_set_temporal, impl_core_set_tr_threshold, impl_core_standard_keywords,
-    impl_core_to_version_x_y, impl_core_unset_temporal, impl_core_version, impl_core_write_dataset,
-    impl_core_write_text, impl_coredataset_from_kws, impl_coredataset_set_measurements_and_data,
-    impl_coredataset_truncate_data, impl_coredataset_unset_data, impl_coretext_from_kws,
-    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_gated_meas,
-    impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
-    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords, impl_py_header,
-    impl_py_header_segments, impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output,
-    impl_py_raw_text_output, impl_py_raw_text_parse_data, impl_py_std_dataset_output,
-    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
+    impl_core_get_measurements, impl_core_get_named_measurement, impl_core_get_set_timestep,
+    impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
+    impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
+    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements,
+    impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_tr_threshold,
+    impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
+    impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
+    impl_coredataset_set_measurements_and_data, impl_coredataset_truncate_data,
+    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
+    impl_coretext_unset_measurements, impl_gated_meas, impl_layout_byte_widths, impl_new_core,
+    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
+    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
+    impl_py_extra_std_keywords, impl_py_header, impl_py_header_segments,
+    impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output, impl_py_raw_text_output,
+    impl_py_raw_text_parse_data, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
+    impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_raw_text!(api::fcs_read_raw_text);
@@ -122,8 +120,8 @@ def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords)
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
-impl_py_valid_keywords!(fireflow_core::validated::keys::ValidKeywords);
-impl_py_extra_std_keywords!(fireflow_core::text::parser::ExtraStdKeywords);
+impl_py_valid_keywords!(keys::ValidKeywords);
+impl_py_extra_std_keywords!(kws::ExtraStdKeywords);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_raw_text_output!(api::RawTEXTOutput);
@@ -203,6 +201,9 @@ macro_rules! impl_common {
 
         // method to get one measurement by index
         impl_core_get_measurement!($pytype);
+
+        // method to get one measurement by name
+        impl_core_get_named_measurement!($pytype);
 
         // method to get temporal measurement if it exists
         impl_core_get_temporal!($pytype);
@@ -425,7 +426,7 @@ impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
             Option<kws::Gating>,
         ) = ob.extract()?;
         let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates3_0::try_new(gated_measurements.into(), scheme)?.into())
+        Ok(AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
 }
 
@@ -482,12 +483,11 @@ impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K: MightHave, U, V>(Eithers<K, U, V>);
+struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
 impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
 where
-    K: MightHave,
-    K::Wrapper<Shortname>: FromPyObject<'py>,
+    K: FromPyObject<'py>,
     U: FromPyObject<'py>,
     V: FromPyObject<'py>,
 {
@@ -499,12 +499,11 @@ where
 
 impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
 where
-    K: MightHave,
     X: From<U>,
     Y: From<V>,
 {
     fn from(value: PyEithers<K, U, V>) -> Self {
-        value.0.inner_into()
+        value.0.fmap(Element::values_into)
     }
 }
 
@@ -557,9 +556,10 @@ where
     }
 }
 
-impl<I, R> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>>
+impl<I, R, S> From<PyRegionMapping<R>> for HashMap<RegionIndex, Region<I>, S>
 where
     Region<I>: From<R>,
+    S: BuildHasher + Default,
 {
     fn from(value: PyRegionMapping<R>) -> Self {
         value.0.into_iter().map(|(k, v)| (k, v.into())).collect()
@@ -581,22 +581,22 @@ impl_gated_meas!(GatedMeasurement);
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
 
 impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
-    fn from(value: PyGatedMeasurements) -> Vec<GatedMeasurement> {
+    fn from(value: PyGatedMeasurements) -> Self {
         value.0.into_iter().map(|x| x.0).collect()
     }
 }
 
 impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
-    fn from(value: Vec<GatedMeasurement>) -> PyGatedMeasurements {
-        Self(value.into_iter().map(|x| x.into()).collect())
+    fn from(value: Vec<GatedMeasurement>) -> Self {
+        Self(value.into_iter().map(Into::into).collect())
     }
 }
 
 // Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_fixed_ascii_layout!(FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
 
 // Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<KnownTot, NoMeasDatatype, false>);
+impl_new_delim_ascii_layout!(DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
 
 // Implement __new__ and attributes for all PyOrderedUint*Layout structs
 impl_new_ordered_layout!(1, false);
@@ -639,7 +639,7 @@ pub enum PyAnyCoreTEXT {
 }
 
 impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: core::AnyCoreTEXT) -> PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> Self {
         match value {
             core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
             core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
@@ -662,7 +662,7 @@ pub enum PyAnyCoreDataset {
 }
 
 impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: core::AnyCoreDataset) -> PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> Self {
         match value {
             core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
             core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
@@ -692,23 +692,23 @@ pub enum PyOrderedLayout {
 pub enum PyNonMixedLayout {
     #[from(
         PyFixedAsciiLayout,
-        FixedAsciiLayout<KnownTot, NoMeasDatatype, false>
+        FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
     )]
     AsciiFixed(PyFixedAsciiLayout),
 
     #[from(
         PyDelimAsciiLayout,
-        DelimAsciiLayout<KnownTot, NoMeasDatatype, false>
+        DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
     )]
     AsciiDelim(PyDelimAsciiLayout),
 
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, NoMeasDatatype>)]
+    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, Nothing<kws::NumType>>)]
     Uint(PyEndianUintLayout),
 
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, NoMeasDatatype>)]
+    #[from(PyEndianF32Layout, EndianLayout<F32Range, Nothing<kws::NumType>>)]
     F32(PyEndianF32Layout),
 
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, NoMeasDatatype>)]
+    #[from(PyEndianF64Layout, EndianLayout<F64Range, Nothing<kws::NumType>>)]
     F64(PyEndianF64Layout),
 }
 
@@ -774,7 +774,7 @@ impl From<DataLayout3_2> for PyLayout3_2 {
     }
 }
 
-impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
+impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
     fn from(value: PyOrderedLayout) -> Self {
         match value {
             PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
@@ -793,8 +793,8 @@ impl From<PyOrderedLayout> for AnyOrderedLayout<KnownTot> {
     }
 }
 
-impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<KnownTot>) -> Self {
+impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
+    fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
         match value {
             AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
                 AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
@@ -816,8 +816,8 @@ impl From<AnyOrderedLayout<KnownTot>> for PyOrderedLayout {
     }
 }
 
-impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<NoMeasDatatype>) -> Self {
+impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
+    fn from(value: NonMixedEndianLayout<Nothing<kws::NumType>>) -> Self {
         match value {
             NonMixedEndianLayout::Ascii(x) => match x {
                 AnyAsciiLayout::Fixed(y) => y.into(),
@@ -830,7 +830,7 @@ impl From<NonMixedEndianLayout<NoMeasDatatype>> for PyNonMixedLayout {
     }
 }
 
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
+impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
     fn from(value: PyNonMixedLayout) -> Self {
         match value {
             PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
@@ -847,7 +847,7 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<NoMeasDatatype> {
 /// This is a hack to get default arguments to work in python, which will
 /// be interpreted as a list since there is no empty set symbol (yet).
 #[derive(Into, Default)]
-pub struct TemporalOpticalKeys(std::collections::HashSet<cfg::TemporalOpticalKey>);
+pub struct TemporalOpticalKeys(HashSet<cfg::TemporalOpticalKey>);
 
 impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

@@ -47,6 +47,7 @@ from pyreflow.typing import (
     KeyPatterns,
     AnyCoreTEXT,
     AnyCoreDataset,
+    SubPatterns,
 )
 
 _X = TypeVar("_X")
@@ -222,13 +223,13 @@ _AnyMixedLayout = Union[
 
 class _MeasCommon:
     nonstandard_keywords: NonStdKeywords
-    longname: str | None
+    longname: str
 
 class _OpticalWavelength:
     wavelength: float | None
 
 class _OpticalWavelengths:
-    wavelengths: list[float] | None
+    wavelengths: list[float]
 
 class _MeasDisplay:
     display: Display
@@ -238,11 +239,11 @@ class _PeakCommon:
     bin: int
 
 class _OpticalCommon:
-    filter: str | None
-    detector_type: str | None
+    filter: str
+    detector_type: str
     detector_voltage: float | None
     power: float | None
-    percent_emitted: str | None
+    percent_emitted: float | None
 
 class _OpticalScaleTransform:
     transform: ScaleTransform
@@ -260,12 +261,12 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        detector_type: str = "",
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -279,12 +280,12 @@ class Optical3_0(
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        detector_type: str = "",
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -302,17 +303,17 @@ class Optical3_1(
     def __new__(
         cls,
         transform: ScaleTransform,
-        wavelengths: list[float] | None = None,
+        wavelengths: list[float] = [],
         calibration: Calibration3_1 | None = None,
         display: Display | None = None,
         bin: int | None = None,
         size: int | None = None,
-        filter: str | None = None,
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        detector_type: str = "",
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -327,28 +328,27 @@ class Optical3_2(
     calibration: Calibration3_2 | None
     detector_name: str | None
     tag: str | None
-    # TODO literal string
-    measurement_type: str | None
+    measurement_type: str
     feature: Feature | None
     analyte: str | None
 
     def __new__(
         cls,
         transform: ScaleTransform,
-        wavelengths: list[float] | None = None,
+        wavelengths: list[float] = [],
         calibration: Calibration3_2 | None = None,
         display: Display | None = None,
-        analyte: str | None = None,
+        analyte: str = "",
         feature: Feature | None = None,
-        tag: str | None = None,
-        measurement_type: str | None = None,
-        detector_name: str | None = None,
-        filter: str | None = None,
+        tag: str = "",
+        measurement_type: str = "",
+        detector_name: str = "",
+        filter: str = "",
         power: float | None = None,
-        detector_type: str | None = None,
-        percent_emitted: str | None = None,
+        detector_type: str = "",
+        percent_emitted: float | None = None,
         detector_voltage: float | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -359,7 +359,7 @@ class Temporal2_0(_MeasCommon, _PeakCommon):
         has_scale: bool = False,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -372,7 +372,7 @@ class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
         timestep: float,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -384,7 +384,7 @@ class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep, _PeakCommon):
         display: Display | None = None,
         bin: int | None = None,
         size: int | None = None,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -397,7 +397,7 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
         timestep: float,
         display: Display | None = None,
         has_type: bool = False,
-        longname: str | None = None,
+        longname: str = "",
         nonstandard_keywords: NonStdKeywords = {},
     ) -> Self: ...
 
@@ -411,21 +411,21 @@ class GatedMeasurement:
     def __new__(
         cls,
         scale: tuple[()] | tuple[float, float] | None = None,
-        filter: str | None = None,
+        filter: str = "",
         shortname: str | None = None,
-        percent_emitted: str | None = None,
+        percent_emitted: float | None = None,
         range: float | None = None,
-        longname: str | None = None,
-        detector_type: str | None = None,
+        longname: str = "",
+        detector_type: str = "",
         detector_voltage: float | None = None,
     ) -> Self: ...
     scale: tuple[()] | tuple[float, float] | None
-    filter: str | None
+    filter: str
     shortname: str | None
-    percent_emitted: str | None
+    percent_emitted: float | None
     range: float | None
-    longname: str | None
-    detector_type: str | None
+    longname: str
+    detector_type: str
     detector_voltage: float | None
 
 class _UnivariateRegion(Generic[_X]):
@@ -532,8 +532,8 @@ class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, force: bool = False) -> bool: ...
-    def set_temporal_at(self, index: MeasIndex, force: bool = False) -> bool: ...
+    def set_temporal(self, name: Shortname, allow_loss: bool = False) -> bool: ...
+    def set_temporal_at(self, index: MeasIndex, allow_loss: bool = False) -> bool: ...
     def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
@@ -541,13 +541,13 @@ class _CoreTemporal3_0:
         self,
         name: Shortname,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def set_temporal_at(
         self,
         index: MeasIndex,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def unset_temporal(self) -> float | None: ...
 
@@ -556,12 +556,12 @@ class _CoreTemporal3_2:
         self,
         name: Shortname,
         timestep: Timestep,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, force: bool = False
+        self, index: MeasIndex, timestep: Timestep, allow_loss: bool = False
     ) -> bool: ...
-    def unset_temporal(self, force: bool = False) -> float | None: ...
+    def unset_temporal(self, allow_loss: bool = False) -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
@@ -573,6 +573,7 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     ) -> tuple[MeasIndex, _O | _T]: ...
     def remove_measurement_by_index(self, index: MeasIndex) -> tuple[_N, _O | _T]: ...
     def measurement_at(self, index: MeasIndex) -> _O | _T: ...
+    def measurement_named(self, name: Shortname) -> _O | _T: ...
     def replace_optical_at(self, index: MeasIndex, meas: _O) -> _O | _T: ...
     def replace_optical_named(self, name: Shortname, meas: _O) -> _O | _T | None: ...
     def rename_temporal(self, name: Shortname) -> Shortname | None: ...
@@ -586,24 +587,29 @@ class _CoreReplaceTemporal3_2:
         self,
         index: MeasIndex,
         meas: Temporal3_2,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> Optical3_2 | Temporal3_2: ...
     def replace_temporal_named(
         self,
         name: Shortname,
         meas: Temporal3_2,
-        force: bool = False,
+        allow_loss: bool = False,
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
-        self, name: _N, meas: _O, range: Range, notrunc: bool = False
+        self, name: _N, meas: _O, range: Range, disallow_trunc: bool = False
     ) -> None: ...
     def insert_optical(
-        self, index: MeasIndex, name: _N, meas: _O, range: Range, notrunc: bool = False
+        self,
+        index: MeasIndex,
+        name: _N,
+        meas: _O,
+        range: Range,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def push_temporal(
-        self, name: Shortname, meas: _T, range: Range, notrunc: bool = False
+        self, name: Shortname, meas: _T, range: Range, disallow_trunc: bool = False
     ) -> None: ...
     def insert_temporal(
         self,
@@ -611,7 +617,7 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         meas: _T,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def unset_measurements(self) -> None: ...
 
@@ -620,7 +626,12 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     others: list[OtherBytes]
 
     def push_optical(
-        self, name: _N, meas: _O, col: Series, range: Range, notrunc: bool = False
+        self,
+        name: _N,
+        meas: _O,
+        col: Series,
+        range: Range,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def insert_optical(
         self,
@@ -629,7 +640,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _O,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def push_temporal(
         self,
@@ -637,7 +648,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def insert_temporal(
         self,
@@ -646,7 +657,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        notrunc: bool = False,
+        disallow_trunc: bool = False,
     ) -> None: ...
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
@@ -725,11 +736,11 @@ class _CoreGates(Generic[_X]):
 
 class _CoreSubset:
     @property
-    def cstot(self) -> int | None: ...
+    def cstot(self) -> int: ...
     @property
-    def csvbits(self) -> int | None: ...
+    def csvbits(self) -> int: ...
     @property
-    def csvflags(self) -> CsvFlags | None: ...
+    def csvflags(self) -> CsvFlags: ...
 
 class _CoreModified:
     originality: Originality | None
@@ -781,7 +792,7 @@ class _Core3_2:
     flowrate: str | None
     cyt: str
     unstainedinfo: str | None
-    unstainedcenters: dict[Shortname, float] | None
+    unstainedcenters: dict[Shortname, float]
     carriertype: str | None
     carrierid: str | None
     locationid: str | None
@@ -792,9 +803,7 @@ class _Core3_2:
     all_tags: _OpticalKeyVals[str]
     all_features: _OpticalKeyVals[Feature]
     all_analytes: _OpticalKeyVals[str]
-    # TODO this can return a list of all types including the time channel since
-    # they share the same kw
-    all_measurement_types: _OpticalKeyVals[str]
+    all_measurement_types: list[str]
 
 class _CoreMeasCalibration(Generic[_C]):
     all_calibrations: _OpticalKeyVals[_C]
@@ -808,16 +817,16 @@ class _CoreToDataset(Generic[_X]):
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def to_version_2_0(self, force: bool = False) -> _X: ...
+    def to_version_2_0(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def to_version_3_0(self, force: bool = False) -> _X: ...
+    def to_version_3_0(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def to_version_3_1(self, force: bool = False) -> _X: ...
+    def to_version_3_1(self, allow_loss: bool = False) -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def to_version_3_2(self, force: bool = False) -> _X: ...
+    def to_version_3_2(self, allow_loss: bool = False) -> _X: ...
 
 @final
 class CoreTEXT2_0(
@@ -846,23 +855,23 @@ class CoreTEXT2_0(
         measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
         layout: _AnyOrderedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -884,10 +893,13 @@ class CoreTEXT2_0(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -921,28 +933,28 @@ class CoreTEXT3_0(
         measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
         layout: _AnyOrderedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -965,10 +977,13 @@ class CoreTEXT3_0(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1003,34 +1018,34 @@ class CoreTEXT3_1(
         measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
         layout: _AnyNonMixedLayout,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1054,8 +1069,11 @@ class CoreTEXT3_1(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1094,33 +1112,33 @@ class CoreTEXT3_2(
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        carrierid: str | None = None,
-        carriertype: str | None = None,
-        locationid: str | None = None,
-        unstainedinfo: str | None = None,
-        unstainedcenters: UnstainedCenters | None = None,
-        flowrate: str | None = None,
+        carrierid: str = "",
+        carriertype: str = "",
+        locationid: str = "",
+        unstainedinfo: str = "",
+        unstainedcenters: UnstainedCenters = {},
+        flowrate: str = "",
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_2 = ({}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1144,8 +1162,11 @@ class CoreTEXT3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1177,23 +1198,23 @@ class CoreDataset2_0(
         layout: _AnyOrderedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1221,12 +1242,15 @@ class CoreDataset2_0(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1262,28 +1286,28 @@ class CoreDataset3_0(
         layout: _AnyOrderedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         comp: Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         unicode: Unicode | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1312,6 +1336,8 @@ class CoreDataset3_0(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: bool = False,
@@ -1319,12 +1345,13 @@ class CoreDataset3_0(
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_missing_required_offsets: bool = False,
         allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1361,34 +1388,34 @@ class CoreDataset3_1(
         layout: _AnyNonMixedLayout,
         data: DataFrame,
         mode: Mode = "L",
-        cyt: str | None = None,
+        cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        csvbits: int | None = None,
-        cstot: int | None = None,
-        csvflags: CsvFlags | None = None,
+        csvbits: int = 0,
+        cstot: int = 0,
+        csvflags: CsvFlags = [],
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1418,17 +1445,20 @@ class CoreDataset3_1(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
         text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_missing_required_offsets: bool = False,
         allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
 @final
@@ -1469,33 +1499,33 @@ class CoreDataset3_2(
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
-        cytsn: str | None = None,
+        cytsn: str = "",
         spillover: Spillover | None = None,
-        last_modifier: str | None = None,
+        last_modifier: str = "",
         last_modified: datetime | None = None,
         originality: Originality | None = None,
-        plateid: str | None = None,
-        platename: str | None = None,
-        wellid: str | None = None,
+        plateid: str = "",
+        platename: str = "",
+        wellid: str = "",
         vol: float | None = None,
-        carrierid: str | None = None,
-        carriertype: str | None = None,
-        locationid: str | None = None,
-        unstainedinfo: str | None = None,
-        unstainedcenters: UnstainedCenters | None = None,
-        flowrate: str | None = None,
+        carrierid: str = "",
+        carriertype: str = "",
+        locationid: str = "",
+        unstainedinfo: str = "",
+        unstainedcenters: UnstainedCenters = {},
+        flowrate: str = "",
         abrt: int | None = None,
-        com: str | None = None,
-        cells: str | None = None,
-        exp: str | None = None,
-        fil: str | None = None,
-        inst: str | None = None,
+        com: str = "",
+        cells: str = "",
+        exp: str = "",
+        fil: str = "",
+        inst: str = "",
         lost: int | None = None,
-        op: str | None = None,
-        proj: str | None = None,
-        smno: str | None = None,
-        src: str | None = None,
-        sys: str | None = None,
+        op: str = "",
+        proj: str = "",
+        smno: str = "",
+        src: str = "",
+        sys: str = "",
         tr: Trigger | None = None,
         applied_gates: AppliedGates3_2 = ({}, None),
         nonstandard_keywords: NonStdKeywords = {},
@@ -1525,21 +1555,35 @@ class CoreDataset3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
         text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_missing_required_offsets: bool = False,
         allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
+        hide_warnings: bool = False,
     ) -> Self: ...
 
-class PyreflowException(Exception): ...
-class PyreflowWarning(Exception): ...
+class PyreflowError(Exception): ...
+class FileLayoutError(PyreflowError): ...
+class ParseKeyError(PyreflowError): ...
+class ParseKeywordValueError(PyreflowError): ...
+class InvalidKeywordValueError(PyreflowError): ...
+class ExtraKeywordError(PyreflowError): ...
+class FCSDeprecatedError(PyreflowError): ...
+class ConversionError(PyreflowError): ...
+class RelationalError(PyreflowError): ...
+class EventDataError(PyreflowError): ...
+class DataLossError(PyreflowError): ...
+class ConfigError(PyreflowError): ...
+class PyreflowWarning(Warning): ...
 
 @final
 class HeaderSegments:
@@ -1745,6 +1789,7 @@ def fcs_read_raw_text(
     allow_empty: bool = False,
     allow_delim_at_boundary: bool = False,
     allow_non_utf8: bool = False,
+    use_latin1: bool = False,
     allow_non_ascii_keywords: bool = False,
     allow_missing_supp_text: bool = False,
     allow_supp_text_own_delim: bool = False,
@@ -1756,8 +1801,10 @@ def fcs_read_raw_text(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1786,6 +1833,7 @@ def fcs_read_std_text(
     allow_empty: bool = False,
     allow_delim_at_boundary: bool = False,
     allow_non_utf8: bool = False,
+    use_latin1: bool = False,
     allow_non_ascii_keywords: bool = False,
     allow_missing_supp_text: bool = False,
     allow_supp_text_own_delim: bool = False,
@@ -1797,6 +1845,7 @@ def fcs_read_std_text(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # standard args
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,
@@ -1817,15 +1866,18 @@ def fcs_read_std_text(
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_missing_required_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
     # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
@@ -1854,6 +1906,7 @@ def fcs_read_raw_dataset(
     allow_empty: bool = False,
     allow_delim_at_boundary: bool = False,
     allow_non_utf8: bool = False,
+    use_latin1: bool = False,
     allow_non_ascii_keywords: bool = False,
     allow_missing_supp_text: bool = False,
     allow_supp_text_own_delim: bool = False,
@@ -1865,15 +1918,18 @@ def fcs_read_raw_dataset(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_missing_required_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
     # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
@@ -1882,6 +1938,7 @@ def fcs_read_raw_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawTEXTOutput: ...
 
 #
@@ -1910,6 +1967,7 @@ def fcs_read_std_dataset(
     allow_empty: bool = False,
     allow_delim_at_boundary: bool = False,
     allow_non_utf8: bool = False,
+    use_latin1: bool = False,
     allow_non_ascii_keywords: bool = False,
     allow_missing_supp_text: bool = False,
     allow_supp_text_own_delim: bool = False,
@@ -1921,6 +1979,7 @@ def fcs_read_std_dataset(
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # standard args
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,
@@ -1941,10 +2000,12 @@ def fcs_read_std_dataset(
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_missing_required_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
     # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
@@ -1953,6 +2014,7 @@ def fcs_read_std_dataset(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
 
 #
@@ -1968,10 +2030,12 @@ def fcs_read_raw_dataset_with_keywords(
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_missing_required_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
     # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
@@ -1980,6 +2044,7 @@ def fcs_read_raw_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> RawDatasetWithKwsOutput: ...
 
 #
@@ -2011,10 +2076,12 @@ def fcs_read_std_dataset_with_keywords(
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_missing_required_offsets: bool = False,
     allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
     # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: bool = False,
@@ -2023,14 +2090,26 @@ def fcs_read_std_dataset_with_keywords(
     allow_tot_mismatch: bool = False,
     # shared args
     warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
 ) -> StdDatasetWithKwsOutput: ...
 
 __version__: str
 
 __all__ = [
     "__version__",
+    "PyreflowError",
+    "FileLayoutError",
+    "ParseKeyError",
+    "ParseKeywordValueError",
+    "InvalidKeywordValueError",
+    "ExtraKeywordError",
+    "FCSDeprecatedError",
+    "ConversionError",
+    "RelationalError",
+    "EventDataError",
+    "DataLossError",
+    "ConfigError",
     "PyreflowWarning",
-    "PyreflowException",
     "CoreTEXT2_0",
     "CoreTEXT3_0",
     "CoreTEXT3_1",

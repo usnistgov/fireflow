@@ -1,17 +1,18 @@
 use derive_more::{From, Into};
-use itertools::Itertools;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
+use std::hash::Hash;
 
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
 // deciding in favor.
-#[derive(Into, From, PartialEq, Clone, Default)]
+#[derive(Into, From, PartialEq, Clone, Default, Debug)]
 pub struct FCSNonEmpty<T>(pub NonEmpty<T>);
 
 impl<X> FCSNonEmpty<X> {
-    pub(crate) fn new(head: X) -> Self {
-        Self(NonEmpty::new(head))
-    }
+    // pub(crate) fn new(head: X) -> Self {
+    //     Self(NonEmpty::new(head))
+    // }
 
     // pub(crate) fn new1(head: X, tail: Vec<X>) -> Self {
     //     Self(NonEmpty { head, tail })
@@ -33,7 +34,7 @@ impl<X> FCSNonEmpty<X> {
 
     pub(crate) fn unique(self) -> Self
     where
-        X: Clone + std::hash::Hash + Eq,
+        X: Clone + Hash + Eq,
     {
         NonEmpty::collect(self.0.into_iter().unique())
             .unwrap()
@@ -70,7 +71,7 @@ impl<X> FCSNonEmpty<X> {
         X: Eq,
     {
         let mut counts = NonEmpty::new((&self.0.head, 1));
-        for d in self.0.tail.iter() {
+        for d in &self.0.tail {
             if counts.last().0 == d {
                 counts.last_mut().1 += 1;
             } else {
@@ -85,7 +86,7 @@ impl<X> FCSNonEmpty<X> {
 #[cfg(feature = "serde")]
 mod serialize {
     use super::FCSNonEmpty;
-    use serde::{ser::SerializeSeq, Serialize};
+    use serde::{Serialize, ser::SerializeSeq as _};
 
     impl<I: Serialize> Serialize for FCSNonEmpty<I> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -103,10 +104,11 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::python::InvalidKeywordValueError;
+
     use super::FCSNonEmpty;
 
     use nonempty::NonEmpty;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyList;
 
@@ -119,7 +121,8 @@ mod python {
             if let Some(ys) = NonEmpty::from_vec(xs) {
                 Ok(ys.into())
             } else {
-                Err(PyValueError::new_err("list must not be empty"))
+                // ASSUME this is only used for keywords that cannot be an empty list
+                Err(InvalidKeywordValueError::new_err("list must not be empty"))
             }
         }
     }

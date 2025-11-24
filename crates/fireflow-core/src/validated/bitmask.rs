@@ -1,19 +1,23 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
-use crate::error::BiTentative;
-use crate::text::keywords::{IntRangeError, Range};
+use crate::logging::{
+    CommutativeResultIter as _, DeferredError, ErrorsResult, LogResult, ResultExt as _,
+};
+use crate::text::byteord::PrivBytes;
+use crate::text::index::MeasIndex;
+use crate::text::keywords::Range;
 
 use bigdecimal::BigDecimal;
-use derive_more::{Display, From};
-use num_traits::identities::One;
+use derive_more::Display;
 use num_traits::PrimInt;
-use std::fmt;
+use num_traits::identities::One as _;
+use std::mem::size_of;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 /// A number representing a value with bitmask up to LEN bits
-#[derive(PartialEq, Clone, Copy, PartialOrd)]
+#[derive(PartialEq, Clone, Copy, PartialOrd, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Bitmask<T, const LEN: usize> {
     /// The value to be masked.
@@ -21,11 +25,11 @@ pub struct Bitmask<T, const LEN: usize> {
     /// This can be any integer up to LEN bits.
     value: T,
 
-    /// The bitmask corresponding to ['range'].
+    /// The bitmask corresponding to `value`.
     ///
     /// Will always be a power of 2 minus 1 (ie, some number of contiguous bits
-    /// in binary). This will be able to hold ['range'] but will mask out any
-    /// bits beyond those needed to express ['range'].
+    /// in binary). This will be able to hold `value` but will mask out any
+    /// bits beyond those needed to express `value`.
     bitmask: T,
 }
 
@@ -46,16 +50,16 @@ where
     fn from(value: &Bitmask<T, LEN>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
-        Range::from(u64::from(value.value)) + Range::from(BigDecimal::one())
+        Self::from(u64::from(value.value)) + Self::from(BigDecimal::one())
     }
 }
 
 impl<T, const LEN: usize> From<Bitmask<T, LEN>> for u64
 where
-    u64: From<T>,
+    Self: From<T>,
 {
     fn from(value: Bitmask<T, LEN>) -> Self {
-        u64::from(value.value)
+        value.value.into()
     }
 }
 
@@ -74,32 +78,21 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         let b = self.bitmask;
         let trunc = value > b;
-        let e = if trunc {
-            Some(BitmaskLossError(u64::from(b)))
-        } else {
-            None
-        };
+        let e = trunc.then(|| BitmaskLossError(u64::from(b)));
         (e, b.min(value))
     }
 
-    pub(crate) fn from_native_tnt(
-        value: T,
-        notrunc: bool,
-    ) -> BiTentative<Self, BitmaskTruncationError>
+    pub(crate) fn try_from_native(value: T) -> DeferredError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
     {
-        let (bitmask, truncated) = Bitmask::from_native(value);
-        let error = if truncated {
-            Some(BitmaskTruncationError {
-                bytes: Self::bits(),
-                value: u64::from(value),
-            })
-        } else {
-            None
-        };
-        BiTentative::new_either1(bitmask, error, notrunc)
+        let (bitmask, truncated) = Self::from_native(value);
+        let error = truncated.then(|| BitmaskTruncationError {
+            bytes: Self::bytes(),
+            value: u64::from(value),
+        });
+        LogResult::new_deferred_maybe(bitmask, error)
     }
 
     // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
@@ -124,8 +117,8 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     {
         // ASSUME number of bits will never exceed 64 (or 255 for that matter)
         // and thus will fit in a u8
-        let native_bits = (std::mem::size_of::<T>() * 8) as u8;
-        let value_bits = native_bits - (value.leading_zeros() as u8);
+        let native_bits = u8::try_from(size_of::<T>() * 8).unwrap();
+        let value_bits = native_bits - u8::try_from(value.leading_zeros()).unwrap();
         let truncated = value_bits > Self::bits();
         let bits = value_bits.min(Self::bits());
         let mask = if bits == 0 {
@@ -157,107 +150,113 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     where
         T: PrimInt,
     {
-        Bitmask::from_native(T::max_value()).0
+        Self::from_native(T::max_value()).0
     }
 
-    fn bytes() -> u8 {
-        LEN as u8
+    fn bytes() -> PrivBytes {
+        u8::try_from(LEN)
+            .unwrap()
+            .try_into()
+            .expect("Bytes greater than 8")
     }
 
     fn bits() -> u8 {
-        Self::bytes() * 8
+        u8::from(Self::bytes()) * 8
+    }
+
+    pub(crate) fn try_from_many<E, X>(
+        xs: Vec<X>,
+        starting_index: usize,
+    ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
+    where
+        Self: TryFrom<X, Error = E>,
+    {
+        xs.into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                Self::try_from(c)
+                    .map_err(|e| ((i + starting_index).into(), e))
+                    .into_nowarn1()
+                    .repack()
+            })
+            .mappend_commutative()
     }
 }
 
-pub struct BitmaskTruncationError {
-    bytes: u8,
-    value: u64,
+/// Error when integer from $PnR must be truncated to fit into desired byte width.
+///
+/// This only occurs when attempting to bitmask a native type to a number of
+/// bytes which is not a power of two (for instance, u32 to 3 bytes).  If $PnR
+/// is bigger than the native type itself, this is different error.
+///
+/// This error is meant for internal use and converted to other errors which
+/// add context.
+#[derive(Debug)]
+pub(crate) struct BitmaskTruncationError {
+    pub(crate) bytes: PrivBytes,
+    pub(crate) value: u64,
 }
 
-impl fmt::Display for BitmaskTruncationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not make bitmask for {} which exceeds {} bytes",
-            self.value, self.bytes
-        )
-    }
-}
-
-#[derive(Display, From)]
-pub enum BitmaskError {
-    ToInt(IntRangeError<()>),
-    Trunc(BitmaskTruncationError),
-}
-
-#[derive(Clone, Copy)]
-pub struct BitmaskLossError(pub u64);
-
-impl fmt::Display for BitmaskLossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "integer data was too big and truncated to bitmask {}",
-            self.0
-        )
-    }
-}
+/// Error when integer is truncated using a bitmask which results in data loss
+#[derive(Clone, Copy, Debug, Display)]
+#[display("integer value truncated to {_0}")]
+pub(crate) struct BitmaskLossError(pub u64);
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_int_to_bitmask() {
-        let x = 255;
+    fn int_to_bitmask() {
+        let x = 0xFF;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (255, 255, false));
+        assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_roundup() {
-        let x = 254;
+    fn int_to_bitmask_roundup() {
+        let x = 0xFE;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (254, 255, false));
+        assert_eq!((b.value, b.bitmask(), trunc), (0xFE, 0xFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_trunc() {
-        let x = 256;
+    fn int_to_bitmask_trunc() {
+        let x = 0x100;
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (255, 255, true));
+        assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, true));
     }
 
     #[test]
-    fn test_int_to_bitmask_max_native() {
-        let x = 65535;
+    fn int_to_bitmask_max_native() {
+        let x = 0xFFFF;
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (65535, 65535, false));
+        assert_eq!((b.value, b.bitmask(), trunc), (0xFFFF, 0xFFFF, false));
     }
 
     #[test]
-    fn test_int_to_bitmask_zero() {
+    fn int_to_bitmask_zero() {
         let x = 0;
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
         assert_eq!((b.value, b.bitmask(), trunc), (0, 0, false));
     }
 
     #[test]
-    fn test_max_1_byte() {
+    fn max_1_byte() {
         let b = Bitmask::<u8, 1>::max();
-        assert_eq!((b.value, b.bitmask()), (255, 255));
+        assert_eq!((b.value, b.bitmask()), (0xFF, 0xFF));
     }
 
     #[test]
-    fn test_max_2_byte() {
+    fn max_2_byte() {
         let b = Bitmask::<u16, 2>::max();
-        assert_eq!((b.value, b.bitmask()), (65535, 65535));
+        assert_eq!((b.value, b.bitmask()), (0xFFFF, 0xFFFF));
     }
 
     #[test]
-    fn test_max_3_byte() {
+    fn max_3_byte() {
         let b = Bitmask::<u32, 3>::max();
-        assert_eq!((b.value, b.bitmask()), (16777215, 16777215));
+        assert_eq!((b.value, b.bitmask()), (0x00FF_FFFF, 0x00FF_FFFF));
     }
 }
 
@@ -269,14 +268,15 @@ mod python {
     use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
 
+    use std::fmt;
+
     impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py>,
-        T: num_traits::PrimInt + std::fmt::Display,
+        for<'a> T: FromPyObjectBound<'a, 'py> + num_traits::PrimInt + fmt::Display,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;
-            let (ret, trunc) = Bitmask::from_native(x);
+            let (ret, trunc) = Self::from_native(x);
             if trunc {
                 let e = format!("could not make {LEN}-byte bitmask from {x}");
                 Err(PyOverflowError::new_err(e))

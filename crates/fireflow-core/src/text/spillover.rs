@@ -1,28 +1,40 @@
 use crate::config::StdTextReadConfig;
-use crate::error::ErrorIter;
-use crate::validated::shortname::*;
+use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
+use crate::validated::keys::Key0;
+use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
+use super::lookup::FromStrWith;
 use super::named_vec::NameMapping;
-use super::parser::{FromStrStateful, LinkedNameError, OptLinkedKey};
+use super::relational::{ExistingNamedLinkError, MeasNamesNoTime};
 
 use derive_more::{AsRef, Display, From};
-use itertools::Itertools;
+use derive_new::new;
+use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use std::collections::HashSet;
 use std::fmt;
 use std::hash::Hash;
+use std::mem::take;
 use std::num::ParseIntError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::DisplayAsPyErr;
+
+/// The $SPILLOVER keyword (3.1+)
 pub type Spillover = GenericSpillover<Shortname>;
 
-/// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, AsRef, PartialEq)]
+/// A generic spillover matrix which can include any type for the measurement vector.
+///
+/// This is to allow parsing indices or names; only the latter is used in the
+/// standard but many vendors use indices anyways. This structure allows both
+/// to be parsed.
+#[derive(Clone, AsRef, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct GenericSpillover<T> {
     /// The measurements in the spillover matrix.
@@ -37,39 +49,40 @@ pub struct GenericSpillover<T> {
 }
 
 impl Spillover {
-    // pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> ClearMaybe<bool> {
-    //     if let Some(i) = self.measurements.iter().position(|m| m == n) {
-    //         if self.measurements.len() < 3 {
-    //             ClearMaybe::clear(true)
-    //         } else {
-    //             // TODO this looks expensive; it copies almost everything 3x;
-    //             // good thing these matrices aren't that big (usually). The
-    //             // alternative is to iterate over the matrix and populate a new
-    //             // one while skipping certain elements.
-    //             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-    //             ClearMaybe::new(true)
-    //         }
-    //     } else {
-    //         ClearMaybe::new(false)
-    //     }
-    // }
-
-    // pub(crate) fn table(&self, delim: &str) -> Vec<String> {
-    //     let header0 = vec!["[-]"];
-    //     let header = header0
-    //         .into_iter()
-    //         .chain(self.measurements.iter().map(|m| m.as_ref()))
-    //         .join(delim);
-    //     let lines = vec![header];
-    //     let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
-    //     lines.into_iter().chain(rows).collect()
-    // }
+    pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
+        // ASSUME mapping is such that new names will be unique
+        for n in &mut self.measurements {
+            if let Some(new) = mapping.get(n) {
+                *n = (*new).clone();
+            }
+        }
+    }
 
     pub(crate) fn names_difference(
         &self,
-        names: &HashSet<&Shortname>,
+        names: &MeasNamesNoTime,
     ) -> impl Iterator<Item = &Shortname> {
-        self.measurements.iter().filter(|n| !names.contains(n))
+        self.measurements
+            .iter()
+            .filter(|n| !names.as_ref().contains(n))
+    }
+
+    pub(crate) fn existing_link_error(
+        &self,
+        names: &MeasNamesNoTime,
+    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+        NonEmpty::collect(self.names_difference(names).cloned())
+            .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+    }
+
+    pub(crate) fn remove_invalid_link(
+        src: &mut Option<Self>,
+        names: &MeasNamesNoTime,
+    ) -> Option<RemovedNamedLink<Self>> {
+        let s = src.as_ref()?;
+        let ns = s.names_difference(names).cloned();
+        // ASSUME this won't fail since we filter out None above with ?
+        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(src).unwrap(), xs))
     }
 }
 
@@ -77,17 +90,23 @@ impl GenericSpillover<MeasIndex> {
     pub(crate) fn try_into_named(
         self,
         names: &[&Shortname],
-    ) -> Result<Spillover, SpilloverIndexError> {
-        let ms = self
-            .measurements
-            .into_iter()
-            .map(|i| names.get(usize::from(i)).ok_or(i).map(|&x| x.clone()))
-            .gather()
-            .map_err(SpilloverIndexError)?;
-        Ok(Spillover {
-            measurements: ms,
-            matrix: self.matrix,
-        })
+    ) -> Result<Spillover, KeyToIndexLinkError<Spillover>> {
+        let mut it = self.measurements.into_iter();
+        let mut ms = vec![];
+        let mut missing = None;
+        for i in it.by_ref() {
+            if let Some(&n) = names.get(usize::from(i)) {
+                ms.push(n.clone());
+            } else {
+                missing = Some(i);
+                break;
+            }
+        }
+        if let Some(i) = missing {
+            let es = NonEmpty::from((i, it.collect::<Vec<_>>()));
+            return Err(KeyToIndexLinkError::new_i0(es));
+        }
+        Ok(Spillover::new(ms, self.matrix))
     }
 }
 
@@ -136,23 +155,23 @@ impl<T> GenericSpillover<T> {
                 .collect::<Result<Vec<_>, _>>()?;
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
-            if total != expected {
-                Err(ParseGenericSpilloverError::WrongLength { total, expected })?
-            } else {
-                let fvalues: Vec<_> = values
+            if total == expected {
+                if let Ok(fvalues) = values
                     .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != nn {
-                    Err(ParseGenericSpilloverError::BadFloat)?
-                } else {
+                    .map(str::parse::<f32>)
+                    .collect::<Result<Vec<_>, _>>()
+                {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
+                } else {
+                    Err(ParseGenericSpilloverError::BadFloat.into())
                 }
+            } else {
+                Err(ParseGenericSpilloverError::WrongLength { total, expected }.into())
             }
         } else {
-            Err(ParseGenericSpilloverError::BadN)?
+            Err(ParseGenericSpilloverError::BadN.into())
         }
     }
 
@@ -162,9 +181,9 @@ impl<T> GenericSpillover<T> {
         F: Fn(&str) -> Result<T, EM>,
         T: Eq + Hash,
     {
-        let it = s.split(",");
+        let it = s.split(',');
         if trim_intra {
-            Self::from_iter(it.map(|x| x.trim()), parse_meas)
+            Self::from_iter(it.map(str::trim), parse_meas)
         } else {
             Self::from_iter(it, parse_meas)
         }
@@ -182,16 +201,15 @@ impl fmt::Display for Spillover {
     }
 }
 
-impl FromStrStateful for Spillover {
+impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
-    type Payload<'a> = (&'a HashSet<&'a Shortname>, &'a [&'a Shortname]);
+    type Payload<'a> = &'a [&'a Shortname];
 
-    fn from_str_st(
+    fn from_str_with(
         s: &str,
-        data: Self::Payload<'_>,
+        ordered_names: Self::Payload<'_>,
         conf: &StdTextReadConfig,
     ) -> Result<Self, Self::Err> {
-        let (names, ordered_names) = data;
         if conf.parse_indexed_spillover {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
             let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
@@ -201,8 +219,8 @@ impl FromStrStateful for Spillover {
             )?;
             Ok(m.try_into_named(ordered_names)?)
         } else {
-            let m = s.parse::<Spillover>()?;
-            m.check_link(names)?;
+            let m = s.parse::<Self>()?;
+            // m.check_link(names)?;
             Ok(m)
         }
     }
@@ -212,105 +230,53 @@ impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        {
-            GenericSpillover::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
-        }
+        Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
     }
 }
 
+/// Error when building a new $SPILLOVER value
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum NewSpilloverError {
+    #[error("Matrix is not square")]
     NonSquare,
+    #[error("Name length does not match matrix dimensions")]
     NameLen,
+    #[error("Names are not unique")]
     NonUnique,
+    #[error("Matrix is less than 2x2")]
     TooSmall,
 }
 
-#[derive(From, Display)]
+/// Error when parsing $SPILLOVER from string
+#[derive(From, Debug, Display, Error)]
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
-    IndexLink(SpilloverIndexError),
-    NamedLink(LinkedNameError),
+    IndexLink(KeyToIndexLinkError<Spillover>),
 }
 
+/// Error when parsing spillover matrix from string with generalized rownames
+#[derive(Debug, Error)]
 pub enum ParseGenericSpilloverError {
-    WrongLength { total: usize, expected: usize },
-    BadFloat,
-    BadN,
+    #[error("{0}")]
     New(NewSpilloverError),
+    #[error("Expected {expected} entries, found {total}")]
+    WrongLength { total: usize, expected: usize },
+    #[error("Float could not be parsed")]
+    BadFloat,
+    #[error("N could not be parsed")]
+    BadN,
 }
 
+/// Error when parsing a measurement index in $SPILLOVER
+///
+/// Note that this is non-standard behavior. $SPILLOVER should refer to $PnN,
+/// but many vendors refer to measurements using their indices instead.
+#[derive(Debug, Error)]
+#[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);
-
-pub struct SpilloverIndexError(NonEmpty<MeasIndex>);
-
-// pub struct SpilloverNamedError(NonEmpty<Shortname>);
-
-impl fmt::Display for SpilloverIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$SPILLOVER indices out of bounds: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-// impl fmt::Display for SpilloverNamedError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(
-//             f,
-//             "$SPILLOVER links to non-existent names: {}",
-//             self.0.iter().join(",")
-//         )
-//     }
-// }
-
-impl fmt::Display for MalformedIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "error when parsing index for $SPILLOVER: {}", self.0)
-    }
-}
-
-impl fmt::Display for ParseGenericSpilloverError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            Self::BadFloat => write!(f, "Float could not be parsed"),
-            Self::BadN => write!(f, "N could not be parsed"),
-            Self::New(e) => e.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for NewSpilloverError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            NewSpilloverError::NonSquare => "Matrix is not square",
-            NewSpilloverError::NonUnique => "Names are not unique",
-            NewSpilloverError::NameLen => "Name length does not match matrix dimensions",
-            NewSpilloverError::TooSmall => "Matrix is less than 2x2",
-        };
-        write!(f, "{}", s)
-    }
-}
-
-impl OptLinkedKey for Spillover {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.measurements.iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        // ASSUME mapping is such that new names will be unique
-        for n in self.measurements.iter_mut() {
-            if let Some(new) = mapping.get(n) {
-                *n = (*new).clone();
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -318,42 +284,40 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn test_str_compensation() {
+    fn str_compensation() {
         assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
         assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
         assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
     }
 
     #[test]
-    fn test_str_compensation_unique() {
+    fn str_compensation_unique() {
         assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_toosmall() {
+    fn str_compensation_toosmall() {
         assert!("1,potato,0".parse::<Spillover>().is_err());
     }
 
     #[test]
-    fn test_str_compensation_name_length() {
-        assert!("2,moody,padfoot,prongs,0,0,0,0"
-            .parse::<Spillover>()
-            .is_err());
+    fn str_compensation_name_length() {
+        assert!(
+            "2,moody,padfoot,prongs,0,0,0,0"
+                .parse::<Spillover>()
+                .is_err()
+        );
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::impl_value_err;
     use crate::validated::shortname::Shortname;
 
-    use super::{NewSpilloverError, Spillover};
+    use super::Spillover;
 
-    use numpy::{PyReadonlyArray2, ToPyArray};
+    use numpy::{PyReadonlyArray2, ToPyArray as _};
     use pyo3::{prelude::*, types::PyTuple};
-
-    // TODO is this ok?
-    impl_value_err!(NewSpilloverError);
 
     impl<'py> FromPyObject<'py> for Spillover {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

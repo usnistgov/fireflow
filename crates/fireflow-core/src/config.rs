@@ -10,23 +10,37 @@
 /// an error. This will work in most cases, with a few exceptions where the
 /// standard is unclear.
 use crate::header::Version;
-use crate::segment::*;
-use crate::text::byteord::ByteOrd2_0;
+use crate::segment::{
+    AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
+    SupplementalTextSegmentId, TEXTCorrection,
+};
 use crate::text::index::MeasIndex;
 use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys;
-use crate::validated::keys::IndexedKey;
+use crate::validated::keys::{
+    IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
+    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
+};
+use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr};
+use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
-use std::fmt;
 use std::fs::File;
+use std::io;
 use std::path::PathBuf;
+use std::str::FromStr;
+use thiserror::Error;
+
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
+    pyo3::prelude::*,
+};
 
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig(pub HeaderConfigInner);
@@ -35,6 +49,8 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     pub shared: SharedConfig,
@@ -43,6 +59,8 @@ pub struct ReadRawTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
@@ -60,6 +78,8 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadRawDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadLayoutConfig)]
@@ -89,6 +109,8 @@ pub struct NewCoreTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(TruncateOffsets)]
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub raw: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
@@ -138,18 +160,6 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     pub shared: SharedConfig,
 }
 
-/// Instructions for reading the DATA segment.
-#[derive(Default, Clone)]
-pub struct DataReadConfig {
-    /// Instructions to read and standardize TEXT.
-    pub standard: StdTextReadConfig,
-
-    // /// Shared configuration options
-    // pub shared: SharedConfig,
-    /// Configuration to make reader for DATA and ANALYSIS
-    pub reader: ReaderConfig,
-}
-
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
@@ -159,7 +169,7 @@ pub struct ReaderConfig {
     /// offsets are incorrect.
     ///
     /// Does not apply to delimited ASCII, which does not have a fixed width.
-    pub allow_uneven_event_width: bool,
+    pub allow_uneven_event_width: AllowUnevenEventWidth,
 
     /// If `true`, allow $TOT to not match number of events in DATA.
     ///
@@ -167,7 +177,7 @@ pub struct ReaderConfig {
     /// computed by dividing the bytes in DATA by the event width computed from
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If
     /// `false`, throw an error on mismatch, and warning otherwise.
-    pub allow_tot_mismatch: bool,
+    pub allow_tot_mismatch: AllowTotMismatch,
 }
 
 /// Configuration for writing an FCS file
@@ -200,7 +210,7 @@ pub struct WriteConfig {
     pub big_other: bool,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
 pub struct HeaderConfigInner {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -215,7 +225,7 @@ pub struct HeaderConfigInner {
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0. This will not affect the number of OTHER
-    /// segments that are read; this is controlled by ['max_other'].
+    /// segments that are read; this is controlled by [`max_other`].
     pub other_corrections: Vec<HeaderCorrection<OtherSegmentId>>,
 
     /// Maximum number of OTHER segments that can be parsed.
@@ -269,21 +279,25 @@ pub struct HeaderConfigInner {
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_offsets: bool,
+    #[as_ref(TruncateOffsets)]
+    pub truncate_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(HeaderConfigInner)]
+    #[as_ref(TruncateOffsets)]
     pub header: HeaderConfigInner,
 
     /// Override the version
     pub version_override: Option<Version>,
 
     /// Corrections for supplemental TEXT segment
+    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
     /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
@@ -295,13 +309,13 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_supp_text: bool,
+    pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
     /// If true, totally ignore STEXT and its offsets.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
-    pub ignore_supp_text: bool,
+    pub ignore_supp_text: IgnoreSuppTEXT,
 
     /// If true, treat every delimiter as literal.
     ///
@@ -318,23 +332,23 @@ pub struct ReadHeaderAndTEXTConfig {
     pub use_literal_delims: bool,
 
     /// If true, allow delimiter to be character outside 1-126.
-    pub allow_non_ascii_delim: bool,
+    pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
     /// If true, allow TEXT to not end with a delimiter.
-    pub allow_missing_final_delim: bool,
+    pub allow_missing_final_delim: AllowMissingFinalDelim,
 
     /// If true, allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
     /// this to true merely changes a duplicate key to emit a warning and not
     /// an error.
-    pub allow_nonunique: bool,
+    pub allow_nonunique: AllowNonunique,
 
     /// If true, allow TEXT to contain an odd number of words.
     ///
     /// Regardless, the final "dangling" word in the case of an odd number
     /// will be dropped as it has no obvious interpretation.
-    pub allow_odd: bool,
+    pub allow_odd: AllowOdd,
 
     /// If true, allow keys with blank values.
     ///
@@ -342,7 +356,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// cannot exist when delimiters are escaped. Blank values will be dropped
     /// regardless of this flag; setting it to false will trigger an error,
     /// otherwise a warning.
-    pub allow_empty: bool,
+    pub allow_empty: AllowEmpty,
 
     /// If true, allow delimiters at word boundaries.
     ///
@@ -354,7 +368,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Regardless of this value, delimiters at word boundaries will not be
     /// included due to their ambiguity. Setting this to true will emit an
     /// error rather than a warning if this is encountered.
-    pub allow_delim_at_boundary: bool,
+    pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
     /// If true, allow non-utf8 byte sequences in TEXT.
     ///
@@ -362,6 +376,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Setting this to true will emit an error rather than a warning in such
     /// cases.
     pub allow_non_utf8: bool,
+
+    /// If true, interpret all bytes in TEXT as Latin-1 instead of UTF-8
+    pub use_latin1: bool,
 
     /// If true, allow keys with non-ASCII characters.
     ///
@@ -375,10 +392,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If true, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
-    pub allow_missing_supp_text: bool,
+    pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
     /// If true, allow STEXT to use a different delimiter than TEXT.
-    pub allow_supp_text_own_delim: bool,
+    pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
     /// If true, allow $NEXTDATA to be missing.
     ///
@@ -405,7 +422,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped. Note
-    /// that these will result in errors if ['allow_empty'] is false.
+    /// that these will result in errors if [`allow_empty`] is false.
     pub trim_value_whitespace: bool,
 
     /// Remove standard keys from TEXT.
@@ -413,9 +430,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Comparisons will be case-insensitive. Members of this list should not
     /// try to match the leading "$" as this is implied.
     ///
-    /// This will be applied before ['rename_standard_keys'],
-    /// ['promote_to_standard'], and ['demote_from_standard'].
-    pub ignore_standard_keys: keys::KeyPatterns,
+    /// This will be applied before [`rename_standard_keys`],
+    /// [`promote_to_standard`], and [`demote_from_standard`].
+    pub ignore_standard_keys: KeyPatterns,
 
     /// Rename standard keys in TEXT.
     ///
@@ -423,16 +440,16 @@ pub struct ReadHeaderAndTEXTConfig {
     /// The leading "$" is implied so keys in this table should not include it.
     /// Comparisons are case-insensitive.
     ///
-    /// Keys are renamed before ['promote_to_standard'] and
-    /// ['demote_from_standard'] are applied.
-    pub rename_standard_keys: keys::KeyStringPairs,
+    /// Keys are renamed before [`promote_to_standard`] and
+    /// [`demote_from_standard`] are applied.
+    pub rename_standard_keys: KeyStringPairs,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
     ///
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: keys::KeyPatterns,
+    pub promote_to_standard: KeyPatterns,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -445,14 +462,14 @@ pub struct ReadHeaderAndTEXTConfig {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without
-    /// using ['allow_pseudostandard'], which is a crude sledgehammer.
-    pub demote_from_standard: keys::KeyPatterns,
+    /// using [`allow_pseudostandard`], which is a crude sledgehammer.
+    pub demote_from_standard: KeyPatterns,
 
     /// Replace values of standard keys.
     ///
     /// Keys will be matched in case-insensitive manner. The leading "$" is
     /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: keys::KeyStringValues,
+    pub replace_standard_key_values: KeyStringValues,
 
     /// Append standard key/value pairs to those read from TEXT.
     ///
@@ -464,15 +481,24 @@ pub struct ReadHeaderAndTEXTConfig {
     /// and existing value will not be overwritten in such cases. This will also
     /// trigger a deviant keyword warning/error if they do not belong in the
     /// indicated version.
-    pub append_standard_keywords: keys::KeyStringValues,
+    pub append_standard_keywords: KeyStringValues,
+
+    /// Apply substitution patterns to standard key values.
+    ///
+    /// This is like a substitution operation in sed or perl. Patterns matched
+    /// with a regexp will be replaced, possibly with captures.
+    pub substitute_standard_key_values: SubPatterns,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, AsRef)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, ignore DATA offsets in TEXT.
@@ -480,36 +506,42 @@ pub struct ReadTEXTOffsetsConfig {
     /// This may be useful if DATA offsets are different from those in HEADER,
     /// either inherently or after a correction. This obviously assumes the
     /// offsets in HEADER are correct.
-    pub ignore_text_data_offsets: bool,
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
     /// If true, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in
     /// HEADER, either inherently or after a correction. This obviously assumes
     /// the offsets in HEADER are correct.
-    pub ignore_text_analysis_offsets: bool,
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
 
     /// If true, throw error if offsets in HEADER and TEXT differ.
     ///
     /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
 
     /// If true, throw error if required TEXT offsets are missing.
     ///
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
+    #[as_ref(AllowMissingRequiredOffsets)]
+    pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
 
     /// If true, truncate TEXT offsets that exceed the end of the file.
     ///
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
     /// least allow these files to be read.
-    pub truncate_text_offsets: bool,
+    #[as_ref(TruncateOffsets)]
+    pub truncate_text_offsets: TruncateOffsets,
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct StdTextReadConfig {
     /// If `true`, remove whitespace between commas where applicable.
     ///
@@ -525,8 +557,8 @@ pub struct StdTextReadConfig {
     /// set to '0,0'.
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
-    /// If true, allow time to not be present even if we specify ['pattern'].
-    pub allow_missing_time: bool,
+    /// If true, allow time to not be present even if we specify [`pattern`].
+    pub allow_missing_time: AllowMissingTime,
 
     /// If ``true`` force, force scale to be linear for temporal measurement.
     pub force_time_linear: bool,
@@ -571,18 +603,18 @@ pub struct StdTextReadConfig {
     /// the version in the HEADER is wrong and that the file actually follows a
     /// different FCS standard (usually higher) in which these keywords are
     /// standard.
-    pub allow_pseudostandard: bool,
+    pub allow_pseudostandard: AllowPseudostandard,
 
     /// If true, allow unused standard keywords.
     ///
     /// These may arise if some $Pn* keywords are present which exceed $PAR or
     /// if $TIMESTEP is present but no time measurement is present.
-    pub allow_unused_standard: bool,
+    pub allow_unused_standard: AllowUnusedStandard,
 
     /// If true, throw an error if TEXT includes any deprecated features.
     ///
     /// If false, merely throw a warning.
-    pub disallow_deprecated: bool,
+    pub disallow_deprecated: DisallowDeprecated,
 
     /// If true, try to fix log-scale $PnE and $GnE keywords.
     ///
@@ -606,11 +638,20 @@ pub struct StdTextReadConfig {
     /// This will matching something like 'P7FOO' which would be 'FOO' for
     /// measurement 7. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<keys::NonStdMeasPattern>,
+    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
 }
 
 #[derive(Default, Clone)]
 pub struct ReadLayoutConfig {
+    /// If true, allow optional keys to be dropped on error with a warning.
+    pub allow_optional_dropping: AllowOptionalDropping,
+
+    /// If true, transfer dropped optional keys to nonstandard dict.
+    ///
+    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
+    /// optional keywords will produce a fatal error.
+    pub transfer_dropped_optional: TransferDroppedOptional,
+
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
     /// Some files set $PnB to match the bitmask. For example, a 16-bit column
@@ -619,7 +660,7 @@ pub struct ReadLayoutConfig {
     ///
     /// Setting this will force all $PnB to match $BYTEORD. Obviously this
     /// assumed $BYTEORD is correct. If not, override this using
-    /// ['integer_byteord_override']. All $PnB will still be read regardless of
+    /// [`integer_byteord_override`]. All $PnB will still be read regardless of
     /// this flag, so this will not fix badly-formatted values (ie $PnB that
     /// aren't numbers or are out of range). These will require manual
     /// intervention.
@@ -635,9 +676,9 @@ pub struct ReadLayoutConfig {
     /// $BYTEORD value, which will need a different intervention.
     ///
     /// Obviously this must match the actual layout of the numbers in DATA. If
-    /// $PnB is also incorrect, use ['integer_widths_from_byteord'] to override
+    /// $PnB is also incorrect, use [`integer_widths_from_byteord`] to override
     /// those values as well.
-    pub integer_byteord_override: Option<ByteOrd2_0>,
+    pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///
@@ -660,7 +701,7 @@ pub struct ReadLayoutConfig {
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
-    pub disallow_range_truncation: bool,
+    pub disallow_range_truncation: DisallowRangeTrunc,
 }
 
 /// Configuration options for both reading and writing
@@ -668,18 +709,98 @@ pub struct ReadLayoutConfig {
 pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+
+    /// If true, do not emit warnings.
+    pub hide_warnings: bool,
 }
+
+pub trait ConfigFlag {
+    fn is_set(&self) -> bool;
+}
+
+pub trait ErrorFlag: ConfigFlag {
+    const TRUE_IS_ERROR: bool;
+
+    fn is_error(&self) -> bool {
+        self.is_set() == Self::TRUE_IS_ERROR
+    }
+}
+
+macro_rules! impl_config_flag {
+    ($n:ident) => {
+        #[derive(From, Clone, Copy, Default)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        pub struct $n(pub bool);
+
+        impl ConfigFlag for $n {
+            fn is_set(&self) -> bool {
+                self.0
+            }
+        }
+    };
+}
+
+macro_rules! impl_error_flag {
+    (true_is_error $n:ident) => {
+        impl_error_flag!($n, true);
+    };
+
+    (false_is_error $n:ident) => {
+        impl_error_flag!($n, false);
+    };
+
+    ($n:ident, $true_is_error:expr) => {
+        impl_config_flag!($n);
+
+        impl ErrorFlag for $n {
+            const TRUE_IS_ERROR: bool = $true_is_error;
+        }
+    };
+}
+
+impl_config_flag!(TruncateOffsets);
+
+impl_error_flag!(true_is_error AllowUnevenEventWidth);
+impl_error_flag!(true_is_error AllowTotMismatch);
+
+impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
+impl_error_flag!(false_is_error IgnoreSuppTEXT);
+impl_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_error_flag!(false_is_error AllowNonunique);
+impl_error_flag!(false_is_error AllowOdd);
+impl_error_flag!(false_is_error AllowEmpty);
+impl_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+
+impl_config_flag!(IgnoreTEXTDataOffsets);
+impl_config_flag!(IgnoreTEXTAnalysisOffsets);
+impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
+impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
+
+impl_error_flag!(false_is_error AllowMissingTime);
+impl_error_flag!(false_is_error AllowPseudostandard);
+impl_error_flag!(false_is_error AllowUnusedStandard);
+impl_error_flag!(false_is_error AllowOptionalDropping);
+impl_config_flag!(TransferDroppedOptional);
+impl_error_flag!(true_is_error DisallowDeprecated);
+
+impl_error_flag!(true_is_error DisallowRangeTrunc);
+
+impl_error_flag!(false_is_error AllowLoss);
 
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
-#[derive(Clone, FromStr, Display)]
+#[derive(Clone, FromStr, Display, Debug)]
 pub struct TimeMeasNamePattern(pub Regex);
 
 /// Measurement keywords which are not allowed for temporal measurements.
 ///
 /// These can optionally be ignored via config.
 #[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TemporalOpticalKey {
     /// PnF
     Filter,
@@ -705,7 +826,7 @@ pub enum TemporalOpticalKey {
     Analyte,
 }
 
-impl std::str::FromStr for TemporalOpticalKey {
+impl FromStr for TemporalOpticalKey {
     type Err = ParseTemporalOpticalKeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -725,42 +846,44 @@ impl std::str::FromStr for TemporalOpticalKey {
     }
 }
 
-#[derive(Debug)]
+/// Error when creating a `TemporalOpticalKey` from string
+#[derive(Debug, Error)]
+#[error(
+    "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
+     'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
 
-impl fmt::Display for ParseTemporalOpticalKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(
-            "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
-             'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'",
-        )
-    }
-}
-
 impl TemporalOpticalKey {
-    pub(crate) fn std_key(&self, i: MeasIndex) -> keys::StdKey {
-        let j = i.into();
+    pub(crate) fn std_key(&self, i: MeasIndex) -> StdKey {
         match self {
-            Self::Filter => kws::Filter::std(j),
+            Self::Filter => kws::Filter::std(i),
             // ASSUME this is the same for all versions
-            Self::Wavelength => kws::Wavelength::std(j),
-            Self::Power => kws::Power::std(j),
-            Self::DetectorType => kws::DetectorType::std(j),
-            Self::DetectorVoltage => kws::DetectorVoltage::std(j),
-            Self::PercentEmitted => kws::PercentEmitted::std(j),
+            Self::Wavelength => kws::Wavelength::std(i),
+            Self::Power => kws::Power::std(i),
+            Self::DetectorType => kws::DetectorType::std(i),
+            Self::DetectorVoltage => kws::DetectorVoltage::std(i),
+            Self::PercentEmitted => kws::PercentEmitted::std(i),
             // ASSUME this is the same for all versions
-            Self::Calibration => kws::Calibration3_1::std(j),
-            Self::DetectorName => kws::DetectorName::std(j),
-            Self::Tag => kws::Tag::std(j),
-            Self::Feature => kws::Feature::std(j),
-            Self::Analyte => kws::Analyte::std(j),
+            Self::Calibration => kws::Calibration3_1::std(i),
+            Self::DetectorName => kws::DetectorName::std(i),
+            Self::Tag => kws::Tag::std(i),
+            Self::Feature => kws::Feature::std(i),
+            Self::Analyte => kws::Analyte::std(i),
         }
     }
 
-    pub(crate) fn remove_keys(xs: &HashSet<Self>, kws: &mut keys::StdKeywords, i: MeasIndex) {
-        for x in xs.iter() {
+    pub(crate) fn remove_keys(
+        xs: &HashSet<Self>,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+    ) {
+        for x in xs {
             let k = x.std_key(i);
-            let _ = kws.remove(&k);
+            nonstd.transfer_demoted(kws, k);
         }
     }
 }
@@ -772,48 +895,45 @@ impl Default for TimeMeasNamePattern {
 }
 
 /// State pertinent to reading a file
+#[derive(new)]
 pub struct ReadState<C> {
     pub(crate) file_len: u64,
     pub(crate) conf: C,
 }
 
 impl<C> ReadState<C> {
-    pub(crate) fn open(p: &PathBuf, conf: C) -> std::io::Result<(Self, File)> {
-        File::options()
-            .read(true)
-            .open(p)
-            .and_then(|file| Self::init(&file, conf).map(|st| (st, file)))
+    pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
+        let file = File::options().read(true).open(p)?;
+        Self::init(&file, conf).map(|st| (st, file))
     }
 
-    pub(crate) fn init(f: &File, conf: C) -> std::io::Result<Self> {
-        f.metadata().map(|m| Self {
-            file_len: m.len(),
-            conf,
-        })
+    pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
+        f.metadata().map(|m| Self::new(m.len(), conf))
+    }
+
+    pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
+    where
+        C: AsRef<X>,
+    {
+        ReadState::new(self.file_len, self.conf.as_ref())
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
+    use crate::python::PatternError;
+    use crate::segment::OffsetCorrection;
 
-    use super::{
-        OffsetCorrection, ParseTemporalOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
-    };
+    use super::TimeMeasNamePattern;
 
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
-
-    impl_from_py_via_fromstr!(TemporalOpticalKey);
-    impl_value_err!(ParseTemporalOpticalKeyError);
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             let n = s
-                .parse::<TimeMeasNamePattern>()
-                // this should be an error from regexp parsing
-                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                .parse::<Self>()
+                .map_err(|e| PatternError::new_err(e.to_string()))?;
             Ok(n)
         }
     }

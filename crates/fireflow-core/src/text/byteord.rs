@@ -1,49 +1,44 @@
 use crate::macros::match_many_to_one;
+use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
-use derive_more::{Display, From, FromStr, Into};
-use itertools::Itertools;
+use derive_more::{Display, From, Into};
+use derive_new::new;
+use itertools::Itertools as _;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::parser::ReqMetarootKey;
+#[cfg(feature = "python")]
+use fireflow_core_proc::DisplayAsPyErr;
 
-/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
-///
-/// This must be a list of integers belonging to the unordered set {1..N} where
-/// N is the total number of bytes. The numbers will be stored as one less the
-/// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum ByteOrd2_0 {
-    O1(SizedByteOrd<1>),
-    O2(SizedByteOrd<2>),
-    O3(SizedByteOrd<3>),
-    O4(SizedByteOrd<4>),
-    O5(SizedByteOrd<5>),
-    O6(SizedByteOrd<6>),
-    O7(SizedByteOrd<7>),
-    O8(SizedByteOrd<8>),
+use super::lookup::ReqMetarootKey;
+
+/// Byte order with known size in bytes
+#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
+pub enum SizedByteOrd<const LEN: usize> {
+    /// Either big or little endian
+    #[from]
+    Endian(Endian),
+
+    /// The byte order if mixed (not monotonically increasing/decreasing)
+    Order([u8; LEN]),
 }
 
-#[derive(Clone, Copy, From, Display, FromStr, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct ByteOrd3_1(pub Endian);
-
-/// Endianness
-///
-/// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// Endianness (big or little)
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
+    #[display("4,3,2,1")]
     Big,
     #[default]
+    #[display("1,2,3,4")]
     Little,
 }
 
@@ -58,29 +53,16 @@ pub type NoByteOrd2_0 = NoByteOrd<true>;
 
 pub type NoByteOrd3_1 = NoByteOrd<false>;
 
-/// The value for the $PnB key (all versions)
-///
-/// The $PnB key actually stores bits. However, this library only supports
-/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
-/// actually stores the number of bytes indicated by $PnB.
-///
-/// This may also be '*' which means "delimited ASCII" which is only valid when
-/// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
-#[from(Chars)]
-pub enum Width {
-    Fixed(BitsOrChars),
-    Variable,
-}
-
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[derive(Into, Debug, Display)]
+#[into(u8, NonZeroU8, PrivBitsOrChars)]
+pub struct Bytes(pub(crate) PrivBytes);
+
+/// Private version of `Bytes`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
 #[repr(u8)]
-pub enum Bytes {
+pub(crate) enum PrivBytes {
     B1 = 1,
     B2,
     B3,
@@ -95,21 +77,19 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Debug))]
+#[into(NonZeroU8, u8)]
+pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
+
+/// Internal version of `BitsOrChars`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
-pub struct BitsOrChars(NonZeroU8);
+pub(crate) struct PrivBitsOrChars(NonZeroU8);
 
-/// $BYTEORD (ordered) with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone, From)]
-pub enum SizedByteOrd<const LEN: usize> {
-    #[from]
-    Endian(Endian),
-    Order([u8; LEN]),
-}
-
+/// Relate types corresponding to keywords to those storing byte layout.
 pub(crate) trait HasByteOrd: Sized {
     type ByteOrd: From<Self> + ReqMetarootKey;
 }
@@ -144,24 +124,8 @@ macro_rules! byteord_from_sized {
                 if let ByteOrd2_0::$var(sized) = value {
                     Ok(sized)
                 } else {
-                    Err(ByteOrdToSizedError {
-                        bytes: value.nbytes(),
-                        length: $len,
-                    })
+                    Err(ByteOrdToSizedError::new(value.nbytes(), $len))
                 }
-            }
-        }
-
-        impl TryFrom<Vec<NonZeroU8>> for SizedByteOrd<$len> {
-            type Error = VecToSizedError;
-            fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
-                let xs: [NonZeroU8; $len] =
-                    value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
-                        vec_len: ys.len(),
-                        req_len: $len,
-                    })?;
-                let ret = xs.try_into()?;
-                Ok(ret)
             }
         }
 
@@ -205,7 +169,9 @@ macro_rules! byteord_from_sized {
             fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
-                        let mut o = std::array::from_fn(|i| i as u8);
+                        // ASSUME this will never fail because we will only
+                        // call this for ints 1-8
+                        let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
                         if e == Endian::Big {
                             o.reverse();
                         };
@@ -218,8 +184,8 @@ macro_rules! byteord_from_sized {
         }
 
         impl SizedByteOrd<$len> {
-            pub(crate) fn nbytes() -> Bytes {
-                Bytes::$bytes
+            pub(crate) fn nbytes() -> PrivBytes {
+                PrivBytes::$bytes
             }
         }
 
@@ -238,7 +204,7 @@ byteord_from_sized!(6, O6, B6);
 byteord_from_sized!(7, O7, B7);
 byteord_from_sized!(8, O8, B8);
 
-impl Bytes {
+impl PrivBytes {
     /// Return number of bytes needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // find position of most-significant non-zero byte
@@ -246,8 +212,8 @@ impl Bytes {
             .iter()
             .rposition(|i| *i > 0)
             .and_then(|i| u8::try_from(i + 1).ok())
-            .and_then(|i| Bytes::try_from(i).ok())
-            .unwrap_or(Bytes::B1)
+            .and_then(|i| Self::try_from(i).ok())
+            .unwrap_or(Self::B1)
     }
 }
 
@@ -266,6 +232,7 @@ impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     }
 }
 
+#[allow(clippy::many_single_char_names)]
 impl TryFrom<&[NonZeroU8]> for ByteOrd2_0 {
     type Error = NewByteOrdError;
     fn try_from(xs: &[NonZeroU8]) -> Result<Self, Self::Error> {
@@ -289,129 +256,77 @@ impl<const LEN: usize> Default for SizedByteOrd<LEN> {
     }
 }
 
-impl Default for ByteOrd2_0 {
-    fn default() -> Self {
-        Self::O4(SizedByteOrd::default())
-    }
-}
-
-impl From<NoByteOrd<true>> for ByteOrd2_0 {
-    fn from(_: NoByteOrd<true>) -> Self {
-        Self::default()
-    }
-}
-
-impl From<NoByteOrd<false>> for ByteOrd3_1 {
-    fn from(_: NoByteOrd<false>) -> Self {
-        Self::default()
-    }
-}
-
 impl SizedByteOrd<2> {
+    #[must_use]
     pub fn endian(&self) -> Endian {
         let [x, y] = (*self).into();
         (y > x).into()
     }
 }
 
-impl ByteOrd2_0 {
-    pub fn nbytes(&self) -> Bytes {
-        match self {
-            Self::O1(_) => SizedByteOrd::<1>::nbytes(),
-            Self::O2(_) => SizedByteOrd::<2>::nbytes(),
-            Self::O3(_) => SizedByteOrd::<3>::nbytes(),
-            Self::O4(_) => SizedByteOrd::<4>::nbytes(),
-            Self::O5(_) => SizedByteOrd::<5>::nbytes(),
-            Self::O6(_) => SizedByteOrd::<6>::nbytes(),
-            Self::O7(_) => SizedByteOrd::<7>::nbytes(),
-            Self::O8(_) => SizedByteOrd::<8>::nbytes(),
-        }
-    }
-
-    pub fn as_vec(&self) -> Vec<NonZeroU8> {
-        match self {
-            Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),
-            Self::O2(x) => <[NonZeroU8; 2]>::from(*x).to_vec(),
-            Self::O3(x) => <[NonZeroU8; 3]>::from(*x).to_vec(),
-            Self::O4(x) => <[NonZeroU8; 4]>::from(*x).to_vec(),
-            Self::O5(x) => <[NonZeroU8; 5]>::from(*x).to_vec(),
-            Self::O6(x) => <[NonZeroU8; 6]>::from(*x).to_vec(),
-            Self::O7(x) => <[NonZeroU8; 7]>::from(*x).to_vec(),
-            Self::O8(x) => <[NonZeroU8; 8]>::from(*x).to_vec(),
-        }
-    }
-}
-
 impl From<bool> for Endian {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Big
-        } else {
-            Self::Little
-        }
+        if value { Self::Big } else { Self::Little }
     }
 }
 
 impl TryFrom<Width> for Chars {
-    type Error = WidthToCharsError;
+    type Error = WidthToFixedError<CharsError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        let fixed = BitsOrChars::try_from(value)
-            .ok()
-            .ok_or(WidthToFixedError::Variable)?;
+        let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
     }
 }
 
-impl TryFrom<Width> for Bytes {
-    type Error = WidthToBytesError;
+impl TryFrom<Width> for PrivBytes {
+    type Error = WidthToFixedError<WidthToBytesError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        let fixed = BitsOrChars::try_from(value)
-            .ok()
-            .ok_or(WidthToFixedError::Variable)?;
+        let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
     }
 }
 
-impl TryFrom<Width> for BitsOrChars {
-    type Error = ();
+impl TryFrom<Width> for PrivBitsOrChars {
+    type Error = VariableWidthError;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x.0)
+        } else {
+            Err(VariableWidthError)
         }
     }
 }
 
-impl TryFrom<BitsOrChars> for Chars {
+impl TryFrom<PrivBitsOrChars> for Chars {
     type Error = CharsError;
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+    fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         NonZeroU8::from(value).try_into()
     }
 }
 
-impl TryFrom<BitsOrChars> for Bytes {
-    type Error = BytesError;
+impl TryFrom<PrivBitsOrChars> for PrivBytes {
+    type Error = WidthToBytesError;
     /// Return number of bytes represented by this.
     ///
     /// Return error if bits is not divisible by 8 and within [1,64].
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+    fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
-        if (x & 0b111) == 0 {
-            return (x >> 3).try_into().or(Err(BytesError(x)));
+        if x.trailing_zeros() >= 3 {
+            return (x >> 3).try_into().or(Err(WidthToBytesError(x)));
         }
-        Err(BytesError(x))
+        Err(WidthToBytesError(x))
     }
 }
 
-impl From<Bytes> for NonZeroU8 {
-    fn from(value: Bytes) -> NonZeroU8 {
+impl From<PrivBytes> for NonZeroU8 {
+    fn from(value: PrivBytes) -> Self {
         // ASSUME this will never fail
         Self::new(u8::from(value)).unwrap()
     }
 }
 
-impl From<Bytes> for BitsOrChars {
-    fn from(value: Bytes) -> BitsOrChars {
+impl From<PrivBytes> for PrivBitsOrChars {
+    fn from(value: PrivBytes) -> Self {
         // ASSUME this will never fail
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
@@ -419,9 +334,9 @@ impl From<Bytes> for BitsOrChars {
 
 impl From<Option<NonZeroU8>> for Width {
     fn from(value: Option<NonZeroU8>) -> Self {
-        value
-            .map(|x| Width::Fixed(BitsOrChars(x)))
-            .unwrap_or(Width::Variable)
+        value.map_or(Self::Variable, |x| {
+            Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))
+        })
     }
 }
 
@@ -429,7 +344,7 @@ impl From<Width> for Option<NonZeroU8> {
     fn from(value: Width) -> Self {
         match value {
             Width::Variable => None,
-            Width::Fixed(x) => Some(x.0),
+            Width::Fixed(x) => Some(x.0.0),
         }
     }
 }
@@ -437,9 +352,10 @@ impl From<Width> for Option<NonZeroU8> {
 impl TryFrom<Width> for NonZeroU8 {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x.0),
-            _ => Err(()),
+        if let Width::Fixed(x) = value {
+            Ok(x.0.0)
+        } else {
+            Err(())
         }
     }
 }
@@ -460,42 +376,16 @@ impl FromStr for Endian {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "1,2,3,4" => Ok(Endian::Little),
-            "4,3,2,1" => Ok(Endian::Big),
+            "1,2,3,4" => Ok(Self::Little),
+            "4,3,2,1" => Ok(Self::Big),
             _ => Err(NewEndianError),
-        }
-    }
-}
-
-impl fmt::Display for Endian {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Endian::Big => "4,3,2,1",
-            Endian::Little => "1,2,3,4",
-        };
-        write!(f, "{x}")
-    }
-}
-
-impl FromStr for ByteOrd2_0 {
-    type Err = ParseByteOrdError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (pass, fail): (Vec<_>, Vec<_>) = s
-            .split(",")
-            .map(|x| x.parse::<NonZeroU8>())
-            .partition_result();
-        if fail.is_empty() {
-            ByteOrd2_0::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
-        } else {
-            Err(ParseByteOrdError::Format)
         }
     }
 }
 
 impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
 where
-    [NonZeroU8; LEN]: From<SizedByteOrd<LEN>>,
+    [NonZeroU8; LEN]: From<Self>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
@@ -507,228 +397,75 @@ impl FromStr for Width {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "*" => Ok(Width::Variable),
-            _ => s.parse::<NonZeroU8>().map(|x| Width::Fixed(BitsOrChars(x))),
+            "*" => Ok(Self::Variable),
+            _ => s
+                .parse::<NonZeroU8>()
+                .map(|x| Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))),
         }
     }
 }
 
-impl fmt::Display for Width {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Width::Fixed(x) => write!(f, "{}", x.0),
-            Width::Variable => write!(f, "*"),
-        }
-    }
-}
-
-pub struct BitsError(u8);
-
-#[derive(Debug)]
-pub enum ParseByteOrdError {
-    Order(NewByteOrdError),
-    Format,
-}
-
-#[derive(Debug)]
-pub struct NewByteOrdError(usize);
-
-pub struct NewEndianError;
-
-pub struct BytesError(u8);
-
-pub struct EndianToByteOrdError;
-
-pub struct ByteOrdToEndianError(Vec<u8>);
-
-#[derive(From, Display)]
-pub enum ByteOrdToSizedEndianError {
-    Ordered(OrderedToEndianError),
-    ToSized(ByteOrdToSizedError),
-}
-
-pub struct OrderedToEndianError;
-
-impl fmt::Display for OrderedToEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("byte order is not monotonic")
-    }
-}
-
-pub struct ByteOrdToSizedError {
-    bytes: Bytes,
-    length: usize,
-}
-
-#[derive(From, Display)]
-pub enum VecToSizedError {
-    Vec(VecToArrayError),
-    New(NewByteOrdError),
-}
-
-pub struct VecToArrayError {
-    vec_len: usize,
-    req_len: usize,
-}
-
-pub type WidthToCharsError = WidthToFixedError<CharsError>;
-
-pub type WidthToBytesError = WidthToFixedError<BytesError>;
-
-pub enum WidthToFixedError<X> {
-    Variable,
-    Fixed(X),
-}
-
-impl fmt::Display for ParseByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Format => write!(f, "Could not parse numbers in byte order"),
-            Self::Order(x) => x.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for NewByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Byte order must include 1-{} uniquely", self.0)
-    }
-}
-
-impl fmt::Display for ByteOrdToEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Byte order must be in order (ascending or descending) to convert \
-             to endian, got {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-impl fmt::Display for EndianToByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
-        )
-    }
-}
-
-impl fmt::Display for Bytes {
+impl fmt::Display for PrivBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         u8::from(*self).fmt(f)
     }
 }
 
-impl fmt::Display for ByteOrdToSizedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$BYTEORD is {} bytes, expected {}",
-            self.bytes, self.length
-        )
-    }
+/// Error when making a new byte order of some size from a sequence of digits.
+#[derive(Debug, Error)]
+#[error("byte order must include 1-{0} uniquely")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+pub struct NewByteOrdError(usize);
+
+/// Error when parsing Endian from string
+#[derive(Debug, Error)]
+#[error("endian must be either 1,2,3,4 or 4,3,2,1")]
+pub struct NewEndianError;
+
+/// Error when converting $BYTEORD from 2.0/3.0 to 3.1/3.2
+#[derive(Debug, Error)]
+#[error("byte order is not monotonic")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+pub struct OrderedToEndianError;
+
+/// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
+#[derive(Debug, Error, new)]
+#[error("$BYTEORD is {bytes} bytes long, expected {length}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct ByteOrdToSizedError {
+    bytes: PrivBytes,
+    length: usize,
 }
 
-impl fmt::Display for BitsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "bits must be between 1 and 64, got {}", self.0)
-    }
+/// Error when converting $PnB to a fixed value.
+///
+/// This is a helper type meant to construct more specific errors, namely those
+/// for converting $PnB to bytes (numeric layouts) and chars (ASCII layouts).
+#[derive(Debug, From)]
+pub(crate) enum WidthToFixedError<X> {
+    #[from]
+    Variable(VariableWidthError),
+    Fixed(X),
 }
 
-impl fmt::Display for BytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "bits must be multiple of 8 and between 8 and 64 \
-             to be used as byte width, got {}",
-            self.0
-        )
-    }
-}
+/// Dummy type to indicate that $PnB is variable width ('*')
+#[derive(Debug)]
+pub(crate) struct VariableWidthError;
 
-impl fmt::Display for NewEndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
-    }
-}
-
-impl<E> fmt::Display for WidthToFixedError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Variable => write!(f, "width is variable were fixed is needed"),
-            Self::Fixed(e) => write!(f, "error when converting fixed bits: {e}"),
-        }
-    }
-}
-
-impl fmt::Display for VecToArrayError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert vector to array, was {} long, needed {}",
-            self.vec_len, self.req_len
-        )
-    }
-}
+/// Error when converting $PnB (in bits) to bytes.
+#[derive(Debug, Display)]
+#[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
+pub(crate) struct WidthToBytesError(u8);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::*;
 
     #[test]
-    fn test_str_to_byteord_valid() {
-        assert_from_to_str::<ByteOrd2_0>("1");
-        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
-        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
-        assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
-        assert_from_to_str::<ByteOrd2_0>("3,4,2,1");
-        assert_from_to_str::<ByteOrd2_0>("1,2,3,4,5,6,7,8");
-    }
-
-    #[test]
-    fn test_str_to_byteord_tolong() {
-        assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_byteord_bad_digits() {
-        assert!("0".parse::<ByteOrd2_0>().is_err());
-        assert!("2".parse::<ByteOrd2_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_byteord_skipped() {
-        assert!("1,3".parse::<ByteOrd2_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_byteord_repeat() {
-        assert!("1,1".parse::<ByteOrd2_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_byteord_garbage() {
-        assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
-        assert!("".parse::<ByteOrd2_0>().is_err());
-        assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_endian() {
-        assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
-        assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
-        assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
-        assert!("5,4,3,2,1".parse::<ByteOrd3_1>().is_err());
-    }
-
-    #[test]
-    fn test_str_to_width() {
+    fn str_to_width() {
         assert_eq!("*".parse::<Width>(), Ok(Width::Variable));
         assert!("1".parse::<Width>().is_ok(),);
         assert!("255".parse::<Width>().is_ok());
@@ -737,43 +474,95 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_width_as_bytes() {
-        assert!(Bytes::try_from("8".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("16".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("64".parse::<Width>().unwrap()).is_ok());
-        assert!(Bytes::try_from("7".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("63".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("65".parse::<Width>().unwrap()).is_err());
-        assert!(Bytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
+    fn str_to_width_as_bytes() {
+        assert!(PrivBytes::try_from("8".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("16".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("64".parse::<Width>().unwrap()).is_ok());
+        assert!(PrivBytes::try_from("7".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("63".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("65".parse::<Width>().unwrap()).is_err());
+        assert!(PrivBytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
     }
 
     #[test]
-    fn test_bytes_from_u64() {
-        assert_eq!(Bytes::B1, Bytes::from_u64(0));
-        assert_eq!(Bytes::B1, Bytes::from_u64(255));
-        assert_eq!(Bytes::B2, Bytes::from_u64(256));
-        assert_eq!(Bytes::B2, Bytes::from_u64(65535));
-        assert_eq!(Bytes::B3, Bytes::from_u64(65536));
-        assert_eq!(Bytes::B8, Bytes::from_u64(18446744073709551615));
+    fn bytes_from_u64() {
+        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0));
+        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0x00FF));
+        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0x0100));
+        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0xFFFF));
+        assert_eq!(PrivBytes::B3, PrivBytes::from_u64(0x0001_0000));
+        assert_eq!(PrivBytes::B8, PrivBytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd, VecToSizedError};
-    use crate::python::macros::impl_value_err;
+    use crate::python::InvalidKeywordValueError;
 
-    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString, IntoPyObjectExt};
+    use super::{Endian, NewByteOrdError, SizedByteOrd};
+
+    use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+
+    use derive_more::{Display, From};
+    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
     use std::convert::Infallible;
     use std::num::NonZeroU8;
+    use thiserror::Error;
 
+    #[derive(From, Display)]
+    #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+    pub enum VecToSizedError {
+        Vec(VecToArrayError),
+        New(NewByteOrdError),
+    }
+
+    #[derive(Debug, Error)]
+    #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+    pub struct VecToArrayError {
+        vec_len: usize,
+        req_len: usize,
+    }
+
+    macro_rules! impl_vec_to_sized {
+        ($len:expr) => {
+            impl TryFrom<Vec<NonZeroU8>> for SizedByteOrd<$len> {
+                type Error = VecToSizedError;
+                fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
+                    let xs: [NonZeroU8; $len] =
+                        value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+                            vec_len: ys.len(),
+                            req_len: $len,
+                        })?;
+                    let ret = xs.try_into()?;
+                    Ok(ret)
+                }
+            }
+        };
+    }
+
+    impl_vec_to_sized!(1);
+    impl_vec_to_sized!(2);
+    impl_vec_to_sized!(3);
+    impl_vec_to_sized!(4);
+    impl_vec_to_sized!(5);
+    impl_vec_to_sized!(6);
+    impl_vec_to_sized!(7);
+    impl_vec_to_sized!(8);
+
+    // on the python side, represent big and little endian with string literals
+    // "big" and "little" (to avoid using a boolean for which the direction
+    // of meaning is not obvious)
     impl<'py> FromPyObject<'py> for Endian {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs = ob.extract::<String>()?;
             match xs.as_str() {
                 "big" => Ok(Self::Big),
                 "little" => Ok(Self::Little),
-                _ => Err(PyValueError::new_err("must be \"big\" or \"little\"")),
+                _ => Err(InvalidKeywordValueError::new_err(
+                    "must be \"big\" or \"little\"",
+                )),
             }
         }
     }
@@ -792,29 +581,24 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<NonZeroU8> = ob.extract()?;
-            let ret = ByteOrd2_0::try_from(&xs[..])?;
-            Ok(ret)
-        }
-    }
-
+    // for mixed byte, order use literals "big" and "little" like above and also
+    // check for appropriate lists which represent mixed order
     impl<'py, const LEN: usize> FromPyObject<'py> for SizedByteOrd<LEN>
     where
-        SizedByteOrd<LEN>: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+        Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let err = || PyValueError::new_err("must be \"little\", \"big\", or a list");
+            let err =
+                || InvalidKeywordValueError::new_err("must be \"little\", \"big\", or a list");
             if let Ok(s) = ob.extract::<String>() {
                 match s.as_str() {
                     "little" => Ok(Endian::Little),
                     "big" => Ok(Endian::Big),
                     _ => Err(err()),
                 }
-                .map(SizedByteOrd::from)
+                .map(Self::from)
             } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
-                Ok(SizedByteOrd::<LEN>::try_from(xs)?)
+                Ok(Self::try_from(xs)?)
             } else {
                 Err(err())
             }
@@ -839,7 +623,4 @@ mod python {
             }
         }
     }
-
-    impl_value_err!(NewByteOrdError);
-    impl_value_err!(VecToSizedError);
 }

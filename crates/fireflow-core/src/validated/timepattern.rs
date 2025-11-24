@@ -1,11 +1,14 @@
-use chrono::{NaiveTime, ParseError, Timelike};
+use chrono::{NaiveTime, ParseError, Timelike as _};
 use derive_more::{AsRef, From};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
 /// A String that matches a time.
 ///
-/// To be used when parsing time using ['NaiveTime::parse_from_str'].
+/// To be used when parsing time using [`NaiveTime::parse_from_str`].
 ///
 /// This will contain all the formatting specificers native to chrono which
 /// encode for time (hours, minutes, seconds, less than seconds). Additionally,
@@ -15,6 +18,7 @@ use std::str::FromStr;
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (%f) and converted after parsing.
 #[derive(Clone, Debug, AsRef)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct TimePattern {
     #[as_ref(str)]
     pat: String,
@@ -64,7 +68,7 @@ impl FromStr for TimePattern {
         let has_spec = |spec: &'static str| {
             let n = s.match_indices(spec).count();
             if n > 1 {
-                Err(TimePatternError(s.to_string()))
+                Err(TimePatternError(s.into()))
             } else {
                 Ok(n == 1)
             }
@@ -88,13 +92,13 @@ impl FromStr for TimePattern {
         let nS = has_spec("%S")?;
         // fractions of second (native)
         let nf = has_spec("%f")?;
-        let n3f = has_spec("%3f")?;
-        let n6f = has_spec("%6f")?;
-        let n9f = has_spec("%9f")?;
+        let n_3_f = has_spec("%3f")?;
+        let n_6_f = has_spec("%6f")?;
+        let n_9_f = has_spec("%9f")?;
         let n_f = has_spec("%.f")?;
-        let n_3f = has_spec("%.3f")?;
-        let n_6f = has_spec("%.6f")?;
-        let n_9f = has_spec("%.9f")?;
+        let n_d_3_f = has_spec("%.3f")?;
+        let n_d_6_f = has_spec("%.6f")?;
+        let n_d_9_f = has_spec("%.9f")?;
         // fractions of second (non-native)
         let nsexa = has_spec("%!")?;
         let ncenti = has_spec("%@")?;
@@ -105,61 +109,53 @@ impl FromStr for TimePattern {
             (x_nH, x_nk, false, false, false, false) => x_nH != x_nk,
             // if 12 hour, include one number and am/pm spec and exclude 24 hour
             #[allow(non_snake_case)]
-            (false, false, x_nI, x_nl, x_nP, x_np) => (x_nI != x_nl) && (x_nP != x_np),
+            (false, false, x_nI, x_n_l, x_nP, x_n_p) => (x_nI != x_n_l) && (x_nP != x_n_p),
             _ => false,
         };
         // only zero or one fractional patterns allowed
-        let n_frac: u8 = [nf, n3f, n6f, n9f, n_f, n_3f, n_6f, n_9f, nsexa, ncenti]
-            .map(u8::from)
-            .iter()
-            .sum();
+        let n_frac: u8 = [
+            nf, n_3_f, n_6_f, n_9_f, n_f, n_d_3_f, n_d_6_f, n_d_9_f, nsexa, ncenti,
+        ]
+        .map(u8::from)
+        .iter()
+        .sum();
         if h && nM && nS && n_frac < 2 {
             let (pat, fraction) = if nsexa {
                 (s.replace("%!", "%f"), FractionType::Sexagesimal)
             } else if ncenti {
                 (s.replace("%@", "%f"), FractionType::Centisecond)
             } else {
-                (s.to_string(), FractionType::Native)
+                (s.into(), FractionType::Native)
             };
             Ok(Self { pat, fraction })
         } else {
-            Err(TimePatternError(s.to_string()))
+            Err(TimePatternError(s.into()))
         }
     }
 }
 
-#[derive(Debug)]
+/// Error when parsing time pattern for configuration
+#[derive(Debug, Error)]
+#[error(
+    "time pattern must contain specifier for hour (%H/%k for 24 hours \
+     or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
+     optionally sub-second (%f, %3f, %6f, %9f, %.f, %.3f, %.6f, %.9f, \
+     %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
+     corresponds to centiseconds; got {0}"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TimePatternError(String);
 
-impl fmt::Display for TimePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "time pattern must contain specifier for hour (%H/%k for 24 hours \
-             or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
-             optionally sub-second (%f, %3f, %6f, %9f, %.f, %.3f, %.6f, %.9f, \
-             %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
-             corresponds to centiseconds; got {}",
-            self.0
-        )
-    }
-}
-
-#[derive(From)]
+/// Error when parsing a string to a timestamp using time pattern
+#[derive(From, Debug, Error)]
 pub enum ParseWithTimePatternError {
+    #[error("{0}")]
     Native(ParseError),
+    #[error("centiseconds exceeded 99")]
     ExceededCenti,
+    #[error("1/60th fraction seconds exceeded 60")]
     ExceededSexa,
-}
-
-impl fmt::Display for ParseWithTimePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Native(e) => e.fmt(f),
-            Self::ExceededCenti => f.write_str("centiseconds exceeded 99"),
-            Self::ExceededSexa => f.write_str("1/60th fraction seconds exceeded 60"),
-        }
-    }
 }
 
 // TODO property tests would likely be useful here
@@ -168,19 +164,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_pattern() {
+    fn str_to_pattern() {
         assert!("%H:%M:%S".parse::<TimePattern>().is_ok());
         assert!("%H::::::::%M:::::::%S".parse::<TimePattern>().is_ok());
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());
         assert!("%H:%M".parse::<TimePattern>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{TimePattern, TimePatternError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
-
-    impl_from_py_via_fromstr!(TimePattern);
-    impl_value_err!(TimePatternError);
 }

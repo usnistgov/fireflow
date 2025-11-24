@@ -3,6 +3,7 @@ use crate::text::keywords::Range;
 use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::Into;
+use derive_new::new;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
@@ -11,22 +12,13 @@ use std::marker::PhantomData;
 use serde::Serialize;
 
 /// A big decimal which has been validated to be within the range of a float.
-#[derive(Clone, Into, PartialEq)]
+#[derive(Clone, Into, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct FloatDecimal<T> {
     #[into]
     value: BigDecimal,
     _t: PhantomData<T>,
-}
-
-impl<T> FloatDecimal<T> {
-    fn new(range: BigDecimal) -> Self {
-        Self {
-            value: range,
-            _t: PhantomData,
-        }
-    }
 }
 
 impl TryFrom<f32> for FloatDecimal<f32> {
@@ -56,7 +48,7 @@ impl<T: HasFloatBounds> TryFrom<BigDecimal> for FloatDecimal<T> {
 
     fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
         let over = match value.sign() {
-            Sign::NoSign => return Ok(FloatDecimal::new(value)),
+            Sign::NoSign => return Ok(Self::new(value)),
             Sign::Minus => false,
             Sign::Plus => true,
         };
@@ -86,27 +78,34 @@ pub trait HasFloatBounds: Sized {
     const DIGITS: u64;
     const ZEROS: u16;
 
+    #[must_use]
     fn max_decimal() -> FloatDecimal<Self> {
         let u = BigUint::from(Self::DIGITS);
         let s = -i64::from(Self::ZEROS);
         FloatDecimal::new(BigDecimal::from_biguint(u, s))
     }
 
+    #[must_use]
     fn min_decimal() -> FloatDecimal<Self> {
         FloatDecimal::new(-Self::max_decimal().value)
     }
 }
 
 impl HasFloatBounds for f32 {
-    const DIGITS: u64 = 34028235;
+    const DIGITS: u64 = 34_028_235;
     const ZEROS: u16 = 31;
 }
 
 impl HasFloatBounds for f64 {
-    const DIGITS: u64 = 17976931348623157;
+    const DIGITS: u64 = 17_976_931_348_623_157;
     const ZEROS: u16 = 292;
 }
 
+/// Error when converting BigDecimal to f32 or f64
+///
+/// The only reason this may fail is due to being over or under the max/min
+/// range of the target value.
+#[derive(Debug)]
 pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,
@@ -129,20 +128,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_float_dec_zero() {
+    fn str_to_float_dec_zero() {
         let d = "0".parse::<BigDecimal>().unwrap();
         assert!(FloatDecimal::<f32>::try_from(d.clone()).is_ok());
         assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
-    fn test_str_to_f32_submax() {
+    fn str_to_f32_submax() {
         let d = "34028236".parse::<BigDecimal>().unwrap();
         assert!(FloatDecimal::<f32>::try_from(d).is_ok());
     }
 
     #[test]
-    fn test_str_to_f32_max() {
+    fn str_to_f32_max() {
         let d = "340282350000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
@@ -150,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f32_min() {
+    fn str_to_f32_min() {
         let d = "-340282350000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
@@ -158,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f32_hypermax() {
+    fn str_to_f32_hypermax() {
         let d = "340282350000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
@@ -166,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f32_hypermin() {
+    fn str_to_f32_hypermin() {
         let d = "-340282350000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
@@ -174,13 +173,13 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f64_submax() {
+    fn str_to_f64_submax() {
         let d = "17976931348623158".parse::<BigDecimal>().unwrap();
         assert!(FloatDecimal::<f64>::try_from(d).is_ok());
     }
 
     #[test]
-    fn test_str_to_f64_max() {
+    fn str_to_f64_max() {
         let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
@@ -188,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f64_min() {
+    fn str_to_f64_min() {
         let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             .parse::<BigDecimal>()
             .unwrap();
@@ -196,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f64_hypermax() {
+    fn str_to_f64_hypermax() {
         let d = "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();
@@ -204,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_str_to_f64_hypermin() {
+    fn str_to_f64_hypermin() {
         let d = "-179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"
             .parse::<BigDecimal>()
             .unwrap();

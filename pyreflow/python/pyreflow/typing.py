@@ -89,6 +89,8 @@ TemporalOpticalKey = Literal[
     "ANALYTE",
 ]
 
+TemporalType: TypeAlias = Literal["Time"]
+
 AnyCoreTEXT: TypeAlias = (
     pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
 )
@@ -126,3 +128,7 @@ AppliedGates3_2: TypeAlias = tuple[
 ]
 
 KeyPatterns: TypeAlias = tuple[list[str], list[str]]
+
+SubPattern: TypeAlias = tuple[str, str, bool]
+
+SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]

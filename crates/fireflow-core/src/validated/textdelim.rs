@@ -1,13 +1,17 @@
 use derive_more::Into;
-use std::fmt;
+use thiserror::Error;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
 /// The delimiter used when writing TEXT
 #[derive(Clone, Copy, Into)]
+#[cfg_attr(feature = "python", derive(TryFromPyObject))]
 pub struct TEXTDelim(u8);
 
 impl Default for TEXTDelim {
-    fn default() -> TEXTDelim {
-        TEXTDelim(30) // record separator
+    fn default() -> Self {
+        Self(30) // record separator
     }
 }
 
@@ -22,30 +26,19 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
+/// Error when creating TEXT delimiter
+#[derive(Debug, Error)]
+#[error("delimiter should be char b/t 1 and 126, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TEXTDelimError(u8);
-
-impl fmt::Display for TEXTDelimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "delimiter should be char b/t 1 and 126, got {}", self.0)
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::python::macros::{impl_try_from_py, impl_value_err};
-
-    use super::{TEXTDelim, TEXTDelimError};
-
-    impl_value_err!(TEXTDelimError);
-    impl_try_from_py!(TEXTDelim, u8);
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_u8_to_delim() {
+    fn u8_to_delim() {
         assert!(TEXTDelim::try_from(1_u8).is_ok());
         assert!(TEXTDelim::try_from(126_u8).is_ok());
         assert!(TEXTDelim::try_from(0_u8).is_err());

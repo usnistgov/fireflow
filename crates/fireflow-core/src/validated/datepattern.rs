@@ -1,12 +1,16 @@
 use derive_more::{AsRef, Display};
-use std::fmt;
 use std::str::FromStr;
+use thiserror::Error;
+
+#[cfg(feature = "python")]
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
 /// A String that matches a date.
 ///
-/// To be used when parsing date using ['NaiveDate::parse_from_str'].
+/// To be used when parsing date using [`NaiveDate::parse_from_str`].
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct DatePattern(String);
 
 impl FromStr for DatePattern {
@@ -27,26 +31,22 @@ impl FromStr for DatePattern {
         let m = matches!((nm, nb, nB), (1, 0, 0) | (0, 1, 0) | (0, 0, 1));
         let d = matches!((nd, ne), (1, 0) | (0, 1));
         if y && m && d {
-            Ok(DatePattern(s.to_string()))
+            Ok(Self(s.into()))
         } else {
-            Err(DatePatternError(s.to_string()))
+            Err(DatePatternError(s.into()))
         }
     }
 }
 
-#[derive(Debug)]
+/// Error when paring date pattern for configuration
+#[derive(Debug, Error)]
+#[error(
+    "date pattern must contain specifier for year (%y or %Y), \
+     month (%m, %b, or %B), and day (%d or %e), got {0}"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct DatePatternError(String);
-
-impl fmt::Display for DatePatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "date pattern must contain specifier for year (%y or %Y), \
-                     month (%m, %b, or %B), and day (%d or %e), got {}",
-            self.0
-        )
-    }
-}
 
 // TODO property tests would likely be useful here
 #[cfg(test)]
@@ -54,19 +54,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_str_to_pattern() {
+    fn str_to_pattern() {
         assert!("%y%m%d".parse::<DatePattern>().is_ok());
         assert!("%yrandom%mmorerandom%d".parse::<DatePattern>().is_ok(),);
         assert!("%y%y%m%d".parse::<DatePattern>().is_err());
         assert!("%m%d".parse::<DatePattern>().is_err());
     }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{DatePattern, DatePatternError};
-    use crate::python::macros::{impl_from_py_via_fromstr, impl_value_err};
-
-    impl_from_py_via_fromstr!(DatePattern);
-    impl_value_err!(DatePatternError);
 }

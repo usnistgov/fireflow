@@ -1158,18 +1158,8 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let overflow_desc = if version == Version::FCS2_0 {
-        "If *TEXT*, *DATA*, or *ANALYSIS* offsets \
-         are greater than 99,999,999"
-    } else {
-        "If *TEXT* offsets are greater than 99,999,999 bytes"
-    };
-
-    let exc0 = PyException::new_overflow().desc(overflow_desc);
-    let exc1 = PyException::new_overflow().desc(
-        "If any *OTHER* offsets are greater than \
-         99,999,999 and ``big_other`` is ``False``",
-    );
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
 
     let doc = DocString::new_method("Write data to path.")
         .para("Resulting FCS file will include *HEADER* and *TEXT*.")
@@ -1199,15 +1189,15 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let write_2_0_warning = (version == Version::FCS2_0)
-        .then_some("Will raise exception if file cannot fit within 99,999,999 bytes.");
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
+    let exc2 = PyException::new_data_loss();
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
             "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
              *ANALYSIS*, and *OTHER* as they present from this class.",
         )
-        .paras(write_2_0_warning)
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
@@ -1220,7 +1210,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
              written. Skipping this is faster since the data needs to be \
              traversed twice to perform the conversion check, but may \
              result in loss of precision and/or truncation.",
-        ));
+        ))
+        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1, exc2]));
 
     let fun_args = doc.fun_args();
 
@@ -2315,10 +2306,13 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
          truncation is performed.",
     );
 
+    let exc = PyException::new_data_loss();
+
     let doc =
         DocString::new_method("Coerce all values in DATA to fit within types specified in layout.")
             .para("This will always create a new copy of DATA in-place.")
-            .arg(p);
+            .arg(p)
+            .returns(DocReturn::new(PyTuple::default()).exc([exc]));
 
     let fun_arg = doc.fun_args();
     let inner_arg = doc.idents();
@@ -4693,6 +4687,30 @@ impl PyException {
 
     fn new_overflow() -> Self {
         Self::new("OverflowError")
+    }
+
+    fn new_segment_overflow(version: Version) -> Self {
+        let overflow_desc = if version == Version::FCS2_0 {
+            "If *TEXT*, *DATA*, or *ANALYSIS* offsets \
+             are greater than 99,999,999"
+        } else {
+            "If *TEXT* offsets are greater than 99,999,999 bytes"
+        };
+        Self::new_overflow().desc(overflow_desc)
+    }
+
+    fn new_other_overflow() -> Self {
+        Self::new_overflow().desc(
+            "If any *OTHER* offsets are greater than \
+             99,999,999 and ``big_other`` is ``False``",
+        )
+    }
+
+    fn new_data_loss() -> Self {
+        Self::new_pyreflow(&PyreflowError::DataLoss).desc(
+            "If any values in *DATA* segment need to be truncated to \
+             fit layout and ``skip_conversion_check`` is ``False``",
+        )
     }
 
     fn new_pyreflow(p: &PyreflowError) -> Self {

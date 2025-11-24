@@ -9,3 +9,4 @@ API Reference
    measurement
    gating
    layout
+   exceptions

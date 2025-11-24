@@ -813,9 +813,7 @@ pub enum NonStdKeyError {
 /// Error when parsing key as ASCII-only string
 #[derive(PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// NOTE this python exception is overridden for standard key lookups above,
-// this error is also used for constructing keys in the configuration struct
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),

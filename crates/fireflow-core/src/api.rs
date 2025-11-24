@@ -596,7 +596,7 @@ pub struct DelimMismatch {
 #[derive(Debug, Clone, Error)]
 #[error("non-ASCII key encountered and dropped: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiKeyError(String);
 
 /// Error when key or value with invalid UTF-8 characters is encountered

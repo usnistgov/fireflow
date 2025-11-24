@@ -4236,7 +4236,7 @@ pub enum NewMixedTypeWarning {
     Float(IndexedFloatRangeError),
 }
 
-/// Error when parsing $PnR to be used in a float layout.
+/// Error when converting $PnR to float to be used in a float layout.
 #[derive(From, Debug, Error)]
 #[error(
     "could not use {k} in float layout because {e}",
@@ -4244,7 +4244,7 @@ pub enum NewMixedTypeWarning {
     e = _0.error
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
 
 /// Error when using $PnB or $PnR to make a new integer bitmask
@@ -4258,7 +4258,7 @@ pub enum NewUintTypeError {
 /// Error when converting $PnB (in bits) to bytes
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<WidthToBytesError>>);
 
 impl fmt::Display for IndexedWidthToBytesError {
@@ -4356,7 +4356,7 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
     e = _0.error,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
 /// Inner error for IndexedRangeToAsciiError without the index
@@ -4714,7 +4714,7 @@ pub struct MixedToNonMixedError {
 /// Error when attempting to insert a new range into a layout.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub enum InsertRangeError {
     #[error("could not insert range into ASCII layout because {0}")]
     #[from(RangeToAsciiError)]

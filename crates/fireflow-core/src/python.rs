@@ -1,93 +1,168 @@
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 
+// Each of these docstrings needs to conform to PEP8 (72 chars or less) and
+// follow sphinx formatting. They also refer to stuff in the .rst docs
+// themselves on the python side. This isn't very elegant and there is hopefully
+// a better way to do this. At least there aren't that many exceptions (for now)
+
 create_exception!(
     _pyreflow,
     PyreflowError,
     PyException,
-    "Exception created by internal pyreflow."
+    "Base class for all exceptions raised by `pyreflow`."
 );
 
 create_exception!(
     _pyreflow,
     FileLayoutError,
     PyreflowError,
-    "Exception caused by a malformed FCS file"
+    "Raised if FCS file was malformed.\n\
+     \n\
+     This includes:\n\
+     \n\
+     * invalid FCS version\n\
+     * unparsable offsets in *HEADER*\n\
+     * unparsable TEXT segment (primary and/or secondary)\n\
+     * overlapping segment coordinates\n\
+     * mismatches between indicated event number and actual size of *DATA*"
 );
 
 create_exception!(
     _pyreflow,
     ParseKeyError,
     PyreflowError,
-    "Exception caused by parsing a standard or nonstandard key from string"
+    "Raised if key from *TEXT* could not be parsed from bytestring.\n\
+     \n\
+     This includes:\n\
+     \n\
+     * Standard keys not starting with a `\"$\"`\n\
+     * Non-standard keys starting with a `\"$\"`\n\
+     * blank keys\n\
+     * keys already present\n\
+     * keys with non-ASCII or non-UTF-8 characters"
 );
 
 create_exception!(
     _pyreflow,
     ParseKeywordValueError,
     PyreflowError,
-    "Exception caused by parsing a keyword from a string to its native type"
+    "Raised if keyword value could not be parsed from a string.\n\
+     \n\
+     The source string is that which is literally encoded in *TEXT*. The\n\
+     final type for the conversion will depend on the keyword and is dictated\n\
+     by its type in the standardized data structure (see :ref:`coretext` and\n\
+     :ref:`coredataset`). For instance, *$ABRT* is an unsigned integer and\n\
+     will raise this exception if string value for this keyword contains\n\
+     invalid digits or if the resulting number is out of range.\n\
+     \n\
+     This exception will generally only be raised in standard mode, but may\n\
+     also be raised in raw mode when the *DATA* segment needs to be read\n\
+     (this requires parsing *$PnB*, *$PnR*, etc)."
 );
 
 create_exception!(
     _pyreflow,
     InvalidKeywordValueError,
     PyreflowError,
-    "Exception caused by an individual, invalid keyword assignment"
+    "Raised if a standardized keyword value is incorrectly specified.\n\
+     \n\
+     The difference between :py:class:`~pyreflow.ParseKeywordValueError` and\n\
+     this error is that the former applies to string conversion, and this\n\
+     applies to an invalid value within the keyword value's native type.\n\
+     \n\
+     This is mostly used when using class constructors to build the classes\n\
+     from :ref:`coretext` and :ref:`coredataset` from scratch without reading\n\
+     an FCS file.\n\
+     \n\
+     Furthermore, this is only needed for complicated keyword values whose\n\
+     failure mode cannot be described by a build-in Python exception. For\n\
+     instance, *$SPILLOVER* is a numpy matrix that must follow certain rules.\n\
+     Violations of these rules will trigger this error."
 );
 
 create_exception!(
     _pyreflow,
     ExtraKeywordError,
     PyreflowError,
-    "Exception caused when extra standard keywords are found and not used"
+    "Raised when extra standard keywords are left unused in standard mode."
 );
 
 create_exception!(
     _pyreflow,
     FCSDeprecatedError,
     PyreflowError,
-    "Exception for FCS features/keywords which are deprecated"
+    "Raised when a deprecated FCS feature is encountered."
 );
 
 create_exception!(
     _pyreflow,
     ConversionError,
     PyreflowError,
-    "Exception caused by converting FCS data between versions"
+    "Raised upon failure when converting between FCS versions.\n\
+     \n\
+     This covers two broad classes of failures:\n\
+     \n\
+     1. data is required in target version but not specified in source version\n\
+     2. data in source version is incompatible with target version\n\
+     \n\
+     For (1), this generally happens if a keyword in the source version is\n\
+     optional and missing and required in the target version (*$PnN* for\n\
+     example when going from FCS 3.0 to FCS 3.1).\n\
+     \n\
+     For (2), this may/may not trigger this exception depending on user\n\
+     configuration. In the non-fatal case, incompatible keys will be dropped\n\
+     with a warning. In the fatal case, this exception will be raised since\n\
+     dropping keywords is a destructive operation."
 );
 
 create_exception!(
     _pyreflow,
     RelationalError,
     PyreflowError,
-    "Exception caused by an FCS keyword that incorrectly references another"
+    "Raised when a keyword's value is incorrect given its context.\n\
+     \n\
+     This can be triggered by the following (and more):\n\
+     \n\
+     1. keywords which reference other data which does not exist\n\
+     2. attempting to remove a keyword on which data depends\n\
+     3. mismatches between *$PnB*, *$PnR*, *$DATATYPE*, and *$PnDATATYPE*\n\
+     4. specifying a temporal value to an optical measurement (and vice versa)\n\
+     5. mismatched length between measurements, dataframe, and/or layout"
 );
 
 create_exception!(
     _pyreflow,
     EventDataError,
     PyreflowError,
-    "Exception caused by invalid values in DATA segment"
+    "Raised when values in *DATA* segment are invalid."
 );
 
 create_exception!(
     _pyreflow,
     DataLossError,
     PyreflowError,
-    "Exception caused by loss of precision for values in DATA segment"
+    "Raised when values in *DATA* segment must be truncated.\n\
+     \n\
+     This can occur because the dataframe used to represent *DATA* is \n\
+     allowed to contain arbitrary data types, but these must be coerced to\n\
+     a given *DATA* layout when written to an FCS file. This coercion may\n\
+     result in data loss, which is indicated by this error."
 );
 
 create_exception!(
     _pyreflow,
     ConfigError,
     PyreflowError,
-    "Exception caused by invalid values for configuration"
+    "Raised when a configuration value is invalid.\n\
+     \n\
+     This is used for values whose failure mode cannot be captured using a\n\
+     built-in Python exception or another exception in `pyreflow`."
 );
 
 create_exception!(
     _pyreflow,
     PyreflowWarning,
     PyWarning,
-    "Warning created by internal pyreflow."
+    "Generic warning created by `pyreflow`."
 );

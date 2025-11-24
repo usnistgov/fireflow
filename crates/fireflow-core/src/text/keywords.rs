@@ -3020,13 +3020,23 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        Calibration3_1, Calibration3_2, Display, IndexPair, Scale, Trigger, UniGate, Unicode,
-        Vertex,
+        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, Scale, Trigger, UniGate,
+        Unicode, Vertex,
     };
 
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+    use std::num::NonZeroU8;
+
+    // $BYTEORD is a list of integers
+    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<NonZeroU8> = ob.extract()?;
+            let ret = Self::try_from(&xs[..])?;
+            Ok(ret)
+        }
+    }
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
     impl<'py> FromPyObject<'py> for Scale {

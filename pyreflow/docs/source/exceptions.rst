@@ -4,38 +4,41 @@ Exceptions
 These are unique exeption classes raised within `pyreflow`.
 
 
-.. autoclass:: pyreflow.PyreflowError
+.. autoexception:: pyreflow.PyreflowError
    :members:
 
-.. autoclass:: pyreflow.FileLayoutError
+.. autoexception:: pyreflow.FileLayoutError
    :members:
 
-.. autoclass:: pyreflow.ParseKeyError
+.. autoexception:: pyreflow.ParseKeyError
    :members:
 
-.. autoclass:: pyreflow.ParseKeywordValueError
+.. autoexception:: pyreflow.ParseKeywordValueError
    :members:
 
-.. autoclass:: pyreflow.InvalidKeywordValueError
+.. autoexception:: pyreflow.InvalidKeywordValueError
    :members:
 
-.. autoclass:: pyreflow.ExtraKeywordError
+.. autoexception:: pyreflow.ExtraKeywordError
    :members:
 
-.. autoclass:: pyreflow.FCSDeprecatedError
+.. autoexception:: pyreflow.FCSDeprecatedError
    :members:
 
-.. autoclass:: pyreflow.ConversionError
+.. autoexception:: pyreflow.ConversionError
    :members:
 
-.. autoclass:: pyreflow.RelationalError
+.. autoexception:: pyreflow.RelationalError
    :members:
 
-.. autoclass:: pyreflow.EventDataError
+.. autoexception:: pyreflow.EventDataError
    :members:
 
-.. autoclass:: pyreflow.DataLossError
+.. autoexception:: pyreflow.DataLossError
    :members:
 
-.. autoclass:: pyreflow.PyreflowWarning
+.. autoexception:: pyreflow.ConfigError
+   :members:
+
+.. autoexception:: pyreflow.PyreflowWarning
    :members:

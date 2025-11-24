@@ -831,9 +831,7 @@ pub enum KeyOrStringPatternsError {
 
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// TODO technically this is a pattern error if we want to stick with python's
-// error conventions for regexp
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
 pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into (non)standard hash table
@@ -889,7 +887,7 @@ pub struct NonStdMeasPatternError(String);
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]

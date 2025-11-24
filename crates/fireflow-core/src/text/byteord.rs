@@ -497,7 +497,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ByteOrd2_0, Endian, NewByteOrdError, SizedByteOrd};
+    use super::{Endian, NewByteOrdError, SizedByteOrd};
 
     use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
@@ -571,14 +571,6 @@ mod python {
                 Self::Little => "little",
             }
             .into_pyobject(py)
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<NonZeroU8> = ob.extract()?;
-            let ret = Self::try_from(&xs[..])?;
-            Ok(ret)
         }
     }
 

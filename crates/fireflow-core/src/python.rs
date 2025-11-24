@@ -1,5 +1,5 @@
-use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
+use pyo3::{create_exception, import_exception};
 
 // Each of these docstrings needs to conform to PEP8 (72 chars or less) and
 // follow sphinx formatting. They also refer to stuff in the .rst docs
@@ -10,7 +10,7 @@ create_exception!(
     _pyreflow,
     PyreflowError,
     PyException,
-    "Base class for all exceptions raised by `pyreflow`."
+    "Base class for all exceptions raised by ``pyreflow``."
 );
 
 create_exception!(
@@ -36,8 +36,8 @@ create_exception!(
      \n\
      This includes:\n\
      \n\
-     * Standard keys not starting with a `\"$\"`\n\
-     * Non-standard keys starting with a `\"$\"`\n\
+     * Standard keys not starting with a ``\"$\"``\n\
+     * Non-standard keys starting with a ``\"$\"``\n\
      * blank keys\n\
      * keys already present\n\
      * keys with non-ASCII or non-UTF-8 characters"
@@ -67,7 +67,7 @@ create_exception!(
     PyreflowError,
     "Raised if a standardized keyword value is incorrectly specified.\n\
      \n\
-     The difference between :py:class:`~pyreflow.ParseKeywordValueError` and\n\
+     The difference between :py:exc:`~pyreflow.ParseKeywordValueError` and\n\
      this error is that the former applies to string conversion, and this\n\
      applies to an invalid value within the keyword value's native type.\n\
      \n\
@@ -157,12 +157,15 @@ create_exception!(
     "Raised when a configuration value is invalid.\n\
      \n\
      This is used for values whose failure mode cannot be captured using a\n\
-     built-in Python exception or another exception in `pyreflow`."
+     built-in Python exception or another exception in ``pyreflow``."
 );
 
 create_exception!(
     _pyreflow,
     PyreflowWarning,
     PyWarning,
-    "Generic warning created by `pyreflow`."
+    "Generic warning created by ``pyreflow``."
 );
+
+// imported exceptions
+import_exception!(re, PatternError);

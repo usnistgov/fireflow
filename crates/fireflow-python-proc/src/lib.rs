@@ -30,7 +30,8 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc = PyException::new_pyreflow(&PyreflowError::FileLayout)
+        .desc("if *HEADER* segment is unparsable");
 
     let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
         .args(once(DocArg::new_path_param(true)).chain(args))
@@ -62,14 +63,17 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+        .desc("If *HEADER* or *TEXT* are not parsable");
+
+    let exc1 = PyException::new_non_ascii();
 
     let doc = DocString::new_fun("Read *HEADER* and *TEXT* as key/value pairs from FCS file.")
         .arg(path_arg)
         .args(header_args)
         .args(raw_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc]));
+        .returns(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc0, exc1]));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -103,7 +107,16 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+        .desc("If *HEADER* or *TEXT* are unparsable");
+    let exc1 = PyException::new_non_ascii();
+    let exc2 = PyException::new_extra();
+    let exc3 = PyException::new_deprecated();
+    let exc4 = PyException::new_parse_keyval();
+    let exc5 = PyException::new_pyreflow(&PyreflowError::Relational)
+        .desc("If keywords that are referenced by other keywords are missing");
+
+    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
     let doc = DocString::new_fun("Read *HEADER* and standardized *TEXT* from FCS file.")
         .arg(path_arg)
@@ -118,7 +131,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
                 PyTuple::new1(PyUnion::new_anycoretext())
                     .add(PyClass::new_py(["api"], "StdTEXTOutput")),
             )
-            .exc([exc]),
+            .exc(xs),
         );
 
     let fun_args = doc.fun_args();
@@ -157,7 +170,19 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+        .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
+    let exc1 = PyException::new_non_ascii();
+    // the only deprecated keyval that should be read here is $DATATYPE when its
+    // value is A for 3.1+
+    let exc2 = PyException::new_deprecated()
+        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
+    let exc3 = PyException::new_parse_keyval();
+    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational)
+        .desc("If keywords are incompatible with indicated layout of *DATA*");
+    let exc5 = PyException::new_event_data();
+
+    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
     let doc = DocString::new_fun("Read raw dataset from FCS file.")
         .arg(path_arg)
@@ -167,7 +192,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc([exc]));
+        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -205,7 +230,19 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+        .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
+    let exc1 = PyException::new_non_ascii();
+    let exc2 = PyException::new_deprecated();
+    let exc3 = PyException::new_parse_keyval();
+    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+        "If keywords are incompatible with indicated layout of *DATA* or \
+         if keywords that are referenced by other keywords do not exist",
+    );
+    let exc5 = PyException::new_event_data();
+    let exc6 = PyException::new_extra();
+
+    let xs = [exc0, exc1, exc2, exc3, exc4, exc5, exc6];
 
     let doc = DocString::new_fun("Read standardized dataset from FCS file.")
         .arg(path_arg)
@@ -221,7 +258,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
                 PyTuple::new1(PyUnion::new_anycoredataset())
                     .add(PyClass::new_py(["api"], "StdDatasetOutput")),
             )
-            .exc([exc]),
+            .exc(xs),
         );
 
     let fun_args = doc.fun_args();
@@ -265,7 +302,18 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 =
+        PyException::new_pyreflow(&PyreflowError::FileLayout).desc("If *DATA* is unparsable");
+    // the only deprecated keyval that should be read here is $DATATYPE when its
+    // value is A for 3.1+
+    let exc1 = PyException::new_deprecated()
+        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational)
+        .desc("If keywords are incompatible with indicated layout of *DATA*");
+    let exc4 = PyException::new_event_data();
+
+    let xs = [exc0, exc1, exc2, exc3, exc4];
 
     let doc = DocString::new_fun("Read raw dataset from FCS file from keywords.")
         .arg(path_arg)
@@ -278,7 +326,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc([exc]));
+        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -322,7 +370,18 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
     let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc = PyException::new("PyreflowException");
+    let exc0 =
+        PyException::new_pyreflow(&PyreflowError::FileLayout).desc("If *DATA* is unparsable");
+    let exc1 = PyException::new_deprecated();
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+        "If keywords are incompatible with indicated layout of *DATA* or \
+         if keywords that are referenced by other keywords do not exist",
+    );
+    let exc4 = PyException::new_event_data();
+    let exc5 = PyException::new_extra();
+
+    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
     let doc = DocString::new_fun("Read standardized dataset from FCS file.")
         .arg(path_arg)
@@ -342,7 +401,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
                 PyTuple::new1(PyUnion::new_anycoredataset())
                     .add(PyClass::new_py(["api"], "StdDatasetWithKwsOutput")),
             )
-            .exc([exc]),
+            .exc(xs),
         );
 
     let fun_args = doc.fun_args();
@@ -3294,7 +3353,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let desc = "if field 2 of %x is less than ``0`` or greater than ``2**64-1`` \
                 when field 1 is ``\"A\"`` or ``\"I\"``";
-    let exc = PyException::new_value_error().desc(desc);
+    let exc = PyException::new_value().desc(desc);
     let range_pytype = PyList::new1(PyUnion::new2(
         PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
         PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
@@ -3619,6 +3678,32 @@ struct DocReturn<T> {
 struct PyException {
     pyname: String,
     desc: Option<String>,
+}
+
+#[derive(Display)]
+enum PyreflowError {
+    #[display("FileLayoutError")]
+    FileLayout,
+    #[display("ParseKeyError")]
+    ParseKey,
+    #[display("ParseKeywordValueError")]
+    ParseKeywordValue,
+    #[display("InvalidKeywordValueError")]
+    InvalidKeywordValue,
+    #[display("ExtraKeywordError")]
+    ExtraKeyword,
+    #[display("FCSDeprecatedError")]
+    FCSDeprecated,
+    #[display("ConversionError")]
+    Conversion,
+    #[display("RelationalError")]
+    Relational,
+    #[display("EventDataError")]
+    EventData,
+    #[display("DataLossError")]
+    DataLoss,
+    #[display("ConfigError")]
+    Config,
 }
 
 /// A Python exceptiion returned from a function
@@ -4556,12 +4641,51 @@ impl PyException {
         }
     }
 
-    fn new_value_error() -> Self {
+    fn new_value() -> Self {
         Self::new("ValueError")
     }
 
-    fn new_overflow_error() -> Self {
+    fn new_pattern() -> Self {
+        Self::new("~re.PatternError")
+    }
+
+    fn new_overflow() -> Self {
         Self::new("OverflowError")
+    }
+
+    fn new_pyreflow(p: &PyreflowError) -> Self {
+        Self::new(format!("~pyreflow.{p}"))
+    }
+
+    fn new_non_ascii() -> Self {
+        Self::new_pyreflow(&PyreflowError::ParseKey).desc(
+            "If any keys from *TEXT* contain non-ASCII characters and \
+             ``allow_non_ascii_keywords`` is ``False``",
+        )
+    }
+
+    fn new_extra() -> Self {
+        Self::new_pyreflow(&PyreflowError::ExtraKeyword).desc(
+            "If any standard keys are unused and \
+             ``allow_pseudostandard`` or ``allow_unused_standard`` \
+             are ``False``",
+        )
+    }
+
+    fn new_deprecated() -> Self {
+        Self::new_pyreflow(&PyreflowError::FCSDeprecated).desc(
+            "If any keywords or their values are deprecated and \
+             ``disallow_deprecated`` is ``True``",
+        )
+    }
+
+    fn new_parse_keyval() -> Self {
+        Self::new_pyreflow(&PyreflowError::ParseKeywordValue)
+            .desc("If any keyword values could not be read from their string encoding")
+    }
+
+    fn new_event_data() -> Self {
+        Self::new_pyreflow(&PyreflowError::EventData).desc("If values in *DATA* cannot be read")
     }
 
     fn desc(self, desc: impl fmt::Display) -> Self {
@@ -4777,7 +4901,7 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_int(intkind: RsInt) -> Self {
-        let e = PyException::new_overflow_error().desc(intkind.exc_desc());
+        let e = PyException::new_overflow().desc(intkind.exc_desc());
         Self::from(intkind).exc(e)
     }
 
@@ -4790,7 +4914,7 @@ impl<E: From<PyException>> PyInt<E> {
             5..=8 => RsInt::U64,
             _ => panic!("invalid number of uint bytes: {nbytes}"),
         };
-        let e = PyException::new_value_error().desc(r.exc_desc());
+        let e = PyException::new_value().desc(r.exc_desc());
         let path = parse_quote!(fireflow_core::validated::bitmask::#i);
         Self::from(r).rstype(path).exc(e)
     }
@@ -4817,13 +4941,12 @@ impl<E> PyFloat<E> {
 
 impl<E: From<PyException>> PyFloat<E> {
     fn new_non_negative_float() -> Self {
-        let e =
-            PyException::new_value_error().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
+        let e = PyException::new_value().desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
         Self::from(RsFloat::F32).exc(e)
     }
 
     fn new_positive_float() -> Self {
-        let e = PyException::new_value_error()
+        let e = PyException::new_value()
             .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
         Self::from(RsFloat::F32).exc(e)
     }
@@ -4840,7 +4963,7 @@ impl<E: From<PyException>> PyFloat<E> {
              or outside the bounds of a {}-bit float",
             nbytes * 8,
         );
-        let e = PyException::new_value_error().desc(msg);
+        let e = PyException::new_value().desc(msg);
         let path = parse_quote!(fireflow_core::data::#i);
         Self::from(r).rstype(path).exc(e)
     }
@@ -4861,26 +4984,26 @@ impl<E> PyStr<E> {
 impl<E: From<PyException>> PyStr<E> {
     fn new_shortname() -> Self {
         let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        let e = PyException::new_value_error().desc("if %x is ``\"\"`` or contains commas");
+        let e = PyException::new_value().desc("if %x is ``\"\"`` or contains commas");
         Self::default().rstype(path).exc(e)
     }
 
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        let e =
-            PyException::new_value_error().desc("if %x contains non-ASCII characters or is empty");
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
+            .desc("if %x contains non-ASCII characters or is empty");
         Self::default().rstype(path).exc(e)
     }
 
     fn new_regexp() -> Self {
         let desc = format!("if %x is not a valid regular expression as described in {REGEXP_REF}");
-        let exc = PyException::new_value_error().desc(desc);
+        let exc = PyException::new_pattern().desc(desc);
         Self::default().exc(exc)
     }
 
     fn new_meas_or_gate_index() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        let e = PyException::new_value_error().desc(
+        let e = PyException::new_value().desc(
             "if %x is not like ``P<X>`` or ``G<X>`` \
              where ``X`` is an integer one or greater",
         );
@@ -4888,7 +5011,7 @@ impl<E: From<PyException>> PyStr<E> {
     }
 
     fn new_non_empty_str(path: Path) -> Self {
-        let e = PyException::new_value_error().desc("if %x is empty");
+        let e = PyException::new_value().desc("if %x is empty");
         Self::default().rstype(path).exc(e)
     }
 }
@@ -4964,7 +5087,7 @@ impl<E: From<PyException>> PyDict<E> {
 
     fn new_std_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let e = PyException::new_value_error().desc(
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKey).desc(
             "if %x is empty, does not start with \
              ``\"$\"``, or is only a ``\"$\"``",
         );
@@ -4973,7 +5096,8 @@ impl<E: From<PyException>> PyDict<E> {
 
     fn new_nonstd_keywords() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e = PyException::new_value_error().desc("if %x is empty or starts with ``\"$\"``");
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
+            .desc("if %x is empty or starts with ``\"$\"``");
         Self::new1(PyStr::default().rstype(path).exc(e), PyStr::default())
     }
 
@@ -5003,7 +5127,7 @@ impl<E> PyList<E> {
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
         let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
-        let e = PyException::new_value_error().desc("if %x is empty");
+        let e = PyException::new_value().desc("if %x is empty");
         Self::new(
             inner,
             Some(parse_quote!(#nonempty<#inner_path>)),
@@ -5145,7 +5269,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_sub_pattern() -> Self {
         let desc = "if references in replacement string in %x \
                     do not match captures in regular expression";
-        let exc = PyException::new_value_error().desc(desc);
+        let exc = PyException::new_value().desc(desc);
         Self::new1(PyStr::new_regexp())
             .add(PyStr::default())
             .add(PyBool::default())
@@ -5168,7 +5292,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_display() -> Self {
         let desc = "if %x represents a log display (field 1 is ``True``) and \
                     the two floats are not both positive";
-        let exc = PyException::new_value_error().desc(desc);
+        let exc = PyException::new_value().desc(desc);
         Self::new1(PyBool::default())
             .add(RsFloat::F32)
             .add(RsFloat::F32)
@@ -5182,7 +5306,7 @@ impl<E: From<PyException>> PyTuple<E> {
         let desc = "if %x has offsets which exceed the end of the file, \
                     are inverted (begin after end), or are either negative \
                     or greater than ``2**64-1``";
-        let exc = PyException::new_value_error().desc(desc);
+        let exc = PyException::new_value().desc(desc);
         // NOTE don't use ints with overflow exceptions since this is captured
         // in the overall exception for the entire type
         Self::new2(vec![RsInt::U64; 2]).exc(exc).rstype(p)
@@ -5307,8 +5431,8 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_scale(is_gate: bool) -> Self {
         let name = if is_gate { "GateScale" } else { "Scale" };
-        let exc = PyException::new_value_error()
-            .desc("if %x has log scale floats which are not both positive");
+        let exc =
+            PyException::new_value().desc("if %x has log scale floats which are not both positive");
         Self::new2(
             PyTuple::default(),
             PyTuple::new2(vec![RsFloat::F32; 2]),
@@ -5319,15 +5443,15 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_transform() -> Self {
         let path = parse_quote! {fireflow_core::core::ScaleTransform};
-        let exc = PyException::new_value_error()
-            .desc("if %x has log scale floats which are not both positive");
+        let exc =
+            PyException::new_value().desc("if %x has log scale floats which are not both positive");
         // TODO the linear gain should also be positive
         Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
     }
 
     fn new_byteord(nbytes: usize) -> Self {
         let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-        let exc = PyException::new_value_error().desc(format!(
+        let exc = PyException::new_value().desc(format!(
             "if %x is not \"little\", \"big\", or a list of \
              all integers from 1 to {nbytes} in any order"
         ));
@@ -5843,9 +5967,9 @@ impl DocArgRWIvar {
 
     fn new_spillover_ivar() -> Self {
         let rstype: Path = parse_quote!(fireflow_core::text::spillover::Spillover);
-        let matrix_exc = PyException::new_value_error()
-            .desc("if %x is not a square matrix that is 2x2 or larger");
-        let spill_exc = PyException::new_value_error().desc(
+        let matrix_exc =
+            PyException::new_value().desc("if %x is not a square matrix that is 2x2 or larger");
+        let spill_exc = PyException::new_value().desc(
             "if matrix in %x does not have the same number of rows \
              and columns as the measurement vector",
         );
@@ -6213,7 +6337,7 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        let exc = PyException::new_value_error().desc("if %x is not between 1 and 126");
+        let exc = PyException::new_value().desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = "Delimiter to use when writing *TEXT*.";
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
@@ -6510,7 +6634,7 @@ impl DocArgParam {
             "if %x does not have year, month, and day specifiers \
              as outlined in {CHRONO_REF}"
         );
-        let exc = PyException::new_value_error().desc(desc);
+        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = "If supplied, will be used as an alternative pattern when parsing \
                  *$DATE*. If not supplied, *$DATE* will be parsed according to \
@@ -6536,7 +6660,7 @@ impl DocArgParam {
              correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
              in {CHRONO_REF}"
         );
-        let exc = PyException::new_value_error().desc(exc_desc);
+        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(exc_desc);
 
         // format arg description
         let std_pat = match version {
@@ -6597,8 +6721,8 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern);
-        // TODO could clean this up with default regexp exception
-        let exc = PyException::new_value_error().desc("if %x does not have ``\"%n\"``");
+        let exc = PyException::new_pyreflow(&PyreflowError::Config)
+            .desc("if %x does not have ``\"%n\"``");
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
@@ -6618,7 +6742,7 @@ impl DocArgParam {
 
     fn new_integer_byteord_override_param() -> Self {
         let path = keyword_path("ByteOrd2_0");
-        let exc = PyException::new_value_error().desc(
+        let exc = PyException::new_pyreflow(&PyreflowError::InvalidKeywordValue).desc(
             "if %x is not a list of integers including all from 1 to ``N`` \
              where ``N`` is the length of the list (up to 8)",
         );
@@ -6678,7 +6802,9 @@ impl DocArgParam {
 
     fn new_other_width_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path);
+        let e = PyException::new_pyreflow(&PyreflowError::Config)
+            .desc("if %x is less than `1` and greater than `20`");
+        let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
     }
@@ -7424,7 +7550,7 @@ impl fmt::Display for NamedPyException {
         let ns_ = fmt_comma_sep_list(&ns[..], "or");
         let n = self.inner.argmod.fmt(&ns_);
         if let Some(d) = self.inner.inner.desc.as_ref() {
-            assert!(d.contains("%x"), "does not contain name ref: {d}");
+            assert!(d.contains("%x"), "does not contain name ref ('%x'): {d}");
             let dd = d.replace("%x", &n);
             write!(f, ":raises {pn}: {dd}")
         } else {

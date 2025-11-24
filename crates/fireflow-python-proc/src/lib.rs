@@ -1786,21 +1786,21 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_pytype = PyType::new_versioned_shortname(version);
 
     let by_name_doc = DocString::new_method("Remove a measurement with a given name.")
-        .para("Raise exception if ``name`` not found.")
         .arg(DocArg::new_name_param("Name to remove."))
         .returns(
             DocReturn::new(
                 PyTuple::new1(PyInt::new_meas_index()).add(PyUnion::new_measurement(version)),
             )
-            .desc("Index and measurement object."),
+            .desc("Index and measurement object.")
+            .exc([PyException::new_key().desc("If ``name`` not found")]),
         );
 
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
-        .para("Raise exception if ``index`` not found.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(
             DocReturn::new(PyTuple::new1(name_pytype).add(PyUnion::new_measurement(version)))
-                .desc("Name and measurement object."),
+                .desc("Name and measurement object.")
+                .exc([PyException::new_index().desc("If ``index`` not found")]),
         );
 
     let name_arg = by_name_doc.fun_args();
@@ -1819,7 +1819,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
             fn remove_measurement_by_name(
                 &mut self,
                 #name_arg
-            ) -> PyResult<#name_ret> {
+            ) -> #name_ret {
                 Ok(self
                    .0
                    .remove_measurement_by_name(&#name_ident)
@@ -1830,7 +1830,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
             fn remove_measurement_by_index(
                 &mut self,
                 #index_arg
-            ) -> PyResult<#index_ret> {
+            ) -> #index_ret {
                 let (n, v) = self.0.remove_measurement_by_index(#index_ident)?.unzip();
                 Ok((n, v.bimap_into_once()))
             }
@@ -4681,6 +4681,14 @@ impl PyException {
         Self::new("ValueError")
     }
 
+    fn new_key() -> Self {
+        Self::new("KeyError")
+    }
+
+    fn new_index() -> Self {
+        Self::new("IndexError")
+    }
+
     fn new_pattern() -> Self {
         Self::new("~re.PatternError")
     }
@@ -4926,6 +4934,10 @@ impl<E> PyInt<E> {
         Self::new(self.rs, self.rstype, Some(exc.into()))
     }
 
+    fn no_exc(self) -> Self {
+        Self::new(self.rs, self.rstype, None)
+    }
+
     fn map_exc<F, E1>(self, f: F) -> PyInt<E1>
     where
         F: FnOnce(E) -> E1,
@@ -4939,17 +4951,17 @@ impl<E> PyInt<E> {
 impl<E: From<PyException>> PyInt<E> {
     fn new_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::MeasIndex);
-        Self::new_nonzero_usize().rstype(p)
+        Self::new_nonzero_usize().rstype(p).no_exc()
     }
 
     fn new_gate_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::GateIndex);
-        Self::new_nonzero_usize().rstype(p)
+        Self::new_nonzero_usize().rstype(p).no_exc()
     }
 
     fn new_prefixed_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::keywords::PrefixedMeasIndex);
-        Self::new_nonzero_usize().rstype(p)
+        Self::new_nonzero_usize().rstype(p).no_exc()
     }
 
     fn new_u32() -> Self {

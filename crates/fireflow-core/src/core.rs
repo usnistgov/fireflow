@@ -1,7 +1,7 @@
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _,
     DisallowDeprecated, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
-    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern,
+    ReadEventsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern,
     TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
@@ -486,7 +486,7 @@ impl AnyCoreDataset {
         R: Read + Seek,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         macro_rules! go {
@@ -1354,7 +1354,7 @@ pub trait Versioned {
     where
         R: Read + Seek,
         Self::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -1374,7 +1374,7 @@ pub trait Versioned {
             .and_then_commutative(|(layout, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -4351,7 +4351,7 @@ where
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
@@ -4388,7 +4388,7 @@ where
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
@@ -4401,7 +4401,7 @@ where
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 let or = OthersReader::new(other_segs);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(StdDatasetFromRawWarning::from)

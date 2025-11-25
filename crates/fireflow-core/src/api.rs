@@ -2,7 +2,7 @@ use crate::config::{
     AllowMissingFinalDelim, BigOther, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
     ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
-    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
+    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReadEventsConfig, StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -673,7 +673,7 @@ fn h_read_dataset_from_kws<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -752,7 +752,7 @@ impl RawTEXTOutput {
         R: Read + Seek,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         AnyCoreDataset::new_from_keywords(
@@ -783,7 +783,7 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),

@@ -49,7 +49,7 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig,
+    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReadEventsConfig,
 };
 use crate::core::{
     AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
@@ -511,7 +511,7 @@ pub trait LayoutOps<'a, T>: Sized {
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot;
@@ -637,7 +637,7 @@ where
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
@@ -2209,7 +2209,7 @@ where
         _: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        _: &ReaderConfig,
+        _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         macro_rules! go {
             ($x:expr) => {
@@ -2562,7 +2562,7 @@ where
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot,
@@ -2841,7 +2841,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningOrErrorResult<u64, (), UnevenEventWidth, EventWidthError>
     where
         S: Clone,

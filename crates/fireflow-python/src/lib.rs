@@ -94,14 +94,14 @@ use fireflow_python_proc::{
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
     impl_coredataset_set_measurements_and_data, impl_coredataset_truncate_data,
     impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_gated_meas, impl_layout_byte_widths, impl_new_core,
-    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
-    impl_py_extra_std_keywords, impl_py_header, impl_py_header_segments,
-    impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output, impl_py_raw_text_output,
-    impl_py_raw_text_parse_data, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
-    impl_py_std_text_output, impl_py_valid_keywords,
+    impl_coretext_unset_measurements, impl_coretext_write_multi, impl_gated_meas,
+    impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
+    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords, impl_py_header,
+    impl_py_header_segments, impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output,
+    impl_py_raw_text_output, impl_py_raw_text_parse_data, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -281,6 +281,12 @@ impl_coredataset_from_kws!(core::CoreDataset2_0);
 impl_coredataset_from_kws!(core::CoreDataset3_0);
 impl_coredataset_from_kws!(core::CoreDataset3_1);
 impl_coredataset_from_kws!(core::CoreDataset3_2);
+
+// impl write_multitext for all CoreTEXT* and CoreDataset
+impl_coretext_write_multi!(core::CoreTEXT2_0);
+impl_coretext_write_multi!(core::CoreTEXT3_0);
+impl_coretext_write_multi!(core::CoreTEXT3_1);
+impl_coretext_write_multi!(core::CoreTEXT3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {

@@ -88,8 +88,8 @@ pub struct ReadRawDatasetConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     pub shared: SharedConfig,
 }
@@ -122,8 +122,8 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     pub shared: SharedConfig,
 }
@@ -133,8 +133,8 @@ pub struct ReadRawDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
@@ -153,8 +153,8 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
@@ -162,7 +162,7 @@ pub struct ReadStdDatasetFromKeywordsConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
-pub struct ReaderConfig {
+pub struct ReadEventsConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
     /// In practice, having such a mismatch likely means either PnB or the DATA

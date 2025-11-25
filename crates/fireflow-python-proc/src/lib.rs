@@ -28,7 +28,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let conf_path = config_path("ReadHeaderConfig");
 
-    let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
+    let (conf_inner_path, args, inner_args) = DocArgParam::new_read_header_config_params();
 
     let exc = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("if *HEADER* segment is unparsable");
@@ -59,8 +59,8 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let conf_path = config_path("ReadRawTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
@@ -100,11 +100,12 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let conf_path = config_path("ReadStdTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
@@ -163,11 +164,12 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
     let conf_path = config_path("ReadRawDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
@@ -222,12 +224,13 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let conf_path = config_path("ReadStdDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
@@ -297,9 +300,10 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
 
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 =
@@ -364,10 +368,11 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
 
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 =
@@ -2128,9 +2133,9 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let core_conf = config_path("NewCoreTEXTConfig");
 
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
-    let (layout_conf, layout_args, layout_recs) =
-        DocArgParam::new_layout_config_params(Some(version));
+    let v = Some(version);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let other_kws = if version == Version::FCS2_0 {
@@ -2216,12 +2221,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let core_conf = config_path("ReadStdDatasetFromKeywordsConfig");
 
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
-    let (layout_conf, layout_args, layout_recs) =
-        DocArgParam::new_layout_config_params(Some(version));
-    let (offsets_conf, offsets_args, offsets_recs) =
-        DocArgParam::new_offsets_config_params(Some(version));
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let v = Some(version);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_read_offsets_config_params(v);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let config_args: Vec<_> = std_args
@@ -2314,6 +2318,56 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     &path, kws, data_seg, analysis_seg, &other_segs[..], &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let ident = path.segments.last().unwrap().ident.clone();
+    let version = split_ident_version_checked("CoreTEXT", &ident);
+    let pyname = format_ident!("Py{ident}");
+
+    let path_arg = DocArg::new_path_param(true);
+    let cores_arg = DocArg::new_param(
+        "datasets",
+        PyList::new1(PyClass::new_coretext(version)),
+        "datasets to write",
+    );
+
+    let (conf, args, recs) = DocArgParam::new_write_text_config_params();
+
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
+
+    let xs = [exc0, exc1];
+
+    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+        .desc("the value of *$NEXTDATA* as written in the last dataset")
+        .exc(xs);
+
+    let doc = DocString::new_fun("Write multiple datasets to path.")
+        .para("The resulting file will have *HEADER* and *TEXT* from each object")
+        .arg(path_arg)
+        .arg(cores_arg)
+        .args(args)
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #pyname {
+            #[staticmethod]
+            #doc
+            fn write_multi_text(#fun_args) -> #ret_path {
+                let conf = #conf { #(#recs),* };
+                let cs = datasets.fmap(|c| c.0);
+                Ok(#path::write_multitext(&path, &cs[..], &conf)?)
             }
         }
     }
@@ -6521,6 +6575,22 @@ impl DocArgParam {
         Self::new_bool_param("big_other", desc)
     }
 
+    fn new_skip_conversion_chech_param() -> Self {
+        let conv_exc = PyreflowError::DataLoss.fmt_ref();
+        Self::new_bool_param(
+            "skip_conversion_check",
+            format!(
+                "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise {conv_exc} on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+            ),
+        )
+    }
+
     fn new_appendable_param() -> Self {
         Self::new_bool_param(
             "appendable",
@@ -6632,7 +6702,7 @@ impl DocArgParam {
         Self::new_param("others", PyList::new_others(), desc).def_auto_if(default)
     }
 
-    fn new_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("HeaderConfigInner");
         let ps = vec![
             Self::new_text_correction_param(),
@@ -6649,7 +6719,7 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_raw_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_raw_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("ReadHeaderAndTEXTConfig");
         let ps = vec![
             Self::new_version_override(),
@@ -6682,7 +6752,9 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_std_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_std_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let ignore_time_gain = Self::new_ignore_time_gain_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
 
@@ -6715,7 +6787,9 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_layout_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_layout_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_optional_dropping = Self::new_allow_optional_dropping();
         let transfer_dropped_optional = Self::new_transfer_dropped_optional();
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
@@ -6746,7 +6820,9 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_offsets_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_offsets_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
@@ -6766,11 +6842,37 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_reader_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_events_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_uneven_event_width = Self::new_allow_uneven_event_width_param();
         let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
-        let conf = config_path("ReaderConfig");
+        let conf = config_path("ReadEventsConfig");
         let ps = vec![allow_uneven_event_width, allow_tot_mismatch];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
+    fn new_write_text_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let delim = Self::new_textdelim_param();
+        let big_other = Self::new_big_other_param();
+        let conf = config_path("WriteTEXTInnerConfig");
+        let ps = vec![delim, big_other];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
+    fn new_write_dataset_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let skip_conversion_check = Self::new_skip_conversion_chech_param();
+        let conf = config_path("WriteDatasetInnerConfig");
+        let ps = vec![skip_conversion_check];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
+    fn new_write_multi_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let appendable = Self::new_appendable_param();
+        let append = Self::new_append_param();
+        let conf = config_path("WriteMultiConfig");
+        let ps = vec![append, appendable];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }

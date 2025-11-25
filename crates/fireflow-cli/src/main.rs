@@ -946,8 +946,8 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
     }
 }
 
-fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReaderConfig {
-    config::ReaderConfig {
+fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
+    config::ReadEventsConfig {
         allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
         allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
     }

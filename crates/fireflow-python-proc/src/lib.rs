@@ -1161,23 +1161,32 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_segment_overflow(version);
     let exc1 = PyException::new_other_overflow();
 
+    let nextdata = PyInt::new_nextdata();
+    let ret = DocReturn::new(nextdata)
+        .exc([exc0, exc1])
+        .desc("the value of $NEXTDATA as written to the dataset");
+
     let doc = DocString::new_method("Write data to path.")
         .para("Resulting FCS file will include *HEADER* and *TEXT*.")
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
+        .arg(DocArg::new_appendable_param())
+        .arg(DocArg::new_append_param())
+        .returns(ret);
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn write_text(&self, #fun_args) -> PyResult<()> {
-                let f = std::fs::File::options().write(true).create(true).open(path)?;
-                let mut h = std::io::BufWriter::new(f);
-                Ok(self.0.h_write_text(&mut h, delim, big_other)?)
+            fn write_text(&self, #fun_args) -> #ret_path {
+                let o = big_other.into();
+                let p = appendable.into();
+                let a = append.into();
+                Ok(self.0.write_text(&path, delim, o, p, a)?)
             }
         }
     }
@@ -1202,29 +1211,13 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         "skip_conversion_check",
         format!(
             "Skip check to ensure that types of the dataframe match the \
-                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-                 perform this check before writing, and raise {conv_exc} on \
-                 failure. If ``True``, raise warnings as file is being \
-                 written. Skipping this is faster since the data needs to be \
-                 traversed twice to perform the conversion check, but may \
-                 result in loss of precision and/or truncation."
+             columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+             perform this check before writing, and raise {conv_exc} on \
+             failure. If ``True``, raise warnings as file is being \
+             written. Skipping this is faster since the data needs to be \
+             traversed twice to perform the conversion check, but may \
+             result in loss of precision and/or truncation."
         ),
-    );
-
-    let appendable_param = DocArg::new_bool_param(
-        "appendable",
-        "If ``True``, set *$NEXTDATA* in written dataset so it points to \
-         the next dataset. This obviously assumes the next dataset is actually \
-         written, which will require another call to this method with ``append`` \
-         set to ``True``.",
-    );
-
-    let append_param = DocArg::new_bool_param(
-        "append",
-        "If ``True``, append this dataset to the end of the file if it exists \
-         and already has at least one dataset in it. This assumes that the \
-         previous dataset was written with ``appendable`` set to ``True`` so \
-         that *$NEXTDATA* is properly set.",
     );
 
     let doc = DocString::new_method("Write data as an FCS file.")
@@ -1236,8 +1229,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(skip_param)
-        .arg(appendable_param)
-        .arg(append_param)
+        .arg(DocArg::new_appendable_param())
+        .arg(DocArg::new_append_param())
         .returns(ret);
 
     let fun_args = doc.fun_args();
@@ -1248,13 +1241,13 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn write_dataset(&self, #fun_args) -> #ret_path {
-                let conf = fireflow_core::config::WriteConfig {
+                let conf = fireflow_core::config::WriteConfig::new(
                     delim,
-                    skip_conversion_check,
-                    big_other,
-                    append,
-                    appendable
-                };
+                    skip_conversion_check.into(),
+                    big_other.into(),
+                    append.into(),
+                    appendable.into(),
+                );
                 self.0.write_dataset(&path, &conf).py_resolve_commutative()
             }
         }
@@ -6508,6 +6501,26 @@ impl DocArgParam {
     fn new_big_other_param() -> Self {
         let desc = "If ``True`` use 20 chars for OTHER segment offsets, and 8 otherwise.";
         Self::new_bool_param("big_other", desc)
+    }
+
+    fn new_appendable_param() -> Self {
+        Self::new_bool_param(
+            "appendable",
+            "If ``True``, set *$NEXTDATA* in written dataset so it points to \
+             the next dataset. This obviously assumes the next dataset is actually \
+             written, which will require another call to this method with ``append`` \
+             set to ``True``.",
+        )
+    }
+
+    fn new_append_param() -> Self {
+        Self::new_bool_param(
+            "append",
+            "If ``True``, append this dataset to the end of the file if it exists \
+             and already has at least one dataset in it. This assumes that the \
+             previous dataset was written with ``appendable`` set to ``True`` so \
+             that *$NEXTDATA* is properly set.",
+        )
     }
 
     fn new_measurements_param(version: Version) -> Self {

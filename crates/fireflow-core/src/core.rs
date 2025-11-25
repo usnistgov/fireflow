@@ -1,8 +1,8 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
-    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
-    WriteConfig,
+    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, BigOther, ConfigFlag as _,
+    DisallowDeprecated, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
+    ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern,
+    TransferDroppedOptional, WriteConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -105,7 +105,6 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::convert::{AsRef, Infallible};
 use std::fmt;
-use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::path::PathBuf;
@@ -1248,6 +1247,36 @@ pub struct DatasetSegments {
     pub analysis: AnyAnalysisSegment,
 }
 
+/// Internal configuration options used when writing HEADER+TEXT
+struct WriteHeaderAndTextConfig<'a> {
+    delim: TEXTDelim,
+    tot: Tot,
+    data_len: u64,
+    analysis_len: u64,
+    other_segs: &'a [Other],
+    has_nextdata: AppendableFlag,
+}
+
+impl WriteHeaderAndTextConfig<'_> {
+    fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag) -> Self {
+        Self {
+            delim,
+            tot: Tot(0),
+            data_len: 0,
+            analysis_len: 0,
+            other_segs: &[],
+            has_nextdata,
+        }
+    }
+
+    fn other_lens(&self) -> Vec<u64> {
+        self.other_segs
+            .iter()
+            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
+            .collect()
+    }
+}
+
 mod private {
     pub struct NoTouchy;
 }
@@ -2178,59 +2207,69 @@ where
         M::Ver::fcs_version()
     }
 
+    /// Write this core structure (HEADER+TEXT) to path
+    pub fn write_text(
+        &self,
+        path: &PathBuf,
+        delim: TEXTDelim,
+        big_other: BigOther,
+        appendable: AppendableFlag,
+        append: AppendFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    where
+        Version: From<M::Ver>,
+    {
+        let opts = append.file_options();
+        let f = opts.open(path)?;
+        let mut h = BufWriter::new(f);
+        self.h_write_text(&mut h, delim, big_other, appendable)
+    }
+
     /// Write this core structure (HEADER+TEXT) to a handle
     pub fn h_write_text<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-        big_other: bool,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        big_other: BigOther,
+        has_nextdata: AppendableFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
     {
-        // void Nextdata since it is written as if DATA and ANALYSIS were
-        // also written, which is not true for this method
-        let _ = if big_other {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim)
+        if big_other.is_set() {
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim, has_nextdata)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim)
-        }?;
-        Ok(())
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim, has_nextdata)
+        }
     }
 
     fn h_write_text_inner1<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
+        has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, &[])
+        let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
+        self.h_write_text_inner::<_, T>(h, &conf)
     }
 
     fn h_write_text_inner<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_segs: &[Other],
+        conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        let other_lens: Vec<_> = other_segs
-            .iter()
-            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
-            .collect();
         let hdr_kws: HeaderKeywordsToWrite<T> = self
-            .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
+            .header_and_raw_keywords(conf)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, M::Ver::fcs_version(), delim, other_segs)?;
+        hdr_kws.h_write(h, M::Ver::fcs_version(), conf.delim, conf.other_segs)?;
         Ok(hdr_kws.nextdata)
     }
 
@@ -3506,11 +3545,7 @@ where
 
     fn header_and_raw_keywords<T>(
         &self,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: bool,
+        conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
@@ -3518,30 +3553,31 @@ where
     {
         let req: Vec<_> = self
             .req_root_keywords()
-            .chain([tot.pair()])
+            .chain([conf.tot.pair()])
             .chain(self.req_meas_keywords())
             .collect();
         let opt: Vec<_> = self
             .opt_root_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
+        let other_lens = &conf.other_lens()[..];
         if M::Ver::fcs_version() == Version::FCS2_0 {
             HeaderKeywordsToWrite::new_2_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         } else {
             HeaderKeywordsToWrite::new_3_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         }
     }
@@ -4375,13 +4411,7 @@ where
     where
         Version: From<M::Ver>,
     {
-        let mut opts = File::options();
-        opts.create(true);
-        if conf.append {
-            opts.append(true)
-        } else {
-            opts.write(true).truncate(true)
-        };
+        let opts = conf.append.file_options();
         let f = io_to_log!(opts.open(path));
         let mut h = BufWriter::new(f);
         self.h_write_dataset(&mut h, conf)
@@ -4404,7 +4434,7 @@ where
             u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
         let others = &self.others.0[..];
 
-        let check_res = if conf.skip_conversion_check {
+        let check_res = if conf.skip_conversion_check.is_set() {
             LogResult::new_ok(())
         } else {
             layout.check_writer(df)
@@ -4418,24 +4448,18 @@ where
             // write HEADER+TEXT+OTHER(s) first
             .and_then_commutative(|()| {
                 let data_len = layout.nbytes(df);
-                let res = if conf.big_other {
-                    self.h_write_text_inner::<_, UintSpacePad20>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                let ht_conf = WriteHeaderAndTextConfig {
+                    delim,
+                    tot,
+                    data_len,
+                    analysis_len,
+                    other_segs: others,
+                    has_nextdata: conf.appendable,
+                };
+                let res = if conf.big_other.is_set() {
+                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
                 } else {
-                    self.h_write_text_inner::<_, UintSpacePad8>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
                 };
                 res.map_err(|e| e.fmap_once(StdWriterError::from))
                     .map_err(IOErrorGroup::from)
@@ -4446,9 +4470,8 @@ where
             // through the data once at the beginning and check for
             // conversion loss.
             .and_commutative(|| {
-                layout
-                    .h_write_df(h, df, !conf.skip_conversion_check)
-                    .map_error(IOErrorGroup::from)
+                let flag = !conf.skip_conversion_check.is_set();
+                layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
             })
             // write ANALYSIS
             .and_commutative(|| {

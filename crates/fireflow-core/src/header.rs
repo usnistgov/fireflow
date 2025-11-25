@@ -1,4 +1,4 @@
-use crate::config::{HeaderConfigInner, ReadState};
+use crate::config::{AppendableFlag, ConfigFlag as _, HeaderConfigInner, ReadState};
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
 };
@@ -468,7 +468,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
-        has_nextdata: bool,
+        has_nextdata: AppendableFlag,
     ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
@@ -488,7 +488,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
         let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-        let nextdata = Nextdata(if has_nextdata {
+        let nextdata = Nextdata(if has_nextdata.is_set() {
             UintZeroPad20(
                 analysis_seg
                     .try_next_byte()
@@ -525,7 +525,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
-        has_nextdata: bool,
+        has_nextdata: AppendableFlag,
     ) -> Result<Self, Uint8DigitOverflow>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
@@ -577,12 +577,11 @@ impl<T> HeaderKeywordsToWrite<T> {
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if has_nextdata {
-            UintZeroPad20(
-                analysis_seg
-                    .try_next_byte()
-                    .map_or(analysis_begin, u64::from),
-            )
+        let nextdata = Nextdata(if has_nextdata.is_set() {
+            let n = analysis_seg
+                .try_next_byte()
+                .map_or(analysis_begin, u64::from);
+            UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
         });

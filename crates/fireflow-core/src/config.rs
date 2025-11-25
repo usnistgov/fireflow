@@ -30,7 +30,7 @@ use derive_more::{AsRef, Display, From, FromStr};
 use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -181,7 +181,7 @@ pub struct ReaderConfig {
 }
 
 /// Configuration for writing an FCS file
-#[derive(Clone, Default)]
+#[derive(Clone, Default, new)]
 pub struct WriteConfig {
     /// Delimiter for TEXT segment
     ///
@@ -204,16 +204,16 @@ pub struct WriteConfig {
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is false.
-    pub skip_conversion_check: bool,
+    pub skip_conversion_check: SkipConversionCheck,
 
     /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
-    pub big_other: bool,
+    pub big_other: BigOther,
 
     /// If ``true`` make $NEXTDATA point to the next dataset.
     ///
     /// If ``false`` $NEXTDATA will be set to 0. This flag should only be set
     /// if a given file is to have multiple FCS datasets inside it.
-    pub appendable: bool,
+    pub appendable: AppendableFlag,
 
     /// If ``true`` append to file rather than overwriting it.
     ///
@@ -221,7 +221,7 @@ pub struct WriteConfig {
     /// the `appendable` set to `true`, which will set the previous dataset's
     /// $NEXTDATA value to be non-zero and point to the dataset which is to be
     /// written with this current configuration.
-    pub append: bool,
+    pub append: AppendFlag,
 }
 
 #[derive(Default, Clone, AsRef)]
@@ -803,6 +803,24 @@ impl_error_flag!(true_is_error DisallowDeprecated);
 impl_error_flag!(true_is_error DisallowRangeTrunc);
 
 impl_error_flag!(false_is_error AllowLoss);
+
+impl_config_flag!(SkipConversionCheck);
+impl_config_flag!(BigOther);
+impl_config_flag!(AppendableFlag);
+impl_config_flag!(AppendFlag);
+
+impl AppendFlag {
+    pub(crate) fn file_options(self) -> OpenOptions {
+        let mut opts = File::options();
+        opts.create(true);
+        if self.is_set() {
+            opts.append(true)
+        } else {
+            opts.write(true).truncate(true)
+        };
+        opts
+    }
+}
 
 /// A pattern to match the $PnN for the time measurement.
 ///

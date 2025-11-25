@@ -2187,18 +2187,21 @@ where
     where
         Version: From<M::Ver>,
     {
-        if big_other {
+        // void Nextdata since it is written as if DATA and ANALYSIS were
+        // also written, which is not true for this method
+        let _ = if big_other {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, delim)
         } else {
             self.h_write_text_inner1::<_, UintSpacePad8>(h, delim)
-        }
+        }?;
+        Ok(())
     }
 
     fn h_write_text_inner1<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
@@ -2214,12 +2217,11 @@ where
         data_len: u64,
         analysis_len: u64,
         other_segs: &[Other],
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        // TODO do something useful with $NEXTDATA
         let other_lens: Vec<_> = other_segs
             .iter()
             .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
@@ -2228,7 +2230,7 @@ where
             .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
             .map_err(ImpureError::Pure)?;
         hdr_kws.h_write(h, M::Ver::fcs_version(), delim, other_segs)?;
-        Ok(())
+        Ok(hdr_kws.nextdata)
     }
 
     /// Return all keywords as an ordered list of pairs
@@ -4368,7 +4370,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), IndexedLossError, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
@@ -4392,7 +4394,7 @@ where
             .group()
             .map_error(IOErrorGroup::Pure)
             // write HEADER+TEXT+OTHER(s) first
-            .and_commutative(|| {
+            .and_then_commutative(|()| {
                 let data_len = layout.nbytes(df);
                 let res = if conf.big_other {
                     self.h_write_text_inner::<_, UintSpacePad20>(

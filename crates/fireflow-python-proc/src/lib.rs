@@ -1193,6 +1193,10 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let exc1 = PyException::new_other_overflow();
 
     let conv_exc = PyreflowError::DataLoss.fmt_ref();
+    let nextdata = PyInt::new_nextdata();
+    let ret = DocReturn::new(nextdata)
+        .exc([exc0, exc1])
+        .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
@@ -1214,15 +1218,16 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                  result in loss of precision and/or truncation."
             ),
         ))
-        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
+        .returns(ret);
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn write_dataset(&self, #fun_args) -> PyResult<()> {
+            fn write_dataset(&self, #fun_args) -> #ret_path {
                 let f = std::fs::File::options().write(true).create(true).open(path)?;
                 let mut h = std::io::BufWriter::new(f);
                 let conf = fireflow_core::config::WriteConfig {
@@ -5007,6 +5012,11 @@ impl<E> PyInt<E> {
 }
 
 impl<E: From<PyException>> PyInt<E> {
+    fn new_nextdata() -> Self {
+        let p = keyword_path("Nextdata");
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
+    }
+
     fn new_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::MeasIndex);
         Self::new_nonzero_usize().rstype(p).no_exc()

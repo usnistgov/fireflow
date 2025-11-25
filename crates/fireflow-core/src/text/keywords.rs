@@ -65,7 +65,8 @@ use {
 };
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Nextdata(pub UintZeroPad20);
 
 /// The value for the $PnE key (all versions).

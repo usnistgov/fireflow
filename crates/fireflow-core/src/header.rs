@@ -452,11 +452,12 @@ impl fmt::Display for VersionError {
     }
 }
 
+#[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: HeaderSegments<T>,
     pub(crate) primary: KeywordsWriter,
     pub(crate) supplemental: KeywordsWriter,
-    pub(crate) _nextdata: Nextdata,
+    pub(crate) nextdata: Nextdata,
 }
 
 impl<T> HeaderKeywordsToWrite<T> {
@@ -506,12 +507,12 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
 
-        Ok(Self {
+        Ok(Self::new(
             header,
             primary,
-            supplemental: KeywordsWriter::default(),
-            _nextdata: nextdata,
-        })
+            KeywordsWriter::default(),
+            nextdata,
+        ))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
@@ -602,19 +603,14 @@ impl<T> HeaderKeywordsToWrite<T> {
             (all_req.collect(), opt)
         };
 
-        let header = HeaderSegments {
-            text: prim_text_seg,
-            analysis: h_analysis_seg,
-            data: h_data_seg,
-            other: other_segs,
-        };
+        let header = HeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
 
-        Ok(Self {
+        Ok(Self::new(
             header,
-            primary: KeywordsWriter(primary),
-            supplemental: KeywordsWriter(supplemental),
-            _nextdata: nextdata,
-        })
+            KeywordsWriter(primary),
+            KeywordsWriter(supplemental),
+            nextdata,
+        ))
     }
 
     pub(crate) fn h_write<W: Write>(

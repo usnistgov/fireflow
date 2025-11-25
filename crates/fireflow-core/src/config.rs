@@ -208,6 +208,20 @@ pub struct WriteConfig {
 
     /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
     pub big_other: bool,
+
+    /// If ``true`` make $NEXTDATA point to the next dataset.
+    ///
+    /// If ``false`` $NEXTDATA will be set to 0. This flag should only be set
+    /// if a given file is to have multiple FCS datasets inside it.
+    pub appendable: bool,
+
+    /// If ``true`` append to file rather than overwriting it.
+    ///
+    /// This should only be set if the previous dataset was written with
+    /// the `appendable` set to `true`, which will set the previous dataset's
+    /// $NEXTDATA value to be non-zero and point to the dataset which is to be
+    /// written with this current configuration.
+    pub append: bool,
 }
 
 #[derive(Default, Clone, AsRef)]

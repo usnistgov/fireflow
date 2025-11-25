@@ -1198,6 +1198,35 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .exc([exc0, exc1])
         .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
+    let skip_param = DocArg::new_bool_param(
+        "skip_conversion_check",
+        format!(
+            "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise {conv_exc} on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+        ),
+    );
+
+    let appendable_param = DocArg::new_bool_param(
+        "appendable",
+        "If ``True``, set *$NEXTDATA* in written dataset so it points to \
+         the next dataset. This obviously assumes the next dataset is actually \
+         written, which will require another call to this method with ``append`` \
+         set to ``True``.",
+    );
+
+    let append_param = DocArg::new_bool_param(
+        "append",
+        "If ``True``, append this dataset to the end of the file if it exists \
+         and already has at least one dataset in it. This assumes that the \
+         previous dataset was written with ``appendable`` set to ``True`` so \
+         that *$NEXTDATA* is properly set.",
+    );
+
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
             "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
@@ -1206,18 +1235,9 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_bool_param(
-            "skip_conversion_check",
-            format!(
-                "Skip check to ensure that types of the dataframe match the \
-                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-                 perform this check before writing, and raise {conv_exc} on \
-                 failure. If ``True``, raise warnings as file is being \
-                 written. Skipping this is faster since the data needs to be \
-                 traversed twice to perform the conversion check, but may \
-                 result in loss of precision and/or truncation."
-            ),
-        ))
+        .arg(skip_param)
+        .arg(appendable_param)
+        .arg(append_param)
         .returns(ret);
 
     let fun_args = doc.fun_args();
@@ -1228,14 +1248,14 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn write_dataset(&self, #fun_args) -> #ret_path {
-                let f = std::fs::File::options().write(true).create(true).open(path)?;
-                let mut h = std::io::BufWriter::new(f);
                 let conf = fireflow_core::config::WriteConfig {
                     delim,
                     skip_conversion_check,
                     big_other,
+                    append,
+                    appendable
                 };
-                self.0.h_write_dataset(&mut h, &conf).py_resolve_commutative()
+                self.0.write_dataset(&path, &conf).py_resolve_commutative()
             }
         }
     }

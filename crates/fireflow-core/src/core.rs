@@ -105,6 +105,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::convert::{AsRef, Infallible};
 use std::fmt;
+use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::path::PathBuf;
@@ -4363,6 +4364,27 @@ where
                             .into_log()
                     })
             })
+    }
+
+    /// Write this core structure (HEADER+TEXT) to a file path
+    pub fn write_dataset(
+        &self,
+        path: &PathBuf,
+        conf: &WriteConfig,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    where
+        Version: From<M::Ver>,
+    {
+        let mut opts = File::options();
+        opts.create(true);
+        if conf.append {
+            opts.append(true)
+        } else {
+            opts.write(true).truncate(true)
+        };
+        let f = io_to_log!(opts.open(path));
+        let mut h = BufWriter::new(f);
+        self.h_write_dataset(&mut h, conf)
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle

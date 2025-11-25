@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowMissingFinalDelim, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
+    AllowMissingFinalDelim, BigOther, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
     ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
     ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
@@ -8,7 +8,8 @@ use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
     StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
+    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _, VersionedCore, VersionedCoreTEXT,
+    VersionedMetaroot,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -37,6 +38,7 @@ use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
     StdKeywords, StdPresent, ValidKeywords,
 };
+use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{Display, From};
 use derive_new::new;

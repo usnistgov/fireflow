@@ -180,15 +180,38 @@ pub struct ReaderConfig {
     pub allow_tot_mismatch: AllowTotMismatch,
 }
 
-/// Configuration for writing an FCS file
-#[derive(Clone, Default, new)]
-pub struct WriteConfig {
+/// Configuration for writing one or more HEADER+TEXT segments to file
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiTEXTConfig {
+    pub inner: WriteTEXTInnerConfig,
+    pub multi: WriteMultiConfig,
+}
+
+/// Configuration for writing one or more datasets to file
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiDatasetConfig {
+    pub inner: WriteDatasetInnerConfig,
+    pub multi: WriteMultiConfig,
+}
+
+/// Specific configuration for writing HEADER+TEXT
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteTEXTInnerConfig {
     /// Delimiter for TEXT segment
     ///
     /// This should be an ASCII character in [1, 126]. Unlike the standard
     /// (which calls for newline), this will default to the record separator
     /// (character 30).
     pub delim: TEXTDelim,
+
+    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
+    pub big_other: BigOther,
+}
+
+/// Specific configuration for writing one dataset
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteDatasetInnerConfig {
+    pub text: WriteTEXTInnerConfig,
 
     /// If true, skip check for conversion losses before writing data.
     ///
@@ -205,10 +228,11 @@ pub struct WriteConfig {
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is false.
     pub skip_conversion_check: SkipConversionCheck,
+}
 
-    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
-    pub big_other: BigOther,
-
+/// Options that apply to writing multiple dataset
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiConfig {
     /// If ``true`` make $NEXTDATA point to the next dataset.
     ///
     /// If ``false`` $NEXTDATA will be set to 0. This flag should only be set

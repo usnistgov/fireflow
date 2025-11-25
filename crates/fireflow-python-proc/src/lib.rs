@@ -1183,10 +1183,19 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn write_text(&self, #fun_args) -> #ret_path {
-                let o = big_other.into();
-                let p = appendable.into();
-                let a = append.into();
-                Ok(self.0.write_text(&path, delim, o, p, a)?)
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                    delim,
+                    big_other.into(),
+                );
+                let mconf = fireflow_core::config::WriteMultiConfig::new(
+                    appendable.into(),
+                    append.into(),
+                );
+                let conf = fireflow_core::config::WriteMultiTEXTConfig::new(
+                    tconf,
+                    mconf,
+                );
+                Ok(self.0.write_text(&path, &conf)?)
             }
         }
     }
@@ -1241,12 +1250,21 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn write_dataset(&self, #fun_args) -> #ret_path {
-                let conf = fireflow_core::config::WriteConfig::new(
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
-                    skip_conversion_check.into(),
                     big_other.into(),
-                    append.into(),
+                );
+                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                    tconf,
+                    skip_conversion_check.into(),
+                );
+                let mconf = fireflow_core::config::WriteMultiConfig::new(
                     appendable.into(),
+                    append.into(),
+                );
+                let conf = fireflow_core::config::WriteMultiDatasetConfig::new(
+                    dconf,
+                    mconf,
                 );
                 self.0.write_dataset(&path, &conf).py_resolve_commutative()
             }

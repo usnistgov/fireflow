@@ -1,8 +1,9 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, BigOther, ConfigFlag as _,
+    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _,
     DisallowDeprecated, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
     ReaderConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern,
-    TransferDroppedOptional, WriteConfig,
+    TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -20,7 +21,7 @@ use crate::logging::{
     GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
     SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
     WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
-    WarningsAndIOGroupResult, WarningsResult, io_to_log,
+    WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
@@ -2207,39 +2208,55 @@ where
         M::Ver::fcs_version()
     }
 
+    pub fn write_multitext(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteTEXTInnerConfig,
+    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflow>>
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut nd = None;
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiTEXTConfig::new(*conf, multi);
+            nd = Some(c.write_text(path, &sconf)?);
+        }
+        Ok(nd)
+    }
+
     /// Write this core structure (HEADER+TEXT) to path
     pub fn write_text(
         &self,
         path: &PathBuf,
-        delim: TEXTDelim,
-        big_other: BigOther,
-        appendable: AppendableFlag,
-        append: AppendFlag,
+        conf: &WriteMultiTEXTConfig,
     ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
     {
-        let opts = append.file_options();
+        let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
         let mut h = BufWriter::new(f);
-        self.h_write_text(&mut h, delim, big_other, appendable)
+        self.h_write_text(&mut h, &conf.inner, conf.multi.appendable)
     }
 
     /// Write this core structure (HEADER+TEXT) to a handle
     pub fn h_write_text<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        big_other: BigOther,
+        conf: &WriteTEXTInnerConfig,
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
     {
-        if big_other.is_set() {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim, has_nextdata)
+        if conf.big_other.is_set() {
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim, has_nextdata)
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, conf.delim, has_nextdata)
         }
     }
 
@@ -4402,33 +4419,66 @@ where
             })
     }
 
+    pub fn write_multidataset(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteDatasetInnerConfig,
+    ) -> WarningsAndIOGroupResult<
+        Option<Nextdata>,
+        IndexedLossError,
+        StdWriterError,
+        WriteDatasetSummary,
+    >
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut results = vec![];
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiDatasetConfig::new(*conf, multi);
+            let succ = split_log!(c.write_dataset(path, &sconf));
+            results.push(succ);
+        }
+        let mut it = results.into_iter();
+        if let Some(r0) = it.by_ref().next() {
+            let ret = it.fold(r0, |acc, r| acc.lift_f2_once(r, |_, nd| nd));
+            LogResult::Succ(ret.fmap_once(Some))
+        } else {
+            LogResult::new_ok_default()
+        }
+    }
+
     /// Write this core structure (HEADER+TEXT) to a file path
     pub fn write_dataset(
         &self,
         path: &PathBuf,
-        conf: &WriteConfig,
+        conf: &WriteMultiDatasetConfig,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
-        let opts = conf.append.file_options();
+        let opts = conf.multi.append.file_options();
         let f = io_to_log!(opts.open(path));
         let mut h = BufWriter::new(f);
-        self.h_write_dataset(&mut h, conf)
+        self.h_write_dataset(&mut h, &conf.inner, conf.multi.appendable)
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write_dataset<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteConfig,
+        conf: &WriteDatasetInnerConfig,
+        has_nextdata: AppendableFlag,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
         let df = &self.data;
         let layout = &self.layout;
-        let delim = conf.delim;
+        let delim = conf.text.delim;
         let tot = Tot(df.nrows());
         let analysis_len =
             u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
@@ -4454,9 +4504,9 @@ where
                     data_len,
                     analysis_len,
                     other_segs: others,
-                    has_nextdata: conf.appendable,
+                    has_nextdata,
                 };
-                let res = if conf.big_other.is_set() {
+                let res = if conf.text.big_other.is_set() {
                     self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
                 } else {
                     self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)

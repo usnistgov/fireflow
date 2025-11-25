@@ -2677,6 +2677,10 @@ impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
 // Fully-generic LogResult
 //
 impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
+    pub(crate) fn is_succ(&self) -> bool {
+        matches!(self, LogResult::Succ(_))
+    }
+
     pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>(
         self,
         f: F,
@@ -2892,6 +2896,19 @@ macro_rules! split_io {
 }
 
 pub(crate) use split_io;
+
+macro_rules! split_log {
+    ($x:expr) => {
+        match $x {
+            crate::logging::LogResult::Succ(x) => x,
+            crate::logging::LogResult::Fail(x) => {
+                return crate::logging::LogResult::Fail(x);
+            }
+        }
+    };
+}
+
+pub(crate) use split_log;
 
 /// Lift an IO error into a LogResult with an `IOErrorGroup`.
 ///

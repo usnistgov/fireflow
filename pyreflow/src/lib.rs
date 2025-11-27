@@ -94,6 +94,10 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(ff::fcs_read_std_text, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_raw_dataset, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_raw_text_at, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_std_text_at, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_raw_dataset_at, m)?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset_at, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_raw_dataset_with_keywords, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset_with_keywords, m)?)?;
 

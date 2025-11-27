@@ -55,8 +55,10 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_text_at(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_at_path = &parsed.fun_at;
+    let fun_loop_path = &parsed.fun_loop;
 
     let conf_path = config_path("ReadRawTEXTConfig");
 
@@ -66,40 +68,74 @@ pub fn def_fcs_read_raw_text_at(input: TokenStream) -> TokenStream {
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
+    let skip_arg = DocArg::new_skip_param("Number of datasets to skip");
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+
+    let conf_args: Vec<_> = header_args
+        .into_iter()
+        .chain(raw_args)
+        .chain(shared_args)
+        .collect();
+
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are not parsable");
-
     let exc1 = PyException::new_non_ascii();
+    let xs = [exc0, exc1];
 
-    let doc = DocString::new_fun("Read *HEADER* and *TEXT* as key/value pairs from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(shared_args)
+    let ret_pt = PyClass::new_py(["api"], "RawTEXTOutput");
+
+    let at_doc = DocString::new_fun("Read *HEADER* and *TEXT* from position in FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
         .arg(dataset_offset_arg)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc0, exc1]));
+        .returns(DocReturn::new(ret_pt.clone()).exc(xs.clone()));
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let loop_doc = DocString::new_fun("Read *HEADER* and *TEXT* from multiple datasets.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
+
+    let at_fun_args = at_doc.fun_args();
+    let at_ret_path = at_doc.ret_path();
+
+    let loop_fun_args = loop_doc.fun_args();
+    let loop_ret_path = loop_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let raw = #raw_conf { header, #(#raw_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { raw, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #at_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_text(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, shared };
-            Ok(#fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        pub fn fcs_read_raw_text_at(#at_fun_args) -> #at_ret_path {
+            #conf_q
+            Ok(#fun_at_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        }
+
+        #[pyfunction]
+        #loop_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_raw_text(#loop_fun_args) -> #loop_ret_path {
+            #conf_q
+            let xs = #fun_loop_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(Into::into))
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_std_text_at(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_at_path = &parsed.fun_at;
+    let fun_loop_path = &parsed.fun_loop;
 
     let conf_path = config_path("ReadStdTEXTConfig");
 
@@ -113,6 +149,21 @@ pub fn def_fcs_read_std_text_at(input: TokenStream) -> TokenStream {
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
+    let conf_args = header_args
+        .into_iter()
+        .chain(raw_args)
+        .chain(std_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(shared_args);
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are unparsable");
     let exc1 = PyException::new_non_ascii();
@@ -124,47 +175,64 @@ pub fn def_fcs_read_std_text_at(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let ret = DocReturn::new(
-        PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput")),
-    )
-    .exc(xs);
+    let pt_ret =
+        PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
 
-    let doc = DocString::new_fun("Read *HEADER* and standardized *TEXT* from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(std_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(shared_args)
+    let at_doc = DocString::new_fun("Read standardized *TEXT* from position in FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
         .arg(dataset_offset_arg)
-        .returns(ret);
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let loop_doc = DocString::new_fun("Read multiple standardized *TEXT* from FCS file.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let at_fun_args = at_doc.fun_args();
+    let at_ret_path = at_doc.ret_path();
+    let loop_fun_args = loop_doc.fun_args();
+    let loop_ret_path = loop_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let raw = #raw_conf { header, #(#raw_recs),* };
+        let standard = #std_conf { #(#std_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { raw, standard, offsets, layout, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #at_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_text(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let standard = #std_conf { #(#std_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, standard, offsets, layout, shared };
-            let (core, data) = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
+        pub fn fcs_read_std_text_at(#at_fun_args) -> #at_ret_path {
+            #conf_q
+            let (core, data) = #fun_at_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
+        }
+
+        #[pyfunction]
+        #loop_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_text(#loop_fun_args) -> #loop_ret_path {
+            #conf_q
+            let xs = #fun_loop_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset_at(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_at_path = &parsed.fun_at;
+    let fun_loop_path = &parsed.fun_loop;
 
     let conf_path = config_path("ReadRawDatasetConfig");
 
@@ -177,6 +245,21 @@ pub fn def_fcs_read_raw_dataset_at(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+
+    let conf_args = header_args
+        .into_iter()
+        .chain(raw_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args);
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -192,41 +275,62 @@ pub fn def_fcs_read_raw_dataset_at(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let doc = DocString::new_fun("Read raw dataset from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(data_args)
-        .args(shared_args)
-        .arg(dataset_offset_arg)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc(xs));
+    let pt_ret = PyClass::new_py(["api"], "RawDatasetOutput");
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let at_doc = DocString::new_fun("Read one raw dataset from FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+
+    let loop_doc = DocString::new_fun("Read multiple raw datasets from FCS file.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let at_fun_args = at_doc.fun_args();
+    let at_ret_path = at_doc.ret_path();
+    let loop_fun_args = loop_doc.fun_args();
+    let loop_ret_path = loop_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let raw = #raw_conf { header, #(#raw_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let data = #data_conf { #(#data_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { raw, layout, offsets, data, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #at_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let data = #data_conf { #(#data_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, layout, offsets, data, shared };
-            Ok(#fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        pub fn fcs_read_raw_dataset_at(#at_fun_args) -> #at_ret_path {
+            #conf_q
+            Ok(#fun_at_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        }
+
+        #[pyfunction]
+        #loop_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_raw_dataset(#loop_fun_args) -> #loop_ret_path {
+            #conf_q
+            let xs = #fun_loop_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(Into::into))
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_std_dataset_at(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_at_path = &parsed.fun_at;
+    let fun_loop_path = &parsed.fun_loop;
 
     let conf_path = config_path("ReadStdDatasetConfig");
 
@@ -240,6 +344,22 @@ pub fn def_fcs_read_std_dataset_at(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let conf_args = header_args
+        .into_iter()
+        .chain(raw_args)
+        .chain(std_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args);
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -255,42 +375,55 @@ pub fn def_fcs_read_std_dataset_at(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5, exc6];
 
-    let doc = DocString::new_fun("Read standardized dataset from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(std_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(data_args)
-        .args(shared_args)
-        .arg(dataset_offset_arg)
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyUnion::new_anycoredataset())
-                    .add(PyClass::new_py(["api"], "StdDatasetOutput")),
-            )
-            .exc(xs),
-        );
+    let pt_ret = PyTuple::new1(PyUnion::new_anycoredataset())
+        .add(PyClass::new_py(["api"], "StdDatasetOutput"));
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let at_doc = DocString::new_fun("Read one standardized dataset from FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+
+    let loop_doc = DocString::new_fun("Read multiple standardized datasets from FCS file.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let at_fun_args = at_doc.fun_args();
+    let at_ret_path = at_doc.ret_path();
+    let loop_fun_args = loop_doc.fun_args();
+    let loop_ret_path = loop_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let raw = #raw_conf { header, #(#raw_recs),* };
+        let standard = #std_conf { #(#std_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let data = #data_conf { #(#data_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { raw, standard, offsets, layout, data, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #at_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_dataset(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let standard = #std_conf { #(#std_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let data = #data_conf { #(#data_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, standard, offsets, layout, data, shared };
-            let (core, data) = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
+        pub fn fcs_read_std_dataset_at(#at_fun_args) -> #at_ret_path {
+            #conf_q
+            let (core, data) = #fun_at_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
+        }
+
+        #[pyfunction]
+        #loop_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_dataset(#loop_fun_args) -> #loop_ret_path {
+            #conf_q
+            let xs = #fun_loop_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
         }
     }
     .into()
@@ -1228,24 +1361,12 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_segment_overflow(version);
     let exc1 = PyException::new_other_overflow();
 
-    let conv_exc = PyreflowError::DataLoss.fmt_ref();
     let nextdata = PyInt::new_nextdata();
     let ret = DocReturn::new(nextdata)
         .exc([exc0, exc1])
         .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
-    let skip_param = DocArg::new_bool_param(
-        "skip_conversion_check",
-        format!(
-            "Skip check to ensure that types of the dataframe match the \
-             columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-             perform this check before writing, and raise {conv_exc} on \
-             failure. If ``True``, raise warnings as file is being \
-             written. Skipping this is faster since the data needs to be \
-             traversed twice to perform the conversion check, but may \
-             result in loss of precision and/or truncation."
-        ),
-    );
+    let skip_param = DocArg::new_skip_conversion_check_param();
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
@@ -2339,6 +2460,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     .into()
 }
 
+// TODO make coredataset write multi
 #[proc_macro]
 pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
@@ -3701,6 +3823,21 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     };
 
     doc.into_impl_class(name, path, new).1.into()
+}
+
+/// Macro args for implementing read functions for both position and multiple datasets
+struct ReadFunArgs {
+    fun_at: Path,
+    fun_loop: Path,
+}
+
+impl Parse for ReadFunArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let fun_at = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let fun_loop = input.parse::<Path>()?;
+        Ok(Self { fun_at, fun_loop })
+    }
 }
 
 /// Macro args for implementing new Core* classes
@@ -6517,6 +6654,16 @@ impl DocArgParam {
         Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
     }
 
+    fn new_skip_param(desc: &str) -> Self {
+        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        Self::new_param("skip", pt, desc).def_auto()
+    }
+
+    fn new_limit_param(desc: &str) -> Self {
+        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        Self::new_param("limit", pt, desc).def_auto()
+    }
+
     fn new_path_param(read: bool) -> Self {
         let s = if read { "read" } else { "written" };
         let pt = PyClass::new1("~pathlib.Path").rstype(parse_quote!(std::path::PathBuf));
@@ -6600,7 +6747,7 @@ impl DocArgParam {
         Self::new_bool_param("big_other", desc)
     }
 
-    fn new_skip_conversion_chech_param() -> Self {
+    fn new_skip_conversion_check_param() -> Self {
         let conv_exc = PyreflowError::DataLoss.fmt_ref();
         Self::new_bool_param(
             "skip_conversion_check",
@@ -6886,7 +7033,7 @@ impl DocArgParam {
     }
 
     fn new_write_dataset_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let skip_conversion_check = Self::new_skip_conversion_chech_param();
+        let skip_conversion_check = Self::new_skip_conversion_check_param();
         let conf = config_path("WriteDatasetInnerConfig");
         let ps = vec![skip_conversion_check];
         let js = ps.iter().map(IsDocArg::record_into).collect();

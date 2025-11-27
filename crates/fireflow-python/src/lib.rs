@@ -77,8 +77,8 @@ use fireflow_core::validated::keys;
 
 use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
-    def_fcs_read_header, def_fcs_read_raw_dataset_at, def_fcs_read_raw_dataset_with_keywords,
-    def_fcs_read_raw_text_at, def_fcs_read_std_dataset_at, def_fcs_read_std_text_at,
+    def_fcs_read_header, def_fcs_read_raw_dataset, def_fcs_read_raw_dataset_with_keywords,
+    def_fcs_read_raw_text, def_fcs_read_std_dataset, def_fcs_read_std_text,
     impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
     impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
     impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
@@ -111,10 +111,10 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
-def_fcs_read_raw_text_at!(api::fcs_read_raw_text_at);
-def_fcs_read_std_text_at!(api::fcs_read_std_text_at);
-def_fcs_read_raw_dataset_at!(api::fcs_read_raw_dataset_at);
-def_fcs_read_std_dataset_at!(api::fcs_read_std_dataset_at);
+def_fcs_read_raw_text!(api::fcs_read_raw_text_at, api::fcs_read_raw_text);
+def_fcs_read_std_text!(api::fcs_read_std_text_at, api::fcs_read_std_text);
+def_fcs_read_raw_dataset!(api::fcs_read_raw_dataset_at, api::fcs_read_raw_dataset);
+def_fcs_read_std_dataset!(api::fcs_read_std_dataset_at, api::fcs_read_std_dataset);
 def_fcs_read_raw_dataset_with_keywords!(api::fcs_read_raw_dataset_with_keywords);
 def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords);
 

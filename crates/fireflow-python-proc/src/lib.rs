@@ -55,7 +55,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_raw_text_at(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
     let conf_path = config_path("ReadRawTEXTConfig");
@@ -98,7 +98,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_std_text_at(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
     let conf_path = config_path("ReadStdTEXTConfig");
@@ -163,7 +163,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_raw_dataset_at(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
     let conf_path = config_path("ReadRawDatasetConfig");
@@ -225,7 +225,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_std_dataset_at(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
     let conf_path = config_path("ReadStdDatasetConfig");

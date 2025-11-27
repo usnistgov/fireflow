@@ -289,6 +289,13 @@ impl<E, G> IOErrorGroup<E, G> {
             Self::Pure(g) => IOErrorGroup::Pure(g.map(f)),
         }
     }
+
+    pub(crate) fn set_group<G0>(self, g: G0) -> IOErrorGroup<E, G0> {
+        match self {
+            Self::IO(i, x) => IOErrorGroup::IO(i, x.map(|y| y.set_group(g))),
+            Self::Pure(x) => IOErrorGroup::Pure(x.set_group(g)),
+        }
+    }
 }
 
 impl<E> IOErrorGroup<E, ()> {
@@ -400,6 +407,10 @@ impl<E, G> ErrorGroup<E, G> {
 
     pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> ErrorGroup<X, G> {
         ErrorGroup::new(self.summary, self.errors.fmap(f))
+    }
+
+    pub(crate) fn set_group<G0>(self, g: G0) -> ErrorGroup<E, G0> {
+        ErrorGroup::new(g, self.errors)
     }
 }
 
@@ -746,6 +757,29 @@ impl<V, E> ResultExt for Result<V, E> {
         self.as_mut()
     }
 }
+
+/// Combine successes.
+///
+/// This is effectively the `sequence` function from Haskell's Data.Traversable
+/// where the Traversible is an iterator and `Success` forms a Monad.
+pub(crate) trait SuccessResultIter<V, WC>:
+    Iterator<Item = Success<V, (), WC>> + Sized
+{
+    fn sequence_success(self) -> Success<Vec<V>, (), WC>
+    where
+        WC: Monoid,
+    {
+        let mut xs = vec![];
+        let mut ws = WC::default();
+        for x in self {
+            xs.push(x.value);
+            ws = ws.mappend(x.warnings);
+        }
+        Success::new_non_switchable(xs).set_warnings(ws)
+    }
+}
+
+impl<I, V, WC> SuccessResultIter<V, WC> for I where I: Iterator<Item = Success<V, (), WC>> {}
 
 /// Combine commutative results.
 ///
@@ -1149,6 +1183,10 @@ impl<V, X, WC> Success<V, X, WC> {
         WC: Default,
     {
         Self::new(value, flag, WC::default())
+    }
+
+    pub fn into_log<P, RWC, E, EC>(self) -> LogResult<V, P, WC, RWC, X, E, EC> {
+        Succ(self)
     }
 
     fn remove_flag(self) -> Success<V, (), WC> {
@@ -2677,10 +2715,6 @@ impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
 // Fully-generic LogResult
 //
 impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
-    pub(crate) fn is_succ(&self) -> bool {
-        matches!(self, LogResult::Succ(_))
-    }
-
     pub(crate) fn map_either<F, G, Vf, Pf, LWCf, RWCf, Xf, Ef, ECf>(
         self,
         f: F,

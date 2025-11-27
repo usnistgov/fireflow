@@ -29,7 +29,7 @@ macro_rules! def_group {
     ($failname:ident, $msg:expr) => {
         // make these pub no matter what since they will be in public error
         // interfaces
-        #[derive(Default, Debug)]
+        #[derive(Default, Debug, Clone, Copy)]
         pub struct $failname;
 
         impl std::fmt::Display for $failname {

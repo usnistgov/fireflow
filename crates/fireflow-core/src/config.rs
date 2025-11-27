@@ -75,6 +75,7 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -94,6 +95,7 @@ pub struct ReadRawDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -128,6 +130,7 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -142,6 +145,7 @@ pub struct ReadRawDatasetFromKeywordsConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -443,7 +447,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// This is a required keyword in all versions. However, most files only
     /// have one dataset so this keyword does nothing. If true, a warning will
     /// be emitted rather than an error if this is missing.
-    pub allow_missing_nextdata: bool,
+    pub allow_missing_nextdata: AllowMissingNextdata,
 
     /// If true, trim whitespace from all values.
     ///
@@ -814,6 +818,7 @@ impl_error_flag!(false_is_error AllowEmpty);
 impl_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+impl_error_flag!(false_is_error AllowMissingNextdata);
 
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);

@@ -1,9 +1,9 @@
 use crate::config::{
-    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadEventsConfig,
-    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig,
-    ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig, ReadTEXTOffsetsConfig, StdTextReadConfig,
-    TruncateOffsets,
+    AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
+    HeaderConfigInner, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig,
+    ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig,
+    ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
+    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -18,8 +18,9 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
     DeferredWarningsAndErrors, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    split_log,
 };
 use crate::macros::def_group;
 use crate::segment::{
@@ -31,7 +32,7 @@ use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, To
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
-use crate::type_families::ApplyOnce as _;
+use crate::type_families::{ApplyOnce as _, FunctorOnce as _};
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
@@ -63,33 +64,33 @@ use {
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
-    p: &PathBuf,
+    path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
 ) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
-    let (st, file) = ReadState::open(p, dataset_offset, conf)?;
+    let (st, file) = ReadState::open(path, dataset_offset, conf)?;
     let mut reader = BufReader::new(file);
     Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
 }
 
-/// Read HEADER and key/value pairs from TEXT in an FCS file.
+/// Read HEADER and key/value pairs from TEXT in an FCS file at a given position
 #[must_use]
-pub fn fcs_read_raw_text(
-    p: &PathBuf,
+pub fn fcs_read_raw_text_at(
+    path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadRawTEXTConfig,
 ) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
 {
-    read_fcs_raw_text_inner(p, dataset_offset, conf)
+    read_fcs_raw_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
         .warnings_to_pure_errors(&conf.shared, HeaderOrRawError::from)
         .deanonymize()
 }
 
-/// Read HEADER and standardized TEXT from an FCS file.
+/// Read HEADER and standardized TEXT at a given position from an FCS file.
 #[must_use]
-pub fn fcs_read_std_text(
-    p: &PathBuf,
+pub fn fcs_read_std_text_at(
+    path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
@@ -98,7 +99,7 @@ pub fn fcs_read_std_text(
     StdTEXTError,
     StdTEXTFailure,
 > {
-    read_fcs_raw_text_inner(p, dataset_offset, conf)
+    read_fcs_raw_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .map_commutative_warnings(StdTEXTWarning::from)
         .map_pure_errors(StdTEXTError::from)
@@ -113,15 +114,15 @@ pub fn fcs_read_std_text(
         .deanonymize()
 }
 
-/// Read dataset from FCS file using standardized TEXT.
+/// Read dataset from FCS at given position file using raw TEXT.
 #[must_use]
-pub fn fcs_read_raw_dataset(
-    p: &PathBuf,
+pub fn fcs_read_raw_dataset_at(
+    path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadRawDatasetConfig,
 ) -> WarningsAndIOGroupResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure>
 {
-    read_fcs_raw_text_inner(p, dataset_offset, conf)
+    read_fcs_raw_text_inner(path, dataset_offset, conf)
         .map_pure_errors(RawDatasetError::from)
         .map_commutative_warnings(RawDatasetWarning::from)
         .and_then_commutative(|(raw, mut h, st)| {
@@ -142,10 +143,10 @@ pub fn fcs_read_raw_dataset(
         .deanonymize()
 }
 
-/// Read dataset from FCS file using raw key/value pairs from TEXT.
+/// Read dataset from FCS file at given position using standardized TEXT.
 #[must_use]
-pub fn fcs_read_std_dataset(
-    p: &PathBuf,
+pub fn fcs_read_std_dataset_at(
+    path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
@@ -154,7 +155,7 @@ pub fn fcs_read_std_dataset(
     StdDatasetError,
     StdDatasetFailure,
 > {
-    read_fcs_raw_text_inner(p, dataset_offset, conf)
+    read_fcs_raw_text_inner(path, dataset_offset, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
         .map_pure_errors(StdDatasetError::from)
         .and_then_commutative(|(raw, mut h, st)| {
@@ -170,7 +171,7 @@ pub fn fcs_read_std_dataset(
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn fcs_read_raw_dataset_with_keywords(
-    p: &PathBuf,
+    path: &PathBuf,
     version: Version,
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
@@ -184,7 +185,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     LookupAndReadDataAnalysisError,
     RawDatasetWithKwsFailure,
 > {
-    ReadState::open(p, dataset_offset, conf)
+    ReadState::open(path, dataset_offset, conf)
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -207,7 +208,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
 #[must_use]
 #[allow(clippy::too_many_arguments)]
 pub fn fcs_read_std_dataset_with_keywords(
-    p: &PathBuf,
+    path: &PathBuf,
     version: Version,
     kws: ValidKeywords,
     data_seg: HeaderDataSegment,
@@ -221,7 +222,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     StdDatasetFromRawError,
     StdDatasetWithKwsSummary,
 > {
-    ReadState::open(p, dataset_offset, conf)
+    ReadState::open(path, dataset_offset, conf)
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -238,6 +239,177 @@ pub fn fcs_read_std_dataset_with_keywords(
         })
         .warnings_to_pure_errors(&conf.shared, StdDatasetFromRawError::from)
         .deanonymize()
+}
+
+/// Read HEADER and key/value pairs from TEXT in an FCS file.
+#[must_use]
+pub fn fcs_read_raw_text(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadRawTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<RawTEXTOutput>,
+    ParseRawTEXTWarning,
+    HeaderOrRawError,
+    RawTEXTFailure,
+> {
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    while let Some(dso) = dataset_offset
+        && limit.is_some_and(|x| count > x)
+    {
+        let res = fcs_read_raw_text_at(path, dso, conf);
+        let succ = split_log!(res);
+        let nextdata_res = succ.fmap_once(|ret| {
+            dataset_offset = ret
+                .parse
+                .nextdata
+                .and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+            ret
+        });
+        results.push(nextdata_res);
+        count += 1;
+    }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().skip(skip.unwrap_or_default()).collect())
+        .into_log()
+}
+
+/// Read HEADER and standardized TEXT from an FCS file.
+#[must_use]
+pub fn fcs_read_std_text(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadStdTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreTEXT, StdTEXTOutput)>,
+    MultiStdTEXTWarning,
+    MultiStdTEXTError,
+    StdTEXTFailure,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        StdTEXTFailure,
+        fcs_read_std_text_at,
+        |ret| ret.1.parse.nextdata,
+    )
+}
+
+/// Read dataset from FCS file using raw TEXT.
+#[must_use]
+pub fn fcs_read_raw_dataset(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadRawDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<RawDatasetOutput>,
+    MultiRawDatasetWarning,
+    MultiRawDatasetError,
+    RawDatasetFailure,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        RawDatasetFailure,
+        fcs_read_raw_dataset_at,
+        |ret| ret.text.parse.nextdata,
+    )
+}
+
+/// Read dataset from FCS file at given position using raw TEXT.
+#[must_use]
+pub fn fcs_read_std_dataset(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadStdDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreDataset, StdDatasetOutput)>,
+    MultiStdDatasetWarning,
+    MultiStdDatasetError,
+    StdDatasetFailure,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        StdDatasetFailure,
+        fcs_read_std_dataset_at,
+        |ret| ret.1.parse.nextdata,
+    )
+}
+
+fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
+    p: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &C,
+    g: G,
+    mut f0: Fsucc,
+    mut fnext: Fnext,
+) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
+where
+    Fsucc: FnMut(&PathBuf, DatasetOffset, &C) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
+    Fnext: FnMut(&X) -> Option<u64>,
+    E: From<HeaderOrRawError> + From<Ei>,
+    W: From<ParseRawTEXTWarning> + From<Wi>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<SharedConfig>,
+    G: Copy,
+{
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    // TODO this shouldn't be necessary
+    let rconf = ReadRawTEXTConfig {
+        raw: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+        shared: AsRef::<SharedConfig>::as_ref(conf).clone(),
+    };
+    while let Some(dso) = dataset_offset
+        && limit.is_some_and(|x| count > x)
+    {
+        let nextdata_res = if skip.is_some_and(|s| count < s) {
+            let res = fcs_read_raw_text_at(p, dso, &rconf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from)
+                .map_error(|e| e.set_group(g));
+            let succ = split_log!(res);
+            succ.fmap_once(|ret| {
+                dataset_offset = ret
+                    .parse
+                    .nextdata
+                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+                None
+            })
+        } else {
+            let res = f0(p, dso, conf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from);
+            let succ = split_log!(res);
+            succ.fmap_once(|ret| {
+                dataset_offset = fnext(&ret).and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+                Some(ret)
+            })
+        };
+        results.push(nextdata_res);
+        count += 1;
+    }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().flatten().collect())
+        .into_log()
 }
 
 /// Output from parsing the TEXT segment.
@@ -427,6 +599,54 @@ pub enum STextSegmentWarning {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DuplicatedSuppTEXT;
+
+/// Error when parsing multiple TEXT segment in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdTEXTError {
+    Raw(HeaderOrRawError), // for reading skipped datasets to get $NEXTDATA
+    Single(StdTEXTError),
+}
+
+/// Warning when parsing multiple datasets in raw mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiRawDatasetWarning {
+    Text(ParseRawTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Data(RawDatasetWarning),
+}
+
+/// Error when parsing multiple datasets in raw mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiRawDatasetError {
+    Text(HeaderOrRawError), // for reading skipped datasets to get $NEXTDATA
+    Data(RawDatasetError),
+}
+
+/// Warning when parsing multiple TEXT segment in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdTEXTWarning {
+    Raw(ParseRawTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Std(StdTEXTWarning),
+}
+
+/// Error when parsing multiple datasets in raw mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdDatasetError {
+    Text(HeaderOrRawError), // for reading skipped datasets to get $NEXTDATA
+    Data(StdDatasetError),
+}
+
+/// Warning when parsing multiple TEXT segment in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdDatasetWarning {
+    Raw(ParseRawTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Std(StdDatasetWarning),
+}
 
 /// Warning when parsing TEXT segment
 #[derive(From, Display, Error, Debug)]
@@ -1273,9 +1493,9 @@ where
 // or use a more clever hash table that marks keys when we see them.
 fn lookup_nextdata(
     kws: &StdKeywords,
-    enforce: bool,
+    flag: AllowMissingNextdata,
 ) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
-    let ret = if enforce {
+    let ret = if flag.is_set() {
         Nextdata::get_metaroot_req(kws)
             .map(Some)
             .into_log()

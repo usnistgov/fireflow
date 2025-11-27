@@ -221,7 +221,7 @@ pub fn fcs_read_raw_texts(
     let mut count = 0_usize;
     let mut results = vec![];
     while let Some(dso) = dataset_offset
-        && limit.is_some_and(|x| count > x)
+        && limit.is_none_or(|x| count <= x)
     {
         let res = fcs_read_raw_text(path, dso, conf);
         let succ = split_log!(res);
@@ -229,7 +229,7 @@ pub fn fcs_read_raw_texts(
             dataset_offset = ret
                 .parse
                 .nextdata
-                .and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+                .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
             ret
         });
         results.push(nextdata_res);
@@ -340,7 +340,7 @@ where
         shared: AsRef::<SharedConfig>::as_ref(conf).clone(),
     };
     while let Some(dso) = dataset_offset
-        && limit.is_some_and(|x| count > x)
+        && limit.is_none_or(|x| count <= x)
     {
         let nextdata_res = if skip.is_some_and(|s| count < s) {
             let res = fcs_read_raw_text(p, dso, &rconf)
@@ -352,7 +352,7 @@ where
                 dataset_offset = ret
                     .parse
                     .nextdata
-                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
                 None
             })
         } else {
@@ -361,7 +361,8 @@ where
                 .map_pure_errors(E::from);
             let succ = split_log!(res);
             succ.fmap_once(|ret| {
-                dataset_offset = fnext(&ret).and_then(|nd| (nd > 0).then_some(DatasetOffset(nd)));
+                dataset_offset =
+                    fnext(&ret).and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
                 Some(ret)
             })
         };

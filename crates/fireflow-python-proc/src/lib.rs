@@ -7635,6 +7635,11 @@ impl ClassDocString {
                 #new
 
                 #get_set_methods
+
+                // allow all classes to be deepcopy-ed
+                fn __deepcopy__(&self, _memo: &Bound<'_, pyo3::PyAny>) -> Self {
+                    self.clone()
+                }
             }
         };
         (pyname, s)

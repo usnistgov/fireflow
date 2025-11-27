@@ -4,8 +4,8 @@ use crate::logging::{
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
-    Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
     TEXTSegment,
 };
 use crate::text::keywords::{
@@ -29,7 +29,7 @@ use std::iter::once;
 use thiserror::Error;
 
 use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::str;
 
 #[cfg(feature = "serde")]
@@ -249,8 +249,9 @@ impl Header {
     ) -> IOGroupResult<Self, HeaderError, ()>
     where
         C: AsRef<HeaderConfigInner>,
-        R: Read,
+        R: Read + Seek,
     {
+        h.seek(SeekFrom::Start(st.dataset_offset.0))?;
         let (version, text, data, analysis) = h_read_required_header(h, st)?;
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
@@ -403,8 +404,7 @@ impl str::FromStr for Version {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
-    Primary(PrimarySegmentError),
-    Other(OtherSegmentError),
+    Segment(HeaderSegmentError),
     Version(VersionError),
     Validation(HeaderValidationError),
     Space(HeaderSpacesError),
@@ -486,16 +486,15 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
 
-        let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
+        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let analysis_seg =
             HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len, dso)?;
 
         let nextdata = Nextdata(if has_nextdata.is_set() {
-            UintZeroPad20(
-                analysis_seg
-                    .try_next_byte()
-                    .map_or(analysis_begin, u64::from),
-            )
+            let n = analysis_seg
+                .try_next_byte()
+                .map_or(analysis_begin, u64::from);
+            UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
         });

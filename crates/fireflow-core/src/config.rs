@@ -969,7 +969,7 @@ pub struct ReadState<C> {
 #[derive(From, Into, Clone, Copy, Debug, Display)]
 pub(crate) struct FileLen(pub(crate) u64);
 
-#[derive(From, Into, Clone, Copy, Debug, PartialEq, Default)]
+#[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct DatasetOffset(pub u64);

@@ -2219,7 +2219,7 @@ where
         let n = cores.len();
         let mut nd = None;
         for (i, c) in cores.iter().enumerate() {
-            let appendable = AppendableFlag::from(i < n);
+            let appendable = AppendableFlag::from(i + 1 < n);
             let append = AppendFlag(i > 0);
             let multi = WriteMultiConfig::new(appendable, append);
             let sconf = WriteMultiTEXTConfig::new(*conf, multi);
@@ -4436,7 +4436,7 @@ where
         let n = cores.len();
         let mut results = vec![];
         for (i, c) in cores.iter().enumerate() {
-            let appendable = AppendableFlag::from(i < n);
+            let appendable = AppendableFlag::from(i + 1 < n);
             let append = AppendFlag(i > 0);
             let multi = WriteMultiConfig::new(appendable, append);
             let sconf = WriteMultiDatasetConfig::new(*conf, multi);

@@ -627,7 +627,7 @@ impl<I, S, T> Segment<I, S, T> {
                 let begin = s.begin.into();
                 let nbytes = u64::from(s.nbytes());
 
-                h.seek(SeekFrom::Start(begin))?;
+                h.seek(SeekFrom::Start(begin + s.dataset_offset.0))?;
                 h.take(nbytes).read_to_end(buf)?;
                 Ok(())
             }
@@ -736,7 +736,7 @@ impl<I, S, T> Segment<I, S, T> {
         begin: impl Into<T>,
         end: impl Into<T>,
         conf: &NewSegmentConfig<I, S>,
-    ) -> Result<Self, SegmentError<T>>
+    ) -> Result<Self, SegmentError>
     where
         I: HasRegion,
         S: HasSource,
@@ -836,7 +836,7 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         corr: HeaderCorrection<I>,
         st: &ReadState<C>,
-    ) -> Result<Self, IOErrorGroup<PrimarySegmentError, ()>>
+    ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -872,7 +872,7 @@ impl<I: Copy> HeaderSegment<I> {
         allow_negative: bool,
         squish_offsets: bool,
         conf: &NewSegmentConfig<I, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), PrimarySegmentError>
+    ) -> ErrorsResult<Self, (), HeaderSegmentError>
     where
         I: HasRegion,
     {
@@ -888,7 +888,7 @@ impl<I: Copy> HeaderSegment<I> {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new_squish(begin, end, squish_offsets, conf)
-                    .map_err(PrimarySegmentError::from)
+                    .map_err(HeaderSegmentError::from)
                     .into_log()
             })
     }
@@ -917,7 +917,7 @@ impl<I: Copy> HeaderSegment<I> {
         end: UintSpacePad8,
         squish_offsets: bool,
         conf: &NewSegmentConfig<I, SegmentFromHeader>,
-    ) -> Result<Self, SegmentError<UintSpacePad8>>
+    ) -> Result<Self, SegmentError>
     where
         I: HasRegion,
     {
@@ -937,7 +937,7 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> Result<Vec<Self>, IOErrorGroup<OtherSegmentError, ()>>
+    ) -> Result<Vec<Self>, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read,
         C: AsRef<HeaderConfigInner>,
@@ -988,7 +988,7 @@ impl OtherSegment20 {
         bs1: &[u8],
         allow_negative: bool,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), OtherSegmentError> {
+    ) -> ErrorsResult<Self, (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
@@ -1001,7 +1001,7 @@ impl OtherSegment20 {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new(begin, end, conf)
-                    .map_err(OtherSegmentError::from)
+                    .map_err(HeaderSegmentError::from)
                     .into_log()
             })
     }
@@ -1042,7 +1042,7 @@ impl<T> InnerSegment<T> {
         begin: T,
         end: T,
         conf: &NewSegmentConfig<I, S>,
-    ) -> Result<Self, SegmentError<T>>
+    ) -> Result<Self, SegmentError>
     where
         T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy + TryFrom<u64>,
         u64: From<T>,
@@ -1051,15 +1051,15 @@ impl<T> InnerSegment<T> {
         let corr = &conf.corr;
         let x = Into::<i128>::into(begin) + i128::from(corr.begin);
         let y = Into::<i128>::into(end) + i128::from(corr.end);
-        // TODO add offset to error so we can see the exact coordinates
-        let err = |kind| SegmentError {
-            begin,
-            end,
-            corr_begin: corr.begin,
-            corr_end: corr.end,
-            kind,
-            location: I::REGION,
-            src: S::SRC,
+        let err = |kind| {
+            SegmentError::new(
+                (u64::from(begin), u64::from(end)),
+                (corr.begin, corr.end),
+                conf.dataset_offset,
+                kind,
+                I::REGION,
+                S::SRC,
+            )
         };
         match (T::try_from(x), T::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
@@ -1160,7 +1160,7 @@ impl<T> NonEmptySegment<T> {
 pub enum ReqSegmentError<B, E> {
     BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
     EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
+    Segment(SegmentError),
 }
 
 /// Error when parsing optional segment offsets from TEXT
@@ -1170,32 +1170,25 @@ pub enum ReqSegmentError<B, E> {
 pub enum OptSegmentError<B, E> {
     BeginKey(ParseKeyError<ParseIntError, B, ()>),
     EndKey(ParseKeyError<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
+    Segment(SegmentError),
 }
-
-pub type PrimarySegmentError = HeaderSegmentError<UintSpacePad8>;
-
-pub type OtherSegmentError = HeaderSegmentError<UintSpacePad20>;
 
 /// Error when parsing a segment from HEADER
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(S: Into<u64> + Copy))]
-pub enum HeaderSegmentError<S> {
-    New(SegmentError<S>),
+pub enum HeaderSegmentError {
+    New(SegmentError),
     Parse(ParseOffsetError),
 }
 
 /// Error when creating a new segment
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-#[cfg_attr(feature = "python", bound(T: Into<u64> + Copy))]
-pub struct SegmentError<T> {
-    begin: T,
-    end: T,
-    corr_begin: i32,
-    corr_end: i32,
+pub struct SegmentError {
+    coords: (u64, u64),
+    correction: (i32, i32),
+    dataset_offset: DatasetOffset,
     kind: SegmentErrorKind,
     location: AnyRegion,
     src: AnySrc,
@@ -1209,20 +1202,10 @@ enum SegmentErrorKind {
     Truncated(FileLen),
 }
 
-impl<T> fmt::Display for SegmentError<T>
-where
-    T: Into<u64> + Copy,
-{
+impl fmt::Display for SegmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let offset_text = |x, delta: i32| {
-            if delta.is_zero() {
-                format!("{x}")
-            } else {
-                format!("{x} ({delta}))")
-            }
-        };
-        let begin_text = offset_text(self.begin.into(), self.corr_begin);
-        let end_text = offset_text(self.end.into(), self.corr_end);
+        let (x0, x1) = self.coords;
+        let (c0, c1) = self.correction;
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range".into(),
             SegmentErrorKind::Inverted => "Begin after end".into(),
@@ -1233,8 +1216,9 @@ where
         };
         write!(
             f,
-            "{kind_text} for {} segment from {}; begin={begin_text}, end={end_text}",
-            self.location, self.src,
+            "{kind_text} for {} segment from {}; \
+             coords=({x0}, {x1}), correction=({c0}, {c1}), offset={}",
+            self.location, self.src, self.dataset_offset
         )
     }
 }

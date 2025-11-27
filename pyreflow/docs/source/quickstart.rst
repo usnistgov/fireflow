@@ -161,11 +161,14 @@ Read (extremely) non-compliant dataset:
 
    # ... do stuff with "to_fix" using raw python code
 
+   
+   # check the version (assume we know its 3.2)
+   out.version
+
    # After fixing, continue parsing the file with corrected keywords:
    let hs = out.parse.header_segments
-   better = fcs_read_std_dataset_with_keywords(
+   better = CoreDataset3_2::from_kws(
        path,
-       out.version,
        to_fix,
        out.nonstd,
        hs.data,

@@ -2,14 +2,14 @@ use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
     HeaderConfigInner, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig,
     ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig,
-    ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig,
-    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TruncateOffsets,
+    ReadState, ReadStdDatasetConfig, ReadStdTEXTConfig, ReadTEXTOffsetsConfig, SharedConfig,
+    StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
-    StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
+    StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdTEXTFromRawError, StdTEXTFromRawWarning,
+    Versioned as _,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -75,7 +75,7 @@ pub fn fcs_read_header(
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file at a given position
 #[must_use]
-pub fn fcs_read_raw_text_at(
+pub fn fcs_read_raw_text(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadRawTEXTConfig,
@@ -89,7 +89,7 @@ pub fn fcs_read_raw_text_at(
 
 /// Read HEADER and standardized TEXT at a given position from an FCS file.
 #[must_use]
-pub fn fcs_read_std_text_at(
+pub fn fcs_read_std_text(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadStdTEXTConfig,
@@ -116,7 +116,7 @@ pub fn fcs_read_std_text_at(
 
 /// Read dataset from FCS at given position file using raw TEXT.
 #[must_use]
-pub fn fcs_read_raw_dataset_at(
+pub fn fcs_read_raw_dataset(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadRawDatasetConfig,
@@ -145,7 +145,7 @@ pub fn fcs_read_raw_dataset_at(
 
 /// Read dataset from FCS file at given position using standardized TEXT.
 #[must_use]
-pub fn fcs_read_std_dataset_at(
+pub fn fcs_read_std_dataset(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadStdDatasetConfig,
@@ -204,46 +204,9 @@ pub fn fcs_read_raw_dataset_with_keywords(
         .deanonymize()
 }
 
-/// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
+/// Read HEADER and TEXT from multiple datasets in raw mode.
 #[must_use]
-#[allow(clippy::too_many_arguments)]
-pub fn fcs_read_std_dataset_with_keywords(
-    path: &PathBuf,
-    version: Version,
-    kws: ValidKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment20],
-    dataset_offset: DatasetOffset,
-    conf: &ReadStdDatasetFromKeywordsConfig,
-) -> WarningsAndIOGroupResult<
-    (AnyCoreDataset, StdDatasetWithKwsOutput),
-    StdDatasetFromRawWarning,
-    StdDatasetFromRawError,
-    StdDatasetWithKwsSummary,
-> {
-    ReadState::open(path, dataset_offset, conf)
-        .map_err(IOErrorGroup::from)
-        .into_log()
-        .and_then_commutative(|(st, file)| {
-            let mut h = BufReader::new(file);
-            AnyCoreDataset::new_from_keywords(
-                &mut h,
-                version,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                &st,
-            )
-        })
-        .warnings_to_pure_errors(&conf.shared, StdDatasetFromRawError::from)
-        .deanonymize()
-}
-
-/// Read HEADER and key/value pairs from TEXT in an FCS file.
-#[must_use]
-pub fn fcs_read_raw_text(
+pub fn fcs_read_raw_texts(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -260,7 +223,7 @@ pub fn fcs_read_raw_text(
     while let Some(dso) = dataset_offset
         && limit.is_some_and(|x| count > x)
     {
-        let res = fcs_read_raw_text_at(path, dso, conf);
+        let res = fcs_read_raw_text(path, dso, conf);
         let succ = split_log!(res);
         let nextdata_res = succ.fmap_once(|ret| {
             dataset_offset = ret
@@ -279,9 +242,9 @@ pub fn fcs_read_raw_text(
         .into_log()
 }
 
-/// Read HEADER and standardized TEXT from an FCS file.
+/// Read HEADER and TEXT from multiple datasets in standardized mode.
 #[must_use]
-pub fn fcs_read_std_text(
+pub fn fcs_read_std_texts(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -298,14 +261,14 @@ pub fn fcs_read_std_text(
         limit,
         conf,
         StdTEXTFailure,
-        fcs_read_std_text_at,
+        fcs_read_std_text,
         |ret| ret.1.parse.nextdata,
     )
 }
 
-/// Read dataset from FCS file using raw TEXT.
+/// Read multiple datasets from FCS file in raw mode.
 #[must_use]
-pub fn fcs_read_raw_dataset(
+pub fn fcs_read_raw_datasets(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -322,14 +285,14 @@ pub fn fcs_read_raw_dataset(
         limit,
         conf,
         RawDatasetFailure,
-        fcs_read_raw_dataset_at,
+        fcs_read_raw_dataset,
         |ret| ret.text.parse.nextdata,
     )
 }
 
-/// Read dataset from FCS file at given position using raw TEXT.
+/// Read multiple datasets from FCS file
 #[must_use]
-pub fn fcs_read_std_dataset(
+pub fn fcs_read_std_datasets(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
@@ -346,7 +309,7 @@ pub fn fcs_read_std_dataset(
         limit,
         conf,
         StdDatasetFailure,
-        fcs_read_std_dataset_at,
+        fcs_read_std_dataset,
         |ret| ret.1.parse.nextdata,
     )
 }
@@ -380,7 +343,7 @@ where
         && limit.is_some_and(|x| count > x)
     {
         let nextdata_res = if skip.is_some_and(|s| count < s) {
-            let res = fcs_read_raw_text_at(p, dso, &rconf)
+            let res = fcs_read_raw_text(p, dso, &rconf)
                 .map_commutative_warnings(W::from)
                 .map_pure_errors(E::from)
                 .map_error(|e| e.set_group(g));

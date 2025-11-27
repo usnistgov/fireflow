@@ -3,11 +3,12 @@ from ._pyreflow import fcs_read_raw_text as fcs_read_raw_text
 from ._pyreflow import fcs_read_std_text as fcs_read_std_text
 from ._pyreflow import fcs_read_raw_dataset as fcs_read_raw_dataset
 from ._pyreflow import fcs_read_std_dataset as fcs_read_std_dataset
+from ._pyreflow import fcs_read_raw_texts as fcs_read_raw_texts
+from ._pyreflow import fcs_read_std_texts as fcs_read_std_texts
+from ._pyreflow import fcs_read_raw_datasets as fcs_read_raw_datasets
+from ._pyreflow import fcs_read_std_datasets as fcs_read_std_datasets
 from ._pyreflow import (
     fcs_read_raw_dataset_with_keywords as fcs_read_raw_dataset_with_keywords,
-)
-from ._pyreflow import (
-    fcs_read_std_dataset_with_keywords as fcs_read_std_dataset_with_keywords,
 )
 
 from ._pyreflow import Header as Header

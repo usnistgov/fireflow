@@ -75,7 +75,6 @@ use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
 
-use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
 use fireflow_python_proc::{
     def_fcs_read_header, def_fcs_read_raw_dataset, def_fcs_read_raw_dataset_with_keywords,
     def_fcs_read_raw_text, def_fcs_read_std_dataset, def_fcs_read_std_text,
@@ -111,12 +110,11 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
-def_fcs_read_raw_text!(api::fcs_read_raw_text_at, api::fcs_read_raw_text);
-def_fcs_read_std_text!(api::fcs_read_std_text_at, api::fcs_read_std_text);
-def_fcs_read_raw_dataset!(api::fcs_read_raw_dataset_at, api::fcs_read_raw_dataset);
-def_fcs_read_std_dataset!(api::fcs_read_std_dataset_at, api::fcs_read_std_dataset);
+def_fcs_read_raw_text!(api::fcs_read_raw_text, api::fcs_read_raw_texts);
+def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
+def_fcs_read_raw_dataset!(api::fcs_read_raw_dataset, api::fcs_read_raw_datasets);
+def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
 def_fcs_read_raw_dataset_with_keywords!(api::fcs_read_raw_dataset_with_keywords);
-def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords);
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);

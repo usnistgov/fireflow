@@ -1366,8 +1366,6 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .exc([exc0, exc1])
         .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
-    let skip_param = DocArg::new_skip_conversion_check_param();
-
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
             "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
@@ -1376,7 +1374,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(skip_param)
+        .arg(DocArg::new_skip_conversion_check_param())
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
         .returns(ret);
@@ -2460,7 +2458,6 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     .into()
 }
 
-// TODO make coredataset write multi
 #[proc_macro]
 pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
@@ -2468,7 +2465,7 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreTEXT", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let path_arg = DocArg::new_path_param(true);
+    let path_arg = DocArg::new_path_param(false);
     let cores_arg = DocArg::new_param(
         "datasets",
         PyList::new1(PyClass::new_coretext(version)),
@@ -2501,10 +2498,70 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
         impl #pyname {
             #[staticmethod]
             #doc
-            fn write_multi_text(#fun_args) -> #ret_path {
+            fn write_multi(#fun_args) -> #ret_path {
                 let conf = #conf { #(#recs),* };
                 let cs = datasets.fmap(|c| c.0);
                 Ok(#path::write_multitext(&path, &cs[..], &conf)?)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let ident = path.segments.last().unwrap().ident.clone();
+    let version = split_ident_version_checked("CoreDataset", &ident);
+    let pyname = format_ident!("Py{ident}");
+
+    let path_arg = DocArg::new_path_param(false);
+    let cores_arg = DocArg::new_param(
+        "datasets",
+        PyList::new1(PyClass::new_coredataset(version)),
+        "datasets to write",
+    );
+
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
+
+    let xs = [exc0, exc1];
+
+    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+        .desc("the value of *$NEXTDATA* as written in the last dataset if written")
+        .exc(xs);
+
+    let doc = DocString::new_fun("Write multiple datasets to path.")
+        .para(
+            "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
+             *ANALYSIS*, and *OTHER* as they present from this class.",
+        )
+        .arg(path_arg)
+        .arg(cores_arg)
+        .arg(DocArg::new_textdelim_param())
+        .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_skip_conversion_check_param())
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #pyname {
+            #[staticmethod]
+            #doc
+            fn write_multi(#fun_args) -> #ret_path {
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                    delim,
+                    big_other.into(),
+                );
+                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                    tconf,
+                    skip_conversion_check.into(),
+                );
+                let cs = datasets.fmap(|c| c.0);
+                Ok(#path::write_multidataset(&path, &cs[..], &dconf).py_resolve_commutative()?)
             }
         }
     }
@@ -7032,22 +7089,22 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_write_dataset_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let skip_conversion_check = Self::new_skip_conversion_check_param();
-        let conf = config_path("WriteDatasetInnerConfig");
-        let ps = vec![skip_conversion_check];
-        let js = ps.iter().map(IsDocArg::record_into).collect();
-        (conf, ps, js)
-    }
+    // fn new_write_dataset_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    //     let skip_conversion_check = Self::new_skip_conversion_check_param();
+    //     let conf = config_path("WriteDatasetInnerConfig");
+    //     let ps = vec![skip_conversion_check];
+    //     let js = ps.iter().map(IsDocArg::record_into).collect();
+    //     (conf, ps, js)
+    // }
 
-    fn new_write_multi_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let appendable = Self::new_appendable_param();
-        let append = Self::new_append_param();
-        let conf = config_path("WriteMultiConfig");
-        let ps = vec![append, appendable];
-        let js = ps.iter().map(IsDocArg::record_into).collect();
-        (conf, ps, js)
-    }
+    // fn new_write_multi_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    //     let appendable = Self::new_appendable_param();
+    //     let append = Self::new_append_param();
+    //     let conf = config_path("WriteMultiConfig");
+    //     let ps = vec![append, appendable];
+    //     let js = ps.iter().map(IsDocArg::record_into).collect();
+    //     (conf, ps, js)
+    // }
 
     fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("SharedConfig");

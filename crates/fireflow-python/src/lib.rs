@@ -93,9 +93,9 @@ use fireflow_python_proc::{
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
     impl_coredataset_set_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_coretext_write_multi, impl_gated_meas,
-    impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
+    impl_coredataset_unset_data, impl_coredataset_write_multi, impl_coretext_from_kws,
+    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_coretext_write_multi,
+    impl_gated_meas, impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
     impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
     impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
     impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords, impl_py_header,
@@ -282,11 +282,17 @@ impl_coredataset_from_kws!(core::CoreDataset3_0);
 impl_coredataset_from_kws!(core::CoreDataset3_1);
 impl_coredataset_from_kws!(core::CoreDataset3_2);
 
-// impl write_multitext for all CoreTEXT* and CoreDataset
+// impl write_multitext for all CoreTEXT*
 impl_coretext_write_multi!(core::CoreTEXT2_0);
 impl_coretext_write_multi!(core::CoreTEXT3_0);
 impl_coretext_write_multi!(core::CoreTEXT3_1);
 impl_coretext_write_multi!(core::CoreTEXT3_2);
+
+// impl write_multidataset for all CoreDataset*
+impl_coredataset_write_multi!(core::CoreDataset2_0);
+impl_coredataset_write_multi!(core::CoreDataset3_0);
+impl_coredataset_write_multi!(core::CoreDataset3_1);
+impl_coredataset_write_multi!(core::CoreDataset3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {

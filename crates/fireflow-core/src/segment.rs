@@ -136,6 +136,7 @@ pub struct OtherSegmentId;
 pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
     file_len: FileLen,
+    // TODO make sure this is not longer than file_len
     dataset_offset: DatasetOffset,
     truncate_offsets: TruncateOffsets,
 }
@@ -227,12 +228,7 @@ pub trait KeyedSegment: Sized + Copy {
     {
         let correction: &TEXTCorrection<Self> = st.conf.as_ref();
         let truncate: &TruncateOffsets = st.conf.as_ref();
-        NewSegmentConfig::new(
-            *correction,
-            st.file_len.into(),
-            st.dataset_offset,
-            *truncate,
-        )
+        NewSegmentConfig::new(*correction, st.file_len, st.dataset_offset, *truncate)
     }
 }
 
@@ -732,8 +728,7 @@ impl<I, S, T> Segment<I, S, T> {
     {
         let (b, e) = self
             .try_coords()
-            .map(|(a, b, _)| (a, b))
-            .unwrap_or((T::default(), T::default()));
+            .map_or((T::default(), T::default()), |(a, b, _)| (a, b));
         format!("{b},{e}")
     }
 
@@ -827,8 +822,7 @@ impl<I, T> Segment<I, SegmentFromHeader, T> {
     {
         let (b, e) = self
             .try_coords()
-            .map(|(b, e, _)| (b, e))
-            .unwrap_or((T::zero(), T::zero()));
+            .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
         let mut s = String::new();
         s.push_str(&b.header_string());
         s.push_str(&e.header_string());
@@ -1080,7 +1074,7 @@ impl<T> InnerSegment<T> {
                     // the maximum coordinate the ending offset can have is
                     // one less the file length (since the end is the last byte
                     // of the offset rather than the next byte)
-                    let max_end = conf.file_len.0.checked_sub(1).unwrap_or(0);
+                    let max_end = conf.file_len.0.saturating_sub(1);
                     // This will also trigger if begin is greater than file
                     // offset because we checked that it is less than end above
                     if abs_end >= conf.file_len.0 && !conf.truncate_offsets.is_set() {
@@ -1208,10 +1202,10 @@ pub struct SegmentError<T> {
 }
 
 #[derive(Debug)]
-pub enum SegmentErrorKind {
+enum SegmentErrorKind {
     Range,
     Inverted,
-    InHeader,
+    // InHeader,
     Truncated(FileLen),
 }
 
@@ -1232,7 +1226,7 @@ where
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range".into(),
             SegmentErrorKind::Inverted => "Begin after end".into(),
-            SegmentErrorKind::InHeader => "Begins within HEADER".into(),
+            // SegmentErrorKind::InHeader => "Begins within HEADER".into(),
             SegmentErrorKind::Truncated(size) => {
                 format!("Segment exceeds file size ({size} bytes)")
             }
@@ -1410,8 +1404,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.as_u64()
                 .try_coords()
-                .map(|(b, e, _)| (b, e))
-                .unwrap_or((0, 0))
+                .map_or((0, 0), |(b, e, _)| (b, e))
                 .into_pyobject(py)
         }
     }

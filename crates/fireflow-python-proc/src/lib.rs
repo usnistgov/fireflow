@@ -2561,7 +2561,7 @@ pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
                     skip_conversion_check.into(),
                 );
                 let cs = datasets.fmap(|c| c.0);
-                Ok(#path::write_multidataset(&path, &cs[..], &dconf).py_resolve_commutative()?)
+                #path::write_multidataset(&path, &cs[..], &dconf).py_resolve_commutative()
             }
         }
     }

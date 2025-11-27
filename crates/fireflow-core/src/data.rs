@@ -49,7 +49,7 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReadEventsConfig,
+    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
 };
 use crate::core::{
     AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
@@ -647,15 +647,13 @@ where
         // needed.
         let mut buf = vec![];
         // TODO why return default rather than fail?
-        seg.as_u64().try_coords().map_or(
-            LogResult::new_ok(FCSDataFrame::default()),
-            |(begin, _)| {
+        seg.try_abs_coords()
+            .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
                     .map_err(IOErrorGroup::from)
                     .into_log()
                     .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
-            },
-        )
+            })
     }
 
     fn h_write_df<W>(

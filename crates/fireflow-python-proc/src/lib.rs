@@ -34,7 +34,9 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         .desc("if *HEADER* segment is unparsable");
 
     let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
-        .args(once(DocArg::new_path_param(true)).chain(args))
+        .arg(DocArg::new_path_param(true))
+        .args(args)
+        .arg(DocArg::new_dataset_offset_param())
         .returns(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc]));
 
     let fun_args = doc.fun_args();
@@ -46,7 +48,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
-            Ok(#fun_path(&path, &conf)?.into())
+            Ok(#fun_path(&path, dataset_offset, &conf)?.into())
         }
     }
     .into()
@@ -62,6 +64,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
     let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are not parsable");
@@ -73,6 +76,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
         .args(header_args)
         .args(raw_args)
         .args(shared_args)
+        .arg(dataset_offset_arg)
         .returns(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc0, exc1]));
 
     let fun_args = doc.fun_args();
@@ -87,7 +91,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
             let raw = #raw_conf { header, #(#raw_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, shared };
-            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
+            Ok(#fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
         }
     }
     .into()
@@ -107,6 +111,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         DocArgParam::new_read_offsets_config_params(None);
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are unparsable");
@@ -119,6 +124,11 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
+    let ret = DocReturn::new(
+        PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput")),
+    )
+    .exc(xs);
+
     let doc = DocString::new_fun("Read *HEADER* and standardized *TEXT* from FCS file.")
         .arg(path_arg)
         .args(header_args)
@@ -127,13 +137,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         .args(offsets_args)
         .args(layout_args)
         .args(shared_args)
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyUnion::new_anycoretext())
-                    .add(PyClass::new_py(["api"], "StdTEXTOutput")),
-            )
-            .exc(xs),
-        );
+        .arg(dataset_offset_arg)
+        .returns(ret);
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -150,7 +155,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
             let layout = #layout_conf { #(#layout_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, shared };
-            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
+            let (core, data) = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
     }
@@ -171,6 +176,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         DocArgParam::new_read_offsets_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -194,6 +200,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
+        .arg(dataset_offset_arg)
         .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
@@ -211,7 +218,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, layout, offsets, data, shared };
-            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
+            Ok(#fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
         }
     }
     .into()
@@ -232,6 +239,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -256,6 +264,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
+        .arg(dataset_offset_arg)
         .returns(
             DocReturn::new(
                 PyTuple::new1(PyUnion::new_anycoredataset())
@@ -280,7 +289,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { raw, standard, offsets, layout, data, shared };
-            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
+            let (core, data) = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
     }
@@ -299,6 +308,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let (offsets_conf, offsets_args, offsets_recs) =
         DocArgParam::new_read_offsets_config_params(None);
@@ -330,6 +340,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
+        .arg(dataset_offset_arg)
         .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
@@ -346,7 +357,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offsets, layout, data, shared };
             let ret = #fun_path(
-                &path, version, &std, data_seg, analysis_seg, &other_segs[..], &conf
+                &path, version, &std, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
         }
@@ -367,6 +378,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
     let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (offsets_conf, offsets_args, offsets_recs) =
@@ -401,6 +413,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
+        .arg(dataset_offset_arg)
         .returns(
             DocReturn::new(
                 PyTuple::new1(PyUnion::new_anycoredataset())
@@ -425,7 +438,7 @@ pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { standard, offsets, layout, data, shared };
             let (core, data) = #fun_path(
-                &path, version, kws, data_seg, analysis_seg, &other_segs[..], &conf
+                &path, version, kws, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
@@ -2249,6 +2262,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let data_seg_param = DocArg::new_data_seg_param(SegmentSrc::Header);
     let analysis_seg_param = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_segs_param = DocArg::new_other_segs_param(true);
+    let dataset_offset_param = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_deprecated();
     let exc1 = PyException::new_parse_keyval();
@@ -2269,6 +2283,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .arg(analysis_seg_param)
         .arg(other_segs_param)
         .args(config_args)
+        .arg(dataset_offset_param)
         .returns(
             DocReturn::new(PyTuple::new2([
                 PyClass::new_coredataset(version),
@@ -2315,7 +2330,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let conf = #core_conf { standard, layout, offsets, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
-                    &path, kws, data_seg, analysis_seg, &other_segs[..], &conf
+                    &path, kws, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
@@ -5107,6 +5122,11 @@ impl<E: From<PyException>> PyInt<E> {
         Self::new_nonzero_usize().rstype(p).no_exc()
     }
 
+    fn new_dataset_offset() -> Self {
+        let p = parse_quote!(fireflow_core::config::DatasetOffset);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
+    }
+
     fn new_gate_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::GateIndex);
         Self::new_nonzero_usize().rstype(p).no_exc()
@@ -6490,6 +6510,11 @@ impl DocArgParam {
         let methods =
             GetSetMethods::from_pytype(self.argname.as_str(), &self.pytype, fallible, f, g);
         DocArgRWIvar::new(self.argname, self.pytype, self.desc, self.default, methods)
+    }
+
+    fn new_dataset_offset_param() -> Self {
+        let desc = "Starting position in the file of the dataset to be read";
+        Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
     }
 
     fn new_path_param(read: bool) -> Self {

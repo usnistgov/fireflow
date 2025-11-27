@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
 };
-use fireflow_core::config;
+use fireflow_core::config::{self, DatasetOffset};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
@@ -675,7 +675,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
-            fcs_read_header(filepath, &conf.into())
+            fcs_read_header(filepath, DatasetOffset(0), &conf.into())
                 .map_err(|s| print_errors(&s))
                 .map(|h| print_json(&h))
         }
@@ -683,7 +683,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_RAW, sargs)) => {
             let conf = parse_raw_config(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_raw_text(filepath, &conf)
+            let ((), res) = fcs_read_raw_text(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|raw| print_json(&raw))
         }
@@ -692,7 +692,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, &conf)
+            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| core.print_comp_or_spillover_table(delim))
         }
@@ -701,7 +701,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, &conf)
+            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| core.print_meas_table(delim))
         }
@@ -709,7 +709,7 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_STD, sargs)) => {
             let conf = parse_std_config(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, &conf)
+            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| print_json(&core))
         }
@@ -718,7 +718,7 @@ fn main() -> Result<(), ()> {
             let conf = parse_dataset_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_dataset(filepath, &conf)
+            let ((), res) = fcs_read_std_dataset(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| print_parsed_data(&core, delim))
         }

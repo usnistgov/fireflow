@@ -1,9 +1,9 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _,
-    DisallowDeprecated, DisallowRangeTrunc, ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig,
-    ReadEventsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern,
-    TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
+    DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig, ReadState,
+    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
+    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -4336,6 +4336,7 @@ where
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
+        dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
@@ -4355,7 +4356,7 @@ where
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        ReadState::open(p, conf)
+        ReadState::open(p, dataset_offset, conf)
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {

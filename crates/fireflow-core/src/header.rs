@@ -1,4 +1,4 @@
-use crate::config::{AppendableFlag, ConfigFlag as _, HeaderConfigInner, ReadState};
+use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadState};
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
 };
@@ -474,19 +474,21 @@ impl<T> HeaderKeywordsToWrite<T> {
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         let text_begin = Self::header_len(other_lens.len());
+        let dso = DatasetOffset(0);
 
         // +1 at end accounts for first delimiter
         let text_len: u64 =
             raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
-        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
+        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
-        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
+        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens, dso)?;
 
-        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
+        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
 
         let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
-        let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
+        let analysis_seg =
+            HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len, dso)?;
 
         let nextdata = Nextdata(if has_nextdata.is_set() {
             UintZeroPad20(
@@ -530,6 +532,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     where
         T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
+        let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len());
 
         let nooffset_req_text_len = raw_keywords_length(&req[..]);
@@ -540,7 +543,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let all_text_len = opt_text_len + nosupp_text_len;
 
         let make_text_seg = |len| {
-            PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
+            PrimaryTextSegment::try_new_with_len(prim_text_begin, len, dso).map(|seg| {
                 let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
                 (seg, other_begin)
             })
@@ -551,7 +554,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let prim_text_res = make_text_seg(all_text_len);
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
-                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
+                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens, dso)?;
                 (
                     prim_text_seg,
                     other_segs,
@@ -560,19 +563,20 @@ impl<T> HeaderKeywordsToWrite<T> {
                 )
             } else {
                 let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
-                let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
+                let (other_segs, supp_text_begin) =
+                    Self::other_segments(other_begin, other_lens, dso)?;
                 let supp_text_seg =
-                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
+                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len, dso);
                 let data_begin = supp_text_seg
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
             };
 
-        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
+        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len, dso);
 
         let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
+        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len, dso);
 
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
@@ -659,6 +663,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     fn other_segments(
         begin: u64,
         other_lens: &[u64],
+        offset: DatasetOffset,
     ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
     where
         T: Copy + TryFrom<u64> + Into<u64>,
@@ -666,7 +671,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let ret = other_lens
             .iter()
             .scan(begin, |b, &length| {
-                let s = OtherSegment::try_new_with_len(*b, length);
+                let s = OtherSegment::try_new_with_len(*b, length, offset);
                 *b += length;
                 Some(s)
             })

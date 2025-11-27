@@ -1,15 +1,15 @@
 use crate::config::{
-    AllowMissingFinalDelim, BigOther, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
-    ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
-    ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
-    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReadEventsConfig, StdTextReadConfig, TruncateOffsets,
+    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadEventsConfig,
+    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig,
+    ReadRawDatasetFromKeywordsConfig, ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig,
+    ReadStdDatasetFromKeywordsConfig, ReadStdTEXTConfig, ReadTEXTOffsetsConfig, StdTextReadConfig,
+    TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
     StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _, VersionedCore, VersionedCoreTEXT,
-    VersionedMetaroot,
+    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -38,7 +38,6 @@ use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
     StdKeywords, StdPresent, ValidKeywords,
 };
-use crate::validated::textdelim::TEXTDelim;
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -65,9 +64,10 @@ use {
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
 ) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
-    let (st, file) = ReadState::open(p, conf)?;
+    let (st, file) = ReadState::open(p, dataset_offset, conf)?;
     let mut reader = BufReader::new(file);
     Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
 }
@@ -76,10 +76,11 @@ pub fn fcs_read_header(
 #[must_use]
 pub fn fcs_read_raw_text(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadRawTEXTConfig,
 ) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
 {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_raw_text_inner(p, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
         .warnings_to_pure_errors(&conf.shared, HeaderOrRawError::from)
         .deanonymize()
@@ -89,6 +90,7 @@ pub fn fcs_read_raw_text(
 #[must_use]
 pub fn fcs_read_std_text(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreTEXT, StdTEXTOutput),
@@ -96,7 +98,7 @@ pub fn fcs_read_std_text(
     StdTEXTError,
     StdTEXTFailure,
 > {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_raw_text_inner(p, dataset_offset, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .map_commutative_warnings(StdTEXTWarning::from)
         .map_pure_errors(StdTEXTError::from)
@@ -115,10 +117,11 @@ pub fn fcs_read_std_text(
 #[must_use]
 pub fn fcs_read_raw_dataset(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadRawDatasetConfig,
 ) -> WarningsAndIOGroupResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure>
 {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_raw_text_inner(p, dataset_offset, conf)
         .map_pure_errors(RawDatasetError::from)
         .map_commutative_warnings(RawDatasetWarning::from)
         .and_then_commutative(|(raw, mut h, st)| {
@@ -143,6 +146,7 @@ pub fn fcs_read_raw_dataset(
 #[must_use]
 pub fn fcs_read_std_dataset(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetOutput),
@@ -150,7 +154,7 @@ pub fn fcs_read_std_dataset(
     StdDatasetError,
     StdDatasetFailure,
 > {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_raw_text_inner(p, dataset_offset, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
         .map_pure_errors(StdDatasetError::from)
         .and_then_commutative(|(raw, mut h, st)| {
@@ -164,6 +168,7 @@ pub fn fcs_read_std_dataset(
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn fcs_read_raw_dataset_with_keywords(
     p: &PathBuf,
     version: Version,
@@ -171,6 +176,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
+    dataset_offset: DatasetOffset,
     conf: &ReadRawDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
     RawDatasetWithKwsOutput,
@@ -178,7 +184,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     LookupAndReadDataAnalysisError,
     RawDatasetWithKwsFailure,
 > {
-    ReadState::open(p, conf)
+    ReadState::open(p, dataset_offset, conf)
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -199,6 +205,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn fcs_read_std_dataset_with_keywords(
     p: &PathBuf,
     version: Version,
@@ -206,6 +213,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
+    dataset_offset: DatasetOffset,
     conf: &ReadStdDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetWithKwsOutput),
@@ -213,7 +221,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     StdDatasetFromRawError,
     StdDatasetWithKwsSummary,
 > {
-    ReadState::open(p, conf)
+    ReadState::open(p, dataset_offset, conf)
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -635,6 +643,7 @@ impl fmt::Display for NonUtf8KeywordError {
 #[allow(clippy::type_complexity)]
 fn read_fcs_raw_text_inner<C>(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: C,
 ) -> WarningsAndErrorResult<
     (RawTEXTOutput, BufReader<fs::File>, ReadState<C>),
@@ -648,7 +657,7 @@ where
         + AsRef<TruncateOffsets>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
-    ReadState::open(p, conf)
+    ReadState::open(p, dataset_offset, conf)
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -755,16 +764,12 @@ impl RawTEXTOutput {
             + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        AnyCoreDataset::new_from_keywords(
-            h,
-            self.version,
-            self.keywords,
-            self.parse.header_segments.data,
-            self.parse.header_segments.analysis,
-            &self.parse.header_segments.other[..],
-            st,
-        )
-        .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
+        let hs = &self.parse.header_segments;
+        let d = hs.data;
+        let a = hs.analysis;
+        let o = &hs.other[..];
+        AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
+            .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
 }
 

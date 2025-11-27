@@ -26,7 +26,7 @@ use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use derive_more::{AsRef, Display, From, FromStr};
+use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
@@ -35,6 +35,9 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
@@ -953,25 +956,39 @@ impl Default for TimeMeasNamePattern {
 /// State pertinent to reading a file
 #[derive(new)]
 pub struct ReadState<C> {
-    pub(crate) file_len: u64,
+    pub(crate) file_len: FileLen,
+    pub(crate) dataset_offset: DatasetOffset,
     pub(crate) conf: C,
 }
 
+#[derive(From, Into, Clone, Copy, Debug, Display)]
+pub(crate) struct FileLen(pub(crate) u64);
+
+#[derive(From, Into, Clone, Copy, Debug, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+pub struct DatasetOffset(pub u64);
+
 impl<C> ReadState<C> {
-    pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
+    pub(crate) fn open(
+        p: &PathBuf,
+        dataset_offset: DatasetOffset,
+        conf: C,
+    ) -> io::Result<(Self, File)> {
         let file = File::options().read(true).open(p)?;
-        Self::init(&file, conf).map(|st| (st, file))
+        Self::init(&file, dataset_offset, conf).map(|st| (st, file))
     }
 
-    pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
-        f.metadata().map(|m| Self::new(m.len(), conf))
+    pub(crate) fn init(f: &File, dataset_offset: DatasetOffset, conf: C) -> io::Result<Self> {
+        f.metadata()
+            .map(|m| Self::new(m.len().into(), dataset_offset, conf))
     }
 
     pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
     where
         C: AsRef<X>,
     {
-        ReadState::new(self.file_len, self.conf.as_ref())
+        ReadState::new(self.file_len, self.dataset_offset, self.conf.as_ref())
     }
 }
 

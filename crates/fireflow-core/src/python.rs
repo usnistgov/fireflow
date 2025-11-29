@@ -57,7 +57,7 @@ create_exception!(
      invalid digits or if the resulting number is out of range.\n\
      \n\
      This exception will generally only be raised in standard mode, but may\n\
-     also be raised in raw mode when the *DATA* segment needs to be read\n\
+     also be raised in flat mode when the *DATA* segment needs to be read\n\
      (this requires parsing *$PnB*, *$PnR*, etc)."
 );
 

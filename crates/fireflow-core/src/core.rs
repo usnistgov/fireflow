@@ -431,7 +431,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
-    pub(crate) fn parse_raw<C>(
+    pub(crate) fn parse_flat<C>(
         version: Version,
         kws: ValidKeywords,
         data: HeaderDataSegment,
@@ -440,8 +440,8 @@ impl AnyCoreTEXT {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
@@ -478,8 +478,8 @@ impl AnyCoreDataset {
         conf: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
@@ -2284,7 +2284,7 @@ where
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
         let hdr_kws: HeaderKeywordsToWrite<T> = self
-            .header_and_raw_keywords(conf)
+            .header_and_flat_keywords(conf)
             .map_err(ImpureError::Pure)?;
         hdr_kws.h_write(h, M::Ver::fcs_version(), conf.delim, conf.other_segs)?;
         Ok(hdr_kws.nextdata)
@@ -3560,7 +3560,7 @@ where
         Ok(())
     }
 
-    fn header_and_raw_keywords<T>(
+    fn header_and_flat_keywords<T>(
         &self,
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
@@ -3892,8 +3892,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3908,15 +3908,15 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
-            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-            .map_errors(StdTEXTFromRawError::from);
+            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+            .map_errors(StdTEXTFromFlatTEXTError::from);
 
         Self::lookup_inner(kws, &st.conf)
             .zip_commutative(offsets_res)
             .map_ok_value(|((x, y), z)| (x, y, z))
     }
 
-    /// Make a new CoreTEXT from raw keywords.
+    /// Make a new CoreTEXT from flat keywords.
     ///
     /// Return any errors encountered, including missing required keywords,
     /// parse errors, and/or deprecation warnings.
@@ -3928,7 +3928,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndGroupResult<
         (Self, ExtraStdKeywords),
-        StdTEXTFromRawWarning,
+        StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -3951,8 +3951,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3972,7 +3972,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
-            .map_err(StdTEXTFromRawError::from)
+            .map_err(StdTEXTFromFlatTEXTError::from)
             .into_log();
 
         let version = M::Ver::fcs_version();
@@ -3982,24 +3982,24 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let nonstd = &mut kws.nonstd;
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(std, par, nonstd, conf)
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(std, nonstd, par, conf.as_ref())
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let root_res =
                 meas_res
                     .zip_commutative(layout_res)
                     .and_then_commutative(|(ms, layout)| {
                         Metaroot::lookup_metaroot(std, &ms, kws.nonstd, conf)
-                            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                            .map_errors(StdTEXTFromRawError::from)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTError::from)
                             .and_then_commutative(|metaroot| {
                                 Self::try_new(metaroot, ms, layout, conf)
-                                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                                    .map_errors(StdTEXTFromRawError::from)
+                                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                                    .map_errors(StdTEXTFromFlatTEXTError::from)
                             })
                     });
 
@@ -4020,16 +4020,16 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     ps,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_pseudostandard,
                 )
                 .extend_warnings_or_errors(
                     us,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_unused_standard,
                 )
                 .map_ok_value(|x| (x, esks))
@@ -4340,8 +4340,8 @@ where
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         StdDatasetWithKwsSummary,
     >
     where
@@ -4363,7 +4363,7 @@ where
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromRawError::from)
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextError::from)
             .deanonymize()
     }
 
@@ -4376,8 +4376,8 @@ where
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
@@ -4393,8 +4393,8 @@ where
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
-            .map_commutative_warnings(StdDatasetFromRawWarning::from)
-            .map_errors(StdDatasetFromRawError::from)
+            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+            .map_errors(StdDatasetFromFlatTextError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
@@ -4405,8 +4405,8 @@ where
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .map_commutative_warnings(StdDatasetFromRawWarning::from)
-                    .map_pure_errors(StdDatasetFromRawError::from)
+                    .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+                    .map_pure_errors(StdDatasetFromFlatTextError::from)
                     .and_then_commutative(|data| {
                         ar.h_read(h)
                             .and_then(|analysis| {
@@ -8724,14 +8724,14 @@ pub struct NonLinearTemporalTransformError;
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
-    Error(StdTEXTFromRawError),
-    Warn(StdTEXTFromRawWarning),
+    Error(StdTEXTFromFlatTEXTError),
+    Warn(StdTEXTFromFlatTEXTWarning),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawError {
+pub enum StdTEXTFromFlatTEXTError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
@@ -8744,7 +8744,7 @@ pub enum StdTEXTFromRawError {
 /// Warning when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawWarning {
+pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
@@ -8757,18 +8757,18 @@ pub enum StdTEXTFromRawWarning {
 /// Error when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawError {
-    TEXT(StdTEXTFromRawError),
+pub enum StdDatasetFromFlatTextError {
+    TEXT(StdTEXTFromFlatTEXTError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
-    Warn(StdDatasetFromRawWarning),
+    Warn(StdDatasetFromFlatTEXTWarning),
 }
 
 /// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawWarning {
-    TEXT(StdTEXTFromRawWarning),
+pub enum StdDatasetFromFlatTEXTWarning {
+    TEXT(StdTEXTFromFlatTEXTWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
 }

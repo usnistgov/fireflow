@@ -408,7 +408,7 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
 _T = TypeVar("_T", bound=Temporal2_0 | Temporal3_0 | Temporal3_1 | Temporal3_2)
 _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
 
-_RawInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
+_FlatInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
 
 @final
 class GatedMeasurement:
@@ -700,13 +700,13 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
 
     def set_measurements(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[Shortname | None, _O, _T],
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
@@ -717,13 +717,13 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
 
     def set_measurements(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: _FlatInput[Shortname, _O, _T],
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: _FlatInput[Shortname, _O, _T],
         layout: _L,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
@@ -732,7 +732,7 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[Shortname | None, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
@@ -741,7 +741,7 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
     def set_measurements_and_data(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: _FlatInput[Shortname, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
@@ -1681,7 +1681,7 @@ class DatasetSegments:
     def analysis_seg(self) -> Segment: ...
 
 @final
-class RawTEXTParseData:
+class FlatTEXTParseData:
     def __new__(
         cls,
         header_segments: HeaderSegments,
@@ -1706,12 +1706,12 @@ class RawTEXTParseData:
     def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
 
 @final
-class RawTEXTOutput:
+class FlatTEXTOutput:
     def __new__(
         cls,
         version: FCSVersion,
         kws: ValidKeywords,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1719,10 +1719,10 @@ class RawTEXTOutput:
     @property
     def kws(self) -> ValidKeywords: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 @final
-class RawDatasetWithKwsOutput:
+class FlatDatasetWithKwsOutput:
     def __new__(
         cls,
         data: DataFrame,
@@ -1741,17 +1741,17 @@ class RawDatasetWithKwsOutput:
     def dataset_segs(self) -> DatasetSegments: ...
 
 @final
-class RawDatasetOutput:
+class FlatDatasetOutput:
     def __new__(
         cls,
-        text: RawTEXTOutput,
-        dataset: RawDatasetWithKwsOutput,
+        text: FlatTEXTOutput,
+        dataset: FlatDatasetWithKwsOutput,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text(self) -> RawTEXTOutput: ...
+    def text(self) -> FlatTEXTOutput: ...
     @property
-    def dataset(self) -> RawDatasetWithKwsOutput: ...
+    def dataset(self) -> FlatDatasetWithKwsOutput: ...
 
 @final
 class StdTEXTOutput:
@@ -1760,7 +1760,7 @@ class StdTEXTOutput:
         tot: int | None,
         dataset_segs: DatasetSegments,
         extra: ExtraStdKeywords,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1770,7 +1770,7 @@ class StdTEXTOutput:
     @property
     def extra(self) -> ExtraStdKeywords: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 @final
 class StdDatasetWithKwsOutput:
@@ -1790,13 +1790,13 @@ class StdDatasetOutput:
     def __new__(
         cls,
         dataset: StdDatasetWithKwsOutput,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 def fcs_read_header(
     path: Path,
@@ -1813,7 +1813,7 @@ def fcs_read_header(
 ) -> Header: ...
 
 #
-def fcs_read_raw_text(
+def fcs_read_flat_text(
     path: Path,
     # header args
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1825,7 +1825,7 @@ def fcs_read_raw_text(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -1855,7 +1855,7 @@ def fcs_read_raw_text(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> RawTEXTOutput: ...
+) -> FlatTEXTOutput: ...
 
 #
 def fcs_read_std_text(
@@ -1870,7 +1870,7 @@ def fcs_read_std_text(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -1932,7 +1932,7 @@ def fcs_read_std_text(
 ) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
-def fcs_read_raw_dataset(
+def fcs_read_flat_dataset(
     path: Path,
     # header args
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1944,7 +1944,7 @@ def fcs_read_raw_dataset(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -1991,7 +1991,7 @@ def fcs_read_raw_dataset(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> RawTEXTOutput: ...
+) -> FlatTEXTOutput: ...
 
 #
 def fcs_read_std_dataset(
@@ -2006,7 +2006,7 @@ def fcs_read_std_dataset(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -2071,7 +2071,7 @@ def fcs_read_std_dataset(
 ) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
 
 #
-def fcs_read_raw_texts(
+def fcs_read_flat_texts(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
@@ -2085,7 +2085,7 @@ def fcs_read_raw_texts(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -2114,7 +2114,7 @@ def fcs_read_raw_texts(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> list[RawTEXTOutput]: ...
+) -> list[FlatTEXTOutput]: ...
 
 #
 def fcs_read_std_texts(
@@ -2131,7 +2131,7 @@ def fcs_read_std_texts(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -2192,7 +2192,7 @@ def fcs_read_std_texts(
 ) -> list[tuple[AnyCoreTEXT, StdTEXTOutput]]: ...
 
 #
-def fcs_read_raw_datasets(
+def fcs_read_flat_datasets(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
@@ -2206,7 +2206,7 @@ def fcs_read_raw_datasets(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -2252,7 +2252,7 @@ def fcs_read_raw_datasets(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> list[RawTEXTOutput]: ...
+) -> list[FlatTEXTOutput]: ...
 
 #
 def fcs_read_std_datasets(
@@ -2269,7 +2269,7 @@ def fcs_read_std_datasets(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     allow_duplicated_supp_text: bool = False,
@@ -2333,7 +2333,7 @@ def fcs_read_std_datasets(
 ) -> list[tuple[AnyCoreDataset, StdDatasetOutput]]: ...
 
 #
-def fcs_read_raw_dataset_with_keywords(
+def fcs_read_flat_dataset_with_keywords(
     path: Path,
     version: FCSVersion,
     std: dict[str, str],
@@ -2361,7 +2361,7 @@ def fcs_read_raw_dataset_with_keywords(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> RawDatasetWithKwsOutput: ...
+) -> FlatDatasetWithKwsOutput: ...
 
 __version__: str
 
@@ -2421,10 +2421,10 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
-    "RawTEXTOutput",
-    "RawDatasetOutput",
-    "RawDatasetWithKwsOutput",
-    "RawTEXTParseData",
+    "FlatTEXTOutput",
+    "FlatDatasetOutput",
+    "FlatDatasetWithKwsOutput",
+    "FlatTEXTParseData",
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
@@ -2432,13 +2432,13 @@ __all__ = [
     "ValidKeywords",
     "DatasetSegments",
     "fcs_read_header",
-    "fcs_read_raw_text",
+    "fcs_read_flat_text",
     "fcs_read_std_text",
-    "fcs_read_raw_dataset",
+    "fcs_read_flat_dataset",
     "fcs_read_std_dataset",
-    "fcs_read_raw_texts",
+    "fcs_read_flat_texts",
     "fcs_read_std_texts",
-    "fcs_read_raw_datasets",
+    "fcs_read_flat_datasets",
     "fcs_read_std_datasets",
-    "fcs_read_raw_dataset_with_keywords",
+    "fcs_read_flat_dataset_with_keywords",
 ]

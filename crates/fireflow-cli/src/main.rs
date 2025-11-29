@@ -1,5 +1,5 @@
 use fireflow_core::api::{
-    fcs_read_header, fcs_read_raw_text, fcs_read_std_dataset, fcs_read_std_text,
+    fcs_read_flat_text, fcs_read_header, fcs_read_std_dataset, fcs_read_std_text,
 };
 use fireflow_core::config::{self, DatasetOffset};
 use fireflow_core::core::AnyCoreDataset;
@@ -79,7 +79,7 @@ fn main() -> Result<(), ()> {
         )],
     );
 
-    let raw_long_help = &sub_help;
+    let flat_long_help = &sub_help;
     let std_long_help = [&sub_help, &date_help, &time_help].iter().join("\n\n");
 
     let correction_arg = |long: &'static str, is_begin: bool, seg: &ANSIString| {
@@ -141,7 +141,7 @@ fn main() -> Result<(), ()> {
         truncate_offsets,
     ];
 
-    // "raw" args
+    // "flat" args
 
     let version_override = Arg::new(VERSION_OVERRIDE)
         .long(VERSION_OVERRIDE)
@@ -302,7 +302,7 @@ fn main() -> Result<(), ()> {
              implied for KEY. See {sub_header} for details."
         ));
 
-    let all_raw_args = vec![
+    let all_flat_args = vec![
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
@@ -608,20 +608,20 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args),
         )
         .subcommand(
-            Command::new(SUBCMD_RAW)
-                .about("Show raw keywords as JSON.")
+            Command::new(SUBCMD_FLAT)
+                .about("Show flat keywords as JSON.")
                 .arg(&input_arg)
                 .args(&all_header_args)
-                .args(&all_raw_args)
+                .args(&all_flat_args)
                 .args(&all_shared_args)
-                .after_long_help(raw_long_help),
+                .after_long_help(flat_long_help),
         )
         .subcommand(
             Command::new(SUBCMD_STD)
                 .about("Dump standardized keywords as JSON.")
                 .arg(&input_arg)
                 .args(&all_header_args)
-                .args(&all_raw_args)
+                .args(&all_flat_args)
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
@@ -633,7 +633,7 @@ fn main() -> Result<(), ()> {
                 .about("Show a table of standardized measurement values.")
                 .arg(&input_arg)
                 .args(&all_header_args)
-                .args(&all_raw_args)
+                .args(&all_flat_args)
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
@@ -646,7 +646,7 @@ fn main() -> Result<(), ()> {
                 .about("Dump the spillover matrix if present.")
                 .arg(&input_arg)
                 .args(&all_header_args)
-                .args(&all_raw_args)
+                .args(&all_flat_args)
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
@@ -659,7 +659,7 @@ fn main() -> Result<(), ()> {
                 .about(format!("Show a table of the {data_seg} segment."))
                 .arg(&input_arg)
                 .args(&all_header_args)
-                .args(&all_raw_args)
+                .args(&all_flat_args)
                 .args(&all_std_args)
                 .args(&all_offset_args)
                 .args(&all_layout_args)
@@ -680,12 +680,12 @@ fn main() -> Result<(), ()> {
                 .map(|h| print_json(&h))
         }
 
-        Some((SUBCMD_RAW, sargs)) => {
-            let conf = parse_raw_config(sargs);
+        Some((SUBCMD_FLAT, sargs)) => {
+            let conf = parse_flat_config(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_raw_text(filepath, DatasetOffset(0), &conf)
+            let ((), res) = fcs_read_flat_text(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|raw| print_json(&raw))
+            res.map(|flat| print_json(&flat))
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
@@ -885,16 +885,16 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
     }
 }
 
-fn parse_raw_config(sargs: &ArgMatches) -> config::ReadRawTEXTConfig {
-    config::ReadRawTEXTConfig {
-        raw: parse_header_and_text_config(sargs),
+fn parse_flat_config(sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
+    config::ReadFlatTEXTConfig {
+        flat: parse_header_and_text_config(sargs),
         shared: parse_shared_config(sargs),
     }
 }
 
 fn parse_std_config(sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     config::ReadStdTEXTConfig {
-        raw: parse_header_and_text_config(sargs),
+        flat: parse_header_and_text_config(sargs),
         standard: parse_std_inner_config(sargs),
         offsets: parse_offsets_config(sargs),
         layout: parse_layout_config(sargs),
@@ -904,7 +904,7 @@ fn parse_std_config(sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
 
 fn parse_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
     config::ReadStdDatasetConfig {
-        raw: parse_header_and_text_config(sargs),
+        flat: parse_header_and_text_config(sargs),
         standard: parse_std_inner_config(sargs),
         offsets: parse_offsets_config(sargs),
         layout: parse_layout_config(sargs),
@@ -1061,7 +1061,7 @@ fn print_errors<E: Display>(e: &E) {
 
 const SUBCMD_HEADER: &str = "header";
 
-const SUBCMD_RAW: &str = "raw";
+const SUBCMD_FLAT: &str = "flat";
 
 const SUBCMD_STD: &str = "std";
 

@@ -12,7 +12,8 @@ library.
   not always)
 * pseudostandard: a keyword which is not part of the indicated standard but has
   leading *$*.
-* "raw mode": reading an FCS file while doing minimal validation of *TEXT*
+* "flat mode": reading an FCS file while leaving keywords as a list of 
+  key/value pairs (hence "flat") and doing minimal validation of *TEXT*
 * "standardized mode": reading an FCS file and checking to ensure that all
   keywords in *TEXT* conform to the indicated FCS standard.
 * temporal: Describes a measurement which represents the time dimension.

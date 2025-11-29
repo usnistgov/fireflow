@@ -31,11 +31,11 @@ Workflow
 Legend:
 
 1. :py:func:`~pyreflow.api.fcs_read_header`
-2. :py:func:`~pyreflow.api.fcs_read_raw_text`
+2. :py:func:`~pyreflow.api.fcs_read_flat_text`
 3. :py:func:`~pyreflow.api.fcs_read_std_text`
-4. :py:func:`~pyreflow.api.fcs_read_raw_dataset`
+4. :py:func:`~pyreflow.api.fcs_read_flat_dataset`
 5. :py:func:`~pyreflow.api.fcs_read_std_dataset`
-6. :py:func:`~pyreflow.api.fcs_read_raw_dataset_with_keywords`
+6. :py:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`
 7. :py:func:`CoreTEXT*.from_kws` (see :ref:`coretext`)
 8. :py:func:`CoreDataset*.from_kws` (see :ref:`coredataset`)
 9. :py:meth:`CoreTEXT*.to_dataset` (see :ref:`coretext`)
@@ -44,16 +44,16 @@ Legend:
 12. :py:meth:`CoreTEXT*.version_*` (see :ref:`coretext`)
 13. :py:meth:`CoreDataset*.version_*` (see :ref:`coredataset`)
 
-Raw vs standardized mode
+Flat vs standardized mode
 ------------------------
 
-"Raw mode" refers to parsing an FCS file while minimally checking the keywords
-for standards compliance. In this mode, *TEXT* will be kept as a flat list (ie a
-dictionary in Python). Only when parsing *DATA* will a subset of keywords be
-interpreted (*$DATATYPE*, *$PnB*, etc); everything else will be left as-is.
+"Flat mode" refers to parsing *TEXT* as a flat list of key/value pairs (both
+strings) with no further processing. Only when parsing *DATA* will a subset of
+keywords be interpreted (*$DATATYPE*, *$PnB*, etc); everything else will be left
+as-is, and no futher checks for standards compliance will be performed.
 
-"Raw mode" is similar to how many other FCS libraries (flowCore et al) parse FCS
-files.
+"Flat mode" is similar to how many other FCS libraries (flowCore et al) parse
+FCS files.
 
 In "standard" or "standardized mode" (abbreviated "std" in function names
 above), each keyword will be parsed and stored in a class called :ref:`coretext`
@@ -63,8 +63,8 @@ trigger an error if present upon creation. These classes themselves have an API
 which allows reading/writing internal elements of an FCS file. They can also be
 written back to disk.
 
-"Raw mode" has the advantage of being slightly faster, while "standard mode" has
-the advantage of compliant parsing and manipulation.
+"Flat mode" has the advantage of being slightly faster, while "standard mode"
+has the advantage of compliant parsing and type-safe data manipulation.
 
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 
@@ -79,8 +79,8 @@ are flags or other options to control parsing, alter keywords, fix offsets, etc.
 These should address most needs.
 
 For extreme cases where these flags are not enough, the recommended strategy is
-to first use :func:`~pyreflow.api.fcs_read_raw_text` to get a keyword
+to first use :func:`~pyreflow.api.fcs_read_flat_text` to get a keyword
 dictionary. These can then be fixed using arbitrary python code ("offline
 manipulation" above). Finally, these can be parsed again using
-:func:`~pyreflow.api.fcs_read_raw_dataset_with_keywords` or
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords` or
 :func:`~pyreflow.api.fcs_read_std_dataset_with_keywords`.

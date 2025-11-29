@@ -478,7 +478,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // +1 at end accounts for first delimiter
         let text_len: u64 =
-            raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
+            flat_keywords_length(&req[..]) + flat_keywords_length(&opt[..]) + nextdata_len() + 1;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
@@ -534,8 +534,8 @@ impl<T> HeaderKeywordsToWrite<T> {
         let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len());
 
-        let nooffset_req_text_len = raw_keywords_length(&req[..]);
-        let opt_text_len = raw_keywords_length(&opt[..]);
+        let nooffset_req_text_len = flat_keywords_length(&req[..]);
+        let opt_text_len = flat_keywords_length(&opt[..]);
         // +1 accounts for first delimiter
         let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
         let supp_text_len = opt_text_len + 1;
@@ -698,7 +698,7 @@ impl KeywordsWriter {
     }
 }
 
-fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
+fn flat_keywords_length(ks: &[(String, String)]) -> u64 {
     let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
     u64::try_from(n).expect("length of TEXT exceeds 2^64")
 }

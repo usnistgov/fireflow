@@ -18,32 +18,32 @@ These are summarized below:
      - Parse Mode
      - Includes Data
      - Dataset Number
-   * - :func:`~pyreflow.api.fcs_read_raw_text`
-     - raw
+   * - :func:`~pyreflow.api.fcs_read_flat_text`
+     - flat
      - no
      - singular
    * - :func:`~pyreflow.api.fcs_read_std_text`
      - standard
      - no
      - singular
-   * - :func:`~pyreflow.api.fcs_read_raw_dataset`
-     - raw
+   * - :func:`~pyreflow.api.fcs_read_flat_dataset`
+     - flat
      - yes
      - singular
    * - :func:`~pyreflow.api.fcs_read_std_dataset`
      - standard
      - yes
      - singular
-   * - :func:`~pyreflow.api.fcs_read_raw_texts`
-     - raw
+   * - :func:`~pyreflow.api.fcs_read_flat_texts`
+     - flat
      - no
      - plural
    * - :func:`~pyreflow.api.fcs_read_std_texts`
      - standard
      - no
      - plural
-   * - :func:`~pyreflow.api.fcs_read_raw_datasets`
-     - raw
+   * - :func:`~pyreflow.api.fcs_read_flat_datasets`
+     - flat
      - yes
      - plural
    * - :func:`~pyreflow.api.fcs_read_std_datasets`
@@ -56,20 +56,19 @@ purpose:
 
 *Parse Mode:*
 
-This refers to the method used to parse *TEXT*. "Raw" mode treats *TEXT* as a
+This refers to the method used to parse *TEXT*. "Flat" mode treats *TEXT* as a
 flat list of keywords and does not further processing. "Standard" mode attempts
 to collect this flat list into a well-defined data structure which in `pyreflow`
 is a version-specific python class (see :ref:`coretext` and :ref:`coredataset`).
 
-"Standard" mode requires that *TEXT* first be parsed in "raw" mode, which
-implies the former is more lenient with regard to deviations from the FCS
+"Standard" mode requires that *TEXT* first be parsed in "flat" mode, which
+implies the latter is more lenient with regard to deviations from the FCS
 standard.
 
 *Includes Data:*
 
-If "yes", the function will include *DATA*, *ANALYSIS*, and
-*OTHER* segments in the returned object. Otherwise it will just include the
-*TEXT* segment.
+If "yes", the function will include *DATA*, *ANALYSIS*, and *OTHER* segments in
+the returned object. Otherwise it will just include the *TEXT* segment.
 
 *Dataset Number:*
 
@@ -107,43 +106,43 @@ read any *HEADER* in the file if one knows its offset.
 Offline keyword repair
 ----------------------
 
-:func:`~pyreflow.api.fcs_read_raw_dataset_with_keywords` can be used to parse
-raw keywords into a raw dataset.
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords` can be used to parse
+a flat list of keyword pairs into a dataset.
 
-Sometimes, the flags provided by :func:`~pyreflow.api.fcs_read_raw_dataset` are
+Sometimes, the flags provided by :func:`~pyreflow.api.fcs_read_flat_dataset` are
 not enough to repair any issues in *TEXT* that might make a file unreadable.
 
-In these cases, one can read *TEXT* in raw mode using
-:func:`~pyreflow.api.fcs_read_raw_text`, repair the keywords and/or offsets
+In these cases, one can read *TEXT* in flat mode using
+:func:`~pyreflow.api.fcs_read_flat_text`, repair the keywords and/or offsets
 out-of-band, and then feed these into
-:func:`~pyreflow.api.fcs_read_raw_dataset_with_keywords`.
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`.
 
-This only applies to raw mode. For the standardized analogue, see the
+This only applies to flat mode. For the standardized analogue, see the
 ``from_kws`` methods in :ref:`coretext` and :ref:`coredataset`.
 
 
 All functions
 -------------
 
-.. autofunction:: pyreflow.api.fcs_read_raw_text
+.. autofunction:: pyreflow.api.fcs_read_flat_text
 
 .. autofunction:: pyreflow.api.fcs_read_std_text
 
-.. autofunction:: pyreflow.api.fcs_read_raw_dataset
+.. autofunction:: pyreflow.api.fcs_read_flat_dataset
 
 .. autofunction:: pyreflow.api.fcs_read_std_dataset
 
-.. autofunction:: pyreflow.api.fcs_read_raw_texts
+.. autofunction:: pyreflow.api.fcs_read_flat_texts
 
 .. autofunction:: pyreflow.api.fcs_read_std_texts
 
-.. autofunction:: pyreflow.api.fcs_read_raw_datasets
+.. autofunction:: pyreflow.api.fcs_read_flat_datasets
 
 .. autofunction:: pyreflow.api.fcs_read_std_datasets
 
 .. autofunction:: pyreflow.api.fcs_read_header
 
-.. autofunction:: pyreflow.api.fcs_read_raw_dataset_with_keywords
+.. autofunction:: pyreflow.api.fcs_read_flat_dataset_with_keywords
 
 Outputs
 -------

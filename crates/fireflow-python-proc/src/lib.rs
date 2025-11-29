@@ -55,16 +55,16 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ReadFunArgs);
     let fun_one_path = &parsed.fun_singular;
     let fun_many_path = &parsed.fun_plural;
 
-    let conf_path = config_path("ReadRawTEXTConfig");
+    let conf_path = config_path("ReadFlatTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
@@ -73,7 +73,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
 
     let conf_args: Vec<_> = header_args
         .into_iter()
-        .chain(raw_args)
+        .chain(flat_args)
         .chain(shared_args)
         .collect();
 
@@ -82,7 +82,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
     let exc1 = PyException::new_non_ascii();
     let xs = [exc0, exc1];
 
-    let ret_pt = PyClass::new_py(["api"], "RawTEXTOutput");
+    let ret_pt = PyClass::new_py(["api"], "FlatTEXTOutput");
 
     let one_doc = DocString::new_fun("Read *HEADER* and *TEXT* from first dataset in FCS file.")
         .arg(path_arg.clone())
@@ -106,16 +106,16 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
-        let raw = #raw_conf { header, #(#raw_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { raw, shared };
+        let conf = #conf_path { flat, shared };
     };
 
     quote! {
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_text(#one_fun_args) -> #one_ret_path {
+        pub fn fcs_read_flat_text(#one_fun_args) -> #one_ret_path {
             #conf_q
             Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
         }
@@ -123,7 +123,7 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #many_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_texts(#many_fun_args) -> #many_ret_path {
+        pub fn fcs_read_flat_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
             Ok(xs.fmap(Into::into))
@@ -142,7 +142,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (offsets_conf, offsets_args, offsets_recs) =
         DocArgParam::new_read_offsets_config_params(None);
@@ -152,7 +152,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
-        .chain(raw_args)
+        .chain(flat_args)
         .chain(std_args)
         .chain(offsets_args)
         .chain(layout_args)
@@ -200,12 +200,12 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
-        let raw = #raw_conf { header, #(#raw_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let offsets = #offsets_conf { #(#offsets_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { raw, standard, offsets, layout, shared };
+        let conf = #conf_path { flat, standard, offsets, layout, shared };
     };
 
     quote! {
@@ -231,16 +231,16 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ReadFunArgs);
     let fun_one_path = &parsed.fun_singular;
     let fun_many_path = &parsed.fun_plural;
 
-    let conf_path = config_path("ReadRawDatasetConfig");
+    let conf_path = config_path("ReadFlatDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (offsets_conf, offsets_args, offsets_recs) =
         DocArgParam::new_read_offsets_config_params(None);
@@ -257,7 +257,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
-        .chain(raw_args)
+        .chain(flat_args)
         .chain(offsets_args)
         .chain(layout_args)
         .chain(data_args)
@@ -277,15 +277,15 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let pt_ret = PyClass::new_py(["api"], "RawDatasetOutput");
+    let pt_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
 
-    let one_doc = DocString::new_fun("Read one raw dataset from FCS file.")
+    let one_doc = DocString::new_fun("Read one dataset from FCS file in flat mode.")
         .arg(path_arg.clone())
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
         .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
-    let many_doc = DocString::new_fun("Read multiple raw datasets from FCS file.")
+    let many_doc = DocString::new_fun("Read multiple datasets from FCS file in flat mode.")
         .arg(path_arg)
         .arg(skip_arg)
         .arg(limit_arg)
@@ -299,19 +299,19 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
-        let raw = #raw_conf { header, #(#raw_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let offsets = #offsets_conf { #(#offsets_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { raw, layout, offsets, data, shared };
+        let conf = #conf_path { flat, layout, offsets, data, shared };
     };
 
     quote! {
         #[pyfunction]
         #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset(#one_fun_args) -> #one_ret_path {
+        pub fn fcs_read_flat_dataset(#one_fun_args) -> #one_ret_path {
             #conf_q
             Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
         }
@@ -319,7 +319,7 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
         #[pyfunction]
         #many_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_datasets(#many_fun_args) -> #many_ret_path {
+        pub fn fcs_read_flat_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
             Ok(xs.fmap(Into::into))
@@ -338,7 +338,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_read_raw_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (offsets_conf, offsets_args, offsets_recs) =
         DocArgParam::new_read_offsets_config_params(None);
@@ -349,7 +349,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
-        .chain(raw_args)
+        .chain(flat_args)
         .chain(std_args)
         .chain(offsets_args)
         .chain(layout_args)
@@ -400,13 +400,13 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
-        let raw = #raw_conf { header, #(#raw_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let offsets = #offsets_conf { #(#offsets_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { raw, standard, offsets, layout, data, shared };
+        let conf = #conf_path { flat, standard, offsets, layout, data, shared };
     };
 
     quote! {
@@ -432,10 +432,10 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let conf_path = config_path("ReadRawDatasetFromKeywordsConfig");
+    let conf_path = config_path("ReadFlatDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
     let version_arg = DocArg::new_version_param();
@@ -464,7 +464,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
 
     let xs = [exc0, exc1, exc2, exc3, exc4];
 
-    let doc = DocString::new_fun("Read raw dataset from FCS file from keywords.")
+    let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
         .arg(version_arg)
         .arg(std_arg)
@@ -476,7 +476,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(data_args)
         .args(shared_args)
         .arg(dataset_offset_arg)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc(xs));
+        .returns(DocReturn::new(PyClass::new_py(["api"], "FlatDatasetWithKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -485,7 +485,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> #ret_path {
+        pub fn fcs_read_flat_dataset_with_keywords(#fun_args) -> #ret_path {
             let offsets = #offsets_conf { #(#offsets_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
@@ -581,7 +581,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -608,27 +608,27 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
     let text = DocArg::new_ivar_ro(
         "text",
-        PyClass::new_py(["api"], "RawTEXTOutput"),
+        PyClass::new_py(["api"], "FlatTEXTOutput"),
         "Parsed *TEXT* segment.",
         |_, _| quote!(self.0.text.clone().into()),
     );
 
     let dataset = DocArg::new_ivar_ro(
         "dataset",
-        PyClass::new_py(["api"], "RawDatasetWithKwsOutput"),
+        PyClass::new_py(["api"], "FlatDatasetWithKwsOutput"),
         "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
         |_, _| quote!(self.0.dataset.clone().into()),
     );
 
     let args = [text, dataset];
 
-    let doc = DocString::new_class("Parsed raw dataset from FCS file.").args(args);
+    let doc = DocString::new_class("Dataset from FCS file parsed with flat mode.").args(args);
 
     let new = |fun_args| {
         quote! {
@@ -641,7 +641,7 @@ pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -653,7 +653,7 @@ pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
     let args = [data, analysis, others, dataset_segs];
-    let doc = DocString::new_class("Dataset from parsing raw *TEXT*.").args(args);
+    let doc = DocString::new_class("Dataset from parsing flat *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
@@ -739,7 +739,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py(["api"], "RawTEXTParseData"),
+        PyClass::new_py(["api"], "FlatTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -771,7 +771,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py(["api"], "RawTEXTParseData"),
+        PyClass::new_py(["api"], "FlatTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -815,7 +815,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -6686,7 +6686,7 @@ impl DocArgParam {
 
     fn new_parse_output_param() -> Self {
         let desc = "Miscellaneous data obtained when parsing *TEXT*.";
-        Self::new_param("parse", PyClass::new_py(["api"], "RawTEXTParseData"), desc)
+        Self::new_param("parse", PyClass::new_py(["api"], "FlatTEXTParseData"), desc)
     }
 
     fn new_text_seg_param() -> Self {
@@ -6872,7 +6872,7 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_read_raw_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_flat_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("ReadHeaderAndTEXTConfig");
         let ps = vec![
             Self::new_version_override(),
@@ -7847,7 +7847,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
         );
 
         let ps = &self.args;
-        let (raw_sig, txt_sig_): (Vec<_>, Vec<_>) = ps
+        let (flat_sig, txt_sig_): (Vec<_>, Vec<_>) = ps
             .iter()
             .map(|a| {
                 let n = &a.argname();
@@ -7869,7 +7869,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
                 .join(", ")
         );
         quote! {
-            #[pyo3(signature = (#(#raw_sig),*))]
+            #[pyo3(signature = (#(#flat_sig),*))]
             #[pyo3(text_signature = #txt_sig)]
         }
     }

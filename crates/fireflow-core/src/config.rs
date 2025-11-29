@@ -50,11 +50,11 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawTEXTConfig {
+pub struct ReadFlatTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     pub shared: SharedConfig,
 }
@@ -64,7 +64,7 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -80,11 +80,11 @@ pub struct ReadStdTEXTConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawDatasetConfig {
+pub struct ReadFlatDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -116,7 +116,7 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -135,7 +135,7 @@ pub struct ReadStdDatasetConfig {
 }
 
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawDatasetFromKeywordsConfig {
+pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
@@ -328,7 +328,7 @@ pub struct HeaderConfigInner {
     pub truncate_offsets: TruncateOffsets,
 }
 
-/// Instructions for reading the TEXT segment as raw key/value pairs.
+/// Instructions for reading the TEXT segment as flat key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
 #[allow(clippy::struct_excessive_bools)]

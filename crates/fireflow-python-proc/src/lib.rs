@@ -1135,15 +1135,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         &t,
         "all_meas_nonstandard_keywords",
         true,
-        |_, _| {
-            quote!(
-                self.0
-                    .get_meas_nonstandard()
-                    .into_iter()
-                    .map(|x| x.clone())
-                    .collect()
-            )
-        },
+        |_, _| quote!(self.0.get_meas_nonstandard().clone().fmap(Clone::clone)),
         |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
     )
     .into()
@@ -1407,15 +1399,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames_maybe",
         true,
-        |_, _| {
-            quote! {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.cloned())
-                    .collect()
-            }
-        },
+        |_, _| quote!(self.0.shortnames_maybe().fmap(|x| x.cloned())),
         |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).map(|_| ())?)),
     )
     .into()
@@ -3361,13 +3345,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         );
 
     let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
-        quote! {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u64::from(u8::from(x)))
-                .collect()
-        }
+        quote!(self.0.widths().fmap(|x| u64::from(u8::from(x))))
     });
 
     let datatype = make_layout_datatype(&pyname, "A");
@@ -3604,7 +3582,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let rs = ranges.into_iter().map(#bitmask::from).collect();
+                let rs = ranges.fmap(#bitmask::from);
                 #fixed::new(rs, endian).into()
             }
         }
@@ -3672,13 +3650,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     );
 
     doc.into_impl_get(&t, "byte_widths", |_, _| {
-        quote! {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u32::from(u8::from(x)))
-                .collect()
-        }
+        quote!(self.0.widths().fmap(|x| u32::from(u8::from(x))))
     })
     .into()
 }

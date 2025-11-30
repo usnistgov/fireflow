@@ -136,7 +136,6 @@ pub struct OtherSegmentId;
 pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
     file_len: FileLen,
-    // TODO make sure this is not longer than file_len
     dataset_offset: DatasetOffset,
     truncate_offsets: TruncateOffsets,
 }

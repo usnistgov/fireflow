@@ -613,21 +613,28 @@ impl<I, S, T> Segment<I, S, T> {
     }
 
     /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R: Read + Seek>(
+    pub(crate) fn h_read_contents<R>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
     ) -> io::Result<()>
     where
+        R: Read + Seek,
         T: Into<u64> + Copy,
     {
         match self.inner {
             InnerSegment::Empty => Ok(()),
             InnerSegment::NonEmpty(s) => {
                 let begin = s.begin.into();
+                let end = begin + s.dataset_offset.0;
                 let nbytes = u64::from(s.nbytes());
 
-                h.seek(SeekFrom::Start(begin + s.dataset_offset.0))?;
+                debug_assert!(
+                    end < h.seek(SeekFrom::End(0))?,
+                    "end of segment exceeds file"
+                );
+
+                h.seek(SeekFrom::Start(end))?;
                 h.take(nbytes).read_to_end(buf)?;
                 Ok(())
             }

@@ -847,6 +847,7 @@ impl fmt::Display for NonUtf8KeywordError {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn read_fcs_flat_text_inner<C>(
     p: &PathBuf,
     dataset_offset: DatasetOffset,

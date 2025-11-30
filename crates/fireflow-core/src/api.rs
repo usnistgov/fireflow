@@ -12,8 +12,8 @@ use crate::core::{
     StdTEXTFromFlatTEXTWarning, Versioned as _,
 };
 use crate::header::{
-    Header, HeaderError, HeaderSegments, HeaderValidationError, InHeaderError, Version, Version2_0,
-    Version3_0, Version3_1, Version3_2,
+    Header, HeaderError, HeaderSegments, InHeaderError, Version, Version2_0, Version3_0,
+    Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -659,7 +659,6 @@ pub enum ParseFlatTEXTError {
     Nextdata(ReqKeyError<Nextdata>),
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
-    Header(HeaderValidationError),
     AppendSupp(StdPresent),
 }
 
@@ -1106,10 +1105,7 @@ where
                 .as_non_ascii_errors(conf)
                 .map_errors(ParseFlatTEXTError::from);
             let be = p.as_byte_errors(conf).map_errors(ParseFlatTEXTError::from);
-            let os = p
-                .as_overlapping_segment_error()
-                .map_errors(ParseFlatTEXTError::from);
-            [na, be, os]
+            [na, be]
                 .into_iter()
                 .mappend_commutative()
                 .group()
@@ -1531,24 +1527,6 @@ impl FlatTEXTParseData {
                 .cloned()
                 .map(|(key, value)| NonUtf8KeywordError { key, value });
             LogResult::new_err_from_iter(es, ())
-        }
-    }
-
-    fn as_overlapping_segment_error(&self) -> DeferredErrors<(), ParseFlatTEXTError> {
-        if let Some(s) = self.supp_text {
-            let x = self
-                .header_segments
-                .contains_text_segment(&s)
-                .map_err(HeaderValidationError::from)
-                .into_log();
-            let y = self
-                .header_segments
-                .overlaps_with(&s)
-                .map_errors(HeaderValidationError::from);
-            x.lift_f2_once(y, |(), ()| ())
-                .map_errors(ParseFlatTEXTError::from)
-        } else {
-            LogResult::new_ok(())
         }
     }
 }

@@ -1096,23 +1096,31 @@ impl<T> InnerSegment<T> {
                 } else if new_begin == T::zero() && new_end == T::zero() {
                     Ok(Self::Empty)
                 } else {
-                    // put final offset in absolute coordinates to check for
+                    let dso = conf.dataset_offset.0;
+                    let fl = conf.file_len.0;
+                    debug_assert!(dso <= fl, "dataset offset exceeds file length");
+                    // put offset in absolute coordinates to check for
                     // truncation
-                    let abs_end = conf.dataset_offset.0 + u64::from(new_end);
+                    let abs_begin = dso + u64::from(new_begin);
+                    let abs_end = dso + u64::from(new_end);
                     // the maximum coordinate the ending offset can have is
                     // one less the file length (since the end is the last byte
                     // of the offset rather than the next byte)
-                    let max_end = conf.file_len.0.saturating_sub(1);
-                    // This will also trigger if begin is greater than file
-                    // offset because we checked that it is less than end above
-                    if abs_end >= conf.file_len.0 && !conf.truncate_offsets.is_set() {
+                    let max_end = fl.saturating_sub(1);
+                    // begin should never exceed file length
+                    if fl < abs_begin {
+                        return Err(err(SegmentErrorKind::BeginEOF(conf.file_len)));
+                    }
+                    // end can only be greater then end if we allow it, in which
+                    // case it must be truncated
+                    if abs_end >= fl && !conf.truncate_offsets.is_set() {
                         return Err(err(SegmentErrorKind::Truncated(conf.file_len)));
                     }
                     let trunc_end = abs_end.min(max_end);
                     // put the (possibly truncated) ending offset back into
                     // relative coordinates.
-                    let rel_trunc_end = T::try_from(trunc_end - conf.dataset_offset.0)
-                        .expect("dataset offset exceeds file length");
+                    let rel_trunc_end = T::try_from(trunc_end - dso)
+                        .expect("could not convert absolute to relative offset");
                     let seg = NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
                     Ok(Self::NonEmpty(seg))
                 }
@@ -1239,6 +1247,7 @@ pub struct SegmentError {
 enum SegmentErrorKind {
     Range,
     Inverted,
+    BeginEOF(FileLen),
     // InHeader,
     Truncated(FileLen),
 }
@@ -1250,6 +1259,7 @@ impl fmt::Display for SegmentError {
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range".into(),
             SegmentErrorKind::Inverted => "Begin after end".into(),
+            SegmentErrorKind::BeginEOF(size) => format!("Begin exceeds file size ({size} bytes)"),
             // SegmentErrorKind::InHeader => "Begins within HEADER".into(),
             SegmentErrorKind::Truncated(size) => {
                 format!("Segment exceeds file size ({size} bytes)")

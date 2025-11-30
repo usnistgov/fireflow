@@ -1,9 +1,9 @@
 use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
-    HeaderConfigInner, ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
-    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadLayoutConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdTEXTConfig, ReadTEXTOffsetsConfig, SharedConfig,
-    StdTextReadConfig, TruncateOffsets,
+    DatasetOffsetError, HeaderConfigInner, ReadEventsConfig, ReadFlatDatasetConfig,
+    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
+    ReadHeaderConfig, ReadLayoutConfig, ReadState, ReadStdDatasetConfig, ReadStdTEXTConfig,
+    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -17,10 +17,10 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
-    split_log,
+    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
+    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_group;
 use crate::segment::{
@@ -32,7 +32,7 @@ use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, To
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
-use crate::type_families::{ApplyOnce as _, FunctorOnce as _};
+use crate::type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
@@ -67,10 +67,15 @@ pub fn fcs_read_header(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
-) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
-    let (st, file) = ReadState::open(path, dataset_offset, conf)?;
+) -> IOGroupResult<Header, ReadHeaderError, HeaderFailure> {
+    let (st, file) = ReadState::open(path, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(ReadHeaderError::from))
+        .map_err(IOAnonErrorGroup::from)
+        .map_err(IOAnonErrorGroup::deanonymize)?;
     let mut reader = BufReader::new(file);
-    Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
+    Header::h_read(&mut reader, &st)
+        .map_err(|e| e.fmap(ReadHeaderError::from))
+        .map_err(IOErrorGroup::deanonymize)
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file at a given position
@@ -194,6 +199,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
     FlatDatasetWithKwsFailure,
 > {
     ReadState::open(path, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(LookupAndReadDataAnalysisError::from))
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
@@ -492,6 +498,14 @@ pub struct FlatTEXTParseData {
 /// Warning when parsing TEXT in standard mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadHeaderError {
+    Header(HeaderError),
+    DatasetOffset(DatasetOffsetError),
+}
+
+/// Warning when parsing TEXT in standard mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Flat(ParseFlatTEXTWarning),
     Std(StdTEXTFromFlatTEXTWarning),
@@ -544,6 +558,7 @@ pub enum FlatDatasetError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrFlatTextError {
+    DatasetOffset(DatasetOffsetError),
     Header(HeaderError),
     FlatTEXT(ParseFlatTEXTError),
     Warn(ParseFlatTEXTWarning),
@@ -832,16 +847,15 @@ impl fmt::Display for NonUtf8KeywordError {
     }
 }
 
-#[allow(clippy::type_complexity)]
 fn read_fcs_flat_text_inner<C>(
     p: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: C,
-) -> WarningsAndErrorResult<
+) -> WarningsAndIOGroupResult<
     (FlatTEXTOutput, BufReader<fs::File>, ReadState<C>),
-    (),
     ParseFlatTEXTWarning,
-    IOErrorGroup<HeaderOrFlatTextError, ()>,
+    HeaderOrFlatTextError,
+    (),
 >
 where
     C: AsRef<ReadHeaderAndTEXTConfig>
@@ -850,6 +864,7 @@ where
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
     ReadState::open(p, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(HeaderOrFlatTextError::from))
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {

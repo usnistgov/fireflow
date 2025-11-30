@@ -1,4 +1,7 @@
-use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadState};
+use crate::config::{
+    AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError, HeaderConfigInner,
+    ReadState,
+};
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
     ResultExt, split_io,

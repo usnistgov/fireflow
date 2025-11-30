@@ -1,7 +1,7 @@
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
-    DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig, ReadState,
-    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
+    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
+    ReadState, ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
     TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
     WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
@@ -4362,6 +4362,7 @@ where
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         ReadState::open(p, dataset_offset, conf)
+            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
@@ -8763,6 +8764,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromFlatTextError {
+    DatasetOffset(DatasetOffsetError),
     TEXT(StdTEXTFromFlatTEXTError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
@@ -9058,6 +9060,7 @@ pub enum UnstainedLossError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
+    DatasetOffset(DatasetOffsetError),
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),

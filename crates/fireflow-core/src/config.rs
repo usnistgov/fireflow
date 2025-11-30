@@ -10,6 +10,7 @@
 /// an error. This will work in most cases, with a few exceptions where the
 /// standard is unclear.
 use crate::header::Version;
+use crate::logging::{IOResult, ImpureError};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
@@ -31,7 +32,7 @@ use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufReader, Seek, SeekFrom};
+use std::io::{self, BufReader, Seek};
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
@@ -979,14 +980,23 @@ impl<C> ReadState<C> {
         p: &PathBuf,
         dataset_offset: DatasetOffset,
         conf: C,
-    ) -> io::Result<(Self, File)> {
+    ) -> IOResult<(Self, File), DatasetOffsetError> {
         let file = File::options().read(true).open(p)?;
         Self::init(&file, dataset_offset, conf).map(|st| (st, file))
     }
 
-    pub(crate) fn init(f: &File, dataset_offset: DatasetOffset, conf: C) -> io::Result<Self> {
-        f.metadata()
-            .map(|m| Self::new(m.len().into(), dataset_offset, conf))
+    pub(crate) fn init(
+        f: &File,
+        dataset_offset: DatasetOffset,
+        conf: C,
+    ) -> IOResult<Self, DatasetOffsetError> {
+        let m = f.metadata()?;
+        let fl = m.len().into();
+        if u64::from(fl) < u64::from(dataset_offset) {
+            let e = DatasetOffsetError(dataset_offset, fl);
+            return Err(ImpureError::Pure(e));
+        }
+        Ok(Self::new(fl, dataset_offset, conf))
     }
 
     pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
@@ -1002,6 +1012,12 @@ impl<C> ReadState<C> {
         Ok(remaining)
     }
 }
+
+#[derive(Error, Debug)]
+#[error("dataset offset ({0}) exceeds file length ({1})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 #[cfg(feature = "python")]
 mod python {

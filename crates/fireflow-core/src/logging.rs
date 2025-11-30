@@ -283,13 +283,6 @@ pub enum IOErrorGroup<E, G> {
 }
 
 impl<E, G> IOErrorGroup<E, G> {
-    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> IOErrorGroup<X, G> {
-        match self {
-            Self::IO(i, g) => IOErrorGroup::IO(i, g.map(|x| x.map(f))),
-            Self::Pure(g) => IOErrorGroup::Pure(g.map(f)),
-        }
-    }
-
     pub(crate) fn set_group<G0>(self, g: G0) -> IOErrorGroup<E, G0> {
         match self {
             Self::IO(i, x) => IOErrorGroup::IO(i, x.map(|y| y.set_group(g))),
@@ -405,10 +398,6 @@ impl<E, G> ErrorGroup<E, G> {
             .map_or(Ok(()), Err)
     }
 
-    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> ErrorGroup<X, G> {
-        ErrorGroup::new(self.summary, self.errors.fmap(f))
-    }
-
     pub(crate) fn set_group<G0>(self, g: G0) -> ErrorGroup<E, G0> {
         ErrorGroup::new(g, self.errors)
     }
@@ -467,6 +456,28 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
 }
 
 impl_kind1!(ImpureErrorFamily, ImpureError);
+
+/// Type for IOErrorGroup
+pub struct IOErrorGroupFamily<G>(PhantomData<G>);
+
+impl<G> Kind1 for IOErrorGroupFamily<G> {
+    type Type<T> = IOErrorGroup<T, G>;
+}
+
+impl<E, G> IsKind1 for IOErrorGroup<E, G> {
+    type Family = IOErrorGroupFamily<G>;
+}
+
+/// Type for ErrorGroup
+pub struct ErrorGroupFamily<G>(PhantomData<G>);
+
+impl<G> Kind1 for ErrorGroupFamily<G> {
+    type Type<T> = ErrorGroup<T, G>;
+}
+
+impl<E, G> IsKind1 for ErrorGroup<E, G> {
+    type Family = ErrorGroupFamily<G>;
+}
 
 /// Type family for `GenNonEmpty` where the container type is partially applied.
 pub struct GenNonEmptyFamily<C>(PhantomData<C>);
@@ -931,6 +942,21 @@ pub trait IntoNewCardinality<Other> {
 impl<A, C: Functor<A>> Functor<A> for GenNonEmpty<A, C> {
     fn fmap<F: FnMut(A) -> B, B>(self, mut f: F) -> Sibling1<Self, B> {
         GenNonEmpty::new(f(self.head), self.tail.fmap(f))
+    }
+}
+
+impl<A, G> Functor<A> for IOErrorGroup<A, G> {
+    fn fmap<F: FnMut(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
+        match self {
+            Self::IO(i, g) => IOErrorGroup::IO(i, g.map(|x| x.fmap(f))),
+            Self::Pure(g) => IOErrorGroup::Pure(g.fmap(f)),
+        }
+    }
+}
+
+impl<A, G> Functor<A> for ErrorGroup<A, G> {
+    fn fmap<F: FnMut(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
+        ErrorGroup::new(self.summary, self.errors.fmap(f))
     }
 }
 
@@ -2665,7 +2691,7 @@ impl<V, P, LWC, RWC, X, E, G> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
     where
         F: Fn(E) -> Ef,
     {
-        self.map_error(|e| e.map(f))
+        self.map_error(|e| e.fmap(f))
     }
 }
 
@@ -2921,7 +2947,7 @@ macro_rules! split_io {
             Ok(x) => Ok(x),
             Err(x) => match x {
                 e @ crate::logging::IOErrorGroup::IO(_, _) => {
-                    return Err(e.map(Into::into));
+                    return Err(crate::type_families::Functor::fmap(e, Into::into));
                 }
                 crate::logging::IOErrorGroup::Pure(e) => Err(e),
             },

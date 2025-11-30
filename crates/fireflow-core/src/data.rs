@@ -649,7 +649,8 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        // TODO why return default rather than fail?
+        // if we cannot get coords, it means the segment is empty, thus the
+        // returned dataframe should be empty
         seg.try_abs_coords()
             .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
@@ -2233,6 +2234,10 @@ where
         }
         let rs = &self.ranges;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
+        if rs.is_empty() && nbytes > 0 {
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumn));
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
+        }
         let res = T::with_tot(
             h,
             tot,
@@ -2389,11 +2394,7 @@ fn h_read_delim_with_rows<R: Read>(
     let mut last_was_delim = false;
     let nrows = tot.0;
     let ncols = ranges.len();
-    // TODO emit a real error here since this means something is probably
-    // screwy with the file
-    if (nrows == 0 || ncols == 0) && nbytes > 0 {
-        return Ok(FCSDataFrame::default());
-    }
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     // Here we have $TOT so initialize vectors to required length
     let mut data = vec![vec![0; nrows]; ncols];
     let mut row = 0;
@@ -2457,11 +2458,7 @@ fn h_read_delim_without_rows<R: Read>(
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
     let ncols = data.len();
-    // TODO emit a real error here since this means something is probably
-    // screwy with the file
-    if ncols == 0 && nbytes > 0 {
-        return Ok(FCSDataFrame::default());
-    }
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     let mut col = 0;
     let mut last_was_delim = false;
     let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
@@ -4590,7 +4587,16 @@ pub struct TotEventMismatch {
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
     NoRows(ReadDelimAsciiWithoutRowsError),
+    NoColumns(ReadDelimNoColumn),
 }
+
+/// Error when ASCII layout has no columns but segment length is nonzero
+///
+#[derive(Debug, Error)]
+#[error("No columns given for ASCII layout but DATA segment is non-empty")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct ReadDelimNoColumn;
 
 /// Error when reading delimited ASCII layout with $TOT.
 #[derive(From, Display, Debug, Error)]

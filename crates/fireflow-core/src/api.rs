@@ -1195,7 +1195,6 @@ fn split_flat_text_literal_delim(
     let mut blank_errors = vec![];
     let mut insert_results = vec![];
 
-    // ASSUME input slice does not start with delim
     let mut it = bytes.split(|x| *x == delim);
     let mut prev_was_key = false;
     let mut prev_word: &[u8] = &[];
@@ -1287,7 +1286,6 @@ fn split_flat_text_escaped_delim(
         }
     };
 
-    // ASSUME input slice does not start with delim
     let mut consec_blanks = 0;
     let mut lastbuf: &[u8] = &[];
     let mut keybuf: Vec<u8> = vec![];

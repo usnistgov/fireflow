@@ -50,12 +50,15 @@ pub struct GenericSpillover<T> {
 
 impl Spillover {
     pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
-        // ASSUME mapping is such that new names will be unique
         for n in &mut self.measurements {
             if let Some(new) = mapping.get(n) {
                 *n = (*new).clone();
             }
         }
+        debug_assert!(
+            self.measurements.iter().unique().count() == self.measurements.len(),
+            "reassigned names are not unique"
+        );
     }
 
     pub(crate) fn names_difference(

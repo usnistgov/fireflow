@@ -4,16 +4,19 @@ use crate::validated::ascii_range::Chars;
 use derive_more::{Display, From};
 use derive_new::new;
 use num_traits::identities::Zero as _;
-use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
-use polars_arrow::datatypes::ArrowDataType;
 use std::iter;
 use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::validated::shortname::Shortname, fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
+    crate::validated::shortname::Shortname,
+    fireflow_core_proc::DisplayAsPyErr,
+    itertools::Itertools as _,
+    polars::prelude::*,
+    polars_arrow::array::{Array, PrimitiveArray},
+    polars_arrow::datatypes::ArrowDataType,
 };
 
 /// A dataframe without NULL and only types that make sense for FCS files.
@@ -172,7 +175,8 @@ impl AnyFCSColumn {
         }
     }
 
-    pub fn as_array(&self) -> Box<dyn Array> {
+    #[cfg(feature = "python")]
+    fn as_array(&self) -> Box<dyn Array> {
         match self.clone() {
             Self::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
             Self::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
@@ -185,8 +189,9 @@ impl AnyFCSColumn {
 
     #[cfg(feature = "python")]
     fn as_polars_column(&self, name: &Shortname) -> Column {
-        // ASSUME this will not fail because the we know the types and
-        // we don't have a validity array
+        // ASSUME this will not fail because the we know that any of the 6
+        // allowed types will be valid columns and we don't add a NULL array
+        // when making the array
         Series::from_arrow(name.as_ref().into(), self.as_array())
             .unwrap()
             .into()
@@ -283,15 +288,11 @@ impl FCSDataFrame {
         }
     }
 
-    // pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
-    //     if self.is_empty() {
-    //         None
-    //     } else {
-    //         Some(self.columns.remove(self.ncols()))
-    //     }
-    // }
-
     pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
+        debug_assert!(
+            self.check_new_column(&col).is_ok(),
+            "new column length differs from number of rows"
+        );
         if self.is_empty() {
             *self = Self::new1(col);
         } else {
@@ -299,14 +300,12 @@ impl FCSDataFrame {
         }
     }
 
-    // pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
-    //     self.check_new_column(&col)?;
-    //     self.push_column_nocheck(col);
-    //     Ok(())
-    // }
-
     // will panic if index is out of bounds
     pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
+        debug_assert!(
+            self.check_new_column(&col).is_ok(),
+            "new column length differs from number of rows"
+        );
         if self.is_empty() {
             self.nrows = col.len();
         }
@@ -314,17 +313,6 @@ impl FCSDataFrame {
         // bounds
         self.columns.insert(i, col);
     }
-
-    // // will panic if index is out of bounds
-    // pub(crate) fn insert_column(
-    //     &mut self,
-    //     i: usize,
-    //     col: AnyFCSColumn,
-    // ) -> Result<(), ColumnLengthError> {
-    //     self.check_new_column(&col)?;
-    //     self.insert_column_nocheck(i, col);
-    //     Ok(())
-    // }
 
     pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
         if let Some(df_len) = self.nrows_nonempty() {
@@ -350,7 +338,14 @@ impl FCSDataFrame {
     #[cfg(feature = "python")]
     #[must_use]
     pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        // ASSUME names is same length as columns
+        debug_assert!(
+            names.len() == self.ncols(),
+            "names is not same length as column number"
+        );
+        debug_assert!(
+            names.iter().unique().count() == names.len(),
+            "Names are not unique"
+        );
         let columns = self
             .iter_columns()
             .zip(names)
@@ -932,8 +927,9 @@ pub(crate) mod python {
                 if ser.null_count() > 0 {
                     Err(SeriesToColumnError::HasNull(ser.name().clone()))
                 } else {
-                    // ASSUME series only has one chunk
-                    let buf = ser.into_chunks()[0]
+                    let chunks = ser.into_chunks();
+                    debug_assert!(chunks.len() == 1, "Dataframe has more than one chunk");
+                    let buf = chunks[0]
                         .as_any()
                         .downcast_ref::<PrimitiveArray<T>>()
                         .unwrap()

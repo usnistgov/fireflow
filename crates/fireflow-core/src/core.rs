@@ -3098,9 +3098,11 @@ where
             .map_err(SetScalesError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
-            // ASSUME this won't fail because we checked the length and
-            // time index first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == scales.len(),
+                    "Input scales vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         scales,
@@ -3135,8 +3137,11 @@ where
             .map_err(SetTransformsError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_xform_not_noop())
-            // ASSUME this won't fail because we checked the length first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == xforms.len(),
+                    "Input transforms vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         xforms,
@@ -4685,8 +4690,9 @@ where
                 self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertTemporalToDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
-            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
+            .when_ok(|| {
+                self.data.insert_column_nocheck(i.into(), col);
+            })
             .group()
     }
 
@@ -4743,7 +4749,6 @@ where
                 self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertOpticalInDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
     }

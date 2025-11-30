@@ -98,16 +98,20 @@ impl<T> HeaderSegments<T> {
     where
         T: HeaderString + Zero,
     {
-        // ASSUME this is a total of 58 bytes long (sans OTHER)
-        for s in [
+        let towrite = [
             version.to_string(),           // 6 bytes
             "    ".into(),                 // 4 bytes
             self.text.header_string(),     // 16 bytes
             self.data.header_string(),     // 16 bytes
             self.analysis.header_string(), // 16 bytes
-        ]
-        .into_iter()
-        .chain(self.other.iter().map(Segment::header_string))
+        ];
+        debug_assert!(
+            towrite.iter().join("").len() == 58,
+            "HEADER (without OTHER) should be 58 bytes"
+        );
+        for s in towrite
+            .into_iter()
+            .chain(self.other.iter().map(Segment::header_string))
         {
             h.write_all(s.as_bytes())?;
         }

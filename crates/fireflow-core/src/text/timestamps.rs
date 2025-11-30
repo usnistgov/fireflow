@@ -368,7 +368,7 @@ impl FromStr for FCSTime100 {
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
-                // ASSUME these will never fail
+                // ASSUME these will never fail because we matched only digits above
                 let hh: u32 = s1.parse().unwrap();
                 let mm: u32 = s2.parse().unwrap();
                 let ss: u32 = s3.parse().unwrap();
@@ -423,14 +423,16 @@ impl From<FCSTime> for FCSTime100 {
 
 impl From<FCSTime60> for FCSTime {
     fn from(value: FCSTime60) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
+        // ASSUME this will never fail since it only returns error if
+        // nanoseconds are > 2e9
         Self(value.0.with_nanosecond(0).unwrap())
     }
 }
 
 impl From<FCSTime100> for FCSTime {
     fn from(value: FCSTime100) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
+        // ASSUME this will never fail since it only returns error if
+        // nanoseconds are > 2e9
         Self(value.0.with_nanosecond(0).unwrap())
     }
 }

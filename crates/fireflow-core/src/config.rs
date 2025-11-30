@@ -924,13 +924,13 @@ impl TemporalOpticalKey {
     pub(crate) fn std_key(&self, i: MeasIndex) -> StdKey {
         match self {
             Self::Filter => kws::Filter::std(i),
-            // ASSUME this is the same for all versions
+            // NOTE this is $PnL for all versions
             Self::Wavelength => kws::Wavelength::std(i),
             Self::Power => kws::Power::std(i),
             Self::DetectorType => kws::DetectorType::std(i),
             Self::DetectorVoltage => kws::DetectorVoltage::std(i),
             Self::PercentEmitted => kws::PercentEmitted::std(i),
-            // ASSUME this is the same for all versions
+            // NOTE this is $PnCALIBRATION for all versions
             Self::Calibration => kws::Calibration3_1::std(i),
             Self::DetectorName => kws::DetectorName::std(i),
             Self::Tag => kws::Tag::std(i),

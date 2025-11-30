@@ -942,10 +942,10 @@ impl OtherSegment20 {
         R: Read,
         C: AsRef<HeaderConfigInner>,
     {
-        // ASSUME this won't fail because we checked that each offset is greater
-        // than this
         let conf = st.conf.as_ref();
-        let n = u64::from(text_begin) - u64::from(HEADER_LEN);
+        let n = u64::from(text_begin)
+            .checked_sub(u64::from(HEADER_LEN))
+            .expect("TEXT begin is less than 58");
         let w = u8::from(conf.other_width);
         let mut buf0 = vec![];
         let mut buf1 = vec![];
@@ -1083,10 +1083,8 @@ impl<T> InnerSegment<T> {
                     let trunc_end = abs_end.min(max_end);
                     // put the (possibly truncated) ending offset back into
                     // relative coordinates.
-                    //
-                    // ASSUME this won't fail because we checked that
-                    // dataset_offset does not exceed the file length
-                    let rel_trunc_end = T::try_from(trunc_end - conf.dataset_offset.0).unwrap();
+                    let rel_trunc_end = T::try_from(trunc_end - conf.dataset_offset.0)
+                        .expect("dataset offset exceeds file length");
                     let seg = NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
                     Ok(Self::NonEmpty(seg))
                 }

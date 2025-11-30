@@ -171,8 +171,14 @@ pub(crate) struct KeyMatcher<'a, T> {
 pub trait Key {
     const C: &'static str;
 
+    const _CHECK: () = {
+        assert!(is_alpha_underscore_str(Self::C), "C must only be letters");
+    };
+
     #[must_use]
+    #[allow(path_statements)]
     fn std() -> StdKey {
+        Self::_CHECK;
         StdKey::new(Self::C.into())
     }
 
@@ -189,6 +195,21 @@ pub trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
+    const _CHECK_PREFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::PREFIX),
+            "PREFIX must only be letters"
+        );
+    };
+
+    const _CHECK_SUFFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::SUFFIX),
+            "SUFFIX must only be letters"
+        );
+    };
+
+    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, suffix, and a number with 3 digits
         let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
@@ -196,6 +217,9 @@ pub trait IndexedKey {
         s.push_str(Self::PREFIX);
         s.push_str(i.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
+        // trigger compile time error if pre/suffix are anything but letters/underscore
+        Self::_CHECK_PREFIX;
+        Self::_CHECK_SUFFIX;
         StdKey::new(s)
     }
 
@@ -237,6 +261,28 @@ pub(crate) trait BiIndexedKey {
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
 
+    const _CHECK_PREFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::PREFIX),
+            "PREFIX must only be letters"
+        );
+    };
+
+    const _CHECK_MIDDLE: () = {
+        assert!(
+            is_alpha_underscore_str(Self::MIDDLE),
+            "MIDDLE must only be letters"
+        );
+    };
+
+    const _CHECK_SUFFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::SUFFIX),
+            "SUFFIX must only be letters"
+        );
+    };
+
+    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, middle, suffix, and two numbers with
         // 2 digits
@@ -247,6 +293,10 @@ pub(crate) trait BiIndexedKey {
         s.push_str(Self::MIDDLE);
         s.push_str(j.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
+        // trigger compile time error if pre/mid/suffix are anything but letters/underscore
+        Self::_CHECK_PREFIX;
+        Self::_CHECK_MIDDLE;
+        Self::_CHECK_SUFFIX;
         StdKey::new(s)
     }
 
@@ -663,8 +713,8 @@ impl ParsedKeywords {
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
-        // ASSUME key and value are never blank since we checked both prior to
-        // calling this. The FCS standards do not allow either to be blank.
+        debug_assert!(!k.is_empty(), "key should not be empty string");
+        debug_assert!(!v.is_empty(), "value should not be empty string");
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
         // TODO this also should skip keys before throwing a blank error
@@ -936,6 +986,21 @@ where
             LogResult::new_switchable_ok((), flag)
         }
     }
+}
+const fn is_alpha_underscore_str(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let upper = c >= b'A' && c <= b'Z';
+        let lower = c >= b'a' && c <= b'z';
+        let underscore = c == b'_';
+        if !(upper || lower || underscore) {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 const STD_PREFIX: u8 = 36; // '$'

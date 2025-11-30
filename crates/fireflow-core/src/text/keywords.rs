@@ -1112,8 +1112,7 @@ impl Compensation3_0 {
         let m: &DMatrix<_> = c.as_ref();
         let js = (par.0..m.nrows()).map(MeasIndex::from);
         NonEmpty::collect(js).map(|xs| {
-            // ASSUME this won't fail because it should be some if we were able
-            // to get indices out
+            // ASSUME this won't fail because we filter with ? above
             let v = take(src).unwrap();
             RemovedIndexLink::new(v, xs)
         })
@@ -1513,12 +1512,15 @@ impl RegionWindow {
         F: FnOnce(&str) -> Result<UniGate, GatePairError>,
         G: Fn(&str) -> Result<Vertex, GatePairError>,
     {
-        // ASSUME split will always contain one element
-        let xs = NonEmpty::collect(ss).unwrap();
-        if xs.tail.is_empty() {
-            go_uni(xs.head).map(RegionWindow::Univariate)
+        if let Some(xs) = NonEmpty::collect(ss) {
+            if xs.tail.is_empty() {
+                go_uni(xs.head).map(RegionWindow::Univariate)
+            } else {
+                xs.try_map(go_bi).map(Self::Bivariate)
+            }
         } else {
-            xs.try_map(go_bi).map(Self::Bivariate)
+            // this will happen if the input string is empty
+            Err(GatePairError::Format)
         }
     }
 }

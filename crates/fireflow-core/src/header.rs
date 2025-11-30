@@ -1,6 +1,7 @@
 use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadState};
 use crate::logging::{
-    DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
+    DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
+    ResultExt, split_io,
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
@@ -25,12 +26,10 @@ use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
-use std::iter::once;
-use thiserror::Error;
-
-use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::str;
+use std::iter::once;
+use std::str::FromStr;
+use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -294,7 +293,7 @@ fn h_read_required_header<C, R>(
     (),
 >
 where
-    R: Read,
+    R: Read + Seek,
     C: AsRef<HeaderConfigInner>,
 {
     let conf = &st.conf.as_ref();
@@ -302,10 +301,10 @@ where
     let data_cor = conf.data_correction;
     let anal_cor = conf.analysis_correction;
 
-    let vers_res = split_io!(Version::h_read(h))
+    let vers_res = split_io!(Version::h_read(h, st))
         .ungroup()
         .map_errors(HeaderError::from);
-    let space_res = split_io!(h_read_spaces(h))
+    let space_res = split_io!(h_read_spaces(h, st))
         .ungroup()
         .map_errors(HeaderError::from);
 
@@ -324,26 +323,53 @@ where
         .map_err(IOErrorGroup::Pure)
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderSpacesError, ()> {
+fn h_read_spaces<R, C>(
+    h: &mut BufReader<R>,
+    st: &ReadState<C>,
+) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
+where
+    R: Read + Seek,
+{
+    let remaining = st.remaining_bytes(h)?;
+    if remaining < 4 {
+        let e = HeaderSpacesNoBytesError(remaining).into();
+        return Err(IOAnonErrorGroup::new_pure_one(e));
+    }
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
         Ok(())
     } else {
-        Err(IOErrorGroup::new_pure_one(HeaderSpacesError))
+        Err(IOAnonErrorGroup::new_pure_one(
+            HeaderSpacesFormatError.into(),
+        ))
     }
 }
 
 impl Version {
-    fn h_read<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<Self, VersionError, ()> {
+    fn h_read<R, C>(
+        h: &mut BufReader<R>,
+        st: &ReadState<C>,
+    ) -> IOGroupResult<Self, VersionError, ()>
+    where
+        R: Read + Seek,
+    {
+        let remaining = st.remaining_bytes(h)?;
+        if remaining < 6 {
+            let e = VersionNoBytesError(remaining).into();
+            return Err(IOAnonErrorGroup::new_pure_one(e));
+        }
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
             // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse().map_err(IOErrorGroup::new_pure_one)
+            s.parse()
+                .map_err(VersionError::from)
+                .map_err(IOErrorGroup::new_pure_one)
         } else {
-            Err(IOErrorGroup::new_pure_one(VersionError(buf.to_vec())))
+            let e = VersionNonUtf8Error(buf.to_vec());
+            Err(IOErrorGroup::new_pure_one(e.into()))
         }
     }
 
@@ -390,8 +416,8 @@ impl Version {
     }
 }
 
-impl str::FromStr for Version {
-    type Err = VersionError;
+impl FromStr for Version {
+    type Err = VersionFormatError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -399,7 +425,7 @@ impl str::FromStr for Version {
             "FCS3.0" => Ok(Self::FCS3_0),
             "FCS3.1" => Ok(Self::FCS3_1),
             "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionError(s.as_bytes().to_vec())),
+            _ => Err(VersionFormatError(s.to_owned())),
         }
     }
 }
@@ -414,12 +440,27 @@ pub enum HeaderError {
     Space(HeaderSpacesError),
 }
 
+/// Error when parsing spaces after FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum HeaderSpacesError {
+    Format(HeaderSpacesFormatError),
+    Bytes(HeaderSpacesNoBytesError),
+}
+
 /// Error when version is not follow by proper number of spaces in HEADER
 #[derive(Debug, Error)]
 #[error("version must be followed by 4 spaces")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct HeaderSpacesError;
+pub struct HeaderSpacesFormatError;
+
+/// Error when spaces could not be read because not enough bytes were present
+#[derive(Debug, Error)]
+#[error("needed 4 bytes to read spaces after FCS version, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct HeaderSpacesNoBytesError(u64);
 
 /// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error)]
@@ -436,25 +477,35 @@ pub enum HeaderValidationError {
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
+/// Error when validating segments in HEADER
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum VersionError {
+    Format(VersionFormatError),
+    NonUtf8(VersionNonUtf8Error),
+    Bytes(VersionNoBytesError),
+}
+
 /// Error when parsing FCS version
 #[derive(Debug, Error)]
+#[error("'{0}' is not a valid or supported FCS version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct VersionError(Vec<u8>);
+pub struct VersionFormatError(String);
 
-impl fmt::Display for VersionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if let Ok(s) = str::from_utf8(&self.0) {
-            write!(f, "'{s}' is not a valid or supported FCS version")
-        } else {
-            write!(
-                f,
-                "could not read FCS version, got bytes [{}]",
-                self.0.iter().join(",")
-            )
-        }
-    }
-}
+/// Error when parsing FCS version
+#[derive(Debug, Error)]
+#[error("invalid bytes found when parsing version: {}", self.0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct VersionNonUtf8Error(Vec<u8>);
+
+/// Error when not enough bytes to parse version
+#[derive(Debug, Error)]
+#[error("needed 6 bytes to parse FCS version, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct VersionNoBytesError(u64);
 
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {

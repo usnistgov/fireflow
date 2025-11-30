@@ -838,7 +838,7 @@ impl<I: Copy> HeaderSegment<I> {
         st: &ReadState<C>,
     ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
     where
-        R: Read,
+        R: Read + Seek,
         C: AsRef<HeaderConfigInner>,
         I: HasRegion + Copy,
     {
@@ -848,6 +848,13 @@ impl<I: Copy> HeaderSegment<I> {
 
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
+
+        let remaining = st.remaining_bytes(h)?;
+
+        if remaining < 16 {
+            let e = OffsetsNoBytesError::new(remaining, 16, I::REGION, AnySrc::Header);
+            return Err(IOErrorGroup::new_pure_one(e.into()));
+        }
 
         h.read_exact(&mut buf0)?;
         h.read_exact(&mut buf1)?;
@@ -939,7 +946,7 @@ impl OtherSegment20 {
         st: &ReadState<C>,
     ) -> Result<Vec<Self>, IOErrorGroup<HeaderSegmentError, ()>>
     where
-        R: Read,
+        R: Read + Seek,
         C: AsRef<HeaderConfigInner>,
     {
         let conf = st.conf.as_ref();
@@ -947,6 +954,7 @@ impl OtherSegment20 {
             .checked_sub(u64::from(HEADER_LEN))
             .expect("TEXT begin is less than 58");
         let w = u8::from(conf.other_width);
+        let total_width = u64::from(w) * 2;
         let mut buf0 = vec![];
         let mut buf1 = vec![];
         let n_segs = usize::try_from(n / (u64::from(w) * 2)).expect("usize overflow");
@@ -965,6 +973,19 @@ impl OtherSegment20 {
                 NewSegmentConfig::new(corr, st.file_len, st.dataset_offset, conf.truncate_offsets);
             buf0.clear();
             buf1.clear();
+
+            let remaining = st.remaining_bytes(h)?;
+
+            // TODO this won't say which OTHER offset has just failed
+            if remaining < total_width {
+                let e = OffsetsNoBytesError::new(
+                    remaining,
+                    total_width,
+                    AnyRegion::Other,
+                    AnySrc::Header,
+                );
+                return Err(IOErrorGroup::new_pure_one(e.into()));
+            }
 
             h.take(u64::from(w)).read_to_end(&mut buf0)?;
             h.take(u64::from(w)).read_to_end(&mut buf1)?;
@@ -1177,6 +1198,21 @@ pub enum OptSegmentError<B, E> {
 pub enum HeaderSegmentError {
     New(SegmentError),
     Parse(ParseOffsetError),
+    Bytes(OffsetsNoBytesError),
+}
+
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[error(
+    "needed {required} bytes to parse {location} offset from {src}, \
+     only {remaining} bytes left in file"
+)]
+pub struct OffsetsNoBytesError {
+    remaining: u64,
+    required: u64,
+    location: AnyRegion,
+    src: AnySrc,
 }
 
 /// Error when creating a new segment

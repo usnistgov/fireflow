@@ -31,7 +31,7 @@ use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
-use std::io;
+use std::io::{self, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
@@ -994,6 +994,12 @@ impl<C> ReadState<C> {
         C: AsRef<X>,
     {
         ReadState::new(self.file_len, self.dataset_offset, self.conf.as_ref())
+    }
+
+    pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
+        let pos = h.stream_position()?;
+        let remaining = u64::from(self.file_len) - pos;
+        Ok(remaining)
     }
 }
 

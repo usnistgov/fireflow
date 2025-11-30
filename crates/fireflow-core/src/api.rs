@@ -12,8 +12,8 @@ use crate::core::{
     StdTEXTFromFlatTEXTWarning, Versioned as _,
 };
 use crate::header::{
-    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
-    Version3_1, Version3_2,
+    Header, HeaderError, HeaderSegments, HeaderValidationError, InHeaderError, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -25,7 +25,7 @@ use crate::logging::{
 use crate::macros::def_group;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
-    OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
+    OptSegmentError, OtherSegment20, ReqSegmentError, SegmentOverlapError, SupplementalTextSegment,
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
@@ -569,7 +569,7 @@ pub enum HeaderOrFlatTextError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
-    Dup(DuplicatedSuppTEXT),
+    Overlap(STextOverlapError),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -580,12 +580,13 @@ pub enum STextSegmentWarning {
     Error(STextSegmentError),
 }
 
-/// Error when primary and supplemental TEXT offsets are equal
-#[derive(Debug, Error)]
-#[error("primary and supplemental TEXT offsets are the same")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct DuplicatedSuppTEXT;
+/// Error when Supplemental TEXT overlaps with HEADER or another segment.
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum STextOverlapError {
+    Header(InHeaderError),
+    Segment(SegmentOverlapError),
+}
 
 /// Error when parsing multiple TEXT segment in std mode
 #[derive(From, Display, Error, Debug)]
@@ -1053,7 +1054,7 @@ where
                 let _ = kws.std.remove(&Endstext::std());
                 LogResult::new_ok((delim, kws, None))
             } else {
-                lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
+                lookup_stext_offsets(&kws.std, &header, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
@@ -1418,8 +1419,7 @@ fn check_final_delimiter(
 
 fn lookup_stext_offsets<C>(
     kws: &StdKeywords,
-    version: Version,
-    text_segment: PrimaryTextSegment,
+    header: &Header,
     st: &ReadState<C>,
 ) -> DeferredWarningsAndErrors<
     Option<SupplementalTextSegment>,
@@ -1432,7 +1432,7 @@ where
         + AsRef<ReadHeaderAndTEXTConfig>,
 {
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-    let res = match version {
+    let res = match header.version {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
@@ -1462,17 +1462,21 @@ where
     };
     res.and_then_deferred(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
-            // shouldn't this detect any overlap?
-            if seg.same_coords(&text_segment) {
-                let flag = conf.allow_duplicated_supp_text;
-                // TODO why return None?
-                SwitchableErrorsResult::new_deferred_switchable(None, DuplicatedSuppTEXT, flag)
-                    .map_switchable_errors(STextSegmentError::from)
-                    .switchable_into_commutative()
-                    .map_commutative_warnings(STextSegmentWarning::from)
-            } else {
-                LogResult::new_ok(Some(seg))
-            }
+            let flag = conf.allow_overlapping_supp_text;
+            let hs = &header.segments;
+            let contains_res = hs
+                .contains_text_segment(&seg)
+                .map_err(STextOverlapError::from)
+                .into_deferred_nowarn();
+            let overlap_res = hs.overlaps_with(&seg).map_errors(STextOverlapError::from);
+            contains_res
+                .lift_f2_once(overlap_res, |(), ()| ())
+                .nowarn_into_switchable(flag)
+                .map_switchable_errors(STextSegmentError::from)
+                .switchable_into_commutative()
+                .map_commutative_warnings(STextSegmentWarning::from)
+                .set_ok_value(Some(seg))
+                .set_err_value(None)
         })
     })
 }

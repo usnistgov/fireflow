@@ -151,9 +151,12 @@ fn main() -> Result<(), ()> {
     let supp_text_correction_begin = correction_arg(SUPP_TEXT_COR_BEGIN, true, &supp_text_seg);
     let supp_text_correction_end = correction_arg(SUPP_TEXT_COR_END, false, &supp_text_seg);
 
-    let allow_dup_supp_text = flag_arg(
-        ALLOW_DUP_SUPP_TEXT,
-        format!("Allow {supp_text_seg} offsets to be the same as those for {prim_text_seg}."),
+    let allow_overlapping_supp_text = flag_arg(
+        ALLOW_OVERLAPPING_SUPP_TEXT,
+        format!(
+            "Allow {supp_text_seg} offsets to overlap those for \
+             {prim_text_seg} or the boundaries of {header_seg}."
+        ),
     );
 
     let ignore_supp_text = flag_arg(
@@ -306,7 +309,7 @@ fn main() -> Result<(), ()> {
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
-        allow_dup_supp_text,
+        allow_overlapping_supp_text,
         ignore_supp_text,
         lit_delims,
         non_ascii_delim,
@@ -812,7 +815,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
-        allow_duplicated_supp_text: sargs.get_flag(ALLOW_DUP_SUPP_TEXT).into(),
+        allow_overlapping_supp_text: sargs.get_flag(ALLOW_OVERLAPPING_SUPP_TEXT).into(),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         use_literal_delims: sargs.get_flag(LIT_DELIMS),
         allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
@@ -1095,7 +1098,7 @@ const VERSION_OVERRIDE: &str = "version-override";
 const SUPP_TEXT_COR_BEGIN: &str = "supp-text-correction-begin";
 const SUPP_TEXT_COR_END: &str = "supp-text-correction-end";
 
-const ALLOW_DUP_SUPP_TEXT: &str = "allow-duplicated-supp-text";
+const ALLOW_OVERLAPPING_SUPP_TEXT: &str = "allow-overlapping-supp-text";
 
 const IGNORE_SUPP_TEXT: &str = "ignore-supp-text";
 

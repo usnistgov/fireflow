@@ -6859,7 +6859,7 @@ impl DocArgParam {
         let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
-            Self::new_allow_duplicated_supp_text(),
+            Self::new_allow_overlapping_supp_text(),
             Self::new_ignore_supp_text(),
             Self::new_use_literal_delims(),
             Self::new_allow_non_ascii_delim(),
@@ -7300,12 +7300,15 @@ impl DocArgParam {
         )
     }
 
-    fn new_allow_duplicated_supp_text() -> Self {
-        let d = "If ``True`` allow supplemental *TEXT* offsets to match the primary \
-                 *TEXT* offsets from *HEADER*. Some vendors will duplicate these \
-                 two segments despite supplemental *TEXT* not being present, which \
-                 is incorrect.";
-        Self::new_bool_param("allow_duplicated_supp_text", d)
+    fn new_allow_overlapping_supp_text() -> Self {
+        let exc = PyreflowError::FileLayout.fmt_ref();
+        let d = format!(
+            "If ``True`` allow supplemental *TEXT* offsets to overlap the \
+             primary *TEXT* offsets from *HEADER* or *HEADER* itself and raise \
+             a warning if such an overlap is found. Otherwise raise a {exc}. \
+             The offsets will not be used if an overlap is found in either case."
+        );
+        Self::new_bool_param("allow_overlapping_supp_text", d)
     }
 
     fn new_ignore_supp_text() -> Self {

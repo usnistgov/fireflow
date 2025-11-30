@@ -355,7 +355,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
-    pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
+    pub allow_overlapping_supp_text: AllowDuplicatedSuppTEXT,
 
     /// If true, totally ignore STEXT and its offsets.
     ///

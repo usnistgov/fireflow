@@ -3425,9 +3425,9 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
+    #[must_use]
     pub fn new_ascii_u64(ranges: Vec<AsciiRangeValue>) -> Self {
-        let rs = ranges.into_iter().map(AsciiRange::from).collect();
-        Self::new_ascii(rs)
+        Self::new_ascii(ranges.fmap_into())
     }
 
     #[must_use]
@@ -3598,10 +3598,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             [] => LogResult::new_ok(NonMixedEndianLayout::new_empty1(datatype, byteord.0).into()),
             // has columns with one datatype, use nonmixed layout
             [dt] => {
-                let ds = columns
-                    .into_iter()
-                    .map(|c| ColumnLayoutValues::new(c.width, c.range, Nothing::default()))
-                    .collect();
+                let ds =
+                    columns.fmap(|c| ColumnLayoutValues::new(c.width, c.range, Nothing::default()));
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf)
                     .map_ok_value(|x| Self::NonMixed(x.phantom_into::<Option<NumType>>()))
             }

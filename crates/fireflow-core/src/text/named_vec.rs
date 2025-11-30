@@ -1739,10 +1739,10 @@ impl<K, U, V> Either<K, U, V> {
 }
 
 impl<U, V> Element<U, V> {
-    pub fn both<F, G, X>(self, mut f: F, mut g: G) -> X
+    pub fn both<F, G, X>(self, f: F, g: G) -> X
     where
-        F: FnMut(U) -> X,
-        G: FnMut(V) -> X,
+        F: FnOnce(U) -> X,
+        G: FnOnce(V) -> X,
     {
         match self {
             Self::Center(u) => f(u),

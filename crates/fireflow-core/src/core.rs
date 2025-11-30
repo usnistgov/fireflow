@@ -80,7 +80,9 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
-use crate::type_families::{ApplyOnce as _, BifunctorOnce as _, FunctorOnce as _, Pointed};
+use crate::type_families::{
+    ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed,
+};
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
 };
@@ -2771,7 +2773,7 @@ where
     where
         Optical<M::Optical>: AsMut<X>,
     {
-        let ys = xs.into_iter().map(|x| x.0).collect();
+        let ys = xs.fmap(|x| x.0);
         self.measurements.alter_elements_zip(
             ys,
             SetOpticalSummary,
@@ -3665,16 +3667,10 @@ where
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(Element::non_center) {
             let lt = &self.layout;
-            let req_layout: Vec<_> = lt
-                .req_meas_keywords()
-                .into_iter()
-                .map(|[x, y]| [x.1, y.1])
-                .collect();
+            let req_layout: Vec<_> = lt.req_meas_keywords().fmap(|[x, y]| [x.1, y.1]);
             let opt_layout: Vec<_> = lt
                 .opt_meas_keywords()
-                .into_iter()
-                .map(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>())
-                .collect();
+                .fmap(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
             let header = m0.1.table_header(lt.opt_meas_headers());
             let rows = self
                 .measurements
@@ -3748,6 +3744,30 @@ where
             },
         );
 
+        let mut found_time = false;
+
+        let mut match_time_pattern = |i, wrapped| {
+            let res = match M::Name::unwrap(wrapped) {
+                Ok(name) => {
+                    if let Some(tp) = sconf.time_meas_pattern.as_ref()
+                        && tp.0.is_match(name.as_ref())
+                    {
+                        if found_time {
+                            let e = DuplicateTimeNameError(i, name);
+                            Err(LookupMeasurementError::from(e))
+                        } else {
+                            found_time = true;
+                            Ok(Element::Center(name))
+                        }
+                    } else {
+                        Ok(Element::NonCenter(M::Name::wrap(name)))
+                    }
+                }
+                Err(key) => Ok(Element::NonCenter(key)),
+            };
+            res.into_log()
+        };
+
         // then iterate over each measurement and look for standardized keys
         ns_res.and_then_commutative(|meas_nonstds| {
             meas_nonstds
@@ -3756,46 +3776,38 @@ where
                 .map(|(n, mut meas_nonstd)| {
                     let i = n.into();
                     // Try to find $PnN first, for later versions this will
-                    // totally fail if not found since this is required. If it
-                    // does exist, also check if it matches the time pattern and
-                    // use it as the time measurement if it does.
+                    // totally fail if not found since this is required.
                     M::lookup_shortname(std, &mut meas_nonstd, i, conf.as_ref())
                         .map_commutative_warnings(LookupMeasurementWarning::from)
                         .map_errors(LookupMeasurementError::from)
                         .into_semigroup()
-                        .and_then_commutative(|wrapped| {
-                            // TODO if more than one name matches the time pattern
-                            // this will give a cryptic "cannot find $TIMESTEP" for
-                            // each subsequent match, which is not helpful. Probably
-                            // the best way around this is to add measurement index
-                            // and possibly key to the error, so at least the user
-                            // will know it is trying to find $TIMESTEP in a
-                            // nonsense measurement.
-                            let key = M::Name::unwrap(wrapped).and_then(|name| {
-                                if let Some(tp) = sconf.time_meas_pattern.as_ref()
-                                    && tp.0.is_match(name.as_ref())
-                                {
-                                    return Ok(name);
-                                }
-                                Err(M::Name::wrap(name))
-                            });
-                            // Once we checked $PnN, pull all the rest of the
-                            // standardized keywords from the hashtable and collect
-                            // errors. In general, required keywords will trigger an
-                            // error if they are missing and optional keywords will
-                            // trigger a warning. Either can generate an
-                            // error/warning if they fail to be parsed to their type
+                        // If $PnN is found, check that it matches the time
+                        // pattern (if given). Also check that only zero or one
+                        // $PnN match the time pattern, and throw error
+                        // otherwise.
+                        .and_then_commutative(|wrapped| match_time_pattern(i, wrapped))
+                        // Once we checked $PnN, pull all the rest of the
+                        // standardized keywords from the hashtable and collect
+                        // errors. In general, required keywords will trigger an
+                        // error if they are missing and optional keywords will
+                        // trigger a warning. Either can generate an
+                        // error/warning if they fail to be parsed to their type
+                        .and_then_commutative(|key| {
+                            // TODO add switch to "downgrade" failed time
+                            // channel to optical channel, which is more general
                             match key {
-                                // TODO add switch to "downgrade" failed time
-                                // channel to optical channel, which is more general
-                                Ok(name) => Temporal::lookup_temporal(std, meas_nonstd, i, conf)
-                                    .map_errors(LookupMeasurementError::from)
-                                    .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|t| Element::Center((name, t))),
-                                Err(k) => Optical::lookup_optical(std, i, meas_nonstd, conf)
-                                    .map_errors(LookupMeasurementError::from)
-                                    .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|m| Element::NonCenter((k, m))),
+                                Element::Center(name) => {
+                                    Temporal::lookup_temporal(std, meas_nonstd, i, conf)
+                                        .map_errors(LookupMeasurementError::from)
+                                        .map_commutative_warnings(LookupMeasurementWarning::from)
+                                        .map_ok_value(|t| Element::Center((name, t)))
+                                }
+                                Element::NonCenter(k) => {
+                                    Optical::lookup_optical(std, i, meas_nonstd, conf)
+                                        .map_errors(LookupMeasurementError::from)
+                                        .map_commutative_warnings(LookupMeasurementWarning::from)
+                                        .map_ok_value(|m| Element::NonCenter((k, m)))
+                                }
                             }
                         })
                 })
@@ -5247,8 +5259,6 @@ impl SubsetData {
 }
 
 impl CSVFlags {
-    // TODO technically these should be marked deprecated because they were
-    // taken out in 3.2, but the standards don't say so
     fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -9224,7 +9234,19 @@ pub enum LookupMeasurementError {
     Optical(LookupOpticalError),
     Shortname(LookupShortnameError),
     Warn(LookupMeasurementWarning),
+    TimeName(DuplicateTimeNameError),
 }
+
+/// Error when more than one $PnN matches the given time pattern
+#[derive(Debug, Error)]
+#[error(
+    "Time pattern matched {k} with name {1} but a previous measurement already \
+     matched; adjust time pattern so it only matches one $PnN",
+    k = Shortname::std(self.0),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 
 /// Warning when parsing any measurement keyword.
 #[derive(From, Display, Debug, Error)]

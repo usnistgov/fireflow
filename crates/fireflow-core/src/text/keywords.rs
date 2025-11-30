@@ -762,7 +762,7 @@ pub struct TemporalScaleError;
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{unit}")]
 pub struct Calibration3_1 {
@@ -775,10 +775,10 @@ impl FromStr for Calibration3_1 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(',').collect::<Vec<_>>()[..] {
-            [value, unit] => Ok(Self {
-                slope: value.parse().map_err(CalibrationError::Range)?,
-                unit: String::from(unit),
-            }),
+            [value, unit] => {
+                let slope = value.parse().map_err(CalibrationError::Range)?;
+                Ok(Self::new(slope, String::from(unit)))
+            }
             _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
     }
@@ -798,11 +798,7 @@ pub enum CalibrationError<C> {
 
 impl From<Calibration3_1> for Calibration3_2 {
     fn from(value: Calibration3_1) -> Self {
-        Self {
-            unit: value.unit,
-            offset: 0.0,
-            slope: value.slope,
-        }
+        Self::new(value.slope, 0.0, value.unit)
     }
 }
 
@@ -810,7 +806,7 @@ impl From<Calibration3_1> for Calibration3_2 {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{offset},{unit}")]
 pub struct Calibration3_2 {
@@ -844,14 +840,29 @@ impl FromStr for Calibration3_2 {
 #[error("must be like 'f1,[f2],string'")]
 pub struct CalibrationFormat3_2;
 
-impl From<Calibration3_2> for Calibration3_1 {
-    fn from(value: Calibration3_2) -> Self {
-        Self {
-            unit: value.unit,
-            slope: value.slope,
-        }
+impl Calibration3_2 {
+    pub(crate) fn into_3_1(
+        self,
+        i: MeasIndex,
+    ) -> DeferredError<Calibration3_1, CalibrationLossError> {
+        let ret = Calibration3_1::new(self.slope, self.unit);
+        let e = (!self.offset.is_zero()).then_some(CalibrationLossError(i, self.offset));
+        DeferredError::new_deferred_maybe(ret, e)
     }
 }
+
+/// Error when converting $PnCALIBRATION from 3.2 to 3.1
+///
+/// Loss will occur if the offset is specified, which is not applicable to 3.1
+#[derive(Debug, Error)]
+#[error(
+    "{k} has offset {o} which will be lost upon conversion",
+    k = Calibration3_2::std(self.0),
+    o = self.1,
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+pub struct CalibrationLossError(MeasIndex, f32);
 
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]

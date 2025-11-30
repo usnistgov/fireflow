@@ -18,9 +18,9 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult, ErrorsResult,
-    GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
-    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult,
+    WarningAndGroupResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
 use crate::macros::{def_group, match_many_to_one};
@@ -47,14 +47,15 @@ use crate::text::gating::{
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-    Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
-    DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
-    Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier, Locationid, LogScale,
-    Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError,
-    Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename,
-    Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
+    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
+    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier,
+    Locationid, LogScale, Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError,
+    Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
+    Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
+    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
+    UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -5630,15 +5631,26 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .flatten()
             .map(OpticalConvertWarning::Xfer);
 
+        let cal_res = value
+            .calibration
+            .map(|c| {
+                c.into_3_1(i)
+                    .nowarn_into_switchable(flag)
+                    .map_switchable_errors(OpticalConvertWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            })
+            .transpose_log_result();
+
         SwitchableErrorsResult::new_deferred_switchable_iter((), check_errs, flag)
             .switchable_into_commutative()
+            .zip_commutative(cal_res)
             .map_errors(OpticalConvertError::from)
-            .map_ok_value(|()| {
+            .map_ok_value(|((), cal)| {
                 Self::new(
                     value.scale,
                     value.wavelengths,
-                    // TODO warn offset might be lost here
-                    value.calibration.map(Into::into),
+                    cal,
                     value.display,
                     PeakData::default(),
                 )
@@ -8559,6 +8571,7 @@ pub enum OpticalConvertError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum OpticalConvertWarning {
     Wavelengths(WavelengthsLossError),
+    Calibration(CalibrationLossError),
     Xfer(AnyOpticalKeyLossError),
 }
 

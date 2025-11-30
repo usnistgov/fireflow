@@ -6,7 +6,7 @@ use crate::logging::{
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
-use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
+use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::keys::{

@@ -98,13 +98,19 @@ pub fn derive_display_as_pyerr(input: TokenStream) -> TokenStream {
 /// corresponds to the error of the inner type. For example, I want an
 /// OverflowError if I give a -1 to a function that takes a u8, instead of
 /// simply saying "field 0 is wrong."
-#[proc_macro_derive(FromInnerPyObject)]
+#[proc_macro_derive(FromInnerPyObject, attributes(bound))]
 pub fn derive_from_py_transparent(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
+    let generics = &parsed.generics;
+    let gen_idents = generic_idents(generics);
+    let bounds = parse_bounds(&parsed);
 
     let ret = quote! {
-        impl<'py> pyo3::conversion::FromPyObject<'py> for #name {
+        impl<'py, #(#gen_idents),*> pyo3::conversion::FromPyObject<'py> for #name<#(#gen_idents),*>
+        where
+            #(#bounds),*
+        {
             fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
                 Ok(Self(pyo3::prelude::PyAnyMethods::extract(ob)?))
             }

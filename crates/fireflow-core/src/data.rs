@@ -80,10 +80,12 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
 use crate::type_families::{Functor as _, FunctorOnce as _};
-use crate::validated::ascii_range::{AsciiRange, AsciiRangeFromKeywordsError, Chars};
+use crate::validated::ascii_range::{
+    AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
+};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskLossError, BitmaskTruncationError,
+    Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
     AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
@@ -206,8 +208,8 @@ pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByt
 #[derive(Clone, Default, PartialEq, new, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
-    #[as_ref([u64])]
-    ranges: Vec<u64>,
+    #[as_ref([AsciiRangeValue])]
+    ranges: Vec<AsciiRangeValue>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<T>,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -2045,20 +2047,20 @@ impl NullMixedType {
     }
 }
 
-impl From<u64> for AnyNullBitmask {
+impl From<BitmaskValue<u64>> for AnyNullBitmask {
     /// Make a new bitmask from a u64.
     ///
     /// The width is determined by the magnitude of the range; the smallest
     /// possible will be used.
-    fn from(value: u64) -> Self {
+    fn from(value: BitmaskValue<u64>) -> Self {
         macro_rules! go {
             ($var:ident, $x:expr) => {{
-                let (ret, truncated) = Bitmask::from_u64($x);
+                let (ret, truncated) = Bitmask::from_u64($x.0);
                 debug_assert!(!truncated, "AnyNullBitmask input should never be truncated");
                 Self::$var(ret)
             }};
         }
-        match PrivBytes::from_u64(value) {
+        match PrivBytes::from_u64(value.0) {
             PrivBytes::B1 => go!(Uint08, value),
             PrivBytes::B2 => go!(Uint16, value),
             PrivBytes::B3 => go!(Uint24, value),
@@ -2071,10 +2073,10 @@ impl From<u64> for AnyNullBitmask {
     }
 }
 
-impl From<AnyNullBitmask> for u64 {
+impl From<AnyNullBitmask> for BitmaskValue<u64> {
     /// Convert bitmask range (not bitmask itself) to u64.
     fn from(value: AnyNullBitmask) -> Self {
-        match_any_uint!(value, AnyNullBitmask, x, { Self::from(x) })
+        match_any_uint!(value, AnyNullBitmask, x, { Self(u64::from(x)) })
     }
 }
 
@@ -2179,7 +2181,7 @@ where
     }
 
     fn ranges(&self) -> Vec<Range> {
-        self.ranges.iter().map(|x| Range::from(*x)).collect()
+        self.ranges.iter().map(|x| Range::from(x.0)).collect()
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -2201,7 +2203,7 @@ where
             .enumerate()
             .map(|(i, r)| {
                 let x = Width::Variable.meas_pair(i);
-                let y = Range((*r).into()).meas_pair(i);
+                let y = Range(r.0.into()).meas_pair(i);
                 [x, y]
             })
             .collect()
@@ -2357,7 +2359,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             "Index should be less than/equal to number of columns"
         );
         range
-            .into_uint()
+            .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
@@ -2371,7 +2373,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         flag: DisallowRangeTrunc,
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         range
-            .into_uint()
+            .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
@@ -2385,7 +2387,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &[u64],
+    ranges: &[AsciiRangeValue],
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -2450,7 +2452,7 @@ fn h_read_delim_with_rows<R: Read>(
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &[u64],
+    ranges: &[AsciiRangeValue],
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -3039,8 +3041,7 @@ where
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
-        // TODO there is probably a better place to do this subtraction
-        (range - Range::from(1_u8))
+        range
             .into_uint()
             .map_error(RangeToBitmaskError::from)
             .and_then_replace(|x| Self::try_from_native(x).map_error(RangeToBitmaskError::from))
@@ -3077,7 +3078,7 @@ impl FromRange for AsciiRange {
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
         range
-            .into_uint::<u64>()
+            .into_ascii_uint()
             .map_deferred_value(Self::from)
             .map_errors(RangeToAsciiError::from)
             .nowarn_into_switchable(flag)
@@ -3095,11 +3096,10 @@ impl FromRange for AnyNullBitmask {
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
-        // TODO there is probably a better place to do this subtraction
-        (range - Range::from(1_u8))
+        range
             .into_uint()
             .map_errors(RangeToBitmaskError::from)
-            .map_deferred_value(|x: u64| Self::from(x))
+            .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
             .nowarn_into_switchable(flag)
     }
 }
@@ -3198,7 +3198,7 @@ impl IsFixed for AsciiRange {
     }
 
     fn range(&self) -> Range {
-        Range(self.value().into())
+        Range(self.value().0.into())
     }
 }
 
@@ -3395,7 +3395,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .enumerate()
                 .map(|(i, c)| {
                     c.range
-                        .into_uint::<u64>()
+                        .into_ascii_uint()
                         .nowarn_into_switchable(flag)
                         .map_switchable_errors(RangeToAsciiError::from)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
@@ -3419,13 +3419,13 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
 
-    fn new_delim(ranges: Vec<u64>) -> Self {
+    fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
 }
 
 impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
-    pub fn new_ascii_u64(ranges: Vec<u64>) -> Self {
+    pub fn new_ascii_u64(ranges: Vec<AsciiRangeValue>) -> Self {
         let rs = ranges.into_iter().map(AsciiRange::from).collect();
         Self::new_ascii(rs)
     }
@@ -3932,7 +3932,7 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -4138,7 +4138,7 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -4896,7 +4896,8 @@ mod python {
     use crate::python::InvalidKeywordValueError;
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
-    use crate::validated::ascii_range::AsciiRange;
+    use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
+    use crate::validated::bitmask::BitmaskValue;
 
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
@@ -4948,8 +4949,12 @@ mod python {
                         .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
                     Ok(FloatRange::new(y).into())
                 }
-                AlphaNumType::Integer => Ok(AnyNullBitmask::from(value.extract::<u64>()?).into()),
-                AlphaNumType::Ascii => Ok(AsciiRange::from(value.extract::<u64>()?).into()),
+                AlphaNumType::Integer => {
+                    Ok(AnyNullBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
+                }
+                AlphaNumType::Ascii => {
+                    Ok(AsciiRange::from(value.extract::<AsciiRangeValue>()?).into())
+                }
             }
         }
     }
@@ -4962,7 +4967,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Ascii(x) => ("A", x.value()).into_pyobject(py),
-                Self::Uint(x) => ("I", u64::from(x)).into_pyobject(py),
+                Self::Uint(x) => ("I", BitmaskValue::<u64>::from(x)).into_pyobject(py),
                 Self::F32(x) => ("F", BigDecimal::from(x.range)).into_pyobject(py),
                 Self::F64(x) => ("D", BigDecimal::from(x.range)).into_pyobject(py),
             }

@@ -9,6 +9,7 @@ use crate::text::keywords::{Range, RangeToIntError, Width};
 use crate::validated::keys::IndexedKey as _;
 
 use derive_more::{Display, From, Into};
+use derive_new::new;
 use std::fmt;
 use std::num::{NonZero, NonZeroU8};
 use thiserror::Error;
@@ -17,24 +18,33 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+    pyo3::prelude::*,
+};
 
 /// The type of an ASCII column in all versions
 ///
 /// This represents the value of $PnB and $PnR for one measurement.
 ///
 /// Fields are private to guarantee they are always in sync.
-#[derive(PartialEq, Clone, Copy, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AsciiRange {
     /// The maximum value of the ASCII column
-    value: u64,
+    value: AsciiRangeValue,
 
     /// Number of chars used to express this range.
     ///
     /// Must be able to hold `value` in ASCII digits but can be greater.
     chars: Chars,
 }
+
+/// Inner value for ASCII range
+#[derive(PartialEq, Clone, Copy, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
+pub struct AsciiRangeValue(pub u64);
 
 /// Width to use when parsing OTHER segments.
 ///
@@ -61,29 +71,29 @@ impl TryFrom<Range> for Chars {
     }
 }
 
-impl From<u64> for AsciiRange {
-    fn from(value: u64) -> Self {
-        let chars = Chars::from_u64(value);
-        Self { value, chars }
+impl From<AsciiRangeValue> for AsciiRange {
+    fn from(value: AsciiRangeValue) -> Self {
+        let chars = Chars::from_u64(value.0);
+        Self::new(value, chars)
     }
 }
 
 impl From<&AsciiRange> for Range {
     fn from(value: &AsciiRange) -> Self {
-        value.value.into()
+        value.value.0.into()
     }
 }
 
 impl AsciiRange {
     pub(crate) fn try_new_from_chars(
-        value: u64,
+        value: AsciiRangeValue,
         chars: Chars,
     ) -> Result<Self, NotEnoughCharsError> {
-        let needed = Chars::from_u64(value);
+        let needed = Chars::from_u64(value.0);
         if chars < needed {
             Err(NotEnoughCharsError { chars, value })
         } else {
-            Ok(Self { value, chars })
+            Ok(Self::new(value, chars))
         }
     }
 
@@ -106,7 +116,7 @@ impl AsciiRange {
     ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToAsciiError, AsciiRangeFromKeywordsError>
     {
         let rng_res = range
-            .into_uint()
+            .into_ascii_uint()
             .map_errors(RangeToAsciiError::from)
             .map_errors(|e| IndexedError::new(i, e))
             .map_errors(IndexedRangeToAsciiError)
@@ -135,7 +145,7 @@ impl AsciiRange {
     }
 
     #[must_use]
-    pub fn value(&self) -> u64 {
+    pub fn value(&self) -> AsciiRangeValue {
         self.value
     }
 }
@@ -254,7 +264,7 @@ pub struct OtherWidthError(u8);
 #[derive(Debug)]
 pub(crate) struct NotEnoughCharsError {
     chars: Chars,
-    value: u64,
+    value: AsciiRangeValue,
 }
 
 /// Error when converting $PnB to number of characters.

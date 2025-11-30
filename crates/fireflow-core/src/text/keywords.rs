@@ -6,7 +6,9 @@ use crate::logging::{
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
 use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
+use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
 use crate::validated::ascii_uint::UintZeroPad20;
+use crate::validated::bitmask::BitmaskValue;
 use crate::validated::keys::{
     AnyKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
     StdKeywords,
@@ -1792,7 +1794,21 @@ pub enum Width {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self) -> DeferredError<T, RangeToIntError<()>>
+    pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
+    where
+        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+    {
+        (self - Self::from(1_u8))
+            .into_uint_inner()
+            .map_deferred_value(BitmaskValue)
+    }
+
+    pub(crate) fn into_ascii_uint(self) -> DeferredError<AsciiRangeValue, RangeToIntError<()>> {
+        self.into_uint_inner::<u64>()
+            .map_deferred_value(AsciiRangeValue)
+    }
+
+    fn into_uint_inner<T>(self) -> DeferredError<T, RangeToIntError<()>>
     where
         T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
     {

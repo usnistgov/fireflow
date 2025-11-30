@@ -3335,7 +3335,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let chars_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_ascii_range_value()),
         "The range for each measurement. Equivalent to *$PnR*. The value of \
          *$PnB* will be derived from these and will be equivalent to the number \
          of digits for each value.",
@@ -3388,7 +3388,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_ascii_range_value()),
         "The range for each measurement. Equivalent to the *$PnR* keyword. \
          This is not used internally.",
         |_, _| quote!(self.0.as_ref().to_vec()),
@@ -3585,7 +3585,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_int(RsInt::U64)),
+        PyList::new1(PyInt::new_bitmask_value64()),
         "The range of each measurement. Corresponds to the *$PnR* \
          keyword less one. The number of bytes used to encode each \
          measurement (*$PnB*) will be the minimum required to express this \
@@ -3593,7 +3593,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
          will set *$PnR* to ``1024``, and encode values for this measurement as \
          16-bit integers. The values of a measurement will be less than or \
          equal to this value.",
-        |_, _| quote!(self.0.columns().iter().map(|c| u64::from(*c)).collect()),
+        |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
 
     let is_big_param = DocArgROIvar::new_endian_param(4);
@@ -5266,6 +5266,16 @@ impl<E: From<PyException>> PyInt<E> {
     fn new_int(intkind: RsInt) -> Self {
         let e = PyException::new_overflow().desc(intkind.exc_desc());
         Self::from(intkind).exc(e)
+    }
+
+    fn new_ascii_range_value() -> Self {
+        let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
+    }
+
+    fn new_bitmask_value64() -> Self {
+        let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
     fn new_bitmask(nbytes: usize) -> Self {

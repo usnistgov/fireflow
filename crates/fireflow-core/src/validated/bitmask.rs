@@ -115,8 +115,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     where
         T: PrimInt,
     {
-        // ASSUME number of bits will never exceed 64 (or 255 for that matter)
-        // and thus will fit in a u8
+        debug_assert!(size_of::<T>() * 8 <= 64, "type can only be 64-bit or less");
         let native_bits = u8::try_from(size_of::<T>() * 8).unwrap();
         let value_bits = native_bits - u8::try_from(value.leading_zeros()).unwrap();
         let truncated = value_bits > Self::bits();

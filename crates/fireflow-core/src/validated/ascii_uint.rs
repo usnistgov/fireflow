@@ -16,7 +16,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
+    pyo3::prelude::*,
+};
 
 /// An unsigned int which may only be 20 chars wide.
 ///
@@ -44,7 +47,7 @@ use fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject};
     Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]

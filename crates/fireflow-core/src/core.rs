@@ -1,8 +1,9 @@
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
-    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
-    WriteConfig,
+    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
+    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
+    ReadState, ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TemporalOpticalKey,
+    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -20,7 +21,7 @@ use crate::logging::{
     GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
     SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
     WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
-    WarningsAndIOGroupResult, WarningsResult, io_to_log,
+    WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
@@ -430,7 +431,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
-    pub(crate) fn parse_raw<C>(
+    pub(crate) fn parse_flat<C>(
         version: Version,
         kws: ValidKeywords,
         data: HeaderDataSegment,
@@ -439,8 +440,8 @@ impl AnyCoreTEXT {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
@@ -477,15 +478,15 @@ impl AnyCoreDataset {
         conf: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
         R: Read + Seek,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         macro_rules! go {
@@ -1247,6 +1248,36 @@ pub struct DatasetSegments {
     pub analysis: AnyAnalysisSegment,
 }
 
+/// Internal configuration options used when writing HEADER+TEXT
+struct WriteHeaderAndTextConfig<'a> {
+    delim: TEXTDelim,
+    tot: Tot,
+    data_len: u64,
+    analysis_len: u64,
+    other_segs: &'a [Other],
+    has_nextdata: AppendableFlag,
+}
+
+impl WriteHeaderAndTextConfig<'_> {
+    fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag) -> Self {
+        Self {
+            delim,
+            tot: Tot(0),
+            data_len: 0,
+            analysis_len: 0,
+            other_segs: &[],
+            has_nextdata,
+        }
+    }
+
+    fn other_lens(&self) -> Vec<u64> {
+        self.other_segs
+            .iter()
+            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
+            .collect()
+    }
+}
+
 mod private {
     pub struct NoTouchy;
 }
@@ -1323,7 +1354,7 @@ pub trait Versioned {
     where
         R: Read + Seek,
         Self::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -1343,7 +1374,7 @@ pub trait Versioned {
             .and_then_commutative(|(layout, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -2177,20 +2208,55 @@ where
         M::Ver::fcs_version()
     }
 
+    pub fn write_multitext(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteTEXTInnerConfig,
+    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflow>>
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut nd = None;
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i + 1 < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiTEXTConfig::new(*conf, multi);
+            nd = Some(c.write_text(path, &sconf)?);
+        }
+        Ok(nd)
+    }
+
+    /// Write this core structure (HEADER+TEXT) to path
+    pub fn write_text(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiTEXTConfig,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    where
+        Version: From<M::Ver>,
+    {
+        let opts = conf.multi.append.file_options();
+        let f = opts.open(path)?;
+        let mut h = BufWriter::new(f);
+        self.h_write_text(&mut h, &conf.inner, conf.multi.appendable)
+    }
+
     /// Write this core structure (HEADER+TEXT) to a handle
     pub fn h_write_text<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        big_other: bool,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        conf: &WriteTEXTInnerConfig,
+        has_nextdata: AppendableFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
     {
-        if big_other {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim)
+        if conf.big_other.is_set() {
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim)
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, conf.delim, has_nextdata)
         }
     }
 
@@ -2198,37 +2264,30 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        has_nextdata: AppendableFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, &[])
+        let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
+        self.h_write_text_inner::<_, T>(h, &conf)
     }
 
     fn h_write_text_inner<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_segs: &[Other],
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
     {
-        // TODO do something useful with $NEXTDATA
-        let other_lens: Vec<_> = other_segs
-            .iter()
-            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
-            .collect();
         let hdr_kws: HeaderKeywordsToWrite<T> = self
-            .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
+            .header_and_flat_keywords(conf)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, M::Ver::fcs_version(), delim, other_segs)?;
-        Ok(())
+        hdr_kws.h_write(h, M::Ver::fcs_version(), conf.delim, conf.other_segs)?;
+        Ok(hdr_kws.nextdata)
     }
 
     /// Return all keywords as an ordered list of pairs
@@ -3039,9 +3098,11 @@ where
             .map_err(SetScalesError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
-            // ASSUME this won't fail because we checked the length and
-            // time index first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == scales.len(),
+                    "Input scales vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         scales,
@@ -3076,8 +3137,11 @@ where
             .map_err(SetTransformsError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_xform_not_noop())
-            // ASSUME this won't fail because we checked the length first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == xforms.len(),
+                    "Input transforms vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         xforms,
@@ -3501,13 +3565,9 @@ where
         Ok(())
     }
 
-    fn header_and_raw_keywords<T>(
+    fn header_and_flat_keywords<T>(
         &self,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: bool,
+        conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
     where
         Version: From<M::Ver>,
@@ -3515,30 +3575,31 @@ where
     {
         let req: Vec<_> = self
             .req_root_keywords()
-            .chain([tot.pair()])
+            .chain([conf.tot.pair()])
             .chain(self.req_meas_keywords())
             .collect();
         let opt: Vec<_> = self
             .opt_root_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
+        let other_lens = &conf.other_lens()[..];
         if M::Ver::fcs_version() == Version::FCS2_0 {
             HeaderKeywordsToWrite::new_2_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         } else {
             HeaderKeywordsToWrite::new_3_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         }
     }
@@ -3836,8 +3897,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3852,15 +3913,15 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
-            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-            .map_errors(StdTEXTFromRawError::from);
+            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+            .map_errors(StdTEXTFromFlatTEXTError::from);
 
         Self::lookup_inner(kws, &st.conf)
             .zip_commutative(offsets_res)
             .map_ok_value(|((x, y), z)| (x, y, z))
     }
 
-    /// Make a new CoreTEXT from raw keywords.
+    /// Make a new CoreTEXT from flat keywords.
     ///
     /// Return any errors encountered, including missing required keywords,
     /// parse errors, and/or deprecation warnings.
@@ -3872,7 +3933,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndGroupResult<
         (Self, ExtraStdKeywords),
-        StdTEXTFromRawWarning,
+        StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -3895,8 +3956,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3916,7 +3977,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
-            .map_err(StdTEXTFromRawError::from)
+            .map_err(StdTEXTFromFlatTEXTError::from)
             .into_log();
 
         let version = M::Ver::fcs_version();
@@ -3926,24 +3987,24 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let nonstd = &mut kws.nonstd;
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(std, par, nonstd, conf)
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(std, nonstd, par, conf.as_ref())
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let root_res =
                 meas_res
                     .zip_commutative(layout_res)
                     .and_then_commutative(|(ms, layout)| {
                         Metaroot::lookup_metaroot(std, &ms, kws.nonstd, conf)
-                            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                            .map_errors(StdTEXTFromRawError::from)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTError::from)
                             .and_then_commutative(|metaroot| {
                                 Self::try_new(metaroot, ms, layout, conf)
-                                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                                    .map_errors(StdTEXTFromRawError::from)
+                                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                                    .map_errors(StdTEXTFromFlatTEXTError::from)
                             })
                     });
 
@@ -3964,16 +4025,16 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     ps,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_pseudostandard,
                 )
                 .extend_warnings_or_errors(
                     us,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_unused_standard,
                 )
                 .map_ok_value(|x| (x, esks))
@@ -4280,11 +4341,12 @@ where
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
+        dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         StdDatasetWithKwsSummary,
     >
     where
@@ -4295,18 +4357,19 @@ where
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        ReadState::open(p, conf)
+        ReadState::open(p, dataset_offset, conf)
+            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromRawError::from)
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextError::from)
             .deanonymize()
     }
 
@@ -4319,8 +4382,8 @@ where
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
@@ -4332,12 +4395,12 @@ where
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<StdTextReadConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
-            .map_commutative_warnings(StdDatasetFromRawWarning::from)
-            .map_errors(StdDatasetFromRawError::from)
+            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+            .map_errors(StdDatasetFromFlatTextError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
@@ -4345,11 +4408,11 @@ where
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 let or = OthersReader::new(other_segs);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .map_commutative_warnings(StdDatasetFromRawWarning::from)
-                    .map_pure_errors(StdDatasetFromRawError::from)
+                    .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+                    .map_pure_errors(StdDatasetFromFlatTextError::from)
                     .and_then_commutative(|data| {
                         ar.h_read(h)
                             .and_then(|analysis| {
@@ -4363,24 +4426,72 @@ where
             })
     }
 
+    pub fn write_multidataset(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteDatasetInnerConfig,
+    ) -> WarningsAndIOGroupResult<
+        Option<Nextdata>,
+        IndexedLossError,
+        StdWriterError,
+        WriteDatasetSummary,
+    >
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut results = vec![];
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i + 1 < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiDatasetConfig::new(*conf, multi);
+            let succ = split_log!(c.write_dataset(path, &sconf));
+            results.push(succ);
+        }
+        let mut it = results.into_iter();
+        if let Some(r0) = it.by_ref().next() {
+            let ret = it.fold(r0, |acc, r| acc.lift_f2_once(r, |_, nd| nd));
+            LogResult::Succ(ret.fmap_once(Some))
+        } else {
+            LogResult::new_ok_default()
+        }
+    }
+
+    /// Write this core structure (HEADER+TEXT) to a file path
+    pub fn write_dataset(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiDatasetConfig,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    where
+        Version: From<M::Ver>,
+    {
+        let opts = conf.multi.append.file_options();
+        let f = io_to_log!(opts.open(path));
+        let mut h = BufWriter::new(f);
+        self.h_write_dataset(&mut h, &conf.inner, conf.multi.appendable)
+    }
+
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write_dataset<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), IndexedLossError, StdWriterError, WriteDatasetSummary>
+        conf: &WriteDatasetInnerConfig,
+        has_nextdata: AppendableFlag,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
         let df = &self.data;
         let layout = &self.layout;
-        let delim = conf.delim;
+        let delim = conf.text.delim;
         let tot = Tot(df.nrows());
         let analysis_len =
             u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
         let others = &self.others.0[..];
 
-        let check_res = if conf.skip_conversion_check {
+        let check_res = if conf.skip_conversion_check.is_set() {
             LogResult::new_ok(())
         } else {
             layout.check_writer(df)
@@ -4392,26 +4503,20 @@ where
             .group()
             .map_error(IOErrorGroup::Pure)
             // write HEADER+TEXT+OTHER(s) first
-            .and_commutative(|| {
+            .and_then_commutative(|()| {
                 let data_len = layout.nbytes(df);
-                let res = if conf.big_other {
-                    self.h_write_text_inner::<_, UintSpacePad20>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                let ht_conf = WriteHeaderAndTextConfig {
+                    delim,
+                    tot,
+                    data_len,
+                    analysis_len,
+                    other_segs: others,
+                    has_nextdata,
+                };
+                let res = if conf.text.big_other.is_set() {
+                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
                 } else {
-                    self.h_write_text_inner::<_, UintSpacePad8>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
                 };
                 res.map_err(|e| e.fmap_once(StdWriterError::from))
                     .map_err(IOErrorGroup::from)
@@ -4422,9 +4527,8 @@ where
             // through the data once at the beginning and check for
             // conversion loss.
             .and_commutative(|| {
-                layout
-                    .h_write_df(h, df, !conf.skip_conversion_check)
-                    .map_error(IOErrorGroup::from)
+                let flag = !conf.skip_conversion_check.is_set();
+                layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
             })
             // write ANALYSIS
             .and_commutative(|| {
@@ -4587,8 +4691,9 @@ where
                 self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertTemporalToDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
-            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
+            .when_ok(|| {
+                self.data.insert_column_nocheck(i.into(), col);
+            })
             .group()
     }
 
@@ -4645,7 +4750,6 @@ where
                 self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertOpticalInDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
     }
@@ -8626,14 +8730,14 @@ pub struct NonLinearTemporalTransformError;
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
-    Error(StdTEXTFromRawError),
-    Warn(StdTEXTFromRawWarning),
+    Error(StdTEXTFromFlatTEXTError),
+    Warn(StdTEXTFromFlatTEXTWarning),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawError {
+pub enum StdTEXTFromFlatTEXTError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
@@ -8646,7 +8750,7 @@ pub enum StdTEXTFromRawError {
 /// Warning when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawWarning {
+pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
@@ -8659,18 +8763,19 @@ pub enum StdTEXTFromRawWarning {
 /// Error when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawError {
-    TEXT(StdTEXTFromRawError),
+pub enum StdDatasetFromFlatTextError {
+    DatasetOffset(DatasetOffsetError),
+    TEXT(StdTEXTFromFlatTEXTError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
-    Warn(StdDatasetFromRawWarning),
+    Warn(StdDatasetFromFlatTEXTWarning),
 }
 
 /// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawWarning {
-    TEXT(StdTEXTFromRawWarning),
+pub enum StdDatasetFromFlatTEXTWarning {
+    TEXT(StdTEXTFromFlatTEXTWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
 }
@@ -8955,6 +9060,7 @@ pub enum UnstainedLossError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
+    DatasetOffset(DatasetOffsetError),
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),

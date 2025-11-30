@@ -376,8 +376,8 @@ impl<K, U, V> NamedVec<K, U, V> {
             Self::Split(s) => {
                 let nleft = s.left.len();
                 let mut it = xs.into_iter();
-                // ASSUME this won't fail because we already counted
                 let xs_left = it.by_ref().take(nleft).collect();
+                // ASSUME this won't fail because we already counted
                 let x_center = it.by_ref().next().unwrap();
                 let xs_right = it.collect();
                 let left_res = check_optical(xs_left, 0);
@@ -684,6 +684,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_push(&key).is_ok(), "Name is not unique");
         let p = Pair::new(key, value);
         match self {
             Self::Split(s) => s.right.push(p),
@@ -698,6 +699,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        // only check key here because index will panic if out of bounds
+        debug_assert!(self.check_key(&key, index).is_ok(), "Name is not unique");
         let i = usize::from(index);
         let p = Pair::new(key, value);
         match self {
@@ -716,7 +719,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// Return value that was replaced.
     ///
-    /// Return none if index is out of bounds. If index points to the center,
+    /// Return error if index is out of bounds. If index points to the center,
     /// convert it to a non-center value.
     pub(crate) fn replace_at(
         &mut self,
@@ -726,7 +729,15 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: Pointed<Shortname>,
     {
-        let i = self.check_element_index(index, true)?;
+        let _ = self.check_element_index(index, true)?;
+        Ok(self.replace_at_nocheck(index, value))
+    }
+
+    fn replace_at_nocheck(&mut self, index: MeasIndex, value: V) -> Element<U, V>
+    where
+        K: Pointed<Shortname>,
+    {
+        let i = usize::from(index);
         let (newself, ret) = match mem::take(self) {
             Self::Split(mut s) => {
                 let ln = s.left.len();
@@ -757,7 +768,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             }
         };
         *self = newself;
-        Ok(ret)
+        ret
     }
 
     /// Replace a value with a new value with a given name.
@@ -774,8 +785,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let index = self.find_with_name(name)?;
-        // ASSUME this won't fail because we have a valid index from above
-        Ok(self.replace_at(index, value).unwrap())
+        Ok(self.replace_at_nocheck(index, value))
     }
 
     /// Rename an element at index.
@@ -871,10 +881,14 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
         let p = Pair::new(name, value);
         *self = match mem::take(self) {
             Self::Unsplit(u) => Self::new_split(u.members, p, vec![]),
-            s @ Self::Split(_) => s,
+            s @ Self::Split(_) => {
+                debug_assert!(false, "Center already present");
+                s
+            }
         };
     }
 
@@ -886,7 +900,9 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
         let i = usize::from(index);
+        debug_assert!(i <= self.len(), "Index is out of bounds");
         let p = Pair::new(name, value);
         *self = match mem::take(self) {
             Self::Unsplit(u) => {
@@ -895,7 +911,10 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let right: Vec<_> = it.collect();
                 Self::new_split(left, p, right)
             }
-            s @ Self::Split(_) => s,
+            s @ Self::Split(_) => {
+                debug_assert!(false, "Center already present");
+                s
+            }
         };
     }
 
@@ -1002,7 +1021,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let mut it = ks.into_iter();
                 // ASSUME this won't fail because we checked length above
                 let ks_left = it.by_ref().take(s.left.len()).collect();
-                let center = it.by_ref().next().expect("center should be set");
+                let center = it.by_ref().next().unwrap();
                 let ks_right = it.collect();
                 if let Some(center_name) = K::to_opt(center) {
                     go(&mut s.left, ks_left);

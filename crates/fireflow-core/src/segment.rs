@@ -1,7 +1,7 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
-    HeaderConfigInner, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ReadState,
-    ReadTEXTOffsetsConfig, TruncateOffsets,
+    DatasetOffset, FileLen, HeaderConfigInner, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets,
+    IgnoreTEXTDataOffsets, ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::header::HEADER_LEN;
 use crate::logging::{
@@ -24,7 +24,7 @@ use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
 use thiserror::Error;
 
-use std::fmt;
+use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::iter::repeat;
 use std::marker::PhantomData;
@@ -132,10 +132,12 @@ pub struct AnalysisSegmentId;
 pub struct OtherSegmentId;
 
 /// Configuration for making a new segment
-#[derive(Default, new)]
-pub struct NewSegmentConfig<T, I, S> {
+#[derive(new)]
+pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
-    file_len: Option<T>,
+    file_len: FileLen,
+    // TODO make sure this is not longer than file_len
+    dataset_offset: DatasetOffset,
     truncate_offsets: TruncateOffsets,
 }
 
@@ -194,12 +196,25 @@ enum InnerSegment<T> {
     Empty,
 }
 
+/// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[new(visibility = "")]
 struct NonEmptySegment<T> {
+    /// First coordinate (zero indexed)
     begin: T,
+
+    /// Second coordinate pointing at the last byte of the segment.
+    ///
+    /// Note that length of segment is `end` - `begin` + 1
     end: T,
+
+    /// The absolute position of the segment in the FCS file.
+    ///
+    /// `begin` and `end` are relative to this number. This will be the sum of
+    /// all $NEXTDATA values for all previous datasets relative to the dataset
+    /// in which this segment belongs (which implies it will be zero for the
+    /// first dataset)
+    dataset_offset: DatasetOffset,
 }
 
 /// Operations to obtain optional segment from TEXT keywords
@@ -207,13 +222,13 @@ pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 
-    fn segment_conf<C>(st: &ReadState<C>) -> NewSegmentConfig<UintZeroPad20, Self, SegmentFromTEXT>
+    fn segment_conf<C>(st: &ReadState<C>) -> NewSegmentConfig<Self, SegmentFromTEXT>
     where
         C: AsRef<TEXTCorrection<Self>> + AsRef<TruncateOffsets>,
     {
         let correction: &TEXTCorrection<Self> = st.conf.as_ref();
         let truncate: &TruncateOffsets = st.conf.as_ref();
-        NewSegmentConfig::new(*correction, Some(st.file_len.into()), *truncate)
+        NewSegmentConfig::new(*correction, st.file_len, st.dataset_offset, *truncate)
     }
 }
 
@@ -575,30 +590,54 @@ impl<I, S, T> Default for Segment<I, S, T> {
 }
 
 impl<I, S, T> Segment<I, S, T> {
-    /// Return the first and last byte or `None` if empty.
-    pub(crate) fn try_coords(&self) -> Option<(T, T)>
+    /// Return the first and last byte with offset or `None` if empty
+    pub(crate) fn try_coords(&self) -> Option<(T, T, DatasetOffset)>
     where
         T: Copy,
     {
-        self.inner.try_as_nonempty().map(|x| x.coords())
+        self.inner.try_as_nonempty().map(|x| {
+            let (a, b) = x.coords();
+            (a, b, x.dataset_offset)
+        })
+    }
+
+    /// Return the first and last byte with offset or `None` if empty
+    pub(crate) fn try_abs_coords(&self) -> Option<(u64, u64)>
+    where
+        T: Copy + Into<u64>,
+    {
+        self.try_coords().map(|(a, b, o)| {
+            let x = u64::from(o);
+            (a.into() + x, b.into() + x)
+        })
     }
 
     /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R: Read + Seek>(
+    pub(crate) fn h_read_contents<R>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
     ) -> io::Result<()>
     where
+        R: Read + Seek,
         T: Into<u64> + Copy,
     {
         match self.inner {
             InnerSegment::Empty => Ok(()),
             InnerSegment::NonEmpty(s) => {
                 let begin = s.begin.into();
+                let end = begin + s.dataset_offset.0;
                 let nbytes = u64::from(s.nbytes());
 
-                h.seek(SeekFrom::Start(begin))?;
+                #[cfg(debug_assertions)]
+                {
+                    let current_pos = h.stream_position()?;
+                    let file_size = h.seek(SeekFrom::End(0))?;
+                    h.seek(SeekFrom::Start(current_pos))?;
+                    assert!(end < file_size, "end of segment exceeds file");
+                }
+
+                h.seek(SeekFrom::Start(end))?;
                 h.take(nbytes).read_to_end(buf)?;
                 Ok(())
             }
@@ -652,6 +691,7 @@ impl<I, S, T> Segment<I, S, T> {
     pub(crate) fn try_new_with_len(
         begin: u64,
         length: u64,
+        offset: DatasetOffset,
     ) -> Result<Self, <T as TryFrom<u64>>::Error>
     where
         T: TryFrom<u64> + Copy,
@@ -661,12 +701,12 @@ impl<I, S, T> Segment<I, S, T> {
         } else {
             let end = (begin + length - 1).try_into()?;
             // TODO this seems sketchy
-            InnerSegment::NonEmpty(NonEmptySegment::new(begin.try_into()?, end))
+            InnerSegment::NonEmpty(NonEmptySegment::new(begin.try_into()?, end, offset))
         };
         Ok(Self::new(s))
     }
 
-    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
+    pub(crate) fn new_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
     where
         T: From<u64> + Copy,
     {
@@ -675,7 +715,7 @@ impl<I, S, T> Segment<I, S, T> {
         } else {
             let end = (begin + length - 1).into();
             // TODO this seems sketchy
-            InnerSegment::NonEmpty(NonEmptySegment::new(begin.into(), end))
+            InnerSegment::NonEmpty(NonEmptySegment::new(begin.into(), end, offset))
         };
         Self::new(inner)
     }
@@ -696,20 +736,31 @@ impl<I, S, T> Segment<I, S, T> {
     where
         T: Default + Copy + fmt::Display,
     {
-        let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
+        let (b, e) = self
+            .try_coords()
+            .map_or((T::default(), T::default()), |(a, b, _)| (a, b));
         format!("{b},{e}")
     }
 
     fn try_new(
         begin: impl Into<T>,
         end: impl Into<T>,
-        conf: &NewSegmentConfig<T, I, S>,
-    ) -> Result<Self, SegmentError<T>>
+        conf: &NewSegmentConfig<I, S>,
+    ) -> Result<Self, SegmentError>
     where
         I: HasRegion,
         S: HasSource,
-        T: Zero + One + CheckedSub + Into<u64> + Into<i128> + TryFrom<i128> + Ord + Copy,
+        T: Zero
+            + One
+            + CheckedSub
+            + Into<u64>
+            + Into<i128>
+            + TryFrom<i128>
+            + Ord
+            + Copy
+            + TryFrom<u64>,
         u64: From<T>,
+        <T as TryFrom<u64>>::Error: Debug,
     {
         InnerSegment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
     }
@@ -759,15 +810,17 @@ impl<I> TEXTSegment<I> {
     ///
     /// If offsets are too big, return an empty segment.
     pub(crate) fn as_header(&self) -> HeaderSegment<I> {
-        let inner = self.try_coords().map_or(InnerSegment::default(), |(b, e)| {
-            let br = u64::from(b).try_into();
-            let er = u64::from(e).try_into();
-            if let (Ok(begin), Ok(end)) = (br, er) {
-                InnerSegment::NonEmpty(NonEmptySegment::new(begin, end))
-            } else {
-                InnerSegment::default()
-            }
-        });
+        let inner = self
+            .try_coords()
+            .map_or(InnerSegment::default(), |(b, e, o)| {
+                let br = u64::from(b).try_into();
+                let er = u64::from(e).try_into();
+                if let (Ok(begin), Ok(end)) = (br, er) {
+                    InnerSegment::NonEmpty(NonEmptySegment::new(begin, end, o))
+                } else {
+                    InnerSegment::default()
+                }
+            });
         Segment::new(inner)
     }
 }
@@ -777,7 +830,9 @@ impl<I, T> Segment<I, SegmentFromHeader, T> {
     where
         T: Zero + HeaderString,
     {
-        let (b, e) = self.try_coords().unwrap_or((T::zero(), T::zero()));
+        let (b, e) = self
+            .try_coords()
+            .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
         let mut s = String::new();
         s.push_str(&b.header_string());
         s.push_str(&e.header_string());
@@ -791,18 +846,25 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         corr: HeaderCorrection<I>,
         st: &ReadState<C>,
-    ) -> Result<Self, IOErrorGroup<PrimarySegmentError, ()>>
+    ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
     where
-        R: Read,
+        R: Read + Seek,
         C: AsRef<HeaderConfigInner>,
         I: HasRegion + Copy,
     {
         let conf = st.conf.as_ref();
-        let seg_conf =
-            NewSegmentConfig::new(corr, st.file_len.try_into().ok(), conf.truncate_offsets);
+        let dso = st.dataset_offset;
+        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, conf.truncate_offsets);
 
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
+
+        let remaining = st.remaining_bytes(h)?;
+
+        if remaining < 16 {
+            let e = OffsetsNoBytesError::new(remaining, 16, I::REGION, AnySrc::Header);
+            return Err(IOErrorGroup::new_pure_one(e.into()));
+        }
 
         h.read_exact(&mut buf0)?;
         h.read_exact(&mut buf1)?;
@@ -826,8 +888,8 @@ impl<I: Copy> HeaderSegment<I> {
         allow_blank: bool,
         allow_negative: bool,
         squish_offsets: bool,
-        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), PrimarySegmentError>
+        conf: &NewSegmentConfig<I, SegmentFromHeader>,
+    ) -> ErrorsResult<Self, (), HeaderSegmentError>
     where
         I: HasRegion,
     {
@@ -843,7 +905,7 @@ impl<I: Copy> HeaderSegment<I> {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new_squish(begin, end, squish_offsets, conf)
-                    .map_err(PrimarySegmentError::from)
+                    .map_err(HeaderSegmentError::from)
                     .into_log()
             })
     }
@@ -871,8 +933,8 @@ impl<I: Copy> HeaderSegment<I> {
         begin: UintSpacePad8,
         end: UintSpacePad8,
         squish_offsets: bool,
-        conf: &NewSegmentConfig<UintSpacePad8, I, SegmentFromHeader>,
-    ) -> Result<Self, SegmentError<UintSpacePad8>>
+        conf: &NewSegmentConfig<I, SegmentFromHeader>,
+    ) -> Result<Self, SegmentError>
     where
         I: HasRegion,
     {
@@ -892,16 +954,17 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> Result<Vec<Self>, IOErrorGroup<OtherSegmentError, ()>>
+    ) -> Result<Vec<Self>, IOErrorGroup<HeaderSegmentError, ()>>
     where
-        R: Read,
+        R: Read + Seek,
         C: AsRef<HeaderConfigInner>,
     {
-        // ASSUME this won't fail because we checked that each offset is greater
-        // than this
         let conf = st.conf.as_ref();
-        let n = u64::from(text_begin) - u64::from(HEADER_LEN);
+        let n = u64::from(text_begin)
+            .checked_sub(u64::from(HEADER_LEN))
+            .expect("TEXT begin is less than 58");
         let w = u8::from(conf.other_width);
+        let total_width = u64::from(w) * 2;
         let mut buf0 = vec![];
         let mut buf1 = vec![];
         let n_segs = usize::try_from(n / (u64::from(w) * 2)).expect("usize overflow");
@@ -916,10 +979,23 @@ impl OtherSegment20 {
             .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
 
         for corr in corrs {
-            let len = Some(UintSpacePad20(st.file_len));
-            let seg_conf = NewSegmentConfig::new(corr, len, conf.truncate_offsets);
+            let seg_conf =
+                NewSegmentConfig::new(corr, st.file_len, st.dataset_offset, conf.truncate_offsets);
             buf0.clear();
             buf1.clear();
+
+            let remaining = st.remaining_bytes(h)?;
+
+            // TODO this won't say which OTHER offset has just failed
+            if remaining < total_width {
+                let e = OffsetsNoBytesError::new(
+                    remaining,
+                    total_width,
+                    AnyRegion::Other,
+                    AnySrc::Header,
+                );
+                return Err(IOErrorGroup::new_pure_one(e.into()));
+            }
 
             h.take(u64::from(w)).read_to_end(&mut buf0)?;
             h.take(u64::from(w)).read_to_end(&mut buf1)?;
@@ -942,8 +1018,8 @@ impl OtherSegment20 {
         bs0: &[u8],
         bs1: &[u8],
         allow_negative: bool,
-        conf: &NewSegmentConfig<UintSpacePad20, OtherSegmentId, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), OtherSegmentError> {
+        conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
+    ) -> ErrorsResult<Self, (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
@@ -956,7 +1032,7 @@ impl OtherSegment20 {
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
                 Self::try_new(begin, end, conf)
-                    .map_err(OtherSegmentError::from)
+                    .map_err(HeaderSegmentError::from)
                     .into_log()
             })
     }
@@ -996,23 +1072,25 @@ impl<T> InnerSegment<T> {
     fn try_new<I: HasRegion, S: HasSource>(
         begin: T,
         end: T,
-        conf: &NewSegmentConfig<T, I, S>,
-    ) -> Result<Self, SegmentError<T>>
+        conf: &NewSegmentConfig<I, S>,
+    ) -> Result<Self, SegmentError>
     where
-        T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy,
+        T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy + TryFrom<u64>,
         u64: From<T>,
+        <T as TryFrom<u64>>::Error: Debug,
     {
         let corr = &conf.corr;
         let x = Into::<i128>::into(begin) + i128::from(corr.begin);
         let y = Into::<i128>::into(end) + i128::from(corr.end);
-        let err = |kind| SegmentError {
-            begin,
-            end,
-            corr_begin: corr.begin,
-            corr_end: corr.end,
-            kind,
-            location: I::REGION,
-            src: S::SRC,
+        let err = |kind| {
+            SegmentError::new(
+                (u64::from(begin), u64::from(end)),
+                (corr.begin, corr.end),
+                conf.dataset_offset,
+                kind,
+                I::REGION,
+                S::SRC,
+            )
         };
         match (T::try_from(x), T::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
@@ -1021,19 +1099,33 @@ impl<T> InnerSegment<T> {
                 } else if new_begin == T::zero() && new_end == T::zero() {
                     Ok(Self::Empty)
                 } else {
-                    // file length is optional because it might exceed the max
-                    // of whatever type is used in this segment, in which case
-                    // truncation is impossible.
-                    if let Some(fl) = conf.file_len {
-                        if new_end >= fl && !conf.truncate_offsets.is_set() {
-                            Err(err(SegmentErrorKind::Truncated(u64::from(fl))))
-                        } else {
-                            Ok(new_end.min(fl.checked_sub(&T::one()).unwrap_or(T::zero())))
-                        }
-                    } else {
-                        Ok(new_end)
+                    let dso = conf.dataset_offset.0;
+                    let fl = conf.file_len.0;
+                    debug_assert!(dso <= fl, "dataset offset exceeds file length");
+                    // put offset in absolute coordinates to check for
+                    // truncation
+                    let abs_begin = dso + u64::from(new_begin);
+                    let abs_end = dso + u64::from(new_end);
+                    // the maximum coordinate the ending offset can have is
+                    // one less the file length (since the end is the last byte
+                    // of the offset rather than the next byte)
+                    let max_end = fl.saturating_sub(1);
+                    // begin should never exceed file length
+                    if fl < abs_begin {
+                        return Err(err(SegmentErrorKind::BeginEOF(conf.file_len)));
                     }
-                    .map(|e| Self::NonEmpty(NonEmptySegment::new(new_begin, e)))
+                    // end can only be greater then end if we allow it, in which
+                    // case it must be truncated
+                    if abs_end >= fl && !conf.truncate_offsets.is_set() {
+                        return Err(err(SegmentErrorKind::Truncated(conf.file_len)));
+                    }
+                    let trunc_end = abs_end.min(max_end);
+                    // put the (possibly truncated) ending offset back into
+                    // relative coordinates.
+                    let rel_trunc_end = T::try_from(trunc_end - dso)
+                        .expect("could not convert absolute to relative offset");
+                    let seg = NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
+                    Ok(Self::NonEmpty(seg))
                 }
             }
             (_, _) => Err(err(SegmentErrorKind::Range)),
@@ -1094,10 +1186,7 @@ impl<T> NonEmptySegment<T> {
     where
         T: Into<u64> + Copy,
     {
-        NonEmptySegment {
-            begin: self.begin.into(),
-            end: self.end.into(),
-        }
+        NonEmptySegment::new(self.begin.into(), self.end.into(), self.dataset_offset)
     }
 }
 
@@ -1108,7 +1197,7 @@ impl<T> NonEmptySegment<T> {
 pub enum ReqSegmentError<B, E> {
     BeginKey(ReqKeyErrorInner<ParseIntError, B, ()>),
     EndKey(ReqKeyErrorInner<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
+    Segment(SegmentError),
 }
 
 /// Error when parsing optional segment offsets from TEXT
@@ -1118,71 +1207,72 @@ pub enum ReqSegmentError<B, E> {
 pub enum OptSegmentError<B, E> {
     BeginKey(ParseKeyError<ParseIntError, B, ()>),
     EndKey(ParseKeyError<ParseIntError, E, ()>),
-    Segment(SegmentError<UintZeroPad20>),
+    Segment(SegmentError),
 }
-
-pub type PrimarySegmentError = HeaderSegmentError<UintSpacePad8>;
-
-pub type OtherSegmentError = HeaderSegmentError<UintSpacePad20>;
 
 /// Error when parsing a segment from HEADER
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(S: Into<u64> + Copy))]
-pub enum HeaderSegmentError<S> {
-    New(SegmentError<S>),
+pub enum HeaderSegmentError {
+    New(SegmentError),
     Parse(ParseOffsetError),
+    Bytes(OffsetsNoBytesError),
+}
+
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[error(
+    "needed {required} bytes to parse {location} offset from {src}, \
+     only {remaining} bytes left in file"
+)]
+pub struct OffsetsNoBytesError {
+    remaining: u64,
+    required: u64,
+    location: AnyRegion,
+    src: AnySrc,
 }
 
 /// Error when creating a new segment
-#[derive(Debug, Error)]
+#[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-#[cfg_attr(feature = "python", bound(T: Into<u64> + Copy))]
-pub struct SegmentError<T> {
-    begin: T,
-    end: T,
-    corr_begin: i32,
-    corr_end: i32,
+pub struct SegmentError {
+    coords: (u64, u64),
+    correction: (i32, i32),
+    dataset_offset: DatasetOffset,
     kind: SegmentErrorKind,
     location: AnyRegion,
     src: AnySrc,
 }
 
 #[derive(Debug)]
-pub enum SegmentErrorKind {
+enum SegmentErrorKind {
     Range,
     Inverted,
-    InHeader,
-    Truncated(u64),
+    BeginEOF(FileLen),
+    // InHeader,
+    Truncated(FileLen),
 }
 
-impl<T> fmt::Display for SegmentError<T>
-where
-    T: Into<u64> + Copy,
-{
+impl fmt::Display for SegmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let offset_text = |x, delta: i32| {
-            if delta.is_zero() {
-                format!("{x}")
-            } else {
-                format!("{x} ({delta}))")
-            }
-        };
-        let begin_text = offset_text(self.begin.into(), self.corr_begin);
-        let end_text = offset_text(self.end.into(), self.corr_end);
+        let (x0, x1) = self.coords;
+        let (c0, c1) = self.correction;
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range".into(),
             SegmentErrorKind::Inverted => "Begin after end".into(),
-            SegmentErrorKind::InHeader => "Begins within HEADER".into(),
+            SegmentErrorKind::BeginEOF(size) => format!("Begin exceeds file size ({size} bytes)"),
+            // SegmentErrorKind::InHeader => "Begins within HEADER".into(),
             SegmentErrorKind::Truncated(size) => {
                 format!("Segment exceeds file size ({size} bytes)")
             }
         };
         write!(
             f,
-            "{kind_text} for {} segment from {}; begin={begin_text}, end={end_text}",
-            self.location, self.src,
+            "{kind_text} for {} segment from {}; \
+             coords=({x0}, {x1}), correction=({c0}, {c1}), offset={}",
+            self.location, self.src, self.dataset_offset
         )
     }
 }
@@ -1300,6 +1390,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::config::DatasetOffset;
     use crate::python::ConfigError;
 
     use super::{InnerSegment, NonEmptySegment, Segment, Zero};
@@ -1314,6 +1405,7 @@ mod python {
         T: FromPyObject<'py> + Zero + Ord,
         u64: From<T>,
     {
+        // TODO probably not DRY
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (T, T) = ob.extract()?;
             let ret = if begin > end {
@@ -1327,7 +1419,12 @@ mod python {
             } else if begin == T::zero() && end == T::zero() {
                 Ok(InnerSegment::Empty)
             } else {
-                Ok(InnerSegment::NonEmpty(NonEmptySegment::new(begin, end)))
+                // NOTE use zero for offset since all segments from Python-land
+                // will be consider relative to current dataset (ie just like
+                // they are in an FCS file)
+                let dso = DatasetOffset(0);
+                let ret = InnerSegment::NonEmpty(NonEmptySegment::new(begin, end, dso));
+                Ok(ret)
             };
             ret.map(Self::new)
         }
@@ -1345,7 +1442,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.as_u64()
                 .try_coords()
-                .unwrap_or((0, 0))
+                .map_or((0, 0), |(b, e, _)| (b, e))
                 .into_pyobject(py)
         }
     }

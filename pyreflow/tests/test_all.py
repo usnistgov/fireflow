@@ -2,6 +2,7 @@ from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
+from copy import deepcopy
 
 import pytest
 
@@ -1834,7 +1835,6 @@ class TestReadWrite:
     def _assert_uncore_text_empty(
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
-        assert uncore.parse.nextdata == 0
         assert uncore.parse.delimiter == 30
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
@@ -1845,7 +1845,6 @@ class TestReadWrite:
     def _assert_uncore_dataset_empty(
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
-        assert uncore.parse.nextdata == 0
         assert uncore.parse.delimiter == 30
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
@@ -1917,6 +1916,50 @@ class TestReadWrite:
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
+
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
+    def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "texts.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        type(core0).write_texts(p, [core0, core1, core2])  # type: ignore
+        datasets = pf.api.fcs_read_std_texts(p, time_meas_pattern=LINK_NAME2)
+        assert len(datasets) == 3
+        nu_core0, un_core0 = datasets[0]
+        nu_core1, un_core1 = datasets[1]
+        nu_core2, un_core2 = datasets[2]
+        self._assert_uncore_text_empty(un_core0)
+        self._assert_uncore_text_empty(un_core1)
+        self._assert_uncore_text_empty(un_core2)
+        assert core0 == nu_core0
+        assert core1 == nu_core1
+        assert core2 == nu_core2
+
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_datasets_non_empty(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        type(core0).write_datasets(p, [core0, core1, core2])  # type: ignore
+        datasets = pf.api.fcs_read_std_datasets(p, time_meas_pattern=LINK_NAME2)
+        assert len(datasets) == 3
+        nu_core0, un_core0 = datasets[0]
+        nu_core1, un_core1 = datasets[1]
+        nu_core2, un_core2 = datasets[2]
+        self._assert_uncore_dataset_empty(un_core0)
+        self._assert_uncore_dataset_empty(un_core1)
+        self._assert_uncore_dataset_empty(un_core2)
+        assert core0 == nu_core0
+        assert core1 == nu_core1
+        assert core2 == nu_core2
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
     def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:

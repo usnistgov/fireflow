@@ -10,6 +10,7 @@
 /// an error. This will work in most cases, with a few exceptions where the
 /// standard is unclear.
 use crate::header::Version;
+use crate::logging::{IOResult, ImpureError};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
@@ -26,15 +27,18 @@ use crate::validated::sub_pattern::SubPatterns;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use derive_more::{AsRef, Display, From, FromStr};
+use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use regex::Regex;
 use std::collections::HashSet;
-use std::fs::File;
-use std::io;
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufReader, Seek};
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
@@ -47,11 +51,11 @@ pub struct ReadHeaderConfig(pub HeaderConfigInner);
 
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawTEXTConfig {
+pub struct ReadFlatTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     pub shared: SharedConfig,
 }
@@ -61,7 +65,7 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -72,15 +76,16 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawDatasetConfig {
+pub struct ReadFlatDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -88,9 +93,10 @@ pub struct ReadRawDatasetConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -111,7 +117,7 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
-    pub raw: ReadHeaderAndTEXTConfig,
+    pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(StdTextReadConfig)]
     pub standard: StdTextReadConfig,
@@ -122,23 +128,25 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
 #[derive(Default, Clone, AsRef)]
-pub struct ReadRawDatasetFromKeywordsConfig {
+pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
+    #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
 }
 
@@ -153,8 +161,8 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(ReaderConfig)]
-    pub data: ReaderConfig,
+    #[as_ref(ReadEventsConfig)]
+    pub data: ReadEventsConfig,
 
     #[as_ref(SharedConfig)]
     pub shared: SharedConfig,
@@ -162,7 +170,7 @@ pub struct ReadStdDatasetFromKeywordsConfig {
 
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
-pub struct ReaderConfig {
+pub struct ReadEventsConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
     /// In practice, having such a mismatch likely means either PnB or the DATA
@@ -180,15 +188,38 @@ pub struct ReaderConfig {
     pub allow_tot_mismatch: AllowTotMismatch,
 }
 
-/// Configuration for writing an FCS file
-#[derive(Clone, Default)]
-pub struct WriteConfig {
+/// Configuration for writing one or more HEADER+TEXT segments to file
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiTEXTConfig {
+    pub inner: WriteTEXTInnerConfig,
+    pub multi: WriteMultiConfig,
+}
+
+/// Configuration for writing one or more datasets to file
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiDatasetConfig {
+    pub inner: WriteDatasetInnerConfig,
+    pub multi: WriteMultiConfig,
+}
+
+/// Specific configuration for writing HEADER+TEXT
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteTEXTInnerConfig {
     /// Delimiter for TEXT segment
     ///
     /// This should be an ASCII character in [1, 126]. Unlike the standard
     /// (which calls for newline), this will default to the record separator
     /// (character 30).
     pub delim: TEXTDelim,
+
+    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
+    pub big_other: BigOther,
+}
+
+/// Specific configuration for writing one dataset
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteDatasetInnerConfig {
+    pub text: WriteTEXTInnerConfig,
 
     /// If true, skip check for conversion losses before writing data.
     ///
@@ -204,10 +235,25 @@ pub struct WriteConfig {
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is false.
-    pub skip_conversion_check: bool,
+    pub skip_conversion_check: SkipConversionCheck,
+}
 
-    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
-    pub big_other: bool,
+/// Options that apply to writing multiple dataset
+#[derive(Clone, Copy, Default, new)]
+pub struct WriteMultiConfig {
+    /// If ``true`` make $NEXTDATA point to the next dataset.
+    ///
+    /// If ``false`` $NEXTDATA will be set to 0. This flag should only be set
+    /// if a given file is to have multiple FCS datasets inside it.
+    pub appendable: AppendableFlag,
+
+    /// If ``true`` append to file rather than overwriting it.
+    ///
+    /// This should only be set if the previous dataset was written with
+    /// the `appendable` set to `true`, which will set the previous dataset's
+    /// $NEXTDATA value to be non-zero and point to the dataset which is to be
+    /// written with this current configuration.
+    pub append: AppendFlag,
 }
 
 #[derive(Default, Clone, AsRef)]
@@ -283,7 +329,7 @@ pub struct HeaderConfigInner {
     pub truncate_offsets: TruncateOffsets,
 }
 
-/// Instructions for reading the TEXT segment as raw key/value pairs.
+/// Instructions for reading the TEXT segment as flat key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
 #[allow(clippy::struct_excessive_bools)]
@@ -402,7 +448,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// This is a required keyword in all versions. However, most files only
     /// have one dataset so this keyword does nothing. If true, a warning will
     /// be emitted rather than an error if this is missing.
-    pub allow_missing_nextdata: bool,
+    pub allow_missing_nextdata: AllowMissingNextdata,
 
     /// If true, trim whitespace from all values.
     ///
@@ -773,6 +819,7 @@ impl_error_flag!(false_is_error AllowEmpty);
 impl_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+impl_error_flag!(false_is_error AllowMissingNextdata);
 
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
@@ -789,6 +836,24 @@ impl_error_flag!(true_is_error DisallowDeprecated);
 impl_error_flag!(true_is_error DisallowRangeTrunc);
 
 impl_error_flag!(false_is_error AllowLoss);
+
+impl_config_flag!(SkipConversionCheck);
+impl_config_flag!(BigOther);
+impl_config_flag!(AppendableFlag);
+impl_config_flag!(AppendFlag);
+
+impl AppendFlag {
+    pub(crate) fn file_options(self) -> OpenOptions {
+        let mut opts = File::options();
+        opts.create(true);
+        if self.is_set() {
+            opts.append(true)
+        } else {
+            opts.write(true).truncate(true)
+        };
+        opts
+    }
+}
 
 /// A pattern to match the $PnN for the time measurement.
 ///
@@ -860,13 +925,13 @@ impl TemporalOpticalKey {
     pub(crate) fn std_key(&self, i: MeasIndex) -> StdKey {
         match self {
             Self::Filter => kws::Filter::std(i),
-            // ASSUME this is the same for all versions
+            // NOTE this is $PnL for all versions
             Self::Wavelength => kws::Wavelength::std(i),
             Self::Power => kws::Power::std(i),
             Self::DetectorType => kws::DetectorType::std(i),
             Self::DetectorVoltage => kws::DetectorVoltage::std(i),
             Self::PercentEmitted => kws::PercentEmitted::std(i),
-            // ASSUME this is the same for all versions
+            // NOTE this is $PnCALIBRATION for all versions
             Self::Calibration => kws::Calibration3_1::std(i),
             Self::DetectorName => kws::DetectorName::std(i),
             Self::Tag => kws::Tag::std(i),
@@ -897,27 +962,62 @@ impl Default for TimeMeasNamePattern {
 /// State pertinent to reading a file
 #[derive(new)]
 pub struct ReadState<C> {
-    pub(crate) file_len: u64,
+    pub(crate) file_len: FileLen,
+    pub(crate) dataset_offset: DatasetOffset,
     pub(crate) conf: C,
 }
 
+#[derive(From, Into, Clone, Copy, Debug, Display)]
+pub(crate) struct FileLen(pub(crate) u64);
+
+#[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+pub struct DatasetOffset(pub u64);
+
 impl<C> ReadState<C> {
-    pub(crate) fn open(p: &PathBuf, conf: C) -> io::Result<(Self, File)> {
+    pub(crate) fn open(
+        p: &PathBuf,
+        dataset_offset: DatasetOffset,
+        conf: C,
+    ) -> IOResult<(Self, File), DatasetOffsetError> {
         let file = File::options().read(true).open(p)?;
-        Self::init(&file, conf).map(|st| (st, file))
+        Self::init(&file, dataset_offset, conf).map(|st| (st, file))
     }
 
-    pub(crate) fn init(f: &File, conf: C) -> io::Result<Self> {
-        f.metadata().map(|m| Self::new(m.len(), conf))
+    pub(crate) fn init(
+        f: &File,
+        dataset_offset: DatasetOffset,
+        conf: C,
+    ) -> IOResult<Self, DatasetOffsetError> {
+        let m = f.metadata()?;
+        let fl = m.len().into();
+        if u64::from(fl) < u64::from(dataset_offset) {
+            let e = DatasetOffsetError(dataset_offset, fl);
+            return Err(ImpureError::Pure(e));
+        }
+        Ok(Self::new(fl, dataset_offset, conf))
     }
 
     pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
     where
         C: AsRef<X>,
     {
-        ReadState::new(self.file_len, self.conf.as_ref())
+        ReadState::new(self.file_len, self.dataset_offset, self.conf.as_ref())
+    }
+
+    pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
+        let pos = h.stream_position()?;
+        let remaining = u64::from(self.file_len) - pos;
+        Ok(remaining)
     }
 }
+
+#[derive(Error, Debug)]
+#[error("dataset offset ({0}) exceeds file length ({1})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 #[cfg(feature = "python")]
 mod python {

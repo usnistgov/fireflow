@@ -49,7 +49,7 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig,
+    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
 };
 use crate::core::{
     AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
@@ -511,7 +511,7 @@ pub trait LayoutOps<'a, T>: Sized {
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot;
@@ -547,8 +547,11 @@ pub trait LayoutOps<'a, T>: Sized {
         S: CheckedScaleTransform,
         G: Default,
     {
-        // ASSUME measurements and layout columns are the same length
         let ds = self.datatypes();
+        debug_assert!(
+            xforms.len() == ds.len(),
+            "transforms length must be same as column number"
+        );
         let es = ds
             .iter()
             .zip(xforms)
@@ -637,7 +640,7 @@ where
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
@@ -647,15 +650,13 @@ where
         // needed.
         let mut buf = vec![];
         // TODO why return default rather than fail?
-        seg.as_u64().try_coords().map_or(
-            LogResult::new_ok(FCSDataFrame::default()),
-            |(begin, _)| {
+        seg.try_abs_coords()
+            .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
                     .map_err(IOErrorGroup::from)
                     .into_log()
                     .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
-            },
-        )
+            })
     }
 
     fn h_write_df<W>(
@@ -2049,16 +2050,22 @@ impl From<u64> for AnyNullBitmask {
     /// The width is determined by the magnitude of the range; the smallest
     /// possible will be used.
     fn from(value: u64) -> Self {
-        // ASSUME these will never truncate because we check the width first
+        macro_rules! go {
+            ($var:ident, $x:expr) => {{
+                let (ret, truncated) = Bitmask::from_u64($x);
+                debug_assert!(!truncated, "AnyNullBitmask input should never be truncated");
+                Self::$var(ret)
+            }};
+        }
         match PrivBytes::from_u64(value) {
-            PrivBytes::B1 => Self::Uint08(Bitmask::from_u64(value).0),
-            PrivBytes::B2 => Self::Uint16(Bitmask::from_u64(value).0),
-            PrivBytes::B3 => Self::Uint24(Bitmask::from_u64(value).0),
-            PrivBytes::B4 => Self::Uint32(Bitmask::from_u64(value).0),
-            PrivBytes::B5 => Self::Uint40(Bitmask::from_u64(value).0),
-            PrivBytes::B6 => Self::Uint48(Bitmask::from_u64(value).0),
-            PrivBytes::B7 => Self::Uint56(Bitmask::from_u64(value).0),
-            PrivBytes::B8 => Self::Uint64(Bitmask::from_u64(value).0),
+            PrivBytes::B1 => go!(Uint08, value),
+            PrivBytes::B2 => go!(Uint16, value),
+            PrivBytes::B3 => go!(Uint24, value),
+            PrivBytes::B4 => go!(Uint32, value),
+            PrivBytes::B5 => go!(Uint40, value),
+            PrivBytes::B6 => go!(Uint48, value),
+            PrivBytes::B7 => go!(Uint56, value),
+            PrivBytes::B8 => go!(Uint64, value),
         }
     }
 }
@@ -2200,6 +2207,10 @@ where
     }
 
     fn remove_nocheck(&mut self, index: MeasIndex) {
+        debug_assert!(
+            usize::from(index) <= self.ranges.len(),
+            "Index should be less than/equal to column number"
+        );
         self.ranges.remove(index.into());
     }
 
@@ -2209,7 +2220,7 @@ where
         _: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        _: &ReaderConfig,
+        _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         macro_rules! go {
             ($x:expr) => {
@@ -2251,7 +2262,6 @@ where
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         let ncols = df.ncols();
         let nrows = df.nrows();
-        // ASSUME dataframe has correct number of columns
         let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         let mut loss_ws = vec![None; column_srcs.len()];
 
@@ -2337,6 +2347,10 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
+        debug_assert!(
+            usize::from(index) <= self.ranges.len(),
+            "Index should be less than/equal to number of columns"
+        );
         range
             .into_uint()
             .map_errors(RangeToBitmaskError::from)
@@ -2382,9 +2396,6 @@ fn h_read_delim_with_rows<R: Read>(
     }
     // Here we have $TOT so initialize vectors to required length
     let mut data = vec![vec![0; nrows]; ncols];
-    // let mut data = self.0.columns;
-    // let nrows = data.head.len();
-    // let ncols = data.len();
     let mut row = 0;
     let mut col = 0;
     // Delimiters are tab, newline, carriage return, space, or comma. Any
@@ -2432,8 +2443,8 @@ fn h_read_delim_with_rows<R: Read>(
         .into_iter()
         .map(FCSColumn::from)
         .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because all columns should be the same
-    // length
+    // ASSUME this will never fail because we initialized all columns to be
+    // the same length
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
@@ -2496,8 +2507,8 @@ fn h_read_delim_without_rows<R: Read>(
         .into_iter()
         .map(FCSColumn::from)
         .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because all columns should be the same
-    // length
+    // ASSUME this will never fail because we checked that all columns are the
+    // same length above
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
@@ -2553,6 +2564,10 @@ where
     }
 
     fn remove_nocheck(&mut self, index: MeasIndex) {
+        debug_assert!(
+            usize::from(index) <= self.columns.len(),
+            "Index should be less than/equal to column number"
+        );
         self.columns.remove(index.into());
     }
 
@@ -2562,7 +2577,7 @@ where
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot,
@@ -2593,7 +2608,10 @@ where
     }
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         self.columns
             .iter()
             .zip(df.iter_columns())
@@ -2615,7 +2633,10 @@ where
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         let nrows = df.nrows();
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         let mut cs: Vec<_> = self
             .columns
             .iter()
@@ -2657,7 +2678,10 @@ where
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
     ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         let mut warnings = vec![];
         let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
             |(i, (col_type, col_data))| {
@@ -2702,7 +2726,7 @@ where
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         C::from_range(range, flag)
             .map_switchable_errors(InsertRangeError::from)
-            .map_ok_value(|col| self.insert_column(index, col))
+            .map_ok_value(|col| self.insert_column_nocheck(index, col))
             .set_err_value(())
     }
 
@@ -2768,13 +2792,14 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map_ok_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn h_read_unchecked_df<R: Read>(
+    fn h_read_unchecked_df<R>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
     ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
+        R: Read,
         S: Copy,
         C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
@@ -2784,6 +2809,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .iter()
             .map(|c| c.clone().into_reader(nrows))
             .collect();
+
         for row in 0..nrows {
             for c in &mut col_readers {
                 c.h_read(h, row, self.byte_layout, buf)?;
@@ -2793,7 +2819,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
-    fn insert_column(&mut self, index: MeasIndex, col: C) {
+    fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
+        debug_assert!(
+            usize::from(index) <= self.columns.len(),
+            "Index should be less than/equal to number of columns"
+        );
         self.columns.insert(index.into(), col);
     }
 
@@ -2841,7 +2871,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningOrErrorResult<u64, (), UnevenEventWidth, EventWidthError>
     where
         S: Clone,
@@ -2878,12 +2908,12 @@ impl<C> EndianLayout<C, Option<NumType>> {
     {
         NullMixedType::from_range(range, flag).map_deferred_value(|col| match col.try_into() {
             Ok(c) => {
-                self.insert_column(index, c);
+                self.insert_column_nocheck(index, c);
                 DataLayout3_2::NonMixed(self.into())
             }
             Err(e) => {
                 let mut z = self.columns_into();
-                z.insert_column(index, e.src);
+                z.insert_column_nocheck(index, e.src);
                 z.into()
             }
         })
@@ -3568,8 +3598,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         match unique_dt[..] {
             // no columns, therefore undetermined datatype, use whatever the
             // default layout is
-            //
-            // ASSUME this matches with Self::new_empty above
             [] => LogResult::new_ok(NonMixedEndianLayout::new_empty1(datatype, byteord.0).into()),
             // has columns with one datatype, use nonmixed layout
             [dt] => {

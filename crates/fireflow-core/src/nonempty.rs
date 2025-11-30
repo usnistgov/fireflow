@@ -112,6 +112,7 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyList;
 
+    // NOTE this is only used for keywords that cannot be an empty list
     impl<'py, T> FromPyObject<'py> for FCSNonEmpty<T>
     where
         T: FromPyObject<'py>,
@@ -121,7 +122,6 @@ mod python {
             if let Some(ys) = NonEmpty::from_vec(xs) {
                 Ok(ys.into())
             } else {
-                // ASSUME this is only used for keywords that cannot be an empty list
                 Err(InvalidKeywordValueError::new_err("list must not be empty"))
             }
         }

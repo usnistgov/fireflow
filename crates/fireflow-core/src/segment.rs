@@ -629,10 +629,13 @@ impl<I, S, T> Segment<I, S, T> {
                 let end = begin + s.dataset_offset.0;
                 let nbytes = u64::from(s.nbytes());
 
-                debug_assert!(
-                    end < h.seek(SeekFrom::End(0))?,
-                    "end of segment exceeds file"
-                );
+                #[cfg(debug_assertions)]
+                {
+                    let current_pos = h.stream_position()?;
+                    let file_size = h.seek(SeekFrom::End(0))?;
+                    h.seek(SeekFrom::Start(current_pos))?;
+                    assert!(end < file_size, "end of segment exceeds file");
+                }
 
                 h.seek(SeekFrom::Start(end))?;
                 h.take(nbytes).read_to_end(buf)?;

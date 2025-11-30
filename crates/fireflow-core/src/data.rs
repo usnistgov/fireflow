@@ -2792,13 +2792,14 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map_ok_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn h_read_unchecked_df<R: Read>(
+    fn h_read_unchecked_df<R>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
     ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
+        R: Read,
         S: Copy,
         C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
@@ -2808,6 +2809,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .iter()
             .map(|c| c.clone().into_reader(nrows))
             .collect();
+
         for row in 0..nrows {
             for c in &mut col_readers {
                 c.h_read(h, row, self.byte_layout, buf)?;

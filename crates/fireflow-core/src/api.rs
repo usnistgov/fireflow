@@ -139,8 +139,12 @@ pub fn fcs_read_flat_dataset(
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(flat, mut h, st)| {
+            let hs = &flat.parse.header_segments;
             let segs = NonDataSegments::new(
-                flat.parse.header_segments.clone(),
+                hs.text,
+                hs.data,
+                hs.analysis,
+                &hs.other[..],
                 flat.parse.supp_text.as_ref().copied(),
             );
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
@@ -200,12 +204,10 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .into_log()
         .and_then_commutative(|(st, file)| {
             let segs = NonDataSegments::new(
-                HeaderSegments::new(
-                    PrimaryTextSegment::default(),
-                    data_seg,
-                    analysis_seg,
-                    other_segs.to_vec(),
-                ),
+                PrimaryTextSegment::default(),
+                data_seg,
+                analysis_seg,
+                other_segs,
                 None,
             );
             let mut h = BufReader::new(file);
@@ -882,7 +884,7 @@ where
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments)| {
-            OthersReader::new(&segs.header.other[..])
+            OthersReader::new(segs.other)
                 .h_read(h)
                 .map(|others| {
                     FlatDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
@@ -934,9 +936,15 @@ impl FlatTEXTOutput {
     where
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let header = &self.parse.header_segments;
-        // TODO clone shouldn't be necessary
-        let segs = NonDataSegments::new(header.clone(), self.parse.supp_text.as_ref().copied());
+        // TODO not DRY, make this a method
+        let hs = &self.parse.header_segments;
+        let segs = NonDataSegments::new(
+            hs.text,
+            hs.data,
+            hs.analysis,
+            &hs.other[..],
+            self.parse.supp_text.as_ref().copied(),
+        );
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
             |(standardized, extra, offsets)| {
                 let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
@@ -1412,6 +1420,13 @@ where
         + AsRef<ReadHeaderAndTEXTConfig>,
 {
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+    // If this flag is set, pretend that supp TEXT does not exist at all. No
+    // parsing, no errors, no testing for overlaps. Note that these keywords
+    // will be removed during standardization so we don't need to worry about
+    // triggering false positive pseudostandard errors later
+    if conf.ignore_supp_text.is_set() {
+        return LogResult::new_ok(None);
+    }
     let res = match header.version {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {

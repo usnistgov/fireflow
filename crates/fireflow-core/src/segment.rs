@@ -1,9 +1,9 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
-    DatasetOffset, FileLen, HeaderConfigInner, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
+    DatasetOffset, FileLen, HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
-use crate::header::{HEADER_LEN, HeaderSegments, HeaderValidationError};
+use crate::header::HEADER_LEN;
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -219,25 +219,43 @@ struct NonEmptySegment<T> {
 
 /// Helper struct to bundle all but the DATA and ANALYSIS segments
 #[derive(new, AsRef)]
-pub struct NonDataSegments {
+pub struct NonDataSegments<'a> {
+    pub(crate) text: PrimaryTextSegment,
     #[as_ref(HeaderDataSegment)]
+    pub(crate) data: HeaderDataSegment,
     #[as_ref(HeaderAnalysisSegment)]
-    pub(crate) header: HeaderSegments<UintSpacePad20>,
+    pub(crate) analysis: HeaderAnalysisSegment,
+    pub(crate) other: &'a [OtherSegment20],
     pub(crate) supp: Option<SupplementalTextSegment>,
 }
 
-impl NonDataSegments {
-    fn overlaps_with<I>(&self, s: &TEXTSegment<I>) -> DeferredErrors<(), HeaderValidationError>
+impl NonDataSegments<'_> {
+    /// Check overlap between this TEXT segment and the other HEADER segments.
+    ///
+    /// Specifically don't check the corresponding HEADER segment since these
+    /// should be the same
+    fn overlaps_with<I, O>(&self, s: &TEXTSegment<I>) -> DeferredErrors<(), SegmentOverlapError>
     where
         I: HasRegion,
+        O: HasRegion,
+        Self: AsRef<HeaderSegment<O>>,
     {
-        self.header.validate_text(s).and_then_deferred(|gseg| {
-            let gsupp = self.supp.as_ref().and_then(Segment::try_as_generic);
-            let ret = gsupp.lift_f2_once(gseg, |supp, other| supp.overlaps(&other));
-            ret.unwrap_or(Ok(()))
-                .map_err(HeaderValidationError::from)
-                .into_log()
-        })
+        // TODO check match with HEADER as well here to deduplicate code
+        if let Some(this_seg) = s.try_as_generic() {
+            let text = self.text.try_as_generic();
+            let not_this_seg = self.as_ref().try_as_generic();
+            let supp = self.supp.as_ref().and_then(Segment::try_as_generic);
+            let es = self
+                .other
+                .iter()
+                .map(Segment::try_as_generic)
+                .chain([text, not_this_seg, supp])
+                .flatten()
+                .filter_map(|hdr_seg| hdr_seg.overlaps(&this_seg).err());
+            DeferredErrors::new_err_from_iter(es, ())
+        } else {
+            LogResult::new_ok(())
+        }
     }
 }
 
@@ -262,52 +280,6 @@ where
     Self::B: ReqMetarootKey,
     Self::E: ReqMetarootKey,
 {
-    type IgnoreFlag: ConfigFlag;
-
-    fn get_req_or<C>(
-        kws: &StdKeywords,
-        segs: &NonDataSegments,
-        st: &ReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        NonDataSegments: AsRef<HeaderSegment<Self>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-    {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
-            let default = segs.as_ref();
-            LogResult::new_ok(default.into_any())
-        } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
-        }
-    }
-
-    fn remove_req_or<C>(
-        kws: &mut StdKeywords,
-        segs: &NonDataSegments,
-        st: &ReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        NonDataSegments: AsRef<HeaderSegment<Self>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-    {
-        // if we want to totally ignore the TEXT offsets, just blindly remove
-        // them so we don't trigger any pseudostandard false positives later and
-        // return the default segment
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
-            let _ = Self::remove_req_pair(kws);
-            let default = segs.as_ref();
-            LogResult::new_ok(default.into_any())
-        } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
-        }
-    }
-
     #[allow(clippy::type_complexity)]
     fn with_req_pair<C>(
         pair: ReqPair<Self::B, Self::E>,
@@ -338,19 +310,85 @@ where
         }
     }
 
-    fn with_req_pair_default<C>(
-        pair: ReqPair<Self::B, Self::E>,
-        segs: &NonDataSegments,
+    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::B::get_metaroot_req(kws);
+        let x1 = Self::E::get_metaroot_req(kws);
+        (x0, x1)
+    }
+
+    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::B::remove_metaroot_req(kws);
+        let x1 = Self::E::remove_metaroot_req(kws);
+        (x0, x1)
+    }
+}
+
+/// Operations to obtain required segment from TEXT keywords with a default segment
+pub(crate) trait KeyedReqSegmentWithDefault: KeyedReqSegment + HasRegion
+where
+    Self::B: ReqMetarootKey,
+    Self::E: ReqMetarootKey,
+{
+    type IgnoreFlag: ConfigFlag;
+    type OtherDataId: HasRegion;
+
+    fn get_req_or<'a, C>(
+        kws: &StdKeywords,
+        segs: &NonDataSegments<'a>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
-        NonDataSegments: AsRef<HeaderSegment<Self>>,
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+    {
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let default: &HeaderSegment<Self> = segs.as_ref();
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
+        }
+    }
+
+    fn remove_req_or<'a, C>(
+        kws: &mut StdKeywords,
+        segs: &NonDataSegments<'a>,
+        st: &ReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+    {
+        // if we want to totally ignore the TEXT offsets, just blindly remove
+        // them so we don't trigger any pseudostandard false positives later and
+        // return the default segment
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let _ = Self::remove_req_pair(kws);
+            let default: &HeaderSegment<Self> = segs.as_ref();
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
+        }
+    }
+
+    fn with_req_pair_default<'a, C>(
+        pair: ReqPair<Self::B, Self::E>,
+        segs: &NonDataSegments<'a>,
+        st: &ReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<AllowHeaderTEXTOffsetMismatch>
             + AsRef<AllowMissingRequiredOffsets>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>,
     {
-        let default = segs.as_ref();
+        let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
         let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
         let missing_flag: &AllowMissingRequiredOffsets = st.conf.as_ref();
@@ -358,7 +396,7 @@ where
         match Self::with_req_pair(pair, st) {
             Ok(text_seg) => {
                 let val_res = segs
-                    .overlaps_with(&text_seg)
+                    .overlaps_with::<_, Self::OtherDataId>(&text_seg)
                     .nowarn_into_switchable(*missing_flag)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative();
@@ -385,18 +423,6 @@ where
             }
         }
     }
-
-    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::B::get_metaroot_req(kws);
-        let x1 = Self::E::get_metaroot_req(kws);
-        (x0, x1)
-    }
-
-    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::B::remove_metaroot_req(kws);
-        let x1 = Self::E::remove_metaroot_req(kws);
-        (x0, x1)
-    }
 }
 
 /// Operations to obtain optional segment from TEXT keywords
@@ -405,47 +431,6 @@ where
     Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
     Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
 {
-    type IgnoreFlag: ConfigFlag;
-
-    fn get_opt_or<C>(
-        kws: &StdKeywords,
-        default: HeaderSegment<Self>,
-        st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
-    where
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-    {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
-            LogResult::new_ok(default.into_any())
-        } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let pair = Self::get_opt_pair(kws);
-            Self::with_opt_pair_default(pair, default, &inner_st)
-        }
-    }
-
-    fn remove_opt_or<C>(
-        kws: &mut StdKeywords,
-        default: HeaderSegment<Self>,
-        st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
-    where
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
-    {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
-            let _ = Self::remove_opt_pair(kws);
-            LogResult::new_ok(default.into_any())
-        } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            let pair = Self::remove_opt_pair(kws);
-            Self::with_opt_pair_default(pair, default, &inner_st)
-        }
-    }
-
     #[allow(clippy::type_complexity)]
     fn with_opt_pair<C>(
         pair: OptPair<Self::B, Self::E>,
@@ -478,41 +463,6 @@ where
         }
     }
 
-    fn with_opt_pair_default<C>(
-        pair: OptPair<Self::B, Self::E>,
-        default: HeaderSegment<Self>,
-        st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
-    where
-        C: AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<TruncateOffsets>
-            + AsRef<TEXTCorrection<Self>>,
-    {
-        // TODO configure this
-        let drop_flag = AllowOptionalDropping(true);
-        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
-        let header_seg = default.into_any();
-
-        match Self::with_opt_pair(pair, st) {
-            Ok(text_seg) => match text_seg {
-                None => LogResult::new_ok(header_seg),
-                Some(ts) => {
-                    let (seg, warn) = default.unless(ts);
-                    SwitchableErrorsResult::new_deferred_switchable_maybe(seg, warn, *mismatch_flag)
-                        .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
-                        .switchable_into_commutative()
-                }
-            },
-            Err((e0, e1)) => {
-                SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
-                    .extend_deferred_switchable_errors(e1)
-                    .map_switchable_errors(OptSegmentError::from)
-                    .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
-                    .switchable_into_commutative()
-            }
-        }
-    }
-
     fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
         let x0 = Self::B::get_root_opt(kws);
         let x1 = Self::E::get_root_opt(kws);
@@ -523,6 +473,106 @@ where
         let x0 = Self::B::remove_root_opt(kws);
         let x1 = Self::E::remove_root_opt(kws);
         (x0, x1)
+    }
+}
+
+/// Operations to obtain optional segment from TEXT keywords with a default segment
+pub(crate) trait KeyedOptSegmentWithDefault: KeyedOptSegment + HasRegion
+where
+    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
+    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
+{
+    type IgnoreFlag: ConfigFlag;
+    type OtherDataId: HasRegion;
+
+    fn get_opt_or<'a, C>(
+        kws: &StdKeywords,
+        segs: &NonDataSegments<'a>,
+        st: &ReadState<C>,
+    ) -> OptSegTentative<Self>
+    where
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+    {
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let default: &HeaderSegment<Self> = segs.as_ref();
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let pair = Self::get_opt_pair(kws);
+            Self::with_opt_pair_default(pair, segs, &inner_st)
+        }
+    }
+
+    fn remove_opt_or<'a, C>(
+        kws: &mut StdKeywords,
+        segs: &NonDataSegments<'a>,
+        st: &ReadState<C>,
+    ) -> OptSegTentative<Self>
+    where
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        C: AsRef<ReadTEXTOffsetsConfig>,
+        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+    {
+        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
+        if ignore_flag.is_set() {
+            let default: &HeaderSegment<Self> = segs.as_ref();
+            let _ = Self::remove_opt_pair(kws);
+            LogResult::new_ok(default.into_any())
+        } else {
+            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let pair = Self::remove_opt_pair(kws);
+            Self::with_opt_pair_default(pair, segs, &inner_st)
+        }
+    }
+
+    fn with_opt_pair_default<'a, C>(
+        pair: OptPair<Self::B, Self::E>,
+        segs: &NonDataSegments<'a>,
+        st: &ReadState<C>,
+    ) -> OptSegTentative<Self>
+    where
+        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        C: AsRef<AllowHeaderTEXTOffsetMismatch>
+            + AsRef<TruncateOffsets>
+            + AsRef<TEXTCorrection<Self>>,
+    {
+        let default: &HeaderSegment<Self> = segs.as_ref();
+        let header_seg = default.into_any();
+        // TODO configure this
+        let drop_flag = AllowOptionalDropping(true);
+        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
+
+        match Self::with_opt_pair(pair, st) {
+            Ok(ts) => match ts {
+                None => LogResult::new_ok(header_seg),
+                Some(text_seg) => {
+                    let val_res = segs
+                        .overlaps_with::<_, Self::OtherDataId>(&text_seg)
+                        .nowarn_into_switchable(drop_flag)
+                        .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                        .switchable_into_commutative();
+                    let (seg, warn) = default.unless(text_seg);
+                    let mismatch_res = SwitchableErrorsResult::new_deferred_switchable_maybe(
+                        seg,
+                        warn,
+                        *mismatch_flag,
+                    )
+                    .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                    .switchable_into_commutative();
+                    val_res.lift_f2_once(mismatch_res, |(), ret| ret)
+                }
+            },
+            Err((e0, e1)) => {
+                SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
+                    .extend_deferred_switchable_errors(e1)
+                    .map_switchable_errors(OptSegmentError::from)
+                    .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
+                    .switchable_into_commutative()
+            }
+        }
     }
 }
 
@@ -551,12 +601,18 @@ impl KeyedSegment for AnalysisSegmentId {
     type E = Endanalysis;
 }
 
-impl KeyedReqSegment for AnalysisSegmentId {
+impl KeyedReqSegment for AnalysisSegmentId {}
+
+impl KeyedReqSegmentWithDefault for AnalysisSegmentId {
     type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
+    type OtherDataId = DataSegmentId;
 }
 
-impl KeyedOptSegment for AnalysisSegmentId {
+impl KeyedOptSegment for AnalysisSegmentId {}
+
+impl KeyedOptSegmentWithDefault for AnalysisSegmentId {
     type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
+    type OtherDataId = DataSegmentId;
 }
 
 impl KeyedSegment for DataSegmentId {
@@ -564,8 +620,11 @@ impl KeyedSegment for DataSegmentId {
     type E = Enddata;
 }
 
-impl KeyedReqSegment for DataSegmentId {
+impl KeyedReqSegment for DataSegmentId {}
+
+impl KeyedReqSegmentWithDefault for DataSegmentId {
     type IgnoreFlag = IgnoreTEXTDataOffsets;
+    type OtherDataId = AnalysisSegmentId;
 }
 
 impl KeyedSegment for SupplementalTextSegmentId {
@@ -573,13 +632,9 @@ impl KeyedSegment for SupplementalTextSegmentId {
     type E = Endstext;
 }
 
-impl KeyedReqSegment for SupplementalTextSegmentId {
-    type IgnoreFlag = IgnoreSuppTEXT;
-}
+impl KeyedReqSegment for SupplementalTextSegmentId {}
 
-impl KeyedOptSegment for SupplementalTextSegmentId {
-    type IgnoreFlag = IgnoreSuppTEXT;
-}
+impl KeyedOptSegment for SupplementalTextSegmentId {}
 
 impl HasSource for SegmentFromHeader {
     const SRC: AnySrc = AnySrc::Header;
@@ -1374,7 +1429,7 @@ pub struct SegmentMismatchWarning<I> {
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
-    Validation(HeaderValidationError),
+    Validation(SegmentOverlapError),
 }
 
 /// Warning when parsing required segments from TEXT when HEADER is allowed to override
@@ -1393,6 +1448,7 @@ pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
+    Validation(SegmentOverlapError),
 }
 
 #[cfg(feature = "serde")]

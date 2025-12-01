@@ -13,7 +13,7 @@ use crate::data::{
     VersionedDataLayout,
 };
 use crate::header::{
-    HeaderKeywordsToWrite, HeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -26,9 +26,9 @@ use crate::logging::{
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
-    HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NonDataSegments,
-    OptSegmentWithDefaultWarning, OtherSegment20, PrimaryTextSegment, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, PrimaryTextSegment,
+    ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -492,12 +492,10 @@ impl AnyCoreDataset {
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         let segs = NonDataSegments::new(
-            HeaderSegments::new(
-                PrimaryTextSegment::default(),
-                data_seg,
-                analysis_seg,
-                other_segs.to_vec(),
-            ),
+            PrimaryTextSegment::default(),
+            data_seg,
+            analysis_seg,
+            other_segs,
             None,
         );
         macro_rules! go {
@@ -3988,9 +3986,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig>,
     {
-        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
-        // processed when we read the TEXT; remove them so they don't
-        // trigger false positives later when we test for pseudostandard keys
+        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been processed
+        // when we read the TEXT; remove them so they don't trigger false
+        // positives later when we test for pseudostandard keys
         let _ = kws.std.remove(&Nextdata::std());
         let _ = kws.std.remove(&Beginstext::std());
         let _ = kws.std.remove(&Endstext::std());
@@ -4383,12 +4381,10 @@ where
             + AsRef<ReadTEXTOffsetsConfig>,
     {
         let segs = NonDataSegments::new(
-            HeaderSegments::new(
-                PrimaryTextSegment::default(),
-                data_seg,
-                analysis_seg,
-                other_segs.to_vec(),
-            ),
+            PrimaryTextSegment::default(),
+            data_seg,
+            analysis_seg,
+            other_segs,
             None,
         );
         ReadState::open(p, dataset_offset, conf)
@@ -4434,7 +4430,7 @@ where
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                let or = OthersReader::new(&segs.header.other[..]);
+                let or = OthersReader::new(segs.other);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
@@ -7396,12 +7392,11 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        let hs = &segs.header;
         Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(hs.data.into_any(), hs.analysis.into_any());
+                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
@@ -7414,12 +7409,11 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        let hs = &segs.header;
         Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(hs.data.into_any(), hs.analysis.into_any());
+                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
@@ -7448,10 +7442,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, segs, st)
+        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::remove_req_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7470,10 +7464,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, segs, st)
+        let data_res = DataSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::get_req_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7497,8 +7491,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     fn lookup<C>(
         kws: &mut StdKeywords,
         segs: &NonDataSegments,
-        // data: HeaderDataSegment,
-        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7507,10 +7499,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, segs, st)
+        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::remove_opt_or(kws, segs.header.analysis, st)
+        let analysis_res = AnalysisSegmentId::remove_opt_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7521,8 +7513,6 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     fn lookup_ro<C>(
         kws: &StdKeywords,
         segs: &NonDataSegments,
-        // data: HeaderDataSegment,
-        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7531,10 +7521,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, segs, st)
+        let data_res = DataSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::get_opt_or(kws, segs.header.analysis, st)
+        let analysis_res = AnalysisSegmentId::get_opt_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res

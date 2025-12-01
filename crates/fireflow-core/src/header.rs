@@ -83,13 +83,11 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone, PartialEq, AsRef, new)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
-    #[as_ref(HeaderDataSegment)]
     pub data: HeaderDataSegment,
-    #[as_ref(HeaderAnalysisSegment)]
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment<T>>,
 }

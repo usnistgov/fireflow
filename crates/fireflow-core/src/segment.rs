@@ -3,7 +3,7 @@ use crate::config::{
     DatasetOffset, FileLen, HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
     ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
-use crate::header::HEADER_LEN;
+use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -791,7 +791,6 @@ impl<I, S, T> Segment<I, S, T> {
             InnerSegment::default()
         } else {
             let end = (begin + length - 1).try_into()?;
-            // TODO this seems sketchy
             InnerSegment::NonEmpty(NonEmptySegment::new(begin.try_into()?, end, offset))
         };
         Ok(Self::new(s))
@@ -805,7 +804,6 @@ impl<I, S, T> Segment<I, S, T> {
             InnerSegment::default()
         } else {
             let end = (begin + length - 1).into();
-            // TODO this seems sketchy
             InnerSegment::NonEmpty(NonEmptySegment::new(begin.into(), end, offset))
         };
         Self::new(inner)
@@ -934,8 +932,9 @@ impl<I, T> Segment<I, SegmentFromHeader, T> {
 impl<I: Copy> HeaderSegment<I> {
     pub(crate) fn h_read_primary<C, R>(
         h: &mut BufReader<R>,
-        allow_blank: bool,
+        is_text: bool,
         corr: HeaderCorrection<I>,
+        version: Version,
         st: &ReadState<C>,
     ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
     where
@@ -960,45 +959,29 @@ impl<I: Copy> HeaderSegment<I> {
         h.read_exact(&mut buf0)?;
         h.read_exact(&mut buf1)?;
 
-        Self::parse(
-            buf0,
-            buf1,
-            allow_blank,
-            conf.allow_negative,
-            conf.squish_offsets,
-            &seg_conf,
-        )
-        .group()
-        .resolve_nowarn()
-        .map_err(IOErrorGroup::Pure)
-    }
-
-    fn parse(
-        bs0: [u8; 8],
-        bs1: [u8; 8],
-        allow_blank: bool,
-        allow_negative: bool,
-        squish_offsets: bool,
-        conf: &NewSegmentConfig<I, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), HeaderSegmentError>
-    where
-        I: HasRegion,
-    {
         let parse_one = |bs, is_begin| {
-            UintSpacePad8::from_bytes(bs, allow_blank, allow_negative).map_err(|error| {
+            // TEXT segment should never be blank
+            let allow_blank = !is_text;
+            UintSpacePad8::from_bytes(bs, allow_blank, conf.allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, I::REGION, bs.to_vec()).into()
             })
         };
 
-        let begin_res = parse_one(bs0, true).into_nowarn();
-        let end_res = parse_one(bs1, false).into_nowarn();
+        let begin_res = parse_one(buf0, true).into_nowarn();
+        let end_res = parse_one(buf1, false).into_nowarn();
         begin_res
             .zip_commutative(end_res)
             .and_then_commutative(|(begin, end)| {
-                Self::try_new_squish(begin, end, squish_offsets, conf)
+                // TEXT segment is not squishable
+                let allow_squish = !is_text;
+                let squish = conf.squish_offsets && allow_squish;
+                Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map_err(HeaderSegmentError::from)
                     .into_log()
             })
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
     }
 
     pub(crate) fn unless(
@@ -1024,14 +1007,20 @@ impl<I: Copy> HeaderSegment<I> {
         begin: UintSpacePad8,
         end: UintSpacePad8,
         squish_offsets: bool,
+        version: Version,
         conf: &NewSegmentConfig<I, SegmentFromHeader>,
     ) -> Result<Self, SegmentError>
     where
         I: HasRegion,
     {
-        // TODO this might produce really weird errors if run on a 2.0
-        // file, so in those cases, this should never be true
-        let (b, e) = if squish_offsets && end == UintSpacePad8::zero() && begin > end {
+        // never run on 2.0 since offset "squishing" only applies to HEADER
+        // offsets that overflow and necessitate TEXT offsets, which don't exist
+        // in 2.0
+        let (b, e) = if version > Version::FCS2_0
+            && squish_offsets
+            && end == UintSpacePad8::zero()
+            && begin > end
+        {
             (UintSpacePad8::zero(), UintSpacePad8::zero())
         } else {
             (begin, end)

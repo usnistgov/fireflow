@@ -333,19 +333,27 @@ where
         .ungroup()
         .map_errors(HeaderError::from);
 
-    let text_res = split_io!(HeaderSegment::h_read_primary(h, false, text_cor, st)).ungroup();
-    let data_res = split_io!(HeaderSegment::h_read_primary(h, true, data_cor, st)).ungroup();
-    let anal_res = split_io!(HeaderSegment::h_read_primary(h, true, anal_cor, st)).ungroup();
+    let (version, ()) = vers_res
+        .zip_commutative(space_res)
+        .group()
+        .resolve_nowarn()
+        .map_err(IOErrorGroup::Pure)?;
 
-    let offset_res = text_res
-        .zip3_commutative(data_res, anal_res)
-        .map_errors(HeaderError::from);
-    vers_res
-        .zip3_commutative(space_res, offset_res)
-        .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+    let text_res = HeaderSegment::h_read_primary(h, false, text_cor, version, st);
+    let data_res = HeaderSegment::h_read_primary(h, true, data_cor, version, st);
+    let anal_res = HeaderSegment::h_read_primary(h, true, anal_cor, version, st);
+
+    let pure_text_res = split_io!(text_res).ungroup();
+    let pure_data_res = split_io!(data_res).ungroup();
+    let pure_anal_res = split_io!(anal_res).ungroup();
+
+    pure_text_res
+        .zip3_commutative(pure_data_res, pure_anal_res)
+        .map_errors(HeaderError::from)
         .group()
         .resolve_nowarn()
         .map_err(IOErrorGroup::Pure)
+        .map(|(t, d, a)| (version, t, d, a))
 }
 
 fn h_read_spaces<R, C>(

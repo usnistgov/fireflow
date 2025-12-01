@@ -22,7 +22,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use super::core::Other;
 
-use derive_more::{AsRef, Display, From};
+use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
@@ -127,11 +127,11 @@ impl<T> HeaderSegments<T> {
         T: HeaderString,
     {
         let contains_res = self
-            .contains_text_segment(&s)
+            .contains_text_segment(s)
             .map_err(HeaderValidationError::from)
             .into_deferred_nowarn();
         let overlap_res = self
-            .overlaps_with(&s)
+            .overlaps_with(s)
             .map_errors(HeaderValidationError::from);
         contains_res.lift_f2_once(overlap_res, |q, _| q)
     }

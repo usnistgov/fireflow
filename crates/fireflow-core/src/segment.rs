@@ -230,18 +230,22 @@ pub struct NonDataSegments<'a> {
 }
 
 impl NonDataSegments<'_> {
-    /// Check overlap between this TEXT segment and the other HEADER segments.
+    /// Ensure this segment does not overlap with other segments.
     ///
-    /// Specifically don't check the corresponding HEADER segment since these
-    /// should be the same
-    fn overlaps_with<I, O>(&self, s: &TEXTSegment<I>) -> DeferredErrors<(), SegmentOverlapError>
+    /// Specifically check that no other segment (except its analogue in HEADER
+    /// if non-empty) overlaps with this one. Also ensure that that these
+    /// segments don't overlap with HEADER itself.
+    fn validate<I, O>(&self, s: &TEXTSegment<I>) -> DeferredErrors<(), TEXTSegmentOverlapError<I>>
     where
         I: HasRegion,
         O: HasRegion,
         Self: AsRef<HeaderSegment<O>>,
     {
-        // TODO check match with HEADER as well here to deduplicate code
         if let Some(this_seg) = s.try_as_generic() {
+            let hdr_len = u64::try_from(self.other.len()).unwrap() + u64::from(HEADER_LEN);
+            let in_hdr_err = (this_seg.begin < hdr_len)
+                .then_some(TEXTSegmentInHeaderError::new(this_seg.begin, hdr_len))
+                .map(TEXTSegmentOverlapError::from);
             let text = self.text.try_as_generic();
             let not_this_seg = self.as_ref().try_as_generic();
             let supp = self.supp.as_ref().and_then(Segment::try_as_generic);
@@ -251,7 +255,9 @@ impl NonDataSegments<'_> {
                 .map(Segment::try_as_generic)
                 .chain([text, not_this_seg, supp])
                 .flatten()
-                .filter_map(|hdr_seg| hdr_seg.overlaps(&this_seg).err());
+                .filter_map(|hdr_seg| hdr_seg.overlaps(&this_seg).err())
+                .map(TEXTSegmentOverlapError::from)
+                .chain(in_hdr_err);
             DeferredErrors::new_err_from_iter(es, ())
         } else {
             LogResult::new_ok(())
@@ -396,7 +402,7 @@ where
         match Self::with_req_pair(pair, st) {
             Ok(text_seg) => {
                 let val_res = segs
-                    .overlaps_with::<_, Self::OtherDataId>(&text_seg)
+                    .validate::<_, Self::OtherDataId>(&text_seg)
                     .nowarn_into_switchable(*missing_flag)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative();
@@ -550,7 +556,7 @@ where
                 None => LogResult::new_ok(header_seg),
                 Some(text_seg) => {
                     let val_res = segs
-                        .overlaps_with::<_, Self::OtherDataId>(&text_seg)
+                        .validate::<_, Self::OtherDataId>(&text_seg)
                         .nowarn_into_switchable(drop_flag)
                         .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                         .switchable_into_commutative();
@@ -1151,9 +1157,6 @@ impl<I> TEXTSegment<I> {
 }
 
 impl<T> InnerSegment<T> {
-    // TODO technically the minimum coords for these segments should be (58, 58)
-    // since a segment can never start in a header. Obviously it will be even
-    // longer if we have OTHER segments
     fn try_new<I: HasRegion, S: HasSource>(
         begin: T,
         end: T,
@@ -1429,7 +1432,7 @@ pub struct SegmentMismatchWarning<I> {
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
-    Validation(SegmentOverlapError),
+    Validation(TEXTSegmentOverlapError<I>),
 }
 
 /// Warning when parsing required segments from TEXT when HEADER is allowed to override
@@ -1448,7 +1451,32 @@ pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
-    Validation(SegmentOverlapError),
+    Validation(TEXTSegmentOverlapError<I>),
+}
+
+/// Error when TEXT segment overlaps with another segment
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
+pub enum TEXTSegmentOverlapError<I> {
+    Header(TEXTSegmentInHeaderError<I>),
+    OtherSeg(SegmentOverlapError),
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display(bound(I: HasRegion))]
+#[display(
+    "begin offset of {} segment is {begin} which starts within \
+     HEADER which is {header_len} bytes long",
+    I::REGION
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
+pub struct TEXTSegmentInHeaderError<I> {
+    begin: u64,
+    header_len: u64,
+    _loc: PhantomData<I>,
 }
 
 #[cfg(feature = "serde")]

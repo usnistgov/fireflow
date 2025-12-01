@@ -12,7 +12,7 @@ use crate::core::{
     StdTEXTFromFlatTEXTWarning, Versioned as _,
 };
 use crate::header::{
-    Header, HeaderError, HeaderSegments, InHeaderError, Version, Version2_0, Version3_0,
+    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
     Version3_1, Version3_2,
 };
 use crate::logging::{
@@ -25,8 +25,8 @@ use crate::logging::{
 use crate::macros::def_group;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
-    OptSegmentError, OtherSegment20, ReqSegmentError, SegmentOverlapError, SupplementalTextSegment,
-    SupplementalTextSegmentId, TEXTCorrection,
+    NonDataSegments, OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError,
+    SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
 use crate::text::lookup::{
@@ -139,18 +139,14 @@ pub fn fcs_read_flat_dataset(
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(flat, mut h, st)| {
-            h_read_dataset_from_kws(
-                &mut h,
-                flat.version,
-                &flat.keywords.std,
-                flat.parse.header_segments.data,
-                flat.parse.header_segments.analysis,
-                &flat.parse.header_segments.other[..],
-                &st,
-            )
-            .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
-            .map_commutative_warnings(FlatDatasetWarning::from)
-            .map_pure_errors(FlatDatasetError::from)
+            let segs = NonDataSegments::new(
+                flat.parse.header_segments.clone(),
+                flat.parse.supp_text.as_ref().copied(),
+            );
+            h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
+                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
+                .map_commutative_warnings(FlatDatasetWarning::from)
+                .map_pure_errors(FlatDatasetError::from)
         })
         .warnings_to_pure_errors(&conf.shared, FlatDatasetError::from)
         .deanonymize()
@@ -203,16 +199,17 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
+            let segs = NonDataSegments::new(
+                HeaderSegments::new(
+                    PrimaryTextSegment::default(),
+                    data_seg,
+                    analysis_seg,
+                    other_segs.to_vec(),
+                ),
+                None,
+            );
             let mut h = BufReader::new(file);
-            h_read_dataset_from_kws(
-                &mut h,
-                version,
-                std,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                &st,
-            )
+            h_read_dataset_from_kws(&mut h, version, std, &segs, &st)
         })
         .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
@@ -569,7 +566,7 @@ pub enum HeaderOrFlatTextError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
-    Overlap(STextOverlapError),
+    Overlap(HeaderValidationError),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -578,14 +575,6 @@ pub enum STextSegmentError {
 pub enum STextSegmentWarning {
     OptSegment(OptSegmentError<Beginstext, Endstext>),
     Error(STextSegmentError),
-}
-
-/// Error when Supplemental TEXT overlaps with HEADER or another segment.
-#[derive(From, Display, Error, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum STextOverlapError {
-    Header(InHeaderError),
-    Segment(SegmentOverlapError),
 }
 
 /// Error when parsing multiple TEXT segment in std mode
@@ -878,9 +867,7 @@ fn h_read_dataset_from_kws<C, R>(
     h: &mut BufReader<R>,
     version: Version,
     kws: &StdKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment20],
+    segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     FlatDatasetWithKwsOutput,
@@ -892,10 +879,10 @@ where
     R: Read + Seek,
     C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
-    kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
+    kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments)| {
-            OthersReader::new(other_segs)
+            OthersReader::new(&segs.header.other[..])
                 .h_read(h)
                 .map(|others| {
                     FlatDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
@@ -948,17 +935,14 @@ impl FlatTEXTOutput {
         C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let header = &self.parse.header_segments;
-        AnyCoreTEXT::parse_flat(
-            self.version,
-            self.keywords,
-            header.data,
-            header.analysis,
-            st,
+        // TODO clone shouldn't be necessary
+        let segs = NonDataSegments::new(header.clone(), self.parse.supp_text.as_ref().copied());
+        AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
+            |(standardized, extra, offsets)| {
+                let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
+                (standardized, out)
+            },
         )
-        .map_ok_value(|(standardized, extra, offsets)| {
-            let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
-            (standardized, out)
-        })
     }
 
     fn into_std_dataset<C, R>(
@@ -982,6 +966,7 @@ impl FlatTEXTOutput {
         let d = hs.data;
         let a = hs.analysis;
         let o = &hs.other[..];
+        // TODO this should take all previous segments into account
         AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
             .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
@@ -991,8 +976,7 @@ fn kws_to_df_analysis<C, R>(
     version: Version,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
-    data: HeaderDataSegment,
-    analysis: HeaderAnalysisSegment,
+    segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments),
@@ -1005,10 +989,10 @@ where
     C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     match version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, data, analysis, st),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, segs, st),
     }
 }
 
@@ -1459,14 +1443,9 @@ where
     res.and_then_deferred(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
             let flag = conf.allow_overlapping_supp_text;
-            let hs = &header.segments;
-            let contains_res = hs
-                .contains_text_segment(&seg)
-                .map_err(STextOverlapError::from)
-                .into_deferred_nowarn();
-            let overlap_res = hs.overlaps_with(&seg).map_errors(STextOverlapError::from);
-            contains_res
-                .lift_f2_once(overlap_res, |(), ()| ())
+            header
+                .segments
+                .validate_text(&seg)
                 .nowarn_into_switchable(flag)
                 .map_switchable_errors(STextSegmentError::from)
                 .switchable_into_commutative()

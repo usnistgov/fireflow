@@ -22,7 +22,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use super::core::Other;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
@@ -83,11 +83,13 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The three segments from the HEADER
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
+    #[as_ref(HeaderDataSegment)]
     pub data: HeaderDataSegment,
+    #[as_ref(HeaderAnalysisSegment)]
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment<T>>,
 }
@@ -117,14 +119,36 @@ impl<T> HeaderSegments<T> {
         Ok(())
     }
 
+    /// Ensure that TEXT segment does not start in HEADER and does not overlap.
+    pub(crate) fn validate_text<I>(
+        &self,
+        s: &TEXTSegment<I>,
+    ) -> DeferredErrors<Option<GenericSegment>, HeaderValidationError>
+    where
+        I: HasRegion,
+        T: HeaderString,
+    {
+        let contains_res = self
+            .contains_text_segment(&s)
+            .map_err(HeaderValidationError::from)
+            .into_deferred_nowarn();
+        let overlap_res = self
+            .overlaps_with(&s)
+            .map_errors(HeaderValidationError::from);
+        contains_res.lift_f2_once(overlap_res, |q, _| q)
+    }
+
     /// Check if TEXT segment starts within HEADER
-    pub(crate) fn contains_text_segment<I>(&self, s: &TEXTSegment<I>) -> Result<(), InHeaderError>
+    pub(crate) fn contains_text_segment<I>(
+        &self,
+        s: &TEXTSegment<I>,
+    ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         I: HasRegion,
         T: HeaderString,
     {
         s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
+            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
     }
 
     /// Check if TEXT segment overlaps with any in HEADER.
@@ -133,7 +157,7 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn overlaps_with<I>(
         &self,
         s: &TEXTSegment<I>,
-    ) -> DeferredErrors<(), SegmentOverlapError>
+    ) -> DeferredErrors<Option<GenericSegment>, SegmentOverlapError>
     where
         I: HasRegion,
         T: Copy + Into<u64>,
@@ -142,9 +166,9 @@ impl<T> HeaderSegments<T> {
             self.as_generics()
                 .map(|x| x.overlaps(&q).into_log())
                 .mappend_def()
-                .set_deferred_value(())
+                .set_deferred_value(Some(q))
         } else {
-            LogResult::new_ok(())
+            LogResult::new_ok(None)
         }
     }
 
@@ -173,11 +197,14 @@ impl<T> HeaderSegments<T> {
         [t, d, a]
             .into_iter()
             .chain(os)
-            .map(ResultExt::into_log)
+            .map(ResultExt::into_deferred_nowarn)
             .mappend_def_void()
     }
 
-    fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
+    fn contains_header_segment<I, S, T0>(
+        &self,
+        s: &Segment<I, S, T0>,
+    ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         T: HeaderString,
         I: HasRegion,
@@ -185,17 +212,17 @@ impl<T> HeaderSegments<T> {
         T0: Into<u64> + Copy,
     {
         s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
+            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
     }
 
-    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError>
+    fn contains_segment(&self, s: GenericSegment) -> Result<GenericSegment, InHeaderError>
     where
         T: HeaderString,
     {
         if s.begin < self.nbytes() {
             Err(InHeaderError(s))
         } else {
-            Ok(())
+            Ok(s)
         }
     }
 

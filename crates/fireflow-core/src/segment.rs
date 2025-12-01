@@ -3,7 +3,7 @@ use crate::config::{
     DatasetOffset, FileLen, HeaderConfigInner, IgnoreSuppTEXT, IgnoreTEXTAnalysisOffsets,
     IgnoreTEXTDataOffsets, ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
-use crate::header::HEADER_LEN;
+use crate::header::{HEADER_LEN, HeaderSegments, HeaderValidationError};
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -12,12 +12,13 @@ use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, E
 use crate::text::lookup::{
     OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
+use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::{Key, StdKeywords};
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
@@ -216,6 +217,30 @@ struct NonEmptySegment<T> {
     dataset_offset: DatasetOffset,
 }
 
+/// Helper struct to bundle all but the DATA and ANALYSIS segments
+#[derive(new, AsRef)]
+pub struct NonDataSegments {
+    #[as_ref(HeaderDataSegment)]
+    #[as_ref(HeaderAnalysisSegment)]
+    pub(crate) header: HeaderSegments<UintSpacePad20>,
+    pub(crate) supp: Option<SupplementalTextSegment>,
+}
+
+impl NonDataSegments {
+    fn overlaps_with<I>(&self, s: &TEXTSegment<I>) -> DeferredErrors<(), HeaderValidationError>
+    where
+        I: HasRegion,
+    {
+        self.header.validate_text(s).and_then_deferred(|gseg| {
+            let gsupp = self.supp.as_ref().and_then(Segment::try_as_generic);
+            let ret = gsupp.lift_f2_once(gseg, |supp, other| supp.overlaps(&other));
+            ret.unwrap_or(Ok(()))
+                .map_err(HeaderValidationError::from)
+                .into_log()
+        })
+    }
+}
+
 /// Operations to obtain optional segment from TEXT keywords
 pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
@@ -241,28 +266,31 @@ where
 
     fn get_req_or<C>(
         kws: &StdKeywords,
-        default: HeaderSegment<Self>,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
+        NonDataSegments: AsRef<HeaderSegment<Self>>,
         C: AsRef<ReadTEXTOffsetsConfig>,
         ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
+            let default = segs.as_ref();
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            Self::with_req_pair_default(Self::get_req_pair(kws), default, &inner_st)
+            Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
         }
     }
 
     fn remove_req_or<C>(
         kws: &mut StdKeywords,
-        default: HeaderSegment<Self>,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
+        NonDataSegments: AsRef<HeaderSegment<Self>>,
         C: AsRef<ReadTEXTOffsetsConfig>,
         ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
@@ -272,10 +300,11 @@ where
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let _ = Self::remove_req_pair(kws);
+            let default = segs.as_ref();
             LogResult::new_ok(default.into_any())
         } else {
             let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
-            Self::with_req_pair_default(Self::remove_req_pair(kws), default, &inner_st)
+            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
         }
     }
 
@@ -311,27 +340,37 @@ where
 
     fn with_req_pair_default<C>(
         pair: ReqPair<Self::B, Self::E>,
-        default: HeaderSegment<Self>,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
+        NonDataSegments: AsRef<HeaderSegment<Self>>,
         C: AsRef<AllowHeaderTEXTOffsetMismatch>
             + AsRef<AllowMissingRequiredOffsets>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>,
     {
+        let default = segs.as_ref();
+        let header_seg = default.into_any();
         let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
         let missing_flag: &AllowMissingRequiredOffsets = st.conf.as_ref();
-        let header_seg = default.into_any();
 
         match Self::with_req_pair(pair, st) {
             Ok(text_seg) => {
-                let (seg, warn) = default.unless(text_seg);
-                SwitchableErrorsResult::new_switchable_maybe(seg, (), warn, *mismatch_flag)
-                    .map_switchable_errors(SegmentMismatchWarning::from)
+                let val_res = segs
+                    .overlaps_with(&text_seg)
+                    .nowarn_into_switchable(*missing_flag)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                    .switchable_into_commutative()
+                    .switchable_into_commutative();
+                let (seg, warn) = default.unless(text_seg);
+                let mismatch_res =
+                    SwitchableErrorsResult::new_switchable_maybe(seg, (), warn, *mismatch_flag)
+                        .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
+                        .switchable_into_commutative();
+                val_res
+                    .zip_commutative(mismatch_res)
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
+                    .map_ok_value(|((), ret)| ret)
             }
             Err((e0, e1)) => {
                 let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
@@ -677,14 +716,6 @@ impl<I, S, T> Segment<I, S, T> {
         T: Into<u64> + Copy,
     {
         Segment::new(self.inner.as_u64())
-    }
-
-    pub(crate) fn same_coords<I_, S_, T_>(&self, other: &Segment<I_, S_, T_>) -> bool
-    where
-        T: Into<u64> + Copy,
-        T_: Into<u64> + Copy,
-    {
-        self.as_u64().try_coords() == other.as_u64().try_coords()
     }
 
     pub(crate) fn try_new_with_len(
@@ -1343,6 +1374,7 @@ pub struct SegmentMismatchWarning<I> {
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchWarning<I>),
+    Validation(HeaderValidationError),
 }
 
 /// Warning when parsing required segments from TEXT when HEADER is allowed to override

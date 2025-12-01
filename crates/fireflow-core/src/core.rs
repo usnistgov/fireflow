@@ -13,7 +13,7 @@ use crate::data::{
     VersionedDataLayout,
 };
 use crate::header::{
-    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    HeaderKeywordsToWrite, HeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -26,9 +26,9 @@ use crate::logging::{
 use crate::macros::{def_group, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
-    HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, OptSegmentWithDefaultWarning,
-    OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
-    SegmentMismatchWarning,
+    HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, NonDataSegments,
+    OptSegmentWithDefaultWarning, OtherSegment20, PrimaryTextSegment, ReqSegmentWithDefaultError,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -437,8 +437,7 @@ impl AnyCoreTEXT {
     pub(crate) fn parse_flat<C>(
         version: Version,
         kws: ValidKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
@@ -451,7 +450,7 @@ impl AnyCoreTEXT {
     {
         macro_rules! go {
             ($t:ident) => {
-                $t::new_from_keywords_with_offsets(kws, data, analysis, st)
+                $t::new_from_keywords_with_offsets(kws, segs, st)
                     .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
             };
         }
@@ -492,9 +491,18 @@ impl AnyCoreDataset {
             + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
+        let segs = NonDataSegments::new(
+            HeaderSegments::new(
+                PrimaryTextSegment::default(),
+                data_seg,
+                analysis_seg,
+                other_segs.to_vec(),
+            ),
+            None,
+        );
         macro_rules! go {
             ($t:ident) => {
-                $t::new_from_keywords_inner(h, kws, data_seg, analysis_seg, other_segs, conf)
+                $t::new_from_keywords_inner(h, kws, &segs, conf)
                     .map_ok_value(|(x, y)| (x.into(), y))
             };
         }
@@ -1345,8 +1353,7 @@ pub trait Versioned {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, Analysis, DatasetSegments),
@@ -1367,7 +1374,7 @@ pub trait Versioned {
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
-        let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, st)
+        let offset_res = Self::Offsets::lookup_ro(kws, segs, st)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
@@ -1678,8 +1685,9 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -1687,8 +1695,9 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -3904,8 +3913,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
@@ -3925,7 +3933,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
+        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, segs, st)
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
             .map_errors(StdTEXTFromFlatTEXTError::from);
 
@@ -4374,13 +4382,22 @@ where
             + AsRef<SharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
+        let segs = NonDataSegments::new(
+            HeaderSegments::new(
+                PrimaryTextSegment::default(),
+                data_seg,
+                analysis_seg,
+                other_segs.to_vec(),
+            ),
+            None,
+        );
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
                 let mut h = BufReader::new(file);
-                Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
+                Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
             .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextError::from)
             .deanonymize()
@@ -4389,9 +4406,7 @@ where
     pub(crate) fn new_from_keywords_inner<C, R>(
         h: &mut BufReader<R>,
         kws: ValidKeywords,
-        data_seg: HeaderDataSegment,
-        analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment20],
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
@@ -4411,7 +4426,7 @@ where
             + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
+        VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, segs, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
             .map_errors(StdDatasetFromFlatTextError::from)
             .group()
@@ -4419,7 +4434,7 @@ where
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                let or = OthersReader::new(other_segs);
+                let or = OthersReader::new(&segs.header.other[..]);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
@@ -7375,36 +7390,36 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
+        let hs = &segs.header;
         Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(data.into_any(), analysis.into_any());
+                let s = DatasetSegments::new(hs.data.into_any(), hs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
+        let hs = &segs.header;
         Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(data.into_any(), analysis.into_any());
+                let s = DatasetSegments::new(hs.data.into_any(), hs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
@@ -7424,8 +7439,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7434,10 +7448,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, data, st)
+        let data_res = KeyedReqSegment::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::remove_req_or(kws, analysis, st)
+        let analysis_res = KeyedReqSegment::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7447,8 +7461,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7457,10 +7470,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, data, st)
+        let data_res = KeyedReqSegment::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::get_req_or(kws, analysis, st)
+        let analysis_res = KeyedReqSegment::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7483,8 +7496,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7493,10 +7507,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, data, st)
+        let data_res = KeyedReqSegment::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::remove_opt_or(kws, analysis, st)
+        let analysis_res = KeyedOptSegment::remove_opt_or(kws, segs.header.analysis, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7506,8 +7520,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7516,10 +7531,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, data, st)
+        let data_res = KeyedReqSegment::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::get_opt_or(kws, analysis, st)
+        let analysis_res = KeyedOptSegment::get_opt_or(kws, segs.header.analysis, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res

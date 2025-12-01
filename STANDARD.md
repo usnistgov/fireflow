@@ -348,5 +348,4 @@ since they can be addressed using "large" offsets.
 
 ## Other unsupported features
 
-* Multiple datasets, although this is planned
 * cyclic redundancy check (CRC)

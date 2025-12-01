@@ -1267,6 +1267,20 @@ struct WriteHeaderAndTextConfig<'a> {
     has_nextdata: AppendableFlag,
 }
 
+/// Used for `Core::standard_keywords` to control if req/opt keys should be returned
+pub enum IncludeReqOrOpt {
+    Req_,
+    Opt_,
+    Both,
+}
+
+/// Used for `Core::standard_keywords` to control if root/meas keys should be returned
+pub enum IncludeRootOrMeas {
+    Root,
+    Meas,
+    Both,
+}
+
 impl WriteHeaderAndTextConfig<'_> {
     fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag) -> Self {
         Self {
@@ -2305,26 +2319,35 @@ where
     /// Thiw will only include keywords that can be directly derived from
     /// [`CoreTEXT`]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
-    // TODO fix clippy issue here (it has a good point)
-    #[allow(clippy::fn_params_excessive_bools)]
     pub fn standard_keywords(
         &self,
-        exclude_req_root: bool,
-        exclude_opt_root: bool,
-        exclude_req_meas: bool,
-        exclude_opt_meas: bool,
+        req_or_opt: IncludeReqOrOpt,
+        root_or_meas: IncludeRootOrMeas,
     ) -> HashMap<String, String> {
         fn go(
             xs: impl Iterator<Item = (String, String)>,
-            exclude: bool,
+            include: bool,
         ) -> impl Iterator<Item = (String, String)> {
-            (!exclude).then_some(xs).into_iter().flatten()
+            include.then_some(xs).into_iter().flatten()
         }
 
-        go(self.req_root_keywords(), exclude_req_root)
-            .chain(go(self.opt_root_keywords(), exclude_opt_root))
-            .chain(go(self.req_meas_keywords(), exclude_req_meas))
-            .chain(go(self.opt_meas_keywords(), exclude_opt_meas))
+        let (include_req_root, include_opt_root, include_req_meas, include_opt_meas) =
+            match (req_or_opt, root_or_meas) {
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Both) => (true, true, true, true),
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Root) => (true, true, false, false),
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Meas) => (false, false, true, true),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Both) => (true, false, true, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Both) => (false, true, false, true),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Root) => (true, false, false, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Meas) => (false, false, false, true),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Meas) => (false, false, true, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Root) => (false, true, false, false),
+            };
+
+        go(self.req_root_keywords(), include_req_root)
+            .chain(go(self.opt_root_keywords(), include_opt_root))
+            .chain(go(self.req_meas_keywords(), include_req_meas))
+            .chain(go(self.opt_meas_keywords(), include_opt_meas))
             .collect()
     }
 
@@ -9564,9 +9587,12 @@ mod python {
     use crate::python::InvalidKeywordValueError;
     use crate::text::ranged_float::PositiveFloat;
 
+    use super::IncludeReqOrOpt;
+    use super::IncludeRootOrMeas;
     use super::ScaleTransform;
 
     use pyo3::IntoPyObjectExt as _;
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
@@ -9594,6 +9620,34 @@ mod python {
             match self {
                 Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
                 Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for IncludeReqOrOpt {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s = ob.extract::<String>()?;
+            match s.as_str() {
+                "req_only" => Ok(Self::Req_),
+                "opt_only" => Ok(Self::Opt_),
+                "both" => Ok(Self::Both),
+                _ => Err(PyValueError::new_err(
+                    "must be one of 'req_only', 'opt_only', or 'both'",
+                )),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for IncludeRootOrMeas {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s = ob.extract::<String>()?;
+            match s.as_str() {
+                "root_only" => Ok(Self::Root),
+                "meas_only" => Ok(Self::Meas),
+                "both" => Ok(Self::Both),
+                _ => Err(PyValueError::new_err(
+                    "must be one of 'root_only', 'meas_only', or 'both'",
+                )),
             }
         }
     }

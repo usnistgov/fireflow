@@ -1146,22 +1146,20 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let ident = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&ident);
 
-    let make_param = |req: bool, root: bool| {
-        let (x, a) = if req {
-            ("req", "required")
-        } else {
-            ("opt", "non-required")
-        };
-        let (y, b) = if root {
-            ("root", "non-measurement")
-        } else {
-            ("meas", "measurement")
-        };
-        DocArg::new_bool_param(
-            format!("exclude_{x}_{y}"),
-            format!("Do not include {a} {b} keywords."),
-        )
-    };
+    let req_or_opt_path = parse_quote!(fireflow_core::core::IncludeReqOrOpt);
+    let root_or_meas_path = parse_quote!(fireflow_core::core::IncludeRootOrMeas);
+
+    let req_or_opt = DocArg::new_param(
+        "req_or_opt",
+        PyLiteral::new2(["req_only", "opt_only", "both"], req_or_opt_path),
+        "Selects if required, optional, or both keywords should be returned",
+    );
+
+    let root_or_meas = DocArg::new_param(
+        "root_or_meas",
+        PyLiteral::new2(["req_only", "opt_only", "both"], root_or_meas_path),
+        "Selects if required, optional, or both keywords should be returned",
+    );
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para("Each key will be prefixed with *$*.")
@@ -1169,10 +1167,8 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
             "This will not include *$TOT*, *$NEXTDATA* or any of the \
              offset keywords since these are not encoded in this class.",
         )
-        .args(
-            [(true, true), (false, true), (true, false), (false, false)]
-                .map(|(x, y)| make_param(x, y)),
-        )
+        .arg(req_or_opt)
+        .arg(root_or_meas)
         .returns(DocReturn::new(PyDict::new_keywords()).desc("A list of standard keywords."));
 
     let fun_args = doc.fun_args();

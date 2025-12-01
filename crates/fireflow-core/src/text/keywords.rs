@@ -448,7 +448,7 @@ pub struct Mode3_2Error;
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct ModeUpgradeError;
 
-/// The value for the $PnDISPLAY key (3.1+)
+/// The value for the $PnD key (3.1+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
@@ -456,10 +456,12 @@ pub enum Display {
     #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
-    // TODO not clear if these can be <0
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     #[display("Logarithmic,{decades},{offset}")]
-    Log { offset: f32, decades: f32 },
+    Log {
+        offset: PositiveFloat,
+        decades: PositiveFloat,
+    },
 }
 
 impl FromStr for Display {
@@ -471,14 +473,20 @@ impl FromStr for Display {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
                 match which {
-                    "Linear" => Ok(Self::Lin {
-                        lower: f1,
-                        upper: f2,
-                    }),
-                    "Logarithmic" => Ok(Self::Log {
-                        decades: f1,
-                        offset: f2,
-                    }),
+                    "Linear" => {
+                        if f1 > f2 {
+                            Err(DisplayError::Linear(f1, f2))
+                        } else {
+                            Ok(Self::Lin {
+                                lower: f1,
+                                upper: f2,
+                            })
+                        }
+                    }
+                    "Logarithmic" => match (f1.try_into(), f2.try_into()) {
+                        (Ok(decades), Ok(offset)) => Ok(Self::Log { decades, offset }),
+                        _ => Err(DisplayError::Log(f1, f2)),
+                    },
                     _ => Err(DisplayError::InvalidType),
                 }
             }
@@ -496,6 +504,10 @@ pub enum DisplayError {
     InvalidType,
     #[error("must be like 'string,f1,f2'")]
     FormatError,
+    #[error("linear bounds out of order, got 'Linear,{0},{1}'")]
+    Linear(f32, f32),
+    #[error("log must only use positive floats, got 'Logarithmic,{0},{1}'")]
+    Log(f32, f32),
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
@@ -2798,6 +2810,7 @@ opt_meta!(Endanalysis, Option<Self>);
 opt_meta!(Beginstext, Option<Self>);
 opt_meta!(Endstext, Option<Self>);
 
+// TODO test error cases here as well
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2823,11 +2836,8 @@ mod tests {
     #[test]
     fn pnd() {
         assert_from_to_str::<Display>("Linear,0,1");
-        // TODO seems like this shouldn't be allowed
-        assert_from_to_str::<Display>("Linear,1,0");
         assert_from_to_str::<Display>("Logarithmic,1,1");
-        // TODO this also seems like nonsense
-        assert_from_to_str::<Display>("Logarithmic,1,0");
+        assert_from_to_str::<Display>("Logarithmic,1,0.1");
     }
 
     #[test]
@@ -3159,8 +3169,8 @@ mod python {
             let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
             let ret = if is_log {
                 Self::Log {
-                    offset: x0,
-                    decades: x1,
+                    offset: x0.try_into()?,
+                    decades: x1.try_into()?,
                 }
             } else {
                 Self::Lin {
@@ -3180,7 +3190,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::Lin { lower, upper } => (false, lower, upper),
-                Self::Log { offset, decades } => (true, offset, decades),
+                Self::Log { offset, decades } => (true, offset.into(), decades.into()),
             };
             ret.into_pyobject(py)
         }

@@ -793,7 +793,7 @@ pub struct InnerTemporal3_1 {
     #[as_mut(Timestep)]
     pub timestep: Timestep,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -818,7 +818,7 @@ pub struct InnerTemporal3_2 {
     #[as_mut(Timestep)]
     pub timestep: Timestep,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -922,7 +922,7 @@ pub struct InnerOptical3_1 {
     #[new(into)]
     pub calibration: Option<Calibration3_1>,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -966,7 +966,7 @@ pub struct InnerOptical3_2 {
     #[new(into)]
     pub calibration: Option<Calibration3_2>,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]

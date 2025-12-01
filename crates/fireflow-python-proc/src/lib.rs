@@ -1164,8 +1164,8 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para("Each key will be prefixed with *$*.")
         .para(
-            "This will not include *$TOT*, *$NEXTDATA* or any of the \
-             offset keywords since these are not encoded in this class.",
+            "This will not include *$TOT*, *$NEXTDATA*, or any of the \
+             offset keywords since these only matter if the dataset is written.",
         )
         .arg(req_or_opt)
         .arg(root_or_meas)

@@ -2316,9 +2316,8 @@ where
 
     /// Return all keywords as an ordered list of pairs
     ///
-    /// Thiw will only include keywords that can be directly derived from
-    /// [`CoreTEXT`]. This means it will not include $TOT, since this depends on
-    /// the DATA segment.
+    /// This will not include $TOT, $NEXTDATA, or any offset keywords since
+    /// these only matter when the dataset is written.
     pub fn standard_keywords(
         &self,
         req_or_opt: IncludeReqOrOpt,
@@ -2339,9 +2338,9 @@ where
                 (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Both) => (true, false, true, false),
                 (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Both) => (false, true, false, true),
                 (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Root) => (true, false, false, false),
-                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Meas) => (false, false, false, true),
-                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Meas) => (false, false, true, false),
                 (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Root) => (false, true, false, false),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Meas) => (false, false, true, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Meas) => (false, false, false, true),
             };
 
         go(self.req_root_keywords(), include_req_root)

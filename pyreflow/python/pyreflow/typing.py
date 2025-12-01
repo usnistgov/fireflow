@@ -132,3 +132,7 @@ KeyPatterns: TypeAlias = tuple[list[str], list[str]]
 SubPattern: TypeAlias = tuple[str, str, bool]
 
 SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]
+
+ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
+
+RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]

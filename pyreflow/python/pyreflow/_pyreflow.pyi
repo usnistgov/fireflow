@@ -48,6 +48,8 @@ from pyreflow.typing import (
     AnyCoreTEXT,
     AnyCoreDataset,
     SubPatterns,
+    ReqOrOpt,
+    RootOrMeas,
 )
 
 _X = TypeVar("_X")
@@ -512,10 +514,8 @@ class _CoreCommon:
     nonstandard_keywords: NonStdKeywords
     def standard_keywords(
         self,
-        exclude_req_root: bool = False,
-        exclude_opt_root: bool = False,
-        exclude_req_meas: bool = False,
-        exclude_opt_meas: bool = False,
+        req_or_opt: ReqOrOpt,
+        root_or_meas: RootOrMeas,
     ) -> dict[str, str]: ...
     @property
     def par(self) -> int: ...

@@ -1151,13 +1151,13 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new2(["req_only", "opt_only", "both"], req_or_opt_path),
+        PyLiteral::new2(["both", "req_only", "opt_only"], req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new2(["req_only", "opt_only", "both"], root_or_meas_path),
+        PyLiteral::new2(["both", "req_only", "opt_only"], root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 

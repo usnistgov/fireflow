@@ -1883,7 +1883,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_name_param("Name to remove."))
         .returns(
             DocReturn::new(
-                PyTuple::new1(PyInt::new_meas_index()).add(PyUnion::new_measurement(version)),
+                PyTuple::new1(PyInt::new_meas_index())
+                    .add(PyUnion::new_measurement(version))
+                    .add(PyDecimal::new_range()),
             )
             .desc("Index and measurement object.")
             .exc([PyException::new_key().desc("If ``name`` not found")]),
@@ -1892,9 +1894,13 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(
-            DocReturn::new(PyTuple::new1(name_pytype).add(PyUnion::new_measurement(version)))
-                .desc("Name and measurement object.")
-                .exc([PyException::new_index().desc("If ``index`` not found")]),
+            DocReturn::new(
+                PyTuple::new1(name_pytype)
+                    .add(PyUnion::new_measurement(version))
+                    .add(PyDecimal::new_range()),
+            )
+            .desc("Name and measurement object.")
+            .exc([PyException::new_index().desc("If ``index`` not found")]),
         );
 
     let name_arg = by_name_doc.fun_args();
@@ -1917,7 +1923,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 Ok(self
                    .0
                    .remove_measurement_by_name(&#name_ident)
-                   .map(|(i, x)| (i, x.bimap_into_once()))?)
+                   .map(|(i, x, r)| (i, x.bimap_into_once(), r))?)
             }
 
             #by_index_doc
@@ -1925,8 +1931,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                let (n, v) = self.0.remove_measurement_by_index(#index_ident)?.unzip();
-                Ok((n, v.bimap_into_once()))
+                let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
+                let (n, v) = p.unzip();
+                Ok((n, v.bimap_into_once(), r))
             }
         }
     }

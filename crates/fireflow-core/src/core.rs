@@ -3335,6 +3335,7 @@ where
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
         ),
         RemoveMeasByNameError,
     > {
@@ -3346,9 +3347,9 @@ where
                 .meas_has_existing_links_with(self.par(), &ns, &js);
             ExistingLinkErrors::try_new(es)?;
         }
-        let ret = self.measurements.remove_name(name)?;
-        self.layout.remove_nocheck(ret.0);
-        Ok(ret)
+        let (i, e) = self.measurements.remove_name(name)?;
+        let r = self.layout.remove_nocheck(i);
+        Ok((i, e, r))
     }
 
     #[allow(clippy::type_complexity)]
@@ -3356,7 +3357,10 @@ where
         &mut self,
         index: MeasIndex,
     ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        (
+            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
+        ),
         RemoveMeasByIndexError,
     > {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
@@ -3367,9 +3371,9 @@ where
                 .meas_has_existing_links_with(self.par(), &ns, &js);
             ExistingLinkErrors::try_new(es)?;
         }
-        let ret = self.measurements.remove_index(index)?;
-        self.layout.remove_nocheck(index);
-        Ok(ret)
+        let p = self.measurements.remove_index(index)?;
+        let r = self.layout.remove_nocheck(index);
+        Ok((p, r))
     }
 
     // each of these push/insert functions follow the same pattern:
@@ -4088,6 +4092,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
         ),
         RemoveMeasByNameError,
     > {
@@ -4102,7 +4107,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         &mut self,
         index: MeasIndex,
     ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        (
+            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
+        ),
         RemoveMeasByIndexError,
     > {
         self.remove_measurement_by_index_inner(index)
@@ -4658,12 +4666,13 @@ where
         (
             MeasIndex,
             Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
         ),
         RemoveMeasByNameError,
     > {
-        let (i, x) = self.remove_measurement_by_name_inner(n)?;
+        let (i, x, r) = self.remove_measurement_by_name_inner(n)?;
         self.data.drop_in_place(i.into()).unwrap();
-        Ok((i, x))
+        Ok((i, x, r))
     }
 
     /// Remove a measurement at a given position
@@ -4674,7 +4683,10 @@ where
         &mut self,
         index: MeasIndex,
     ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        (
+            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+            Range,
+        ),
         RemoveMeasByIndexError,
     > {
         let ret = self.remove_measurement_by_index_inner(index)?;

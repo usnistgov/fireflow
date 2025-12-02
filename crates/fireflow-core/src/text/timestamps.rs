@@ -1,12 +1,12 @@
 use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::type_families::ApplyOnce as _;
+use crate::text::deprecated::DeprecatedTimestampsRef;
+use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
+use crate::text::optional::KeywordPairMaybe;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::deprecated::DeprecatedTimestampsRef;
-use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
-use super::optional::KeywordPairMaybe;
+use type_families::ApplyOnce as _;
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};

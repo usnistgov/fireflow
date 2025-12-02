@@ -1,77 +1,78 @@
-/// Haskell Functor stack and friends for rust (kinda)
-///
-/// This is a hybrid combining two common approaches usually seen to do this.
-///
-/// One uses type families to anchor instances of Functor et al. Here one
-/// declares the trait on the family type and the trait itself encodes for the
-/// inner value.
-///
-/// The second approach declares Functor et al on generic types themselves such
-/// as Option, Vec, etc. The problem with the approach is that there is no way
-/// to tell the type checker that the input container and output container need
-/// to match (as is the case for Functor and many others).
-///
-/// We can rescue this second approach with type families by constraining the
-/// input and output type to the same family. The only other thing needed to
-/// make this work is to link families to the types they represent. Here this is
-/// done using the Kind* and IsKind* traits. The former is declared on the type
-/// family (ie OptionFamily), and the latter is declared on the type itself (ie
-/// Option<T>). These both have a bidirectional link such the one can be
-/// obtained from the other in a type bound. If the inner type changes, this is
-/// called a "sibling".
-///
-/// Caveats:
-///
-/// 1 Bounds hell: bounding these traits can become a problem, especially when
-///   dealing with many siblings (see Apply trait below for nasty example). The
-///   problem is that rust doesn't have rankN bound polymorphism, which prevents
-///   us from saying something like "all siblings with any inner type X are
-///   instances of Apply". Instead, we need to list every generic parameter in
-///   use, which can be painful if we have many. This is also a problem if
-///   we end up chaining lots of generic functions together (something like
-///   fmap . fmap . fmap)
-///
-///   One "solution" for this problem is to break traits into smaller pieces.
-///   Here, this means Applicative is actually Pointed + Apply and we have
-///   explicit impls for the latter two. This is in contrast to the "proper" way
-///   to deal with this in Haskell since Pointed isn't a very useful category
-///   by itself. The advantage in rust code is that we don't need to implement
-///   everything unless we need it, and functions which use these traits can
-///   have simpler bounds.
-///
-/// 2 Lack of specialization: Currently, it is impossible to declare blanket
-///   instances (Iterator, IntoIterator, etc, all of which are obviously
-///   Functors) since one would need to make a blanket impl for IsKind* on
-///   a generic parameter which is constrained by the the trait in question
-///   (Iterator for example). With current rust, this will conflict with all
-///   other impls for IsKind*.
-///
-/// 3 Lots of boilerplate: In general, implementing these traits is not worth it
-///   unless a type is to be used within a highly generic context where we need
-///   to say "this is a Functor" and we know nothing else about it. There are
-///   some cases were implementing one trait allows us to get other functions
-///   for free such as the lift_f3/4/5/6 functions in Apply. Besides this,
-///   classic rust implementation blocks are probably easier to
-///   implement/maintain.
-///
-/// 4 Function cardinality: The ownership model in Rust creates another
-///   dimension that Haskell doesn't need to consider. Any trait which takes a
-///   function (like Functor) needs to consider that the supplied function may
-///   need to be run only once or many types (ie FnOnce vs FnMut/Fn). Absent any
-///   polymorphism for these function types, this means that each higher order
-///   function trait effectively needs two separate versions to handle each
-///   case.
-///
-///   A nasty side effect is that traits that take FnOnce could also take Fn or
-///   FnMut which implies that they should auto-derive the less constrained
-///   trait as well so that it can be used in place where an Fn/FnMut is needed.
-///   For instance, we may wish to map over both Option and Vec which would
-///   require using a Functor trait bound which takes an FnMut. However, Option
-///   naively only needs to implement FunctorOnce, and Functor should be
-///   auto-derived. This would be much easier if Rust had specialization, but
-///   absent this, Functor needs to be manually implemented for all traits that
-///   implement FunctorOnce.
-use crate::text::optional::{Identity, Nothing};
+//! Haskell Functor stack and friends for Rust (kinda)
+//!
+//! This is a hybrid combining two common approaches usually seen to do this.
+//!
+//! The first uses type families to anchor types to their traits. Here one
+//! declares the trait on the family type and the trait itself encodes for the
+//! inner value.
+//!
+//! The second approach declares Functor et al on generic types themselves such
+//! as [`Option`], [`Vec`], etc. The problem with the approach is that there is
+//! no way to tell the type checker that the input container and output
+//! container need to match (as is the case for [`Functor`] and many others).
+//!
+//! We can rescue this second approach with type families by constraining the
+//! input and output type to the same family. The only other thing needed to
+//! make this work is to link families to the types they represent. Here this is
+//! done using the `Kind*` and `IsKind*` traits. The former is declared on the
+//! type family (ie [`OptFamily`]), and the latter is declared on the type
+//! itself (ie [`Option<T>`]). These both have a bidirectional link such the one
+//! can be obtained from the other in a type bound. If the inner type changes,
+//! this is called a `Sibling`.
+//!
+//! ## Caveats
+//!
+//! 1. *Bounds hell*: bounding these traits can become a problem, especially
+//!    when dealing with many siblings (see [`ApplyOnce`] for nasty example).
+//!    The problem is that Rust doesn't have rankN bound polymorphism, which
+//!    prevents us from saying something like "all siblings with any inner type
+//!    X are instances of trait whatever". Instead, we need to list every
+//!    generic parameter in use, which can be painful if we have many. This is
+//!    also a problem if we end up chaining lots of generic functions together
+//!    (something like `fmap . fmap . fmap` which is very elegant in Haskell but
+//!    less so here).
+//!
+//!    One "solution" for this problem is to break traits into smaller pieces.
+//!    Here, this means `Applicative` is actually [`Pointed`] + [`ApplyOnce`]
+//!    and we have explicit impls for the latter two. This is in contrast to the
+//!    "proper" way to deal with this in Haskell since Pointed isn't a very
+//!    useful category by itself. The advantage in Rust code is that we don't
+//!    need to implement everything unless we need it, and functions which use
+//!    these traits can have simpler bounds.
+//!
+//! 2. *Lack of specialization*: Currently, it is impossible to declare blanket
+//!    instances ([`Iterator`], [`IntoIterator`], etc, all of which are
+//!    obviously Functors) since one would need to make a blanket impl for
+//!    `IsKind*` on a generic parameter which is constrained by the the trait in
+//!    question (Iterator for example). With current Rust, this will conflict
+//!    with all other impls for `IsKind*`.
+//!
+//! 3. *Lots of boilerplate*: In general, implementing these traits is not worth
+//!    it unless a type is to be used within a highly generic context where we
+//!    need to say "this is a Functor" and we know nothing else about it. There
+//!    are some cases were implementing one trait allows us to get other
+//!    functions for free such as the [`ApplyOnce::lift_f3_once`] and friends.
+//!    Besides this, classic Rust implementation blocks are probably easier to
+//!    implement/maintain.
+//!
+//! 4. *Function cardinality*: The ownership model in Rust creates another
+//!    dimension that Haskell doesn't need to consider. Any trait which takes a
+//!    function (like Functor) needs to consider that the supplied function may
+//!    need to be run only once or many types (ie [`FnOnce`] vs
+//!    [`FnMut`]/[`Fn`]). Absent any polymorphism for these function types, this
+//!    means that each higher order function trait effectively needs two
+//!    separate versions to handle each case.
+//!
+//!    A nasty side effect is that traits that take [`FnOnce`] could also take
+//!    [`Fn`] or [`FnMut`] which implies that they should auto-derive the less
+//!    constrained trait as well so that it can be used in place where an
+//!    [`Fn`]/[`FnMut`] is needed. For instance, we may wish to map over both
+//!    [`Option`] and [`Vec`] which would require using a Functor trait bound
+//!    which takes an [`FnMut`]. However, [`Option`] naively only needs to
+//!    implement [`FunctorOnce`], and [`Functor`] should be auto-derived. This
+//!    would be much easier if Rust had specialization, but absent this,
+//!    [`Functor`] needs to be manually implemented for all traits that
+//!    implement [`FunctorOnce`].
 use std::{
     collections::HashMap,
     hash::{BuildHasher, Hash},
@@ -385,42 +386,38 @@ pub trait Pointed<A>: IsKind1 {
     fn wrap(a: A) -> Self;
 }
 
+#[macro_export]
 macro_rules! impl_kind1 {
     ($f:ident, $t:ident) => {
         pub struct $f;
 
-        impl crate::type_families::Kind1 for $f {
+        impl $crate::Kind1 for $f {
             type Type<T> = $t<T>;
         }
 
-        impl<T> crate::type_families::IsKind1 for $t<T> {
+        impl<T> $crate::IsKind1 for $t<T> {
             type Family = $f;
         }
     };
 }
 
-pub(crate) use impl_kind1;
-
+#[macro_export]
 macro_rules! impl_kind2 {
     ($f:ident, $t:ident) => {
         pub struct $f;
 
-        impl crate::type_families::Kind2 for $f {
+        impl type_families::Kind2 for $f {
             type Type<A, B> = $t<A, B>;
         }
 
-        impl<A, B> crate::type_families::IsKind2 for $t<A, B> {
+        impl<A, B> type_families::IsKind2 for $t<A, B> {
             type Family = $f;
         }
     };
 }
 
-pub(crate) use impl_kind2;
-
 pub struct HashMapFamily<K, S>(PhantomData<K>, PhantomData<S>);
 
-impl_kind1!(NullFamily, Nothing);
-impl_kind1!(IdFamily, Identity);
 impl_kind1!(OptFamily, Option);
 impl_kind1!(VecFamily, Vec);
 
@@ -432,12 +429,6 @@ impl<K, X, S> IsKind1 for HashMap<K, X, S> {
     type Family = HashMapFamily<K, S>;
 }
 
-impl<A> Semigroup for Nothing<A> {
-    fn sappend(self, _: Self) -> Self {
-        Self::default()
-    }
-}
-
 impl<X> Semigroup for Vec<X> {
     fn sappend(mut self, other: Self) -> Self {
         self.extend(other);
@@ -445,12 +436,12 @@ impl<X> Semigroup for Vec<X> {
     }
 }
 
-impl<X> Monoid for Nothing<X> {}
 impl<X> Monoid for Vec<X> {}
 
+#[macro_export]
 macro_rules! impl_functor_common {
     ($t:ident, $trait:ident, $fun:ident, $bound:ident, $self:ident, $f:pat, $body:expr) => {
-        impl<X> crate::type_families::$trait<X> for $t<X> {
+        impl<X> $crate::$trait<X> for $t<X> {
             fn $fun<F: $bound(X) -> Y, Y>($self, $f: F) -> $t<Y> {
                 $body
             }
@@ -458,8 +449,7 @@ macro_rules! impl_functor_common {
     };
 }
 
-pub(crate) use impl_functor_common;
-
+#[macro_export]
 macro_rules! impl_functor {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
         impl_functor_common!($t, Functor, fmap, FnMut, $self, mut $f, $body);
@@ -470,8 +460,7 @@ macro_rules! impl_functor {
     };
 }
 
-pub(crate) use impl_functor;
-
+#[macro_export]
 macro_rules! impl_functor_once {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
         impl_functor!($t, $self, mut $f, $body);
@@ -484,10 +473,6 @@ macro_rules! impl_functor_once {
     };
 }
 
-pub(crate) use impl_functor_once;
-
-impl_functor_once!(Nothing, self, _f, Nothing::default());
-impl_functor_once!(Identity, self, mut f, Identity(f(self.0)));
 impl_functor_once!(Option, self, f, self.map(f));
 impl_functor!(Vec, self, f, self.into_iter().map(f).collect());
 
@@ -504,18 +489,6 @@ impl<A> ApplyOnce<A> for Option<A> {
         f: F,
     ) -> Sibling1<Self, C> {
         self.zip(other).map(|(x, y)| f(x, y))
-    }
-}
-
-impl<A> Pointed<A> for Nothing<A> {
-    fn wrap(_: A) -> Self {
-        Self::default()
-    }
-}
-
-impl<A> Pointed<A> for Identity<A> {
-    fn wrap(a: A) -> Self {
-        Self(a)
     }
 }
 

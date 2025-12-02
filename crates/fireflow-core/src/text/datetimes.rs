@@ -1,11 +1,11 @@
 use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::type_families::ApplyOnce as _;
+use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey as _};
+use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
-use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey as _};
-use super::optional::KeywordPairMaybe as _;
+use type_families::ApplyOnce as _;
 
 use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, Into};

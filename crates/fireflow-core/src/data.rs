@@ -79,7 +79,6 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
-use crate::type_families::{Functor as _, FunctorOnce as _};
 use crate::validated::ascii_range::{
     AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
 };
@@ -92,6 +91,8 @@ use crate::validated::dataframe::{
     LossError,
 };
 use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
+
+use type_families::{Functor as _, FunctorOnce as _};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;

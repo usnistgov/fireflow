@@ -1,8 +1,11 @@
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
-use crate::type_families::{Pointed, Sibling1};
+use crate::text::index::IndexFromOne;
 use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader};
 
-use super::index::IndexFromOne;
+use type_families::{
+    Monoid, Pointed, Semigroup, Sibling1, impl_functor, impl_functor_common, impl_functor_once,
+    impl_kind1,
+};
 
 use derive_more::{AsMut, AsRef, From, FromStr};
 use std::fmt;
@@ -30,6 +33,16 @@ impl<T> IntoIterator for Identity<T> {
     }
 }
 
+impl_kind1!(IdFamily, Identity);
+
+impl_functor_once!(Identity, self, mut f, Identity(f(self.0)));
+
+impl<A> Pointed<A> for Identity<A> {
+    fn wrap(a: A) -> Self {
+        Self(a)
+    }
+}
+
 /// A value that never exists.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -43,9 +56,27 @@ impl<T> IntoIterator for Nothing<T> {
     }
 }
 
+impl_kind1!(NullFamily, Nothing);
+
 impl<T> Default for Nothing<T> {
     fn default() -> Self {
         Self(PhantomData)
+    }
+}
+
+impl<A> Semigroup for Nothing<A> {
+    fn sappend(self, _: Self) -> Self {
+        Self::default()
+    }
+}
+
+impl<X> Monoid for Nothing<X> {}
+
+impl_functor_once!(Nothing, self, _f, Nothing::default());
+
+impl<A> Pointed<A> for Nothing<A> {
+    fn wrap(_: A) -> Self {
+        Self::default()
     }
 }
 

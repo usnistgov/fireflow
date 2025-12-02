@@ -80,9 +80,6 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
-use crate::type_families::{
-    ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed,
-};
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
 };
@@ -94,6 +91,8 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
+
+use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};

@@ -6,27 +6,28 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
+use crate::text::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
 use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
-use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
-use crate::type_families::{
-    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
-    impl_functor_once, impl_kind1,
+use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keywords::{
+    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
+    RegionGateIndex, RegionWindow, UniGate, Vertex,
+};
+use crate::text::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
+use crate::text::optional::{CheckMaybe as _, KeywordPairMaybe as _};
+use crate::text::relational::{
+    DependentKeyError, ExistingIndexedLinkError, MeasIndicesNoTime, RemovedGateLink, RemovedGating,
+    RemovedLink,
 };
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 
-use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
-use super::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
-use super::optional::{CheckMaybe as _, KeywordPairMaybe as _};
-
-use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
-use super::keywords::{
-    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
-    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
-    RegionGateIndex, RegionWindow, UniGate, Vertex,
+use type_families::{
+    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
+    impl_functor_once, impl_kind1,
 };
-use super::relational::{ExistingIndexedLinkError, MeasIndicesNoTime};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

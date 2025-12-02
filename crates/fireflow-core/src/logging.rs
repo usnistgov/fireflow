@@ -28,7 +28,8 @@
 /// an IO error is handled on a different layer.
 use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
-use crate::type_families::{
+
+use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
     Sibling1, impl_kind1,
 };
@@ -2947,7 +2948,7 @@ macro_rules! split_io {
             Ok(x) => Ok(x),
             Err(x) => match x {
                 e @ crate::logging::IOErrorGroup::IO(_, _) => {
-                    return Err(crate::type_families::Functor::fmap(e, Into::into));
+                    return Err(type_families::Functor::fmap(e, Into::into));
                 }
                 crate::logging::IOErrorGroup::Pure(e) => Err(e),
             },

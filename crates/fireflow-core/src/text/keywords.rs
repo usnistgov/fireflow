@@ -5,7 +5,27 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
-use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
+use crate::text::byteord::{
+    BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
+};
+use crate::text::compensation::{Compensation, NewCompError};
+use crate::text::datetimes::{BeginDateTime, EndDateTime};
+use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
+use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
+use crate::text::lookup::{
+    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
+    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+};
+use crate::text::named_vec::NameMapping;
+use crate::text::optional::{
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
+};
+use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use crate::text::relational::{
+    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
+};
+use crate::text::spillover::Spillover;
+use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
@@ -17,25 +37,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd};
-use super::compensation::{Compensation, NewCompError};
-use super::datetimes::{BeginDateTime, EndDateTime};
-use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
-use super::index::{GateIndex, MeasIndex, RegionIndex};
-use super::lookup::{
-    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
-};
-use super::named_vec::NameMapping;
-use super::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
-};
-use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use super::relational::{
-    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
-};
-use super::spillover::Spillover;
-use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
+use type_families::{impl_functor, impl_functor_common, impl_kind1};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};

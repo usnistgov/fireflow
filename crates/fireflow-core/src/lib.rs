@@ -12,5 +12,4 @@ pub mod segment;
 #[cfg(test)]
 mod test;
 pub mod text;
-pub mod type_families;
 pub mod validated;

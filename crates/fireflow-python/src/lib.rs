@@ -71,9 +71,10 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
-use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
+
+use type_families::{BifunctorOnce as _, Functor as _};
 
 use fireflow_python_proc::{
     def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,

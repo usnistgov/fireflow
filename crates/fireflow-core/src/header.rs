@@ -1,4 +1,5 @@
 use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadState};
+use crate::core::Other;
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
     ResultExt, split_io,
@@ -13,14 +14,13 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflow, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
 
-use super::core::Other;
+use type_families::ApplyOnce as _;
 
 use derive_more::{Display, From};
 use derive_new::new;

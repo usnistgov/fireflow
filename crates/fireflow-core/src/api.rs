@@ -32,13 +32,14 @@ use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, To
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
-use crate::type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
     StdKeywords, StdPresent, ValidKeywords,
 };
+
+use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;

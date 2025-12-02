@@ -5,8 +5,9 @@ use crate::logging::{
 use crate::macros::def_group;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
-use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 use crate::validated::shortname::Shortname;
+
+use type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;

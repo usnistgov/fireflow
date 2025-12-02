@@ -2498,7 +2498,6 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        // TODO ditto above
         self.measurements.unset_center(|i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                 .switchable_into_non_commutative()
@@ -3821,22 +3820,18 @@ where
                         // error if they are missing and optional keywords will
                         // trigger a warning. Either can generate an
                         // error/warning if they fail to be parsed to their type
-                        .and_then_commutative(|key| {
-                            // TODO add switch to "downgrade" failed time
-                            // channel to optical channel, which is more general
-                            match key {
-                                Element::Center(name) => {
-                                    Temporal::lookup_temporal(std, meas_nonstd, i, conf)
-                                        .map_errors(LookupMeasurementError::from)
-                                        .map_commutative_warnings(LookupMeasurementWarning::from)
-                                        .map_ok_value(|t| Element::Center((name, t)))
-                                }
-                                Element::NonCenter(k) => {
-                                    Optical::lookup_optical(std, i, meas_nonstd, conf)
-                                        .map_errors(LookupMeasurementError::from)
-                                        .map_commutative_warnings(LookupMeasurementWarning::from)
-                                        .map_ok_value(|m| Element::NonCenter((k, m)))
-                                }
+                        .and_then_commutative(|key| match key {
+                            Element::Center(name) => {
+                                Temporal::lookup_temporal(std, meas_nonstd, i, conf)
+                                    .map_errors(LookupMeasurementError::from)
+                                    .map_commutative_warnings(LookupMeasurementWarning::from)
+                                    .map_ok_value(|t| Element::Center((name, t)))
+                            }
+                            Element::NonCenter(k) => {
+                                Optical::lookup_optical(std, i, meas_nonstd, conf)
+                                    .map_errors(LookupMeasurementError::from)
+                                    .map_commutative_warnings(LookupMeasurementWarning::from)
+                                    .map_ok_value(|m| Element::NonCenter((k, m)))
                             }
                         })
                 })

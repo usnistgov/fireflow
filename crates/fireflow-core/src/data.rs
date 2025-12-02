@@ -173,8 +173,6 @@ pub enum AnyOrderedLayout<T> {
     F64(OrderedLayout<F64Range, T>),
 }
 
-// TODO make an integer layout which has only one width, which will cover the
-// vast majority of cases and make certain operations easier.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
@@ -236,7 +234,6 @@ pub struct FixedLayout<C, L, T, D> {
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedUintLayout<T> {
-    // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
     Uint16(OrderedLayout<Bitmask16, T>),
     Uint24(OrderedLayout<Bitmask24, T>),

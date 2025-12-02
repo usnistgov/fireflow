@@ -10,6 +10,7 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use regex::Regex;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -742,22 +743,23 @@ impl ParsedKeywords {
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
                     let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
-                    SwitchableErrorResult::new_switchable_maybe(Some(trimmed), (), e, flag)
+                    let ret = Cow::Owned(trimmed);
+                    SwitchableErrorResult::new_switchable_maybe(Some(ret), (), e, flag)
                         .switchable_into_commutative()
                 } else {
                     // ASSUME this will always be a non-empty string since
                     // it is using the value slice inputted to this function
                     // which is validated not to be empty
-                    LogResult::new_ok(Some(it.collect()))
+                    LogResult::new_ok(Some(Cow::Owned(it.collect())))
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
                 if conf.trim_value_whitespace {
                     let trimmed = vv.trim();
                     let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
-                    LogResult::new_switchable_maybe(Some(trimmed.into()), (), e, flag)
+                    LogResult::new_switchable_maybe(Some(Cow::Borrowed(trimmed)), (), e, flag)
                         .switchable_into_commutative()
                 } else {
-                    LogResult::new_ok(Some(vv.into()))
+                    LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }
             } else {
                 self.byte_pairs.push((k.to_vec(), v.to_vec()));
@@ -777,13 +779,14 @@ impl ParsedKeywords {
                     parse_value().and_then_commutative(|maybe_value| {
                         if let Some(value) = maybe_value {
                             let res = if to_nonstd.is_match(&kk) {
-                                insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                                let vo = value.into_owned();
+                                insert_nonunique(&mut self.nonstd, NonStdKey(kk), vo, conf)
                             } else {
                                 let rk = renames.get(&kk).cloned().unwrap_or(kk);
                                 let rv = if let Some(s) = subs.get(&rk) {
-                                    s.sub(value.as_str())
+                                    s.sub(value.as_ref())
                                 } else {
-                                    value
+                                    value.into_owned()
                                 };
                                 insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                             };
@@ -797,7 +800,7 @@ impl ParsedKeywords {
                 // Non-standard key: does not start with '$' but is still
                 // ASCII
                 parse_value().and_then_commutative(|maybe_value| {
-                    if let Some(value) = maybe_value {
+                    if let Some(value) = maybe_value.map(Cow::into_owned) {
                         let res = if to_std.is_match(&kk) {
                             insert_nonunique(&mut self.std, StdKey(kk), value, conf)
                         } else {
@@ -814,7 +817,7 @@ impl ParsedKeywords {
             // these are technically not allowed but save them anyways in case
             // the user cares
             parse_value().and_then_commutative(|maybe_value| {
-                if let Some(value) = maybe_value {
+                if let Some(value) = maybe_value.map(Cow::into_owned) {
                     match String::from_utf8(k.to_vec()) {
                         Ok(key) => self.non_ascii.push((key, value)),
                         Err(e) => self.byte_pairs.push((e.into_bytes(), value.into_bytes())),

@@ -1,3 +1,4 @@
+//! Top-level functions for parsing FCS files
 use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
     DatasetOffsetError, HeaderConfigInner, ReadEventsConfig, ReadFlatDatasetConfig,

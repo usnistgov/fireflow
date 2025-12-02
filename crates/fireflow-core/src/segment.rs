@@ -1,3 +1,5 @@
+//! Reading and writing offsets in an FCS file
+
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
     DatasetOffset, FileLen, HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,

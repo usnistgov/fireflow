@@ -1,3 +1,5 @@
+//! Reading and writing the HEADER segment
+
 use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, HeaderConfigInner, ReadState};
 use crate::core::Other;
 use crate::logging::{

@@ -1,31 +1,31 @@
-/// A flexible handler for warnings and errors.
-///
-/// This is predicated on the following needs:
-///
-/// 1. We need to handle entire groups of errors all at once (rather than return
-///    the first encountered error)
-/// 2. Dynamic dispatch is yucky and evil, therefore we need a way to group
-///    errors efficiently into enums.
-/// 3. Some warnings and errors should be interchangable depending on config.
-/// 4. Error type and cardinality should be obvious based on the type
-/// 5. Invalid and nonsensible logging states should be made impossible, which
-///    in turn will guide the happy path to only permit sane operations
-/// 6. IO errors are special and should short-circuit execution no matter what,
-///    which is different from non-IO errors which can be collected and returned
-///    as a group.
-///
-/// For 6. this is not generally true of all code, but here it can be assumed
-/// because IO errors are going to depend on a state which will likely not
-/// change within the execution sequence of any given code path. For instance,
-/// an IO error may be thrown if a file is unreadable. There is only one file
-/// being read in this case and if it is not readable for one function this will
-/// likely be true for all. This is not true in general for all code because
-/// some code can read multiple files.
-///
-/// This simplification allows IO errors to be stored and thrown almost
-/// independently of other errors. In Haskell terms, this can be thought of
-/// like a transformer stack where pure errors are handled on one layer and
-/// an IO error is handled on a different layer.
+//! A flexible handler for warnings and errors.
+//!
+//! This is predicated on the following needs:
+//!
+//! 1. We need to handle entire groups of errors all at once (rather than return
+//!    the first encountered error)
+//! 2. Dynamic dispatch is yucky and evil, therefore we need a way to group
+//!    errors efficiently into enums.
+//! 3. Some warnings and errors should be interchangable depending on config.
+//! 4. Error type and cardinality should be obvious based on the type
+//! 5. Invalid and nonsensible logging states should be made impossible, which
+//!    in turn will guide the happy path to only permit sane operations
+//! 6. IO errors are special and should short-circuit execution no matter what,
+//!    which is different from non-IO errors which can be collected and returned
+//!    as a group.
+//!
+//! For 6. this is not generally true of all code, but here it can be assumed
+//! because IO errors are going to depend on a state which will likely not
+//! change within the execution sequence of any given code path. For instance,
+//! an IO error may be thrown if a file is unreadable. There is only one file
+//! being read in this case and if it is not readable for one function this will
+//! likely be true for all. This is not true in general for all code because
+//! some code can read multiple files.
+//!
+//! This simplification allows IO errors to be stored and thrown almost
+//! independently of other errors. In Haskell terms, this can be thought of
+//! like a transformer stack where pure errors are handled on one layer and
+//! an IO error is handled on a different layer.
 use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 
@@ -148,10 +148,10 @@ type IOGroupLogResult<V, P, LWC, RWC, X, E, G> =
 
 /// A result which may have many warnings, errors, and a value on the error side.
 ///
-/// This can be thought of like a regular `Result` except that the Ok side has
+/// This can be thought of like a regular [`Result`] except that the Ok side has
 /// zero or more warnings in addition to the value, and the error side has
 /// a value, zero or more warnings, and one or more errors. Additionally,
-/// the Ok side can encode a flag for results which may be switched between
+/// the Succ side can encode a flag for results which may be switched between
 /// warnings and errors depending on configuration (ie "switchable").
 ///
 /// This is primarily meant to deal with complex error handling involving
@@ -183,70 +183,77 @@ type IOGroupLogResult<V, P, LWC, RWC, X, E, G> =
 /// "cardinality". Cardinality may be controlled using the following types for
 /// each container:
 ///
-/// * Nothing<T>: zero warnings or one error
-/// * Option<T>: zero or one warning (not applicable for errors)
-/// * Vec<T>: zero or more warnings or one or more errors
+/// * [`Nothing<T>`]: zero warnings or one error
+/// * [`Option<T>`]: zero or one warning (not applicable for errors)
+/// * [`Vec<T>`]: zero or more warnings or one or more errors
+///
+/// ## Common patterns
 ///
 /// Despite its generic nature, there are only a few patterns that make sense
 /// for this type. These are collectively referred to here and throughout the
 /// code using the following terminology:
 ///
-/// Commutative: `LWC` = `RWC`. These are so named because the warning may
-/// happen (temporally) in any order relative to a failure, which is reflected
-/// in the ability to store it in either the failure or success side. This also
-/// implies that `X` (the flag) is `()` which means that the warnings and errors
-/// are not switchable. The property of commutativity also means these types can
-/// be easily combined (in Haskell typeclasses, they are instances of
-/// Applicative) since Failure and Success can happen in any order/combination
-/// and yet the errors and warnings can still be appended to each other (this
-/// assumes that the container types are appendable).
+/// ### Commutative: `LWC` = `RWC`
 ///
-/// Nowarn: `LWC` and `RWC` are both `Nothing<T>` (ie there are no warnings).
-/// These are also commutative.
+/// These are so named because the warning may happen (temporally) in any order
+/// relative to a failure, which is reflected in the ability to store it in
+/// either the failure or success side. This also implies that `X` (the flag) is
+/// `()` which means that the warnings and errors are not switchable. The
+/// property of commutativity also means these types can be easily combined (in
+/// Haskell typeclasses, they are instances of Applicative) since Failure and
+/// Success can happen in any order/combination and yet the errors and warnings
+/// can still be appended to each other (this assumes that the container types
+/// are appendable).
 ///
-/// Deferred: `V` = `P`. These are so named because the failure is "deferred"
-/// into the future by virtue of the type being present on both sides. This
-/// means that downstream code can use a plausible return value in either case.
-/// For non-switchable errors (`X` = `()`), this almost always implies that the
-/// result is commutative, since it only makes sense to return the same type on
-/// both sides if the warnings are also the same type.
+/// ### Nowarn: `LWC` and `RWC` are both [`Nothing<T>`]
 ///
-/// Switchable: `X` != `()`, `RCW` = `Nothing<T>` and warnings and errors are
-/// the same type. Presumably `X` is a boolean flag representing an error or
-/// non-error state. Furthermore, `LWC` must be in sync with `EC` in that they
-/// must have the same upper bound (ie `LWC` is `Option<E>` if `EC` is
-/// `Nothing<E>`) Unlike commutative errors, these cannot be combined since the
-/// value of the flag is encoded at runtime and not statically at the type
-/// level. Combining such types opens the possibility of combining two results
-/// with different flag values, which is nonsensical and contrary to the purpose
-/// of this type (the only way around this to to make Nowarn results with
-/// multiple errors and then "upgrade" them to switchable results which will
-/// encode the value of the flag).
+/// These indicate that there are no warnings. These are also commutative.
 ///
-/// Resolvable: `P` = `()` and `EC` = `Nothing<()>`. These are errors that may
-/// be returned at library boundaries. In plain language, an error is resolvable
-/// if it has no passthrough value (ie an error value that should be dealt with)
-/// and has only one error (which may be one collection of many errors).
+/// ### Deferred: `V` = `P`
 ///
-/// A nifty cheat-table with all possible types:
+/// These are so named because the failure is "deferred" into the future by
+/// virtue of the type being present on both sides. This means that downstream
+/// code can use a plausible return value in either case. For non-switchable
+/// errors (`X` = `()`), this almost always implies that the result is
+/// commutative, since it only makes sense to return the same type on both sides
+/// if the warnings are also the same type.
 ///
-/// | N warn | N err | LWC         | RWC         | EC         | commutative | switchable |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |      0 | 0-1   | Nothing<()> | Nothing<()> | Nothing<E> | X           |            |
-/// |      0 | 0-inf | Nothing<()> | Nothing<()> | Vec<E>     | X           |            |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Nothing<W>  | Nothing<E> |             | X          |
-/// |  0-inf | 0-inf | Vec<W>      | Nothing<W>  | Vec<E>     |             | X          |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Nothing<W>  | Nothing<E> |             |            |
-/// |    0-1 | 0-inf | Option<W>   | Nothing<W>  | Vec<E>     |             |            |
-/// |  0-inf | 0-1   | Vec<W>      | Nothing<W>  | Nothing<E> |             |            |
-/// |  0-inf | 0-inf | Vec<W>      | Nothing<W>  | Vec<E>     |             |            |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Option<W>   | Nothing<E> | X           |            |
-/// |    0-1 | 0-inf | Option<W>   | Option<W>   | Vec<E>     | X           |            |
-/// |  0-inf | 0-1   | Vec<W>      | Vec<W>      | Nothing<E> | X           |            |
-/// |  0-inf | 0-inf | Vec<W>      | Vec<W>      | Vec<E>     | X           |            |
+/// ### Switchable: `X` != `()`, `RCW` = [`Nothing<T>`], warnings and errors are the same type
+///
+/// Presumably `X` is a boolean flag representing an error or non-error state.
+/// Furthermore, `LWC` must be in sync with `EC` in that they must have the same
+/// upper bound (ie `LWC` is [`Option<E>`] if `EC` is [`Nothing<E>`]) Unlike
+/// commutative errors, these cannot be combined since the value of the flag is
+/// encoded at runtime and not statically at the type level. Combining such
+/// types opens the possibility of combining two results with different flag
+/// values, which is nonsensical and contrary to the purpose of this type (the
+/// only way around this to to make Nowarn results with multiple errors and then
+/// "upgrade" them to switchable results which will encode the value of the
+/// flag).
+///
+/// ### Resolvable: `P` = `()` and `EC` = [`Nothing<()>`]
+///
+/// These are errors that may be returned at library boundaries. In plain
+/// language, an error is resolvable if it has no passthrough value (ie an error
+/// value that should be dealt with) and has only one error (which may be one
+/// collection of many errors).
+///
+/// ## All possible types:
+///
+/// | N warn | N err | `LWC`           | `RWC`           | `EC`             | commutative | switchable |
+/// |--------|-------|-----------------|-----------------|----------------|-------------|------------|
+/// |      0 | 0-1   | [`Nothing<()>`] | [`Nothing<()>`] | [`Nothing<E>`] | X           |            |
+/// |      0 | 0-inf | [`Nothing<()>`] | [`Nothing<()>`] | [`Vec<E>`]     | X           |            |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Nothing<W>`]  | [`Nothing<E>`] |             | X          |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Nothing<W>`]  | [`Vec<E>`]     |             | X          |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Nothing<W>`]  | [`Nothing<E>`] |             |            |
+/// |    0-1 | 0-inf | [`Option<W>`]   | [`Nothing<W>`]  | [`Vec<E>`]     |             |            |
+/// |  0-inf | 0-1   | [`Vec<W>`]      | [`Nothing<W>`]  | [`Nothing<E>`] |             |            |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Nothing<W>`]  | [`Vec<E>`]     |             |            |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Option<W>`]   | [`Nothing<E>`] | X           |            |
+/// |    0-1 | 0-inf | [`Option<W>`]   | [`Option<W>`]   | [`Vec<E>`]     | X           |            |
+/// |  0-inf | 0-1   | [`Vec<W>`]      | [`Vec<W>`]      | [`Nothing<E>`] | X           |            |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Vec<W>`]      | [`Vec<E>`]     | X           |            |
 #[derive(Debug, PartialEq)]
 pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
     Succ(Success<V, X, LWC>),
@@ -530,7 +537,7 @@ impl<V, WC, E, EC> IsKind1 for Failure<V, WC, E, EC> {
     type Family = FailureFamily<WC, E, EC>;
 }
 
-/// Type family for `LogResult` instances where are commutative and deferred.
+/// Type family for [`LogResult`] instances where are commutative and deferred.
 ///
 /// This is useful for implementing Applicative instances for these.
 pub struct DeferredFamily<WC, E, EC>(PhantomData<WC>, PhantomData<E>, PhantomData<EC>);
@@ -543,7 +550,7 @@ impl<V, WC, E, EC> IsKind1 for Deferred<V, WC, E, EC> {
     type Family = DeferredFamily<WC, E, EC>;
 }
 
-/// Extension trait for converting Option<T> to LogResult<T, ...>
+/// Extension trait for converting [`Option<T>`] to [`LogResult`]
 pub trait OptionExt: Sized {
     type Inner;
 
@@ -569,7 +576,7 @@ impl<T> OptionExt for Option<T> {
     }
 }
 
-/// Extension trait for converting Result<T, E> to LogResult<T, ..., E, ...>
+/// Extension trait for converting [`Result<T, E>`] to [`LogResult`]
 pub trait ResultExt: Sized {
     type Ok;
     type Error;

@@ -7,7 +7,8 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
 /// A String that matches a date.
 ///
-/// To be used when parsing date using [`NaiveDate::parse_from_str`].
+/// To be used when parsing date using
+/// [`NaiveDate::parse_from_str`](chrono::NaiveDate::parse_from_str).
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
 #[cfg_attr(feature = "python", derive(FromPyString))]

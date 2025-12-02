@@ -1,3 +1,5 @@
+//! Data structures representing standardized TEXT segment
+
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
     DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,

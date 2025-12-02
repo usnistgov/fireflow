@@ -224,7 +224,7 @@ pub trait MightHave<A>: Pointed<A> + Sized {
     /// If true, the wrapper will always have a value.
     ///
     /// Obviously, the implementation needs to ensure this is in sync with the
-    /// meaning of Wrapper<T>.
+    /// meaning of [`Wrapper<T>`](type_families::Kind1::Type).
     const INFALLABLE: bool;
 
     /// Consume a wrapped value and possibly return its contents.

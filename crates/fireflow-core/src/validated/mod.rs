@@ -1,3 +1,5 @@
+//! Encapsulated types which are internally validated for correctness
+
 pub mod ascii_range;
 pub mod ascii_uint;
 pub mod bitmask;

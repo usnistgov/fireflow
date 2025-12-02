@@ -454,11 +454,11 @@ pub struct ModeUpgradeError;
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
-    /// Linear display (value like 'Linear,<lower>,<upper>')
+    /// Linear display (value like `"Linear,<lower>,<upper>"`)
     #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
-    /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
+    /// Logarithmic display (value like `"Logarithmic,<offset>,<decades>"`)
     #[display("Logarithmic,{decades},{offset}")]
     Log {
         offset: PositiveFloat,
@@ -777,7 +777,7 @@ pub struct TemporalScaleError;
 
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
-/// This should be formatted like '<value>,<unit>'
+/// This should be formatted like "`<value>,<unit>`"
 #[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{unit}")]
@@ -820,8 +820,8 @@ impl From<Calibration3_1> for Calibration3_2 {
 
 /// The value for the $PnCALIBRATION key (3.2+)
 ///
-/// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
-/// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
+/// This should be formatted like `"<value>,[<offset>,]<unit>"` and differs from
+/// 3.1 with the optional inclusion of `offset` (assumed 0 if not included).
 #[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{offset},{unit}")]
@@ -1161,9 +1161,9 @@ pub enum ParseCompError {
 
 /// The value of the $UNICODE key (3.0 only)
 ///
-/// Formatted like 'codepage,[keys]'. This key is not actually used for anything
-/// in this library and is present to be complete. The original purpose was to
-/// indicate keywords which supported UTF-8, but these days it is hard to
+/// Formatted like `"codepage,[keys]"`. This key is not actually used for
+/// anything in this library and is present to be complete. The original purpose
+/// was to indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
 #[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

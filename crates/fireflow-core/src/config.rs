@@ -1,14 +1,15 @@
-/// Main configuration for reading and writing FCS files.
-///
-/// By convention, this is "strict-by-default", meaning the default parameters
-/// will be set such that only a fully-compliant FCS file can be read without
-/// error. This greatly simplifies the API and internally reduces the likelihood
-/// of "flipped flags."
-///
-/// Internal to the library, the main question that matters for whether to throw
-/// a warning or error should be "does this adhere to the standard." If not, its
-/// an error. This will work in most cases, with a few exceptions where the
-/// standard is unclear.
+//! Main configuration for reading and writing FCS files.
+//!
+//! By convention, this is "strict-by-default", meaning the default parameters
+//! will be set such that only a fully-compliant FCS file can be read without
+//! error. This greatly simplifies the API and internally reduces the likelihood
+//! of "flipped flags."
+//!
+//! Internal to the library, the main question that matters for whether to throw
+//! a warning or error should be "does this adhere to the standard." If not, it
+//! is an error. This will work in most cases with a few exceptions where the
+//! standard is unclear.
+
 use crate::header::Version;
 use crate::logging::{IOResult, ImpureError};
 use crate::segment::{
@@ -207,12 +208,12 @@ pub struct WriteMultiDatasetConfig {
 pub struct WriteTEXTInnerConfig {
     /// Delimiter for TEXT segment
     ///
-    /// This should be an ASCII character in [1, 126]. Unlike the standard
-    /// (which calls for newline), this will default to the record separator
-    /// (character 30).
+    /// This should be an ASCII character in `[1, 126]`. Unlike the standard
+    /// (which calls for `\n`), this will default to the record separator
+    /// (character `30`).
     pub delim: TEXTDelim,
 
-    /// If ``true`` use 20 chars for OTHER offset width, otherwise 8.
+    /// If `true` use 20 chars for OTHER offset width, otherwise 8.
     pub big_other: BigOther,
 }
 
@@ -221,7 +222,7 @@ pub struct WriteTEXTInnerConfig {
 pub struct WriteDatasetInnerConfig {
     pub text: WriteTEXTInnerConfig,
 
-    /// If true, skip check for conversion losses before writing data.
+    /// If `true`, skip check for conversion losses before writing data.
     ///
     /// Data in each column may be stored in several different types which may
     /// or may not totally coincide with the measurement type. For example, a
@@ -234,20 +235,20 @@ pub struct WriteDatasetInnerConfig {
     /// Skipping this will result in slightly faster writing, as the data need
     /// to be enumerated once prior to writing in order to perform this check.
     /// Lossy conversion will be performed regardless, but warnings will be
-    /// emitted if this is false.
+    /// emitted if this is `false`.
     pub skip_conversion_check: SkipConversionCheck,
 }
 
 /// Options that apply to writing multiple dataset
 #[derive(Clone, Copy, Default, new)]
 pub struct WriteMultiConfig {
-    /// If ``true`` make $NEXTDATA point to the next dataset.
+    /// If `true` make $NEXTDATA point to the next dataset.
     ///
-    /// If ``false`` $NEXTDATA will be set to 0. This flag should only be set
+    /// If `false` $NEXTDATA will be set to 0. This flag should only be set
     /// if a given file is to have multiple FCS datasets inside it.
     pub appendable: AppendableFlag,
 
-    /// If ``true`` append to file rather than overwriting it.
+    /// If `true` append to file rather than overwriting it.
     ///
     /// This should only be set if the previous dataset was written with
     /// the `appendable` set to `true`, which will set the previous dataset's
@@ -271,7 +272,7 @@ pub struct HeaderConfigInner {
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0. This will not affect the number of OTHER
-    /// segments that are read; this is controlled by [`max_other`].
+    /// segments that are read; this is controlled by `max_other`.
     pub other_corrections: Vec<HeaderCorrection<OtherSegmentId>>,
 
     /// Maximum number of OTHER segments that can be parsed.
@@ -288,7 +289,7 @@ pub struct HeaderConfigInner {
     /// since this is most logical.
     pub other_width: OtherWidth,
 
-    /// If true and a segments ending offset is zero, treat it as empty.
+    /// If `true` and a segments ending offset is zero, treat it as empty.
     ///
     /// HEADER offsets can only store up to 99,999,999 bytes. If an offset must
     /// be bigger, both offsets for the segment should be written in TEXT and
@@ -307,7 +308,7 @@ pub struct HeaderConfigInner {
     /// unleashing the dreaded recursive doom loop monster.
     pub squish_offsets: bool,
 
-    /// If true, allow negative values in a HEADER offset.
+    /// If `true`, allow negative values in a HEADER offset.
     ///
     /// An empty offset is supposed to be written as 0,0 according to the
     /// standard. However, this is actually nonsense given that the begin and
@@ -320,10 +321,10 @@ pub struct HeaderConfigInner {
     /// This flag will treat any negative offset as a 0.
     pub allow_negative: bool,
 
-    /// If true, truncate offsets that exceed the end of the file.
+    /// If `true`, truncate offsets that exceed the end of the file.
     ///
     /// In many cases, such offsets likely mean the file was incompletely
-    /// written, which is a larger problem itself. Setting this to true will at
+    /// written, which is a larger problem itself. Setting this to `true` will at
     /// least allow these files to be read.
     #[as_ref(TruncateOffsets)]
     pub truncate_offsets: TruncateOffsets,
@@ -346,24 +347,24 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
-    /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
+    /// If `true`, allow STEXT to exactly match the HEADER offsets for TEXT.
     ///
     /// Many files do not have (or need) STEXT, but a subset of these will
     /// duplicate the offsets of TEXT from the HEADER into the *STEXT keywords.
     /// According to the standard, these should be empty, which is why this is
-    /// an error by default. If this flag is true, this becomes a warning.
+    /// an error by default. If this flag is `true`, this becomes a warning.
     ///
     /// The STEXT offsets will be regardless of this flag if they are
     /// duplicated.
     pub allow_overlapping_supp_text: AllowDuplicatedSuppTEXT,
 
-    /// If true, totally ignore STEXT and its offsets.
+    /// If `true`, totally ignore STEXT and its offsets.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
     pub ignore_supp_text: IgnoreSuppTEXT,
 
-    /// If true, treat every delimiter as literal.
+    /// If `true`, treat every delimiter as literal.
     ///
     /// The standard allows delimiters to be included in keys or values (words)
     /// if they are "escaped" with another delimiter. This also implies that
@@ -371,96 +372,96 @@ pub struct ReadHeaderAndTEXTConfig {
     /// unambiguously assign such escaped delimiters to either side of the real
     /// delimiter. This also means empty words are not allowed.
     ///
-    /// Setting this to true will disable delimiter escaping; all delimiters will
+    /// Setting this to `true` will disable delimiter escaping; all delimiters will
     /// be literal delimiters that split words. This allows words to be empty
     /// and also disallows delimiters to be included in words at all. For some
     /// files, this is the correct interpretation, albeit not compliant.
     pub use_literal_delims: bool,
 
-    /// If true, allow delimiter to be character outside 1-126.
+    /// If `true`, allow delimiter to be character outside 1-126.
     pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
-    /// If true, allow TEXT to not end with a delimiter.
+    /// If `true`, allow TEXT to not end with a delimiter.
     pub allow_missing_final_delim: AllowMissingFinalDelim,
 
-    /// If true, allow non-unique keys to be present in TEXT.
+    /// If `true`, allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
-    /// this to true merely changes a duplicate key to emit a warning and not
+    /// this to `true` merely changes a duplicate key to emit a warning and not
     /// an error.
     pub allow_nonunique: AllowNonunique,
 
-    /// If true, allow TEXT to contain an odd number of words.
+    /// If `true`, allow TEXT to contain an odd number of words.
     ///
     /// Regardless, the final "dangling" word in the case of an odd number
     /// will be dropped as it has no obvious interpretation.
     pub allow_odd: AllowOdd,
 
-    /// If true, allow keys with blank values.
+    /// If `true`, allow keys with blank values.
     ///
-    /// Only relevant if [`use_literal_delims`] is also true since blank values
+    /// Only relevant if `use_literal_delims` is also `true` since blank values
     /// cannot exist when delimiters are escaped. Blank values will be dropped
-    /// regardless of this flag; setting it to false will trigger an error,
+    /// regardless of this flag; setting it to `false` will trigger an error,
     /// otherwise a warning.
     pub allow_empty: AllowEmpty,
 
-    /// If true, allow delimiters at word boundaries.
+    /// If `true`, allow delimiters at word boundaries.
     ///
-    /// Only relevant if [`literal_delims`] is false. While delimiters
+    /// Only relevant if `literal_delims` is `false`. While delimiters
     /// may be escaped and included in keys or values, it is impossible to tell
     /// within which word they are belong when the are next to a real delimiter,
     /// which is why they are "not allowed."
     ///
     /// Regardless of this value, delimiters at word boundaries will not be
-    /// included due to their ambiguity. Setting this to true will emit an
+    /// included due to their ambiguity. Setting this to `true` will emit an
     /// error rather than a warning if this is encountered.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
-    /// If true, allow non-utf8 byte sequences in TEXT.
+    /// If `true`, allow non-utf8 byte sequences in TEXT.
     ///
     /// Words with such bytes will be dropped regardless of this keyword.
-    /// Setting this to true will emit an error rather than a warning in such
+    /// Setting this to `true` will emit an error rather than a warning in such
     /// cases.
     pub allow_non_utf8: bool,
 
-    /// If true, interpret all bytes in TEXT as Latin-1 instead of UTF-8
+    /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: bool,
 
-    /// If true, allow keys with non-ASCII characters.
+    /// If `true`, allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
     /// may only contain letters, numbers, and start with '$'. Regardless, all
-    /// compliant keys must only have ASCII. Setting this to true will emit
-    /// an error when encountering such a key. If false, the key will be kept
+    /// compliant keys must only have ASCII. Setting this to `true` will emit
+    /// an error when encountering such a key. If `false`, the key will be kept
     /// as a non-standard key.
     pub allow_non_ascii_keywords: bool,
 
-    /// If true, allow STEXT offsets to be missing from TEXT.
+    /// If `true`, allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
     pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
-    /// If true, allow STEXT to use a different delimiter than TEXT.
+    /// If `true`, allow STEXT to use a different delimiter than TEXT.
     pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
-    /// If true, allow $NEXTDATA to be missing.
+    /// If `true`, allow $NEXTDATA to be missing.
     ///
     /// This is a required keyword in all versions. However, most files only
-    /// have one dataset so this keyword does nothing. If true, a warning will
+    /// have one dataset so this keyword does nothing. If `true`, a warning will
     /// be emitted rather than an error if this is missing.
     pub allow_missing_nextdata: AllowMissingNextdata,
 
-    /// If true, trim whitespace from all values.
+    /// If `true`, trim whitespace from all values.
     ///
     /// This is mainly useful for the case of fixing offsets which are usually
     /// padded in order to make the TEXT segment a predictable length. These
     /// should be left-padded with numbers since the standard stipulates that
     /// offset values should only be numeric digits, but in many cases offsets
-    /// are padded with spaces (on either side). Setting this to true will trim
-    /// the spaces leaving just a number to be parsed.
+    /// are padded with spaces (on either side). Setting this to `true` will
+    /// trim the spaces leaving just a number to be parsed.
     ///
     /// Blanks may be erroneously present on any keyword that has a fixed
-    /// structure; setting this to true may allow these to be parsed correctly
+    /// structure; setting this to `true` may allow these to be parsed correctly
     /// as well.
     ///
     /// Trimming will be done as soon as the bytes are read from the file, thus
@@ -468,7 +469,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped. Note
-    /// that these will result in errors if [`allow_empty`] is false.
+    /// that these will result in errors if [`Self::allow_empty`] is `false`.
     pub trim_value_whitespace: bool,
 
     /// Remove standard keys from TEXT.
@@ -476,8 +477,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Comparisons will be case-insensitive. Members of this list should not
     /// try to match the leading "$" as this is implied.
     ///
-    /// This will be applied before [`rename_standard_keys`],
-    /// [`promote_to_standard`], and [`demote_from_standard`].
+    /// This will be applied before [`Self::rename_standard_keys`],
+    /// [`Self::promote_to_standard`], and [`Self::demote_from_standard`].
     pub ignore_standard_keys: KeyPatterns,
 
     /// Rename standard keys in TEXT.
@@ -486,8 +487,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// The leading "$" is implied so keys in this table should not include it.
     /// Comparisons are case-insensitive.
     ///
-    /// Keys are renamed before [`promote_to_standard`] and
-    /// [`demote_from_standard`] are applied.
+    /// Keys are renamed before [`Self::promote_to_standard`] and
+    /// [`Self::demote_from_standard`] are applied.
     pub rename_standard_keys: KeyStringPairs,
 
     /// A list of nonstandard keywords to be "promoted" to standard.
@@ -507,8 +508,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// ("$" prefix will be removed) and not be considered as such when
     /// processed downstream.
     ///
-    /// Useful for surgically correcting "pseudostandard" keywords without
-    /// using [`allow_pseudostandard`], which is a crude sledgehammer.
+    /// Useful for surgically correcting "pseudostandard" keywords without using
+    /// [`StdTextReadConfig::allow_pseudostandard`], which is a crude
+    /// sledgehammer.
     pub demote_from_standard: KeyPatterns,
 
     /// Replace values of standard keys.
@@ -547,7 +549,7 @@ pub struct ReadTEXTOffsetsConfig {
     #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
-    /// If true, ignore DATA offsets in TEXT.
+    /// If `true`, ignore DATA offsets in TEXT.
     ///
     /// This may be useful if DATA offsets are different from those in HEADER,
     /// either inherently or after a correction. This obviously assumes the
@@ -555,7 +557,7 @@ pub struct ReadTEXTOffsetsConfig {
     #[as_ref(IgnoreTEXTDataOffsets)]
     pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
-    /// If true, ignore ANALYSIS offsets in TEXT.
+    /// If `true`, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in
     /// HEADER, either inherently or after a correction. This obviously assumes
@@ -563,20 +565,20 @@ pub struct ReadTEXTOffsetsConfig {
     #[as_ref(IgnoreTEXTAnalysisOffsets)]
     pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
 
-    /// If true, throw error if offsets in HEADER and TEXT differ.
+    /// If `true`, throw error if offsets in HEADER and TEXT differ.
     ///
     /// Only applies to DATA and ANALYSIS offsets
     #[as_ref(AllowHeaderTEXTOffsetMismatch)]
     pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
 
-    /// If true, throw error if required TEXT offsets are missing.
+    /// If `true`, throw error if required TEXT offsets are missing.
     ///
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
     #[as_ref(AllowMissingRequiredOffsets)]
     pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
 
-    /// If true, truncate TEXT offsets that exceed the end of the file.
+    /// If `true`, truncate TEXT offsets that exceed the end of the file.
     ///
     /// In many cases, such offsets likely mean the file was incompletely
     /// written, which is a larger problem itself. Setting this to true will at
@@ -596,20 +598,20 @@ pub struct StdTextReadConfig {
     /// `"0,0"`.
     pub trim_intra_value_whitespace: bool,
 
-    /// If given, a pattern to find/match the $PnN of the time measurement.
+    /// If `true`, a pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
-    /// set to '0,0'.
+    /// set to `"0,0"`.
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
-    /// If true, allow time to not be present even if we specify [`pattern`].
+    /// If `true`, allow time to be absent even if we specify `time_meas_pattern`.
     pub allow_missing_time: AllowMissingTime,
 
-    /// If ``true`` force, force scale to be linear for temporal measurement.
+    /// If `true` force, force scale to be linear for temporal measurement.
     pub force_time_linear: bool,
 
-    /// If ``true``, ignore $PnG for the temporal measurement.
+    /// If `true`, ignore $PnG for the temporal measurement.
     ///
     /// The standard explicitly forbids gain from being set for the temporal
     /// channel. This library will allow gain to be 1.0 since this shouldn't
@@ -617,7 +619,7 @@ pub struct StdTextReadConfig {
     /// than 1.0, which is nonsense and can be ignored with this flag.
     pub ignore_time_gain: bool,
 
-    /// Ignore optical keywords in time channel.
+    /// If `true`, ignore optical keywords in time channel.
     ///
     /// These are keys which the standard does not explicitly forbid but are
     /// nonsense for the time measurement.
@@ -625,55 +627,55 @@ pub struct StdTextReadConfig {
     /// This cannot ignore PnG; to remove that pass `ignore_time_gain`.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
-    /// If ``true``, parse $SPILLOVER with indices rather than names.
+    /// If `true`, parse $SPILLOVER with indices rather than names.
     ///
     /// Indices will then be used to look up the names that should have been
     /// in their place.
     pub parse_indexed_spillover: bool,
 
-    /// If supplied, will be used as an alternative pattern when parsing $DATE.
+    /// If `true`, will be used as an alternative pattern when parsing $DATE.
     ///
     /// It should have specifiers for year, month, and day as outlined in
-    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
-    /// supplied, $DATE will be parsed according to the standard pattern which
-    /// is '%d-%b-%Y'.
+    /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
+    /// If not supplied, $DATE will be parsed according to the standard pattern
+    /// which is `"%d-%b-%Y"`.
     pub date_pattern: Option<DatePattern>,
 
-    /// If supplied, will be used as an alternative pattern toe parse $BTIM/$ETIM.
+    /// If `true`, will be used as an alternative pattern toe parse $BTIM/$ETIM.
     pub time_pattern: Option<TimePattern>,
 
-    /// If true, allow non-standard keywords starting with '$'.
+    /// If `true`, allow non-standard keywords starting with `"$"`.
     ///
-    /// The '$' prefix is reserved for standard keywords only. While little harm
-    /// may come from violating this, having these keywords might signify that
-    /// the version in the HEADER is wrong and that the file actually follows a
-    /// different FCS standard (usually higher) in which these keywords are
-    /// standard.
+    /// The `"$`" prefix is reserved for standard keywords only. While little
+    /// harm may come from violating this, having these keywords might signify
+    /// that the version in the HEADER is wrong and that the file actually
+    /// follows a different FCS standard (usually higher) in which these
+    /// keywords are standard.
     pub allow_pseudostandard: AllowPseudostandard,
 
-    /// If true, allow unused standard keywords.
+    /// If `true`, allow unused standard keywords.
     ///
     /// These may arise if some $Pn* keywords are present which exceed $PAR or
     /// if $TIMESTEP is present but no time measurement is present.
     pub allow_unused_standard: AllowUnusedStandard,
 
-    /// If true, throw an error if TEXT includes any deprecated features.
+    /// If `true`, throw an error if TEXT includes any deprecated features.
     ///
-    /// If false, merely throw a warning.
+    /// If `false`, merely throw a warning.
     pub disallow_deprecated: DisallowDeprecated,
 
-    /// If true, try to fix log-scale $PnE and $GnE keywords.
+    /// If `true`, try to fix log-scale $PnE and $GnE keywords.
     ///
-    /// These keywords are both formatted like 'X,Y' where X and Y are floats.
-    /// In the log case, both must be positive. Many files will incorrectly set
-    /// Y to 0.0 and X to some positive number. Since Y denotes the minimum
-    /// value of the log scale, 0 is meaningless.
+    /// These keywords are both formatted like `"X,Y"` where `X` and `Y` are
+    /// floats. In the log case, both must be positive. Many files will
+    /// incorrectly set `Y` to 0.0 and `X` to some positive number. Since `Y`
+    /// denotes the minimum value of the log scale, 0 is meaningless.
     ///
-    /// This fix will replace Y in such cases with 1.0, such that the value
-    /// becomes 'X,1.0'.
+    /// This fix will replace `Y` in such cases with 1.0, such that the value
+    /// becomes `"X,1.0"`.
     pub fix_log_scale_offsets: bool,
 
-    /// If true, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
+    /// If `true`, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
     ///
     /// The standards do not require that these keys use a timezone. However, it
     /// is ambiguous to not provide one. Without a timezone, timestamps will be
@@ -682,29 +684,29 @@ pub struct StdTextReadConfig {
     /// This only affects FCS 3.2
     pub disallow_localtime: bool,
 
-    /// If supplied, this pattern will be used to group "nonstandard" keywords
+    /// If `true`, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.
     ///
-    /// Usually this will be something like '^P%n.+' where '%n' will be
+    /// Usually this will be something like `^"P%n.+"` where `%n` will be
     /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$" and must
-    /// contain a literal '%n'.
+    /// expression to match keywords. It should not start with a `"$"` and must
+    /// contain a literal `"%n"`.
     ///
-    /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. These may be used when converting between different
+    /// This will matching something like `"P7FOO"` which would be `"FOO"` for
+    /// measurement `7`. These may be used when converting between different
     /// FCS versions.
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
 }
 
 #[derive(Default, Clone)]
 pub struct ReadLayoutConfig {
-    /// If true, allow optional keys to be dropped on error with a warning.
+    /// If `true`, allow optional keys to be dropped on error with a warning.
     pub allow_optional_dropping: AllowOptionalDropping,
 
-    /// If true, transfer dropped optional keys to nonstandard dict.
+    /// If `true`, transfer dropped optional keys to nonstandard dict.
     ///
-    /// Has no effect if `allow_optional_dropping` is `false` as all dropped
-    /// optional keywords will produce a fatal error.
+    /// Has no effect if [`Self::allow_optional_dropping`] is `false` as all
+    /// dropped optional keywords will produce a fatal error.
     pub transfer_dropped_optional: TransferDroppedOptional,
 
     /// If given, override $PnB with the number of bytes in $BYTEORD.
@@ -715,9 +717,9 @@ pub struct ReadLayoutConfig {
     ///
     /// Setting this will force all $PnB to match $BYTEORD. Obviously this
     /// assumed $BYTEORD is correct. If not, override this using
-    /// [`integer_byteord_override`]. All $PnB will still be read regardless of
-    /// this flag, so this will not fix badly-formatted values (ie $PnB that
-    /// aren't numbers or are out of range). These will require manual
+    /// [`Self::integer_byteord_override`]. All $PnB will still be read
+    /// regardless of this flag, so this will not fix badly-formatted values (ie
+    /// $PnB that aren't numbers or are out of range). These will require manual
     /// intervention.
     ///
     /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
@@ -731,11 +733,11 @@ pub struct ReadLayoutConfig {
     /// $BYTEORD value, which will need a different intervention.
     ///
     /// Obviously this must match the actual layout of the numbers in DATA. If
-    /// $PnB is also incorrect, use [`integer_widths_from_byteord`] to override
-    /// those values as well.
+    /// $PnB is also incorrect, use [`Self::integer_widths_from_byteord`] to
+    /// override those values as well.
     pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
-    /// If true, disallow bitmask to be truncated when converting from native type.
+    /// If `true`, disallow bitmask to be truncated when converting from native type.
     ///
     /// This only applies to integer columns (ie DATATYPE=I and/or
     /// PnDATATYPE=I).
@@ -743,16 +745,16 @@ pub struct ReadLayoutConfig {
     /// Some files store $PnR as an large number (such as 2^128), sometimes much
     /// more than the $PnB would allow if matched to the type of the range. For
     /// integers, $PnR implies the bitmask, and a larger-than-$PnB number
-    /// implies this bitmask should be all ones. Setting this flag to true will
-    /// throw an error if $PnR is much higher than the type for $PnB (ie it
+    /// implies this bitmask should be all ones. Setting this flag to `true`
+    /// will throw an error if $PnR is much higher than the type for $PnB (ie it
     /// needs to be truncated to make the bitmask).
     ///
     /// The standard is not clear on how this is supposed to work. Ideally, $PnR
     /// and $PnB should match in terms of type and bits to express said type.
-    /// Due to the vagueness in the standard and the fact that the interpretation of
-    /// large $PnR is fairly clear, this is not an error by default. Users might be
-    /// interested in setting this to true if large $PnR values might indicated a typo
-    /// or other issue.
+    /// Due to the vagueness in the standard and the fact that the
+    /// interpretation of large $PnR is fairly clear, this is not an error by
+    /// default. Users might be interested in setting this to `true` if large
+    /// $PnR values might indicated a typo or other issue.
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
@@ -762,10 +764,10 @@ pub struct ReadLayoutConfig {
 /// Configuration options for both reading and writing
 #[derive(Default, Clone)]
 pub struct SharedConfig {
-    /// If true, all warnings are considered to be fatal errors.
+    /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 
-    /// If true, do not emit warnings.
+    /// If `true`, do not emit warnings.
     pub hide_warnings: bool,
 }
 

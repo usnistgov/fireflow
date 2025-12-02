@@ -236,7 +236,7 @@ pub trait IndexedKey {
         MeasHeader(s)
     }
 
-    /// Build regexp matching "<PREFIX>n<SUFFIX>"
+    /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
     #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();

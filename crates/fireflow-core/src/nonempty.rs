@@ -1,3 +1,5 @@
+//! A specialized version of `NonEmpty`
+
 use derive_more::{From, Into};
 use itertools::Itertools as _;
 use nonempty::NonEmpty;

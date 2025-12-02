@@ -46,8 +46,6 @@ use serde::Serialize;
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
-///
-/// Each region is assumed to point to a member of `gated_measurements`.
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
@@ -59,9 +57,6 @@ pub struct AppliedGates2_0 {
 }
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
-///
-/// Each region is assumed to point to a member of `gated_measurements` or
-/// a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
@@ -73,8 +68,6 @@ pub struct AppliedGates3_0 {
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
-///
-/// Each region is assumed to point to a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[as_ref(Option<Gating>)]
 #[as_ref(HashMap<RegionIndex, Region3_2>)]

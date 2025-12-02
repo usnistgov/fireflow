@@ -1,4 +1,4 @@
-//! Things pertaining to the DATA segment (mostly)
+//! Reading and writing the DATA segment
 //!
 //! Basic overview: DATA is arranged according to version-specific "layouts".
 //! Each layout will enumerate all possible combinations for a given version,

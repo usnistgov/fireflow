@@ -499,10 +499,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn req_meas_keywords(&self) -> Vec<[(String, String); 2]>;
 
-    // TODO in theory this could return the thing we removed, but it doesn't
-    // seem like we have a use for it now and it would likely make this trait
-    // more more complex as we would need an associated type
-    fn remove_nocheck(&mut self, index: MeasIndex);
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -2206,12 +2203,12 @@ where
             .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) {
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.ranges.len(),
             "Index should be less than/equal to column number"
         );
-        self.ranges.remove(index.into());
+        Range::from(self.ranges.remove(index.into()).0)
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2559,12 +2556,12 @@ where
             .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) {
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.columns.len(),
             "Index should be less than/equal to column number"
         );
-        self.columns.remove(index.into());
+        Range::from(&self.columns.remove(index.into()))
     }
 
     fn h_read_df_inner<R: Read>(

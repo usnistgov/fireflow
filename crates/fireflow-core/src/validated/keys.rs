@@ -1,6 +1,6 @@
 use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
 use crate::logging::{
-    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
+    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
 };
 use crate::text::index::IndexFromOne;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
@@ -15,7 +15,6 @@ use std::collections::hash_map::Entry;
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::str;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::OnceLock;
@@ -492,7 +491,7 @@ impl KeyString {
     }
 
     unsafe fn from_bytes(xs: &[u8]) -> Self {
-        assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+        debug_assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
@@ -712,52 +711,14 @@ impl ParsedKeywords {
         k: &[u8],
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         debug_assert!(!k.is_empty(), "key should not be empty string");
         debug_assert!(!v.is_empty(), "value should not be empty string");
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
-        // TODO this also should skip keys before throwing a blank error
         let ignore = conf.ignore_standard_keys.as_matcher();
         let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.0;
-
-        let blank_err = || {
-            let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            LogResult::new_deferred_switchable((), e, conf.allow_empty)
-                .switchable_into_non_commutative()
-        };
-
-        let vv = if conf.use_latin1 {
-            let it = v.iter().copied().map(char::from);
-            if conf.trim_value_whitespace {
-                let trimmed: String = it
-                    .skip_while(char::is_ascii_whitespace)
-                    .take_while(|x| !x.is_ascii_whitespace())
-                    .collect();
-                if trimmed.is_empty() {
-                    return blank_err();
-                }
-                Ok(trimmed)
-            } else {
-                Ok(it.collect())
-            }
-        } else {
-            match str::from_utf8(v) {
-                Ok(vv) => {
-                    if conf.trim_value_whitespace {
-                        let trimmed = vv.trim();
-                        if trimmed.is_empty() {
-                            return blank_err();
-                        }
-                        Ok(trimmed.into())
-                    } else {
-                        Ok(vv.into())
-                    }
-                }
-                Err(e) => Err(e),
-            }
-        };
 
         let parse_key = |s: &[u8]| {
             let (is_std, ss) = if let Some((&STD_PREFIX, sn)) = s.split_first()
@@ -771,50 +732,96 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
-        if let Ok(value) = vv {
-            if let Some((is_std, kk)) = parse_key(k) {
-                if is_std {
-                    // Standard key: starts with '$', check that remaining chars
-                    // are ASCII
-                    if ignore.is_match(&kk) {
-                        LogResult::new_ok(())
-                    } else if to_nonstd.is_match(&kk) {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    } else {
-                        let rk = renames.get(&kk).cloned().unwrap_or(kk);
-                        let rv = if let Some(s) = subs.get(&rk) {
-                            s.sub(value.as_str())
-                        } else {
-                            value
-                        };
-                        insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
-                            .switchable_into_non_commutative()
-                    }
+        let mut parse_value = || {
+            let flag = conf.allow_empty;
+            let res = if conf.use_latin1 {
+                let it = v.iter().copied().map(char::from);
+                if conf.trim_value_whitespace {
+                    let trimmed: String = it
+                        .skip_while(char::is_ascii_whitespace)
+                        .take_while(|x| !x.is_ascii_whitespace())
+                        .collect();
+                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
+                    SwitchableErrorResult::new_switchable_maybe(Some(trimmed), (), e, flag)
+                        .switchable_into_commutative()
                 } else {
-                    // Non-standard key: does not start with '$' but is still
-                    // ASCII
-                    if to_std.is_match(&kk) {
-                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    } else {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    }
+                    // ASSUME this will always be a non-empty string since
+                    // it is using the value slice inputted to this function
+                    // which is validated not to be empty
+                    LogResult::new_ok(Some(it.collect()))
                 }
-            } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
-                // Non-ascii key: these are technically not allowed but save
-                // them anyways in case the user cares. If key isn't UTF-8
-                // then give up.
-                self.non_ascii.push((kk, value));
-                LogResult::new_ok(())
+            } else if let Ok(vv) = str::from_utf8(v) {
+                if conf.trim_value_whitespace {
+                    let trimmed = vv.trim();
+                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
+                    LogResult::new_switchable_maybe(Some(trimmed.into()), (), e, flag)
+                        .switchable_into_commutative()
+                } else {
+                    LogResult::new_ok(Some(vv.into()))
+                }
             } else {
-                self.byte_pairs.push((k.to_vec(), value.into()));
-                LogResult::new_ok(())
+                self.byte_pairs.push((k.to_vec(), v.to_vec()));
+                LogResult::new_ok(None)
+            };
+            res.repack_warnings::<Vec<_>>()
+                .map_warnings_and_errors(KeywordInsertError::from)
+        };
+
+        if let Some((is_std, kk)) = parse_key(k) {
+            if is_std {
+                // Standard key: starts with '$', check that remaining chars
+                // are ASCII
+                if ignore.is_match(&kk) {
+                    LogResult::new_ok(())
+                } else {
+                    parse_value().and_then_commutative(|maybe_value| {
+                        if let Some(value) = maybe_value {
+                            let res = if to_nonstd.is_match(&kk) {
+                                insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                            } else {
+                                let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                                let rv = if let Some(s) = subs.get(&rk) {
+                                    s.sub(value.as_str())
+                                } else {
+                                    value
+                                };
+                                insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
+                            };
+                            res.switchable_into_commutative().repack_warnings()
+                        } else {
+                            LogResult::new_ok(())
+                        }
+                    })
+                }
+            } else {
+                // Non-standard key: does not start with '$' but is still
+                // ASCII
+                parse_value().and_then_commutative(|maybe_value| {
+                    if let Some(value) = maybe_value {
+                        let res = if to_std.is_match(&kk) {
+                            insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        } else {
+                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                        };
+                        res.switchable_into_commutative().repack_warnings()
+                    } else {
+                        LogResult::new_ok(())
+                    }
+                })
             }
         } else {
-            self.byte_pairs.push((k.to_vec(), v.to_vec()));
-            LogResult::new_ok(())
+            // Non-ascii (possibly non-Utf8) key with possibly non-Utf-8 value:
+            // these are technically not allowed but save them anyways in case
+            // the user cares
+            parse_value().and_then_commutative(|maybe_value| {
+                if let Some(value) = maybe_value {
+                    match String::from_utf8(k.to_vec()) {
+                        Ok(key) => self.non_ascii.push((key, value)),
+                        Err(e) => self.byte_pairs.push((e.into_bytes(), value.into_bytes())),
+                    }
+                }
+                LogResult::new_ok(())
+            })
         }
     }
 

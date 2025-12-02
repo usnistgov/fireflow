@@ -1225,7 +1225,7 @@ fn split_flat_text_literal_delim(
             } else {
                 let e = kws
                     .insert(key, value, conf)
-                    .map_non_commutative_warnings(ParseKeywordsIssue::from)
+                    .map_commutative_warnings(ParseKeywordsIssue::from)
                     .map_errors(ParseKeywordsIssue::from);
                 insert_results.push(e);
             }
@@ -1259,7 +1259,6 @@ fn split_flat_text_literal_delim(
     // it can consume options or b) use stack-vectors for warnings
     insert_results
         .into_iter()
-        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
         .chain([uneven_res, final_delim_res, blank_res])
         .mappend_def_void()
@@ -1278,7 +1277,7 @@ fn split_flat_text_escaped_delim(
     let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
         let e = kws
             .insert(kb, vb, conf)
-            .map_non_commutative_warnings(ParseKeywordsIssue::from)
+            .map_commutative_warnings(ParseKeywordsIssue::from)
             .map_errors(ParseKeywordsIssue::from);
         insert_results.push(e);
     };
@@ -1388,7 +1387,6 @@ fn split_flat_text_escaped_delim(
 
     insert_results
         .into_iter()
-        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
         .chain([uneven_res, final_delim_res, even_delim_res, boundary_res])
         .mappend_def_void()

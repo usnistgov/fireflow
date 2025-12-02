@@ -52,7 +52,7 @@ use crate::config::{
     AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
 };
 use crate::core::{
-    AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
+    AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
@@ -692,7 +692,7 @@ where
     #[allow(clippy::type_complexity)]
     fn try_new_measurements<M: VersionedMetaroot>(
         &self,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
     ) -> Result<Measurements<M::Name, M::Temporal, M::Optical>, MeasurementsWithLayoutError>
     where
         M::Optical: AsScaleTransform,

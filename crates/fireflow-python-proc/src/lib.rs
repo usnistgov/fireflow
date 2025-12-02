@@ -892,7 +892,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let fun_name = format_ident!("try_new_{vsu}");
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
-    let meas: AnyDocArg = DocArg::new_measurements_param(version).into();
+    let meas: AnyDocArg = DocArg::new_paired_measurements_param(version).into();
     let layout: AnyDocArg = DocArg::new_layout_ivar(version).into();
     let data: AnyDocArg = DocArg::new_df_ivar().into();
     let analysis: AnyDocArg = DocArg::new_analysis_ivar().into();
@@ -1686,21 +1686,32 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         PyList::new1(PyUnion::new_measurement(version)),
     );
 
-    doc.into_impl_get(&i, "measurements", |_, _| {
-        quote! {
-            // This might seem inefficient since we are cloning
-            // everything, but if we want to map a python lambda
-            // function over the measurements we would need to to do
-            // this anyways, so simply returning a copied list doesn't
-            // lose anything and keeps this API simpler.
-            self.0
-                .measurements()
-                .iter()
-                .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
-                .map(|v| v.bimap_into_once())
-                .collect()
-        }
-    })
+    doc.into_impl_get_set(
+        &i,
+        "measurements",
+        true,
+        |_, _| {
+            quote! {
+                // This might seem inefficient since we are cloning everything,
+                // but if we want to map a python lambda function over the
+                // measurements we would need to to do this anyways, so simply
+                // returning a copied list doesn't lose anything and keeps this
+                // API simpler.
+                self.0
+                    .measurements()
+                    .iter()
+                    .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.bimap_into_once())
+                    .collect()
+            }
+        },
+        |n, _| {
+            quote! {
+                let ms = #n.into_iter().map(|m| m.bimap_into_once()).collect();
+                Ok(self.0.set_unnamed_measurements(ms)?)
+            }
+        },
+    )
     .into()
 }
 
@@ -1782,7 +1793,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
+pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
@@ -1806,7 +1817,7 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
-            fn set_measurements(&mut self, #fun_args) -> PyResult<()> {
+            fn set_named_measurements(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements(
                         measurements.into(),
@@ -2569,24 +2580,29 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     } else {
         ""
     };
-    let ps = [
-        "This is equivalent to updating all *$PnN* keywords at once.".into(),
-        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
-    ];
-    let doc = DocString::new_method("Set all measurements at once.")
-        .paras(ps)
+    let length_para =
+        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}.");
+
+    let named_doc = DocString::new_method("Set all measurements, names, and layout at once.")
+        .para(length_para.clone())
         .arg(DocArg::new_set_meas_param(version))
-        .arg(param_type_set_layout)
+        .arg(param_type_set_layout.clone())
         .arg(DocArg::new_allow_shared_names_param())
         .arg(DocArg::new_skip_index_check_param());
 
-    let fun_args = doc.fun_args();
+    let unnamed_doc = DocString::new_method("Set all measurements and layout at once.")
+        .para(length_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_layout);
+
+    let named_fun_args = named_doc.fun_args();
+    let unnamed_fun_args = unnamed_doc.fun_args();
 
     quote! {
         #[pymethods]
         impl #i {
-            #doc
-            fn set_measurements_and_layout(&mut self, #fun_args) -> PyResult<()> {
+            #named_doc
+            fn set_measurements_and_layout(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements_and_layout(
                         measurements.into(),
@@ -2594,6 +2610,13 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
                         allow_shared_names,
                         skip_index_check,
                     )?;
+                Ok(ret)
+            }
+
+            #unnamed_doc
+            fn set_unnamed_measurements_and_layout(&mut self, #unnamed_fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_unnamed_measurements_and_layout(ms, layout.into())?;
                 Ok(ret)
             }
         }
@@ -2608,21 +2631,28 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
 
     let param_type_set_df =
         DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
+    let len_para = "Length of ``measurements`` must match number of columns in ``data``.";
 
-    let doc = DocString::new_method("Set measurements and data at once.")
-        .para("Length of ``measurements`` must match number of columns in ``data``.")
+    let named_doc = DocString::new_method("Set measurements, names, and data at once.")
+        .para(len_para)
         .arg(DocArg::new_set_meas_param(version))
-        .arg(param_type_set_df)
+        .arg(param_type_set_df.clone())
         .arg(DocArg::new_allow_shared_names_param())
         .arg(DocArg::new_skip_index_check_param());
 
-    let fun_args = doc.fun_args();
+    let unnamed_doc = DocString::new_method("Set measurements and data at once.")
+        .para(len_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_df);
+
+    let named_fun_args = named_doc.fun_args();
+    let unnamed_fun_args = unnamed_doc.fun_args();
 
     quote! {
         #[pymethods]
         impl #i {
-            #doc
-            fn set_measurements_and_data(&mut self, #fun_args) -> PyResult<()> {
+            #named_doc
+            fn set_measurements_and_data(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
                     .set_measurements_and_data(
                         measurements.into(),
@@ -2630,6 +2660,51 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
                         allow_shared_names,
                         skip_index_check,
                     )?;
+                Ok(ret)
+            }
+
+            #unnamed_doc
+            fn set_unnamed_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_unnamed_measurements_and_data(ms, data)?;
+                Ok(ret)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_set_unnamed_measurements_layout_and_data(
+    input: TokenStream,
+) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_checked("PyCoreDataset", &i);
+
+    let layout = DocArg::new_layout_ivar(version);
+
+    let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
+
+    let param_type_set_df =
+        DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
+    let len_para =
+        "Length of ``measurements`` and ``layout`` must match number of columns in ``data``.";
+
+    let doc = DocString::new_method("Set measurements, layout, and data at once.")
+        .para(len_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_layout)
+        .arg(param_type_set_df);
+
+    let fun_args = doc.fun_args();
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn set_unnamed_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_unnamed_measurements_layout_and_data(ms, layout.into(), data)?;
                 Ok(ret)
             }
         }
@@ -6749,10 +6824,17 @@ impl DocArgParam {
         )
     }
 
-    fn new_measurements_param(version: Version) -> Self {
+    fn new_paired_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
         Self::new_param("measurements", PyTuple::new_meas(version), meas_desc)
+    }
+
+    fn new_measurements_param(version: Version) -> Self {
+        let meas_desc = "Measurements corresponding to columns in FCS file. \
+                         Temporal must be given zero or one times.";
+        let pt = PyList::new1(PyUnion::new_measurement(version));
+        Self::new_param("measurements", pt, meas_desc)
     }
 
     fn new_set_meas_param(version: Version) -> Self {

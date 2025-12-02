@@ -696,11 +696,16 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
     data: DataFrame
+    def set_unnamed_measurements_and_data(
+        self,
+        measurements: list[_O | _T],
+        data: DataFrame,
+    ) -> None: ...
 
 class _CoreGetSetMeasOrdered(Generic[_O, _T]):
     layout: _AnyOrderedLayout
 
-    def set_measurements(
+    def set_named_measurements(
         self,
         measurements: _FlatInput[Shortname | None, _O, _T],
         allow_shared_names: bool = False,
@@ -713,11 +718,16 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
+    def set_unnamed_measurements_and_layout(
+        self,
+        measurements: list[_O | _T],
+        layout: _AnyOrderedLayout,
+    ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
     layout: _L
 
-    def set_measurements(
+    def set_named_measurements(
         self,
         measurements: _FlatInput[Shortname, _O, _T],
         allow_shared_names: bool = False,
@@ -730,6 +740,11 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
+    def set_unnamed_measurements_and_layout(
+        self,
+        measurements: list[_O | _T],
+        layout: _L,
+    ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_measurements_and_data(
@@ -739,14 +754,26 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
+    def set_unnamed_measurements_layout_and_data(
+        self,
+        measurements: list[_O | _T],
+        layout: _AnyOrderedLayout,
+        data: DataFrame,
+    ) -> None: ...
 
-class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
+class _CoreDatasetGetSetMeasEndian(Generic[_O, _T, _L]):
     def set_measurements_and_data(
         self,
         measurements: _FlatInput[Shortname, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
+    ) -> None: ...
+    def set_unnamed_measurements_layout_and_data(
+        self,
+        measurements: list[_O | _T],
+        layout: _L,
+        data: DataFrame,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
@@ -1400,7 +1427,7 @@ class CoreDataset3_1(
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
-    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
+    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedLayout],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreSubset,
@@ -1508,7 +1535,7 @@ class CoreDataset3_2(
     _CoreReplaceTemporal3_2,
     _CoreDatasetGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
-    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2],
+    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedLayout],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreModified,

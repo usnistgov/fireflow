@@ -2,6 +2,7 @@ use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
+use crate::macros::def_group;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
 use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
@@ -311,23 +312,49 @@ impl<K, U, V> NamedVec<K, U, V> {
         )
     }
 
+    /// Set current values to new values.
+    ///
+    /// The center in the new vector must be in the same position as the old.
+    pub(crate) fn set_values(&mut self, xs: Vec<Element<U, V>>) -> Result<(), SetValuesError> {
+        // check length and center position before doing anything, otherwise
+        // we would need to reset the new vector if any error is found
+        self.check_keys_length(&xs[..], true)?;
+        let errs = self
+            .iter()
+            .zip(xs.iter())
+            .enumerate()
+            .map(|(i, (old, new))| match (old, new) {
+                (Element::Center(_), Element::NonCenter(_)) => Some((i, true)),
+                (Element::NonCenter(_), Element::Center(_)) => Some((i, false)),
+                _ => None,
+            })
+            .filter_map(|x| x.map(|(i, is_center)| ElementMismatchError::new(i.into(), is_center)));
+        ErrorGroup::try_new(errs)?;
+        let _ = self.alter_values_zip(
+            xs,
+            |e, y| y.both(|z| *e.value = z, |_| ()),
+            |e, y| y.both(|_| (), |z| *e.value = z),
+        );
+        Ok(())
+    }
+
     /// Apply functions to values with payload, altering them in place.
     ///
     /// This will alter all values, including center and non-center values. The
     /// two functions apply to the different values contained. Return None
     /// if input vector is not the same length.
-    pub(crate) fn alter_values_zip<F, G, X, R>(
+    pub(crate) fn alter_values_zip<G, F, X, R>(
         &mut self,
         xs: Vec<X>,
         f: F,
         g: G,
     ) -> Result<Vec<R>, InputLengthError>
     where
-        F: Fn(IndexedElement<&K, &mut V>, X) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        G: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
         self.check_keys_length(&xs[..], true)?;
-        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f);
+        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &g);
         let x = match self {
             Self::Split(s) => {
                 let nleft = s.left.len();
@@ -335,7 +362,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let mut it = xs.into_iter();
                 let left_r = go(&mut s.left, it.by_ref().take(nleft).collect(), 0);
                 let c = &mut s.center;
-                let center_r = g(
+                let center_r = f(
                     IndexedElement::new(nleft.into(), &c.key, &mut c.value),
                     it.next().unwrap(),
                 );
@@ -409,8 +436,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Apply function(s) to all values, altering them in place.
     pub(crate) fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&K, &mut V>) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut U>) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut U>) -> R,
+        G: Fn(IndexedElement<&K, &mut V>) -> R,
     {
         let xs = vec![(); self.len()];
         self.alter_values_zip(xs, |x, ()| f(x), |x, ()| g(x))
@@ -1770,6 +1797,10 @@ impl<U, V> Element<U, V> {
             Self::NonCenter(_) => None,
         }
     }
+
+    pub fn is_center(&self) -> bool {
+        self.as_ref().center().is_some()
+    }
 }
 
 impl<X> Element<X, X> {
@@ -1953,6 +1984,14 @@ pub enum SetCenterError {
     NoName(NoNameError),
 }
 
+/// Error when assigning an element in named vector to be the center element
+#[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetValuesError {
+    Length(InputLengthError),
+    Set(ElementMismatchErrors),
+}
+
 /// Error when building new named vector from list of elements
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -2020,6 +2059,24 @@ pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
 }
+
+/// Error when element types do not match
+#[derive(Debug, Error, new)]
+#[error(
+    "attempted to set a {to} at {index} when {from} is needed",
+    to = if self.original_is_center { "non-center" } else { "center" },
+    from = if self.original_is_center { "center" } else { "non-center" }
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct ElementMismatchError {
+    index: MeasIndex,
+    original_is_center: bool,
+}
+
+pub type ElementMismatchErrors = ErrorGroup<ElementMismatchError, ElementMismatchSummary>;
+
+def_group!(ElementMismatchSummary, "could not set new values");
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

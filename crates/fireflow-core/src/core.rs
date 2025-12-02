@@ -65,7 +65,7 @@ use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
     NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -1422,7 +1422,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals<Self>,
+        ms: &NamedTemporalsAndOpticals<Self>,
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -2015,7 +2015,7 @@ where
 
     fn lookup_metaroot<C>(
         std: &mut StdKeywords,
-        ms: &TemporalsAndOpticals<M>,
+        ms: &NamedTemporalsAndOpticals<M>,
         mut nonstd: NonStdKeywords,
         conf: &C,
     ) -> LookupMetarootResult<Self>
@@ -2185,16 +2185,29 @@ where
     }
 }
 
-pub(crate) type TemporalsAndOpticals<M> = Eithers<
+pub(crate) type TemporalOrOptical<M> = Element<
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals<M> = Vec<TemporalOrOptical<M>>;
+
+pub(crate) type NamedTemporalOrOptical<M> = EitherPair<
     <M as VersionedMetaroot>::Name,
     Temporal<<M as VersionedMetaroot>::Temporal>,
     Optical<<M as VersionedMetaroot>::Optical>,
 >;
 
-pub(crate) type TemporalsAndOpticals2_0 = TemporalsAndOpticals<InnerMetaroot2_0>;
-pub(crate) type TemporalsAndOpticals3_0 = TemporalsAndOpticals<InnerMetaroot3_0>;
-pub(crate) type TemporalsAndOpticals3_1 = TemporalsAndOpticals<InnerMetaroot3_1>;
-pub(crate) type TemporalsAndOpticals3_2 = TemporalsAndOpticals<InnerMetaroot3_2>;
+pub(crate) type NamedTemporalsAndOpticals<M> = Eithers<
+    <M as VersionedMetaroot>::Name,
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<InnerMetaroot2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<InnerMetaroot3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = NamedTemporalsAndOpticals<InnerMetaroot3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<InnerMetaroot3_2>;
 
 pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
@@ -2528,12 +2541,11 @@ where
     /// If index points to a temporal measurement, replace it with the given
     /// optical measurement. In both cases the name is kept. Return the
     /// measurement that was replaced if the index was in bounds.
-    #[allow(clippy::type_complexity)]
     pub fn replace_optical_at(
         &mut self,
         index: MeasIndex,
         m: Optical<M::Optical>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError> {
+    ) -> Result<TemporalOrOptical<M>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -2542,22 +2554,20 @@ where
     /// If name refers to a temporal measurement, replace it with the given
     /// optical measurement. Return the measurement that was replaced if the
     /// index was in bounds.
-    #[allow(clippy::type_complexity)]
     pub fn replace_optical_named(
         &mut self,
         name: &Shortname,
         m: Optical<M::Optical>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError> {
+    ) -> Result<TemporalOrOptical<M>, NameNotFoundError> {
         self.measurements.replace_named(name, m)
     }
 
     /// Replace temporal measurement at index.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_at(
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
+    ) -> Result<TemporalOrOptical<M>, SetCenterError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -2572,14 +2582,13 @@ where
     }
 
     /// Replace temporal measurement at index.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_at_lossy(
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
     ) -> WarningOrErrorResult<
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        TemporalOrOptical<M>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByIndex,
@@ -2600,12 +2609,11 @@ where
     }
 
     /// Replace temporal measurement with name.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named(
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError>
+    ) -> Result<TemporalOrOptical<M>, NameNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -2620,14 +2628,13 @@ where
     }
 
     /// Replace temporal measurement with name.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named_lossy(
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
     ) -> WarningOrErrorResult<
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        TemporalOrOptical<M>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByName,
@@ -2674,8 +2681,8 @@ where
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
+        G: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>) -> R,
     {
         self.measurements.alter_values(f, g)
     }
@@ -2688,8 +2695,8 @@ where
         g: G,
     ) -> Result<Vec<R>, InputLengthError>
     where
-        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
+        G: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
     }
@@ -3137,8 +3144,8 @@ where
                 self.measurements
                     .alter_values_zip(
                         scales,
-                        |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
                         |_, _| (),
+                        |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
                     )
                     .unwrap();
             })
@@ -3176,8 +3183,8 @@ where
                 self.measurements
                     .alter_values_zip(
                         xforms,
-                        |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
                         |_, _| (),
+                        |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
                     )
                     .unwrap();
             })
@@ -3326,19 +3333,10 @@ where
         t.as_ref().map(|&x| x.0.into())
     }
 
-    // TODO also return the removed layout
-    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
         name: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByNameError,
-    > {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         if let Some(&index) = self.measurement_named_indices().get(name) {
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -3352,17 +3350,10 @@ where
         Ok((i, e, r))
     }
 
-    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        (
-            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -3496,7 +3487,7 @@ where
     /// layout length.
     pub fn set_measurements(
         &mut self,
-        xs: TemporalsAndOpticals<M>,
+        xs: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsErrors>
@@ -3506,8 +3497,16 @@ where
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
 
-    // TODO add replace measurements function which doesn't touch PnN but
-    // requires time meas to be in the same location
+    /// Set measurements without $PnN.
+    pub fn set_unnamed_measurements(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_unnamed_measurements_inner(measurements)
+    }
 
     /// Get reference to data layout
     pub fn layout(&self) -> &<M::Ver as Versioned>::Layout {
@@ -3537,7 +3536,7 @@ where
     /// different lengths.
     pub fn set_measurements_and_layout(
         &mut self,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -3563,9 +3562,21 @@ where
             .resolve_nowarn()
     }
 
-    pub fn set_measurements_inner(
+    /// Set measurements without $PnN and layout
+    pub fn set_unnamed_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_unnamed_measurements_and_layout_inner(measurements, layout)
+    }
+
+    fn set_measurements_inner(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsErrors>
@@ -3588,6 +3599,47 @@ where
             })
             .group()
             .resolve_nowarn()
+    }
+
+    fn set_unnamed_measurements_inner(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let xforms: Vec<_> = measurements
+            .iter()
+            .map(|m| {
+                m.as_ref()
+                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+            })
+            .collect();
+        self.layout.check_transforms_and_len(&xforms[..])?;
+        self.measurements.set_values(measurements)?;
+        Ok(())
+    }
+
+    fn set_unnamed_measurements_and_layout_inner(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        // TODO not DRY
+        let xforms: Vec<_> = measurements
+            .iter()
+            .map(|m| {
+                m.as_ref()
+                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+            })
+            .collect();
+        layout.check_transforms_and_len(&xforms[..])?;
+        self.measurements.set_values(measurements)?;
+        self.layout = layout;
+        Ok(())
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
@@ -3745,7 +3797,7 @@ where
         par: Par,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> LookupMeasurementResult<TemporalsAndOpticals<M>>
+    ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
         M: LookupMetaroot,
@@ -4084,35 +4136,20 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByNameError,
-    > {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         self.remove_measurement_by_name_inner(n)
     }
 
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        (
-            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -4262,7 +4299,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     pub(crate) fn try_new<C>(
         mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, NewCoreError>
@@ -4319,7 +4356,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     pub(crate) fn try_new_nodrop(
         mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
@@ -4658,18 +4695,10 @@ where
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByNameError,
-    > {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         let (i, x, r) = self.remove_measurement_by_name_inner(n)?;
         self.data.drop_in_place(i.into()).unwrap();
         Ok((i, x, r))
@@ -4678,17 +4707,10 @@ where
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        (
-            EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-            Range,
-        ),
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         let ret = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(ret)
@@ -4820,7 +4842,7 @@ where
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_measurements_and_data(
         &mut self,
-        xs: TemporalsAndOpticals<M>,
+        xs: NamedTemporalsAndOpticals<M>,
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -4834,6 +4856,49 @@ where
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
         self.set_measurements_inner(xs, allow_shared_names, skip_index_check)?;
+        self.data = df;
+        Ok(())
+    }
+
+    /// Set measurements without $PnN and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_unnamed_measurements_and_data(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        df: FCSDataFrame,
+    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = measurements.len();
+        let data_n = df.ncols();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.set_unnamed_measurements_inner(measurements)?;
+        self.data = df;
+        Ok(())
+    }
+
+    /// Set measurements without $PnN, layout, and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_unnamed_measurements_layout_and_data(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+        df: FCSDataFrame,
+    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = measurements.len();
+        let data_n = df.ncols();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.set_unnamed_measurements_and_layout_inner(measurements, layout)?;
         self.data = df;
         Ok(())
     }
@@ -8647,6 +8712,14 @@ pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurement
 
 def_group!(SetMeasurementsSummary, "could not set measurements");
 
+/// Error when setting measurements vector without names
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamedMeasurementsError {
+    New(MeasLayoutMismatchError),
+    Set(SetValuesError),
+}
+
 /// Error when setting $PnE for all measurements (3.0+)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -8668,6 +8741,14 @@ pub enum SetTransformsError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsErrors),
+    Mismatch(MeasDataMismatchError),
+}
+
+/// Error when setting measurements without $PnN and DATA/dataframe simultaneously
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamdMeasurementsAndDataError {
+    Meas(SetUnnamedMeasurementsError),
     Mismatch(MeasDataMismatchError),
 }
 

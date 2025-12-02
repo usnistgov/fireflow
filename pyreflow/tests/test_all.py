@@ -1140,7 +1140,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
-        core.set_measurements([(LINK_NAME1, optical)], False, False)
+        core.set_named_measurements([(LINK_NAME1, optical)], False, False)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1159,7 +1159,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
-        core.set_measurements([(LINK_NAME1, optical)], False, False)
+        core.set_named_measurements([(LINK_NAME1, optical)], False, False)
 
     @pytest.mark.parametrize(
         "core, optical",

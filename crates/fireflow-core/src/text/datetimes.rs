@@ -18,7 +18,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-/// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
+/// The $BEGINDATETIME and $ENDDATETIME keys (3.2+).
+///
+/// These are validated to be in order.
 #[derive(Clone, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Datetimes {
@@ -201,6 +203,7 @@ impl FromStrWith for FCSDateTime {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct ReversedDatetimesError;
 
+/// Error when parsing [`FCSDateTime`] from string
 #[derive(Debug, Error)]
 pub enum FCSDateTimeError {
     #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]

@@ -143,8 +143,6 @@ pub struct GatedMeasurement {
     pub filter: GateFilter,
 
     /// Value for $GmN
-    ///
-    /// Unlike $PnN, this is not validated to be without commas
     #[new(into)]
     pub shortname: Option<GateShortname>,
 
@@ -1241,12 +1239,14 @@ impl<I: fmt::Display + Copy, const INDEX_IS_GATE: bool> fmt::Display
     }
 }
 
+/// Error when converting between region index types
 #[derive(From, Debug)]
 enum AnyIndexForRegionError<I> {
     Univariate(UniIndexForRegionError<I>),
     Bivariate(BiIndexForRegionError<I>),
 }
 
+/// Error when converting between region index types (bivariate)
 #[derive(Debug)]
 enum BiIndexForRegionError<I> {
     LeftBivariate(I),
@@ -1254,6 +1254,7 @@ enum BiIndexForRegionError<I> {
     Bivariate(I, I),
 }
 
+/// Error when converting between region index types (univariate)
 #[derive(Debug, Display)]
 pub struct UniIndexForRegionError<I>(I);
 

@@ -3485,7 +3485,7 @@ where
     /// Return error if names are not unique, if there is more than one
     /// time measurement, or if the measurement length doesn't match the
     /// layout length.
-    pub fn set_measurements(
+    pub fn set_named_measurements(
         &mut self,
         xs: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
@@ -3494,18 +3494,18 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
+        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
 
     /// Set measurements without $PnN.
-    pub fn set_unnamed_measurements(
+    pub fn set_measurements(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_unnamed_measurements_inner(measurements)
+        self.set_measurements_inner(measurements)
     }
 
     /// Get reference to data layout
@@ -3534,7 +3534,7 @@ where
     /// Return error if measurement names are not unique, there is more
     /// than one time measurement, or the layout and measurements have
     /// different lengths.
-    pub fn set_measurements_and_layout(
+    pub fn set_named_measurements_and_layout(
         &mut self,
         measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
@@ -3563,7 +3563,7 @@ where
     }
 
     /// Set measurements without $PnN and layout
-    pub fn set_unnamed_measurements_and_layout(
+    pub fn set_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
@@ -3571,10 +3571,10 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_unnamed_measurements_and_layout_inner(measurements, layout)
+        self.set_measurements_and_layout_inner(measurements, layout)
     }
 
-    fn set_measurements_inner(
+    fn set_named_measurements_inner(
         &mut self,
         measurements: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
@@ -3601,7 +3601,7 @@ where
             .resolve_nowarn()
     }
 
-    fn set_unnamed_measurements_inner(
+    fn set_measurements_inner(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
     ) -> Result<(), SetUnnamedMeasurementsError>
@@ -3620,7 +3620,7 @@ where
         Ok(())
     }
 
-    fn set_unnamed_measurements_and_layout_inner(
+    fn set_measurements_and_layout_inner(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
@@ -4840,7 +4840,7 @@ where
     /// Set measurements and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
-    pub fn set_measurements_and_data(
+    pub fn set_named_measurements_and_data(
         &mut self,
         xs: NamedTemporalsAndOpticals<M>,
         df: FCSDataFrame,
@@ -4855,7 +4855,7 @@ where
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
-        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)?;
+        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)?;
         self.data = df;
         Ok(())
     }
@@ -4863,7 +4863,7 @@ where
     /// Set measurements without $PnN and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
-    pub fn set_unnamed_measurements_and_data(
+    pub fn set_measurements_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
         df: FCSDataFrame,
@@ -4876,7 +4876,7 @@ where
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
-        self.set_unnamed_measurements_inner(measurements)?;
+        self.set_measurements_inner(measurements)?;
         self.data = df;
         Ok(())
     }
@@ -4884,7 +4884,7 @@ where
     /// Set measurements without $PnN, layout, and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
-    pub fn set_unnamed_measurements_layout_and_data(
+    pub fn set_measurements_layout_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
@@ -4898,7 +4898,7 @@ where
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
-        self.set_unnamed_measurements_and_layout_inner(measurements, layout)?;
+        self.set_measurements_and_layout_inner(measurements, layout)?;
         self.data = df;
         Ok(())
     }

@@ -91,8 +91,8 @@ use fireflow_python_proc::{
     impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
-    impl_coredataset_set_measurements_and_data,
-    impl_coredataset_set_unnamed_measurements_layout_and_data, impl_coredataset_truncate_data,
+    impl_coredataset_set_measurements_layout_and_data,
+    impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
     impl_coredataset_unset_data, impl_coredataset_write_multi, impl_coretext_from_kws,
     impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_coretext_write_multi,
     impl_gated_meas, impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
@@ -310,8 +310,8 @@ impl_coretext_common!(PyCoreTEXT3_2);
 // Common methods for all CoreDataset* versions.
 macro_rules! impl_coredataset_common {
     ($pytype:ident) => {
-        impl_coredataset_set_measurements_and_data!($pytype);
-        impl_coredataset_set_unnamed_measurements_layout_and_data!($pytype);
+        impl_coredataset_set_named_measurements_and_data!($pytype);
+        impl_coredataset_set_measurements_layout_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
         impl_coredataset_truncate_data!($pytype);

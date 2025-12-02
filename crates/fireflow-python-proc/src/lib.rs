@@ -1708,7 +1708,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         |n, _| {
             quote! {
                 let ms = #n.into_iter().map(|m| m.bimap_into_once()).collect();
-                Ok(self.0.set_unnamed_measurements(ms)?)
+                Ok(self.0.set_measurements(ms)?)
             }
         },
     )
@@ -1819,7 +1819,7 @@ pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
             #doc
             fn set_named_measurements(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_measurements(
+                    .set_named_measurements(
                         measurements.into(),
                         allow_shared_names,
                         skip_index_check,
@@ -2602,9 +2602,9 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         #[pymethods]
         impl #i {
             #named_doc
-            fn set_measurements_and_layout(&mut self, #named_fun_args) -> PyResult<()> {
+            fn set_named_measurements_and_layout(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_measurements_and_layout(
+                    .set_named_measurements_and_layout(
                         measurements.into(),
                         layout.into(),
                         allow_shared_names,
@@ -2614,9 +2614,9 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
             }
 
             #unnamed_doc
-            fn set_unnamed_measurements_and_layout(&mut self, #unnamed_fun_args) -> PyResult<()> {
+            fn set_measurements_and_layout(&mut self, #unnamed_fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_unnamed_measurements_and_layout(ms, layout.into())?;
+                let ret = self.0.set_measurements_and_layout(ms, layout.into())?;
                 Ok(ret)
             }
         }
@@ -2625,7 +2625,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
 }
 
 #[proc_macro]
-pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenStream {
+pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
@@ -2652,9 +2652,9 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
         #[pymethods]
         impl #i {
             #named_doc
-            fn set_measurements_and_data(&mut self, #named_fun_args) -> PyResult<()> {
+            fn set_named_measurements_and_data(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_measurements_and_data(
+                    .set_named_measurements_and_data(
                         measurements.into(),
                         data,
                         allow_shared_names,
@@ -2664,9 +2664,9 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
             }
 
             #unnamed_doc
-            fn set_unnamed_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
+            fn set_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_unnamed_measurements_and_data(ms, data)?;
+                let ret = self.0.set_measurements_and_data(ms, data)?;
                 Ok(ret)
             }
         }
@@ -2675,9 +2675,7 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
 }
 
 #[proc_macro]
-pub fn impl_coredataset_set_unnamed_measurements_layout_and_data(
-    input: TokenStream,
-) -> TokenStream {
+pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
@@ -2702,9 +2700,9 @@ pub fn impl_coredataset_set_unnamed_measurements_layout_and_data(
         #[pymethods]
         impl #i {
             #doc
-            fn set_unnamed_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
+            fn set_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_unnamed_measurements_layout_and_data(ms, layout.into(), data)?;
+                let ret = self.0.set_measurements_layout_and_data(ms, layout.into(), data)?;
                 Ok(ret)
             }
         }

@@ -7924,7 +7924,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let dt = go!(Datetimes::lookup(std, nonstd, conf.as_ref()));
+        let dt = go!(Datetimes::lookup(std, nonstd, conf));
         let modif = go!(ModificationData::lookup(std, nonstd, conf.as_ref()));
         let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));

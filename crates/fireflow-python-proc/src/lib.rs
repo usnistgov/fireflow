@@ -6888,6 +6888,7 @@ impl DocArgParam {
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let ignore_time_gain = Self::new_ignore_time_gain_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
+        let disallow_localtime = Self::new_disallow_localtime_param();
 
         let std_common_args = [
             Self::new_trim_intra_value_whitespace_param(),
@@ -6908,8 +6909,15 @@ impl DocArgParam {
         let ps: Vec<_> = match version {
             Some(Version::FCS2_0) => std_common_args.collect(),
             Some(Version::FCS3_0) => std_common_args.chain([ignore_time_gain]).collect(),
-            _ => std_common_args
+            Some(Version::FCS3_1) => std_common_args
                 .chain([ignore_time_gain, parse_indexed_spillover])
+                .collect(),
+            _ => std_common_args
+                .chain([
+                    ignore_time_gain,
+                    parse_indexed_spillover,
+                    disallow_localtime,
+                ])
                 .collect(),
         };
 
@@ -7157,6 +7165,15 @@ impl DocArgParam {
         let d = "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
                  (ie ``X,0.0`` where ``X`` is non-zero).";
         Self::new_bool_param("fix_log_scale_offsets", d)
+    }
+
+    fn new_disallow_localtime_param() -> Self {
+        let d = "If ``true``, require that *$BEGINDATETIME* and *$ENDDATETIME* \
+                 have a timezone if provided. This is not required by the \
+                 standard, but not having a timezone is ambiguous since the \
+                 absolute value of the timestamp is dependent on localtime and \
+                 therefore is location-dependent. Only affects FCS 3.2.";
+        Self::new_bool_param("disallow_localtime", d)
     }
 
     fn new_nonstandard_measurement_pattern_param() -> Self {

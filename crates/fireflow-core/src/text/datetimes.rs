@@ -1,16 +1,15 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig};
+use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::type_families::ApplyOnce as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
-use super::lookup::{OptKeyError, OptMetarootKey as _};
+use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey as _};
 use super::optional::KeywordPairMaybe as _;
 
 use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
-use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, Into};
 use std::mem;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -31,7 +30,7 @@ pub struct Datetimes {
 }
 
 /// The $BEGINDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
@@ -39,7 +38,7 @@ pub struct Datetimes {
 pub struct BeginDateTime(pub FCSDateTime);
 
 /// The $ENDDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
@@ -94,18 +93,22 @@ impl Datetimes {
         }
     }
 
-    pub(crate) fn lookup(
+    pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &ReadLayoutConfig,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError> {
-        let b = BeginDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
+        conf: &C,
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+    {
+        let b = BeginDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
-        let e = EndDateTime::remove_or_transfer_root_opt(std, nonstd, conf)
+        let e = EndDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
-        let flag = conf.allow_optional_dropping;
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let flag = rconf.allow_optional_dropping;
         b.zip_f2_once(e)
             .and_then_deferred(|(begin, end)| {
                 Self::try_new(begin, end)
@@ -113,7 +116,7 @@ impl Datetimes {
                     .map_err_value(|ret| {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
-                        if conf.transfer_dropped_optional.is_set() {
+                        if rconf.transfer_dropped_optional.is_set() {
                             ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
                             ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
                         }
@@ -139,19 +142,38 @@ impl Datetimes {
     }
 }
 
-impl FromStr for FCSDateTime {
-    type Err = FCSDateTimeError;
+macro_rules! impl_from_str_with {
+    ($t:ident) => {
+        impl FromStrWith for $t {
+            type Err = FCSDateTimeError;
+            type Payload<'a> = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+            fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+                FCSDateTime::from_str_with(s, (), conf).map(Self)
+            }
+        }
+    };
+}
+
+impl_from_str_with!(BeginDateTime);
+impl_from_str_with!(EndDateTime);
+
+impl FromStrWith for FCSDateTime {
+    type Err = FCSDateTimeError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
         // first, try to parse without a timezone, defaulting to localtime and
         // converting to a fixed offset
-        // TODO this should probably be a warning since it is ambiguous to
-        // parse a timezone based solely on localtime
         if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-            match Local::now().timezone().from_local_datetime(&naive) {
-                MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
-                MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
-                MappedLocalTime::None => Err(FCSDateTimeError::Gap),
+            if conf.disallow_localtime {
+                Err(FCSDateTimeError::Localtime)
+            } else {
+                match Local::now().timezone().from_local_datetime(&naive) {
+                    MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
+                    MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
+                    MappedLocalTime::None => Err(FCSDateTimeError::Gap),
+                }
             }
         } else {
             // If zone information is present, try any number of formats which
@@ -193,14 +215,16 @@ pub enum FCSDateTimeError {
          occurred when clock was turned forward and could not be mapped to UTC"
     )]
     Gap,
+    #[error("using localtime because no timezone specified, which is ambiguous")]
+    Localtime,
 }
 
 /// Error when parsing $BEGINDATETIME and $ENDDATETIME
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDatetimesError {
-    Begindatetime(OptKeyError<BeginDateTime>),
-    Enddatetime(OptKeyError<EndDateTime>),
+    Begindatetime(OptKeyStError<BeginDateTime>),
+    Enddatetime(OptKeyStError<EndDateTime>),
     Datetime(ReversedDatetimesError),
 }
 
@@ -216,6 +240,16 @@ pub enum DatetimeLossError {
 mod tests {
     use super::*;
     use crate::test::*;
+    use std::str::FromStr;
+
+    impl FromStr for FCSDateTime {
+        type Err = FCSDateTimeError;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let conf = StdTextReadConfig::default();
+            Self::from_str_with(s, (), &conf)
+        }
+    }
 
     #[test]
     fn str_to_datetime_local() {

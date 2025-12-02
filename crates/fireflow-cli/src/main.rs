@@ -414,6 +414,18 @@ fn main() -> Result<(), ()> {
         ),
     );
 
+    let disallow_localtime = flag_arg(
+        DISALLOW_LOCALTIME,
+        format!(
+            "Require that {} and {} have a timezone if provided. This is not \
+             required by the standard, but not having a timezone is ambiguous \
+             since the absolute value of the timestamp is dependent on localtime \
+             and therefore is location-dependent. Only affects FCS 3.2.",
+            kw_style.paint("$BEGINDATETIME"),
+            kw_style.paint("$ENDDATETIME")
+        ),
+    );
+
     let date_pattern = Arg::new(DATE_PATTERN)
         .long(DATE_PATTERN)
         .value_name("PATTERN")
@@ -453,6 +465,7 @@ fn main() -> Result<(), ()> {
         allow_unused_standard,
         disallow_deprecated,
         fix_log_scale_offset,
+        disallow_localtime,
         ns_meas_pattern,
     ];
 
@@ -884,6 +897,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
+        disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME),
         nonstandard_measurement_pattern,
     }
 }
@@ -1185,6 +1199,8 @@ const TRANSFER_DROPPED_OPTIONAL: &str = "transfer-dropped-optional";
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 
 const FIX_LOG_SCALE_OFFSETS: &str = "fix-log-scale-offsets";
+
+const DISALLOW_LOCALTIME: &str = "disallow-localtime";
 
 const NS_MEAS_PATTERN: &str = "non-std-meas-pattern";
 

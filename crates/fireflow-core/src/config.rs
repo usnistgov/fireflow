@@ -673,6 +673,15 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
+    /// If true, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
+    ///
+    /// The standards do not require that these keys use a timezone. However, it
+    /// is ambiguous to not provide one. Without a timezone, timestamps will be
+    /// parsed using localtime, which is location-dependent.
+    ///
+    /// This only affects FCS 3.2
+    pub disallow_localtime: bool,
+
     /// If supplied, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.
     ///

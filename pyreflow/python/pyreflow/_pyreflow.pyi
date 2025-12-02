@@ -1194,6 +1194,7 @@ class CoreTEXT3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        disallow_localtime: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1590,6 +1591,7 @@ class CoreDataset3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        disallow_localtime: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1911,6 +1913,7 @@ def fcs_read_std_text(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2047,6 +2050,7 @@ def fcs_read_std_dataset(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2172,6 +2176,7 @@ def fcs_read_std_texts(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2310,6 +2315,7 @@ def fcs_read_std_datasets(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,

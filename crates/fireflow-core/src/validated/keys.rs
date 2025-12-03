@@ -31,9 +31,9 @@ use {
     pyo3::prelude::*,
 };
 
-/// A standard key.
+/// A key from TEXT which is codified by the FCS standard.
 ///
-/// These may only contain ASCII and must start with "$". The "$" is not
+/// These may only contain ASCII and must start with `"$"`. The `"$"` is not
 /// actually stored but will be appended when converting to a [`String`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -42,9 +42,9 @@ use {
 #[display("${_0}")]
 pub struct StdKey(KeyString);
 
-/// A non-standard key.
+/// A key from TEXT which is not codified by the FCS standard.
 ///
-/// This cannot start with '$' and may only contain ASCII characters.
+/// This cannot start with `"$"` and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
@@ -60,7 +60,7 @@ pub struct NonStdKey(KeyString);
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
 
-/// A map of keystring-keystring pairs.
+/// A map of [`KeyString`]/[`KeyString`] pairs.
 ///
 /// The main use case for this is to rename keys.
 ///
@@ -69,25 +69,25 @@ pub struct KeyString(Ascii<String>);
 #[derive(Clone, Debug, Default)]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 
-/// A map of keystrings and strings.
+/// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
 pub type KeyStringValues = HashMap<KeyString, String>;
 
-/// A String that matches part of a non-standard measurement key.
+/// A [`String`] that matches part of a [`NonStdKey`].
 ///
-/// This will have exactly one '%n' and not start with a '$'. The
-/// '%n' will be replaced by the measurement index which will be used
-/// to match keywords.
+/// This will have exactly one `"%n"` and not start with a `"$"`. The `"%n"`
+/// will be replaced by the measurement index which will be used to match
+/// keywords.
 #[derive(Clone, AsRef, Display)]
 #[as_ref(str)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct NonStdMeasPattern(String);
 
-/// A list of patterns that match standard or non-standard keys.
+/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 pub type KeyPatterns = KeyOrStringPatterns<()>;
 
-/// A list of patterns that match standard or non-standard keys.
+/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
 pub struct KeyOrStringPatterns<T>(Vec<(KeyStringOrPattern, T)>);
 
@@ -97,7 +97,7 @@ impl<T> Default for KeyOrStringPatterns<T> {
     }
 }
 
-/// Either a literal string or regexp which matches a standard/non-standard key.
+/// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
 ///
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
@@ -108,7 +108,7 @@ pub enum KeyStringOrPattern {
     Pattern(CaseInsRegex),
 }
 
-/// A collection dump for parsed keywords of varying quality
+/// A collection of [`StdKey`]s and [`NonStdKey`]s and key/values with errors.
 #[derive(Default)]
 pub struct ParsedKeywords {
     /// Standard keywords (with '$')
@@ -147,7 +147,7 @@ pub struct ValidKeywords {
 #[derive(Display)]
 pub struct MeasHeader(pub String);
 
-/// A regular expression which matches a non-standard measurement key.
+/// A regular expression which matches a [`NonStdKey`].
 ///
 /// This must be derived from [`NonStdMeasPattern`].
 #[derive(AsRef)]
@@ -164,9 +164,9 @@ pub(crate) struct KeyMatcher<'a, T> {
     pattern: Vec<(&'a CaseInsRegex, T)>,
 }
 
-/// A standard key
+/// A [`StdKey`] without an index
 ///
-/// The constant traits is assumed to only contain ASCII characters.
+/// The constant traits is validated to only contain ASCII characters.
 // TODO const_trait_impl will be able to clean this up once stable
 pub trait Key {
     const C: &'static str;
@@ -188,9 +188,9 @@ pub trait Key {
     }
 }
 
-/// A standard key with on index
+/// A [`StdKey`] with one index
 ///
-/// The constant traits are assumed to only contain ASCII characters.
+/// The constant traits are validated to only contain ASCII characters.
 pub trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
@@ -253,10 +253,10 @@ pub trait IndexedKey {
     }
 }
 
-/// A standard key with two indices
+/// A [`StdKey`] with two indices
 ///
-/// The constant traits are assumed to only contain ASCII characters.
-pub(crate) trait BiIndexedKey {
+/// The constant traits are validated to only contain ASCII characters.
+pub trait BiIndexedKey {
     const PREFIX: &'static str;
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
@@ -300,7 +300,8 @@ pub(crate) trait BiIndexedKey {
         StdKey::new(s)
     }
 
-    /// Build regexp matching "<PREFIX>m<MIDDLE>n<SUFFIX>"
+    /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
+    #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);
@@ -355,6 +356,14 @@ impl<T: BiIndexedKey> AnyKey for Key2<T> {
     }
 }
 
+/// A type representing a [`StdKey`].
+///
+/// This is useful because the value of the key is not actually stored, so this
+/// is very fast and memory-efficient. If we stored the value itself, it would
+/// be a [`String`] internally and allocated on the heap. We can get away with
+/// this because the value of each [`StdKey`] is entirely encoded by the
+/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with in index in the
+/// latter two cases).
 #[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
     index: I,
@@ -391,6 +400,7 @@ impl<T> Key2<T> {
     }
 }
 
+/// Composite index for [`StdKey`] with two index values
 #[derive(Debug, new)]
 pub struct BiIndex {
     pub i0: IndexFromOne,
@@ -846,7 +856,7 @@ impl ParsedKeywords {
     }
 }
 
-/// Error when parsing standard key
+/// Error when parsing [`StdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -859,7 +869,7 @@ pub enum StdKeyError {
     Empty,
 }
 
-/// Error when parsing nonstandard key
+/// Error when parsing [`NonStdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -870,7 +880,7 @@ pub enum NonStdKeyError {
     Prefix(KeyString),
 }
 
-/// Error when parsing key as ASCII-only string
+/// Error when parsing [`KeyString`] from string
 #[derive(PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -881,7 +891,7 @@ pub enum AsciiStringError {
     Empty,
 }
 
-/// Error when parsing literal keys or pattern strings for configuration
+/// Error when parsing literal keys or pattern strings when building [`KeyOrStringPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeyOrStringPatternsError {
@@ -889,12 +899,13 @@ pub enum KeyOrStringPatternsError {
     Ascii(AsciiStringError),
 }
 
+/// Error when parsing [`CaseInsRegex`] from string when building [`KeyOrStringPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
 pub struct KeyRegexError(regex::Error);
 
-/// Error when parsed keyword cannot be inserted into (non)standard hash table
+/// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeywordInsertError {
@@ -933,7 +944,7 @@ pub struct KeyPresent<T> {
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-/// Error when parsing non-standard measurement pattern for configuration
+/// Error when parsing [`NonStdMeasPattern`] from string for configuration
 #[derive(Error, Debug)]
 #[error(
     "non standard measurement pattern must not \
@@ -943,7 +954,7 @@ pub type NonStdPresent = KeyPresent<NonStdKey>;
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasPatternError(String);
 
-/// Error when converting `NonStdMeasPatternError` to regular expression
+/// Error when converting [`NonStdMeasPattern`] to regular expression
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -954,7 +965,7 @@ pub struct NonStdMeasRegexError {
     index: IndexFromOne,
 }
 
-/// Error when parsing pairs of keys for configuration
+/// Error when building [`KeyStringPairs`] from configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

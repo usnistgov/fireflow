@@ -24,11 +24,14 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-/// A convenient bundle holding data/time keyword values.
+/// The $DATE/$BTIM/$ETIM keywords
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
+///
+/// When $DATE is present, $BTIM and $ETIM are validated to be in the correct
+/// order.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
@@ -51,9 +54,13 @@ impl<X> Default for Timestamps<X> {
     }
 }
 
+/// Wrapper for $BTIM timestamp
 pub type Btim<T> = Xtim<false, T>;
+
+/// Wrapper for $ETIM timestamp
 pub type Etim<T> = Xtim<true, T>;
 
+/// A wrapper for timestamps which encodes if it is the start or end
 #[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
@@ -75,7 +82,7 @@ where
     }
 }
 
-/// A date as used in the $DATE key
+/// The value of the $DATE key
 #[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
@@ -273,6 +280,7 @@ impl FromStr for FCSDate {
     }
 }
 
+/// Error when parsing [`FCSDate`] from string
 #[derive(Debug, Error)]
 #[error("must be like 'dd-mmm-yyyy'")]
 pub struct FCSDateError;
@@ -296,12 +304,14 @@ impl FromStr for FCSTime {
     }
 }
 
+/// Error when parsing [`Xtim`] from string
 #[derive(Display, Debug, Error)]
 pub enum FCSFixedTimeError<E> {
     Native(E),
     Patterned(#[from] ParseWithTimePatternError),
 }
 
+/// Error when parsing [`FCSTime`] as string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
@@ -343,6 +353,7 @@ impl fmt::Display for FCSTime60 {
     }
 }
 
+/// Error when parsing [`FCSTime60`] from string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
@@ -387,6 +398,7 @@ impl fmt::Display for FCSTime100 {
     }
 }
 
+/// Error when parsing [`FCSTime100`] from string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and 'ss' \
@@ -395,6 +407,7 @@ impl fmt::Display for FCSTime100 {
 )]
 pub struct FCSTime100Error;
 
+/// Error when looking up $BTIM/$ETIM/$DATE from key/value pairs
 #[derive(Display, Debug, Error, From)]
 #[cfg_attr(
     feature = "python",

@@ -1,4 +1,4 @@
-//! A flexible handler for warnings and errors.
+//! A flexible handler for warnings and errors. (not used publicly)
 //!
 //! This is predicated on the following needs:
 //!
@@ -26,6 +26,7 @@
 //! independently of other errors. In Haskell terms, this can be thought of
 //! like a transformer stack where pure errors are handled on one layer and
 //! an IO error is handled on a different layer.
+
 use crate::config::{ErrorFlag, SharedConfig};
 use crate::text::optional::Nothing;
 
@@ -87,6 +88,7 @@ pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
 // Results with errors which can also be warnings
 //
 
+// TODO these don't need to be public
 pub type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
 pub type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
 
@@ -276,6 +278,7 @@ pub struct Success<V, X, WC> {
 
 /// A failed computation, possibly with warnings, errors, and a value.
 #[derive(Debug, PartialEq, new)]
+#[new(visibility = "")]
 pub struct Failure<P, WC, E, EC> {
     warnings: WC,
     errors: GenNonEmpty<E, EC>,
@@ -551,7 +554,7 @@ impl<V, WC, E, EC> IsKind1 for Deferred<V, WC, E, EC> {
 }
 
 /// Extension trait for converting [`Option<T>`] to [`LogResult`]
-pub trait OptionExt: Sized {
+pub(crate) trait OptionExt: Sized {
     type Inner;
 
     fn into_option(self) -> Option<Self::Inner>;
@@ -577,15 +580,11 @@ impl<T> OptionExt for Option<T> {
 }
 
 /// Extension trait for converting [`Result<T, E>`] to [`LogResult`]
-pub trait ResultExt: Sized {
+pub(crate) trait ResultExt: Sized {
     type Ok;
     type Error;
 
     fn into_result(self) -> Result<Self::Ok, Self::Error>;
-
-    fn as_result(&self) -> Result<&Self::Ok, &Self::Error>;
-
-    fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
 
     fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
         self.into_log()
@@ -603,10 +602,6 @@ pub trait ResultExt: Sized {
         self.into_log().set_err_value(Self::Ok::default())
     }
 
-    fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
-        self.into_log()
-    }
-
     fn into_log<LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), LWC, RWC, (), Self::Error, EC>
     where
         EC: Default,
@@ -617,18 +612,6 @@ pub trait ResultExt: Sized {
             |e| Fail(Failure::new_from_one(e, ())),
             |s| Succ(Success::new_non_switchable(s)),
         )
-    }
-
-    fn into_io_log<Ef, LWC, RWC, EC>(
-        self,
-    ) -> LogResult<Self::Ok, (), LWC, RWC, (), ImpureError<Ef>, EC>
-    where
-        Self: ResultExt<Error = IOError>,
-        EC: Default,
-        LWC: Default,
-        RWC: Default,
-    {
-        self.into_result().map_err(ImpureError::IO).into_log()
     }
 
     fn into_deferred_switchable<X, EC>(
@@ -664,21 +647,6 @@ pub trait ResultExt: Sized {
         X: ErrorFlag,
     {
         self.into_result().map(Some).into_deferred_switchable(flag)
-    }
-
-    fn into_deferred_switchable_def<X, EC>(
-        self,
-        default: Self::Ok,
-        flag: X,
-    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
-    where
-        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        self.into_result()
-            .into_deferred_switchable_opt(flag)
-            .map_deferred_value(|v| v.unwrap_or(default))
     }
 
     fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
@@ -766,14 +734,6 @@ impl<V, E> ResultExt for Result<V, E> {
 
     fn into_result(self) -> Self {
         self
-    }
-
-    fn as_result(&self) -> Result<&V, &E> {
-        self.as_ref()
-    }
-
-    fn as_result_mut(&mut self) -> Result<&mut V, &mut E> {
-        self.as_mut()
     }
 }
 
@@ -931,6 +891,7 @@ impl<I, V, WC, E, EC> DeferredIter<V, WC, E, EC> for I where
 }
 
 /// A constraint relating error and warning containers for switchable errors.
+// TODO this doesn't need to be public
 pub trait SwitchableErrorContainer: Sized {
     type Inner;
     type Warn: Pointed<Self::Inner>;
@@ -2337,13 +2298,10 @@ impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
 //
 // Switchable LogResult
 //
-impl<V, P, X, E, EC> SwitchableResult<V, P, X, E, EC>
-where
-    EC: SwitchableErrorContainer,
-{
+impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     pub(crate) fn new_switchable_ok(value: V, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2352,7 +2310,7 @@ where
 
     pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         X: ErrorFlag,
     {
         if flag.is_error() {
@@ -2364,7 +2322,7 @@ where
 
     pub(crate) fn new_switchable_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2377,7 +2335,7 @@ where
 
     pub(crate) fn new_switchable_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2390,7 +2348,7 @@ where
     pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2414,7 +2372,7 @@ where
     ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
-        EC: SwitchableErrorContainer<Inner = E> + Functor<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Functor<E>,
         <EC as SwitchableErrorContainer>::Warn: Functor<E>,
     {
         match self {
@@ -2425,12 +2383,16 @@ where
 
     pub(crate) fn switchable_into_non_commutative(
         self,
-    ) -> NonCommutativeResult<V, P, EC::Warn, E, EC> {
+    ) -> NonCommutativeResult<V, P, EC::Warn, E, EC>
+    where
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Functor<E>,
+    {
         self.map(Success::remove_flag)
     }
 
     pub(crate) fn switchable_into_commutative(self) -> CommutativeResult<V, P, EC::Warn, E, EC>
     where
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E>,
         EC::Warn: Default,
     {
         self.map(Success::remove_flag)
@@ -2443,13 +2405,10 @@ where
 //
 // Switchable/deferred LogResult
 //
-impl<V, X, E, EC> DeferredSwitchable<V, X, E, EC>
-where
-    EC: SwitchableErrorContainer,
-{
-    pub(crate) fn new_deferred_switchable(value: V, error: E, flag: X) -> Self
+impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
+    pub(crate) fn new_deferred_switchable(value: T, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2473,9 +2432,9 @@ where
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_maybe(value: V, error: Option<E>, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_maybe(value: T, error: Option<E>, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2485,10 +2444,10 @@ where
         }
     }
 
-    pub(crate) fn new_deferred_switchable_iter<I>(value: V, errors: I, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2515,7 +2474,7 @@ where
         errors: impl IntoIterator<Item = E>,
     ) -> Self
     where
-        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
         EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
         X: ErrorFlag,
     {
@@ -2542,8 +2501,8 @@ where
 
     pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
     where
-        F: FnOnce(&V) -> Option<E>,
-        EC: Extend<E> + Default + SwitchableErrorContainer,
+        F: FnOnce(&T) -> Option<E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
         EC::Warn: Extend<E>,
         X: ErrorFlag,
     {
@@ -2566,8 +2525,8 @@ where
 
     pub(crate) fn and_then_switchable<Vf, F>(self, f: F) -> DeferredSwitchable<Vf, X, E, EC>
     where
-        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        F: FnOnce(T) -> NowarnResult<Vf, Vf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E> + SwitchableErrorContainer<Warn = WC>,
     {
         self.and_then_switchable_(|v| v, f)
     }
@@ -2579,8 +2538,8 @@ where
     ) -> SwitchableResult<Vf, Pf, X, E, EC>
     where
         Fp: FnOnce(Vf) -> Pf,
-        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        Fr: FnOnce(T) -> NowarnResult<Vf, Pf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E> + SwitchableErrorContainer<Warn = WC>,
     {
         match self {
             Succ(x) => fr(x.value).map(|s| s.set_warnings(x.warnings).set_flag(x.flag)),
@@ -2887,7 +2846,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.map_err(|e| e.aggregate_errors(f))
     }
 
-    pub(crate) fn group<G>(self) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
+    pub fn group<G>(self) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
     where
         EC: IntoNewCardinality<Vec<E>>,
         G: Default,

@@ -1,51 +1,54 @@
 //! Reading and writing the DATA segment
 //!
-//! Basic overview: DATA is arranged according to version-specific "layouts".
-//! Each layout will enumerate all possible combinations for a given version,
-//! which directly correspond to all valid combinations of $BYTEORD, $DATATYPE,
-//! $PnB, $PnR, and $PnDATATYPE in the case of 3.2.
+//! # Basic overview
 //!
-//! Each layout may then be projected in a "reader" or "writer." Readers are
+//! DATA is arranged according to version-specific "layouts". Each layout will
+//! enumerate all possible combinations for a given version, which directly
+//! correspond to all valid combinations of $BYTEORD, $DATATYPE, $PnB, $PnR, and
+//! $PnDATATYPE in the case of 3.2.
+//!
+//! Each layout may then be projected into a "reader" or "writer." Readers are
 //! blank vectors waiting to accept data from disk. Writers are iterators that
 //! read values from a dataframe and possibly convert them before writing.
 //!
-//! Now for the ugly bits.
+//! # Not-so-basic overview
 //!
-//! Layouts can first be classified by column width, where "fixed" layouts have
-//! a single width per column and "delimited" layouts have a variable width. The
+//! Layouts can first be classified by column width, where *fixed* layouts have
+//! a single width per column and *delimited* layouts have a variable width. The
 //! latter only corresponds to one layout: the case where $DATATYPE=A and all
-//! $PnB=*. Values in such layouts will always be read as u64.
+//! $PnB=*. Values in such layouts will always be read as [`u64`].
 //!
-//! Fixed layouts can further be classified by the type in each column:
+//! *Fixed* layouts can further be classified by the type in each column:
+//!
 //! 1) Single-type numeric layouts (aka "matrices")
 //! 2) Fixed ASCII layouts
 //! 3) Variable-width integer layouts
 //! 4) Mixed layouts
 //!
 //! (1) is the simplest; each column is the same type which corresponds directly
-//! with a native Rust type. This includes f32, f64, and uint ranging from 1 to
-//! 8 bytes (including those that aren't powers of 2). Each type has a slightly
-//! different reader/writer corresponding to distinct byte interpretations on
-//! disk. (2) is similar in that the entire layout is one type; however, each
-//! number is always read as u64 subject to the chars allowed by $PnB. (1)/(2)
-//! are the only possibilities for FCS 2.0/3.0 since $BYTEORD restricts all $PnB
-//! to the same width in the case of numeric $DATATYPE.
+//! with a native Rust type. This includes [`f32`], [`f64]`, and uint ranging
+//! from 1 to 8 bytes (including those that aren't powers of 2). Each type has a
+//! slightly different reader/writer corresponding to distinct byte
+//! interpretations on disk. (2) is similar in that the entire layout is one
+//! type; however, each number is always read as [`u64`] subject to the chars
+//! allowed by $PnB. (1)/(2) are the only possibilities for FCS 2.0/3.0 since
+//! $BYTEORD restricts all $PnB to the same width in the case of numeric
+//! $DATATYPE.
 //!
-//! (3) is a weird layout that almost nobody likely uses but is nonetheless
-//! permitted starting with 3.1. Since $BYTEORD was changed to only mean
-//! endian-ness, its relation to $PnB was severed. When DATATYPE=I, this means
-//! $PnB may be changed freely, which allows different integer widths in each
-//! column. In practice this makes the resulting data structure a dataframe (vs
-//! a matrix).
+//! (3) is a weird layout that only a few (but more than zero) vendors are known
+//! to use. Since $BYTEORD was changed to only mean endian-ness, its relation to
+//! $PnB was severed. When DATATYPE=I, this means $PnB may be changed freely,
+//! which allows different integer widths in each column. In practice this makes
+//! the resulting data structure a dataframe (vs a matrix).
 //!
-//! (4) was newly added to 3.2 by way of the PnDATATYPE keywords which now
+//! (4) was newly added to 3.2 by way of the $PnDATATYPE keywords which now
 //! allows the data layout to include any type. This obviously more complex but
 //! is not computationally very different from (3).
 //!
 //! In addition to width, layouts may also be classified by whether $TOT is
-//! known. In 2.0, $TOT is optional and may not be given. For delimited ASCII
+//! known. In 2.0, $TOT is optional and may not be given. For *delimited* ASCII
 //! layouts, not have $TOT means we need to parse until we reach the end of
-//! DATA, hoping that all columns have the same length. For fixed layouts, we
+//! DATA, hoping that all columns have the same length. For *fixed* layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
@@ -159,10 +162,11 @@ pub enum DataLayout3_2 {
 
 pub type MixedLayout = EndianLayout<NullMixedType, Option<NumType>>;
 
-/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+/// All possible layouts for the DATA segment in 2.0 and 3.0.
 ///
-/// It is so named "Ordered" because the BYTEORD keyword represents any possible
-/// byte ordering that may occur rather than simply little or big endian.
+/// It is so named "Ordered" because the $BYTEORD keyword represents any
+/// possible byte ordering that may occur rather than simply little or big
+/// endian.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
@@ -174,6 +178,7 @@ pub enum AnyOrderedLayout<T> {
     F64(OrderedLayout<F64Range, T>),
 }
 
+/// All possible endian layouts with the same datatype (3.1)
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
@@ -187,7 +192,7 @@ pub enum NonMixedEndianLayout<D> {
 
 pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
 
-/// Byte layouts for ASCII data.
+/// DATA layouts for ASCII data.
 ///
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
@@ -203,7 +208,7 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
-/// Byte layout for delimited ASCII.
+/// DATA layout for delimited ASCII.
 #[derive(Clone, Default, PartialEq, new, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
@@ -215,7 +220,7 @@ pub struct DelimAsciiLayout<T, D, const ORD: bool> {
     _meas_data_def: PhantomData<D>,
 }
 
-/// Byte layout where each column has a fixed width.
+/// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FixedLayout<C, L, T, D> {
@@ -228,7 +233,7 @@ pub struct FixedLayout<C, L, T, D> {
     _meas_data_def: PhantomData<D>,
 }
 
-/// Byte layout for integers that may be in any byte order.
+/// DATA layout for integers that may be in any byte order.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
@@ -370,6 +375,7 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<Nothing<NumType>>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
+/// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
     fn lookup_datatype(
         std: &mut StdKeywords,
@@ -457,7 +463,7 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Self,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
         Self::with_tot(
             (),
             tot,
@@ -471,10 +477,10 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Tot,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
-        let i = TotEventMismatch { tot, total_events };
+        let i = TotEventMismatchError { tot, total_events };
         LogResult::new_switchable_ok_if(tot.0 == count, (), (), i, flag)
     }
 }
@@ -595,7 +601,7 @@ pub trait InterLayoutOps<D> {
     fn clear(&mut self);
 }
 
-/// Standardized operations on layouts
+/// Standardized operations on ordered layouts
 #[delegatable_trait]
 pub trait OrderedLayoutOps: Sized {
     fn byte_order(&self) -> ByteOrd2_0;
@@ -713,12 +719,14 @@ where
     fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
 }
 
+/// A scale transform which may be checked against a datatype to ensure compatibility
 pub trait CheckedScaleTransform {
     type Err;
 
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
 }
 
+/// A type which has a native Rust type
 pub trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
@@ -757,7 +765,7 @@ trait FromRange: Sized {
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error>;
 }
 
-/// A type which has a width that may vary
+/// A type which has a known width
 pub trait IsFixed {
     fn nbytes(&self) -> NonZeroU8;
 
@@ -4188,7 +4196,7 @@ pub enum NewDataLayoutError {
     ByteOrd(ByteOrdToSizedError),
 }
 
-/// Error when $PnB or $PnR cannot be used for an ordered integer layout (2.0/3.0 only)
+/// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintLayout`] (2.0/3.0)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewFixedIntLayoutError {
@@ -4232,7 +4240,7 @@ impl fmt::Display for WidthMismatchError {
     }
 }
 
-/// Error when using $PnB and $PnR to make a new mixed type column.
+/// Error when using $PnB and $PnR to make a new [`MixedType`].
 ///
 /// This only applies to FCS 3.2 and the value of $PnDATATYPE is implied by
 /// the variant of this enum.
@@ -4244,7 +4252,7 @@ pub enum NewMixedTypeError {
     Float(FloatWidthError),
 }
 
-/// Warning when failing to truncate $PnR for use in a 3.2 mixed type layout.
+/// Warning when failing to truncate $PnR for use in a [`DataLayout3_2`].
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMixedTypeWarning {
@@ -4264,7 +4272,7 @@ pub enum NewMixedTypeWarning {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
 
-/// Error when using $PnB or $PnR to make a new integer bitmask
+/// Error when using $PnB or $PnR to make a new [`Bitmask`]
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewUintTypeError {
@@ -4272,7 +4280,7 @@ pub enum NewUintTypeError {
     Bytes(IndexedWidthToBytesError),
 }
 
-/// Error when converting $PnB (in bits) to bytes
+/// Error when converting $PnB (in bits) to [`Bytes`]
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
@@ -4301,7 +4309,7 @@ pub enum FloatWidthError {
     Range(IndexedFloatRangeError),
 }
 
-/// Error when converting $PnR to bitmask for integer layout based on $PnB.
+/// Error when converting $PnR to [`Bitmask`] for integer layout based on $PnB.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
@@ -4327,7 +4335,7 @@ impl fmt::Display for IndexedBitmaskError {
     }
 }
 
-/// Inner error for RangeToBitmaskError without the index
+/// Inner error for [`RangeToBitmaskError`] without the index
 ///
 /// This is necessary to translate from the more general RangeToIntError to add
 /// integer-layout-specific context. Furthermore, it subsumes
@@ -4376,7 +4384,7 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
-/// Inner error for IndexedRangeToAsciiError without the index
+/// Inner error for [`IndexedRangeToAsciiError`] without the index
 #[derive(Debug, Error)]
 pub enum RangeToAsciiError {
     #[error("its value {0} cannot be represented with 8 bytes")]
@@ -4414,7 +4422,7 @@ pub struct WrongFloatWidth {
     index: MeasIndex,
 }
 
-/// Any error when computing even width for fixed-width layout
+/// Any error when computing event width for fixed-width layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum EventWidthError {
@@ -4467,7 +4475,7 @@ pub(crate) struct AsciiLossError(Chars);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 
-/// Error when looking up layout keywords.
+/// Error when looking up layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutError {
@@ -4478,7 +4486,7 @@ pub enum LookupLayoutError {
     Meas(LookupMeasLayoutError),
 }
 
-/// Warning when looking up layout keywords.
+/// Warning when looking up layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
@@ -4501,7 +4509,7 @@ type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
     LookupMeasLayoutError,
 >;
 
-/// Error when looking up measurement layout keywords.
+/// Error when looking up measurement for layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasLayoutError {
@@ -4516,7 +4524,7 @@ pub enum LookupMeasLayoutError {
 pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
-    TotMismatch(TotEventMismatch),
+    TotMismatch(TotEventMismatchError),
 }
 
 /// Warning when reading DATA segment
@@ -4524,10 +4532,10 @@ pub enum ReadDataframeError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidth),
-    Tot(TotEventMismatch),
+    Tot(TotEventMismatchError),
 }
 
-/// Error when reading any ASCII layout (fixed or delimited)
+/// Error when reading [`AnyAsciiLayout`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadAsciiError {
@@ -4535,16 +4543,17 @@ pub enum ReadAsciiError {
     Fixed(ReadFixedAsciiError),
 }
 
-/// Error when reading fixed ASCII layout
+/// Error when reading [`FixedAsciiLayout`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadFixedAsciiError {
     Uneven(UnevenEventWidth),
-    Tot(TotEventMismatch),
+    Tot(TotEventMismatchError),
     ToUint(AsciiToUintError),
 }
 
 // TODO this is probably redundant
+/// Error when reading event value in ASCII layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::EventDataError))]
@@ -4569,12 +4578,12 @@ pub struct NotAsciiError(Vec<u8>);
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct TotEventMismatch {
+pub struct TotEventMismatchError {
     tot: Tot,
     total_events: u64,
 }
 
-/// Error when reading delimited ASCII layout (with or without $TOT)
+/// Error when reading [`DelimAsciiLayout`] (with or without $TOT)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiError {
@@ -4584,14 +4593,13 @@ pub enum ReadDelimAsciiError {
 }
 
 /// Error when ASCII layout has no columns but segment length is nonzero
-///
 #[derive(Debug, Error)]
 #[error("No columns given for ASCII layout but DATA segment is non-empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct ReadDelimNoColumn;
 
-/// Error when reading delimited ASCII layout with $TOT.
+/// Error when reading [`DelimAsciiLayout`] with $TOT.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimWithRowsAsciiError {
@@ -4600,7 +4608,7 @@ pub enum ReadDelimWithRowsAsciiError {
     Parse(AsciiToUintError),
 }
 
-/// Error when reading delimited ASCII layout where DATA is exhausted.
+/// Error when reading [`DelimAsciiLayout`] where DATA is exhausted.
 ///
 /// This happens if $TOT is greater than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -4609,7 +4617,7 @@ pub enum ReadDelimWithRowsAsciiError {
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct RowsExceededError(usize);
 
-/// Error when reading delimited ASCII layout where parsing ends unexpectedly.
+/// Error when reading [`DelimAsciiLayout`] where parsing ends unexpectedly.
 ///
 /// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -4625,7 +4633,7 @@ pub struct DelimIncompleteError {
     nrows: usize,
 }
 
-/// Error when reading a delimited ASCII layout without $TOT
+/// Error when reading [`DelimAsciiLayout`] without $TOT
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
@@ -4633,6 +4641,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
     Unequal(ReadDelimAsciiUnequalColumnsError),
 }
 
+/// Error when reading [`DelimAsciiLayout`] where columns are not equal length
 #[derive(Debug, Error)]
 #[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -4661,7 +4670,7 @@ pub enum LayoutConvertError {
     MixedToNonMixed(MixedToNonMixedLayoutError),
 }
 
-/// Error when converting a 3.1/3.2 int layout to a 2.0/3.0 int layout.
+/// Error when converting a [`NonMixedEndianLayout`] to [`AnyOrderedUintLayout`]
 ///
 /// This arises due to 3.1+ layouts being allowed to support any width and
 /// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
@@ -4677,7 +4686,7 @@ pub enum LayoutConvertError {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
-/// Error when converting a 3.2 mixed layout to a 3.1/3.2 non-mixed layout.
+/// Error when converting a [`DataLayout3_2`] to a [`NonMixedEndianLayout`]
 ///
 /// This will fail due to type mismatches (A, I, F, or D), since the width for
 /// integer layouts is allowed to vary.
@@ -4694,7 +4703,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
-/// Error when converting a 3.2 mixed layout to a 2.0/3.0 ordered uint layout.
+/// Error when converting [`DataLayout3_2`] to [`AnyOrderedLayout`]
 ///
 /// This can fail either because of a type mismatch (ie Float vs Integer) or
 /// because the width is incorrect if the mixed layout has integer columns.
@@ -4705,9 +4714,9 @@ pub enum MixedToOrderedLayoutError {
     Other(MixedToNonMixedLayoutError),
 }
 
-/// MixedToOrderedLayoutError without the index.
+/// [`MixedToOrderedLayoutError`] without the index.
 ///
-/// Used for TryFrom impl's where the index is not known
+/// Used for [`TryFrom`] impl's where the index is not known
 #[derive(From)]
 pub enum MixedToOrderedUintError {
     Integer(UintToUintError),
@@ -4723,7 +4732,7 @@ impl MixedToOrderedUintError {
     }
 }
 
-/// Error when converting between bitmasks of different byte-widths.
+/// Error when converting between [`Bitmask`]s with different byte-widths.
 #[derive(Debug, new)]
 pub struct UintToUintError {
     from: NonZeroU8,
@@ -4737,7 +4746,7 @@ pub struct MixedToNonMixedError {
     src: NullMixedType,
 }
 
-/// Error when attempting to insert a new range into a layout.
+/// Error when attempting to insert new [`Range`] into a layout.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
@@ -4753,7 +4762,7 @@ pub enum InsertRangeError {
     Float(DecimalToFloatError),
 }
 
-/// Inner error for converting range to bitmask.
+/// Inner error for converting [`Range`] to [`Bitmask`]
 ///
 /// This is separate from RangeToBitmaskError since we need different error
 /// messages here given that $PnR and $PnB do not apply to newly supply ranges.

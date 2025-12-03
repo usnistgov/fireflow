@@ -30,6 +30,7 @@ use {
 /// Fields are private to guarantee they are always in sync.
 #[derive(PartialEq, Clone, Copy, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility = "")]
 pub struct AsciiRange {
     /// The maximum value of the ASCII column
     value: AsciiRangeValue,
@@ -40,7 +41,7 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
-/// Inner value for ASCII range
+/// Integer value for [`Range`] for an ASCII measurement
 #[derive(PartialEq, Clone, Copy, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
@@ -208,7 +209,7 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
-/// Error when creating `AsciiRange` ($PnB and $PnR for one index)
+/// Error when creating [`AsciiRange`] ($PnB and $PnR for one index)
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AsciiRangeFromKeywordsError {
@@ -250,7 +251,7 @@ impl fmt::Display for IndexedWidthToCharsError {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
-/// Error when creating `OtherWidth` for configuration struct
+/// Error when creating [`OtherWidth`] for configuration struct
 #[derive(Debug, Error)]
 #[error("OTHER width should be integer b/t 1 and 20, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

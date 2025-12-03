@@ -19,14 +19,20 @@ use {
     polars_arrow::datatypes::ArrowDataType,
 };
 
-/// A dataframe without NULL and only types that make sense for FCS files.
+/// Column-major dataframe to represent events in DATA
+///
+/// This is a very light wrapper around a polars buffer which is ref-counted and
+/// therefore allows us to return event to external interfaces without copying
+/// memory. It is validated to contain no NULL values where all columns have the
+/// same length.
 #[derive(Clone, Default, PartialEq, new)]
+#[new(visibility = "")]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
 }
 
-/// Any valid column from an FCS dataframe
+/// Any valid column from [`FCSDataFrame`]
 #[derive(Clone, From)]
 pub enum AnyFCSColumn {
     U08(U08Column),
@@ -37,6 +43,7 @@ pub enum AnyFCSColumn {
     F64(F64Column),
 }
 
+/// A generic column for [`FCSDataFrame`]
 #[derive(Clone, PartialEq)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
@@ -47,6 +54,7 @@ pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
 
+/// Any valid Rust numeric type which may be used in an [`FCSDataFrame`]
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub enum FCSDatatype {
     #[display("u8")]
@@ -198,14 +206,14 @@ impl AnyFCSColumn {
     }
 }
 
-/// Error when building a new dataframe from individual columns
+/// Error when building [`FCSDataFrame`] from individual columns
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NewDataframeError;
 
-/// Error when new column has number of rows which are not equal to that of dataframe
+/// Error when new column has number of rows which are not equal to that in [`FCSDataFrame`]
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -408,14 +416,14 @@ where
     }
 }
 
-/// Error when value in dataframe loses information (type conversion or something else)
+/// Error when value in [`FCSDataFrame`] loses information (type conversion or something else)
 #[derive(Clone, Copy, Display, Debug, Error)]
 pub enum LossError<E> {
     Cast(#[from] CastError),
     Other(E),
 }
 
-/// Error when value in dataframe loses information due to type conversion
+/// Error when value in [`FCSDataFrame`] loses information due to type conversion
 #[derive(Clone, Copy, Debug, Error, new)]
 #[error("data loss occurred when converting from {from} to {to}")]
 pub struct CastError {

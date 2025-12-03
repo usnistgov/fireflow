@@ -23,7 +23,7 @@ use {
 pub struct Shortname(String);
 
 impl Shortname {
-    pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
+    pub(crate) fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
         Self(s.as_ref().to_owned())
     }
 }
@@ -48,7 +48,7 @@ impl From<MeasIndex> for Shortname {
     }
 }
 
-/// Error when parsing $PnN
+/// Error when parsing [`Shortname`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]

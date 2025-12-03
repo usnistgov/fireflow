@@ -60,6 +60,7 @@ impl<K, U, V> Default for NamedVec<K, U, V> {
     }
 }
 
+/// An key/value pair with an index
 #[derive(new)]
 pub struct IndexedElement<K, V> {
     pub index: MeasIndex,
@@ -67,6 +68,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
+/// Inner type for [`NamedVec`] which has a center element
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitVec<K, U, V> {
@@ -75,12 +77,14 @@ pub struct SplitVec<K, U, V> {
     right: PairedVec<K, V>,
 }
 
+/// Inner type for [`NamedVec`] which does not have a center element
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
 }
 
+/// A member in [`NamedVec`], either a "center" or "non-center" value
 #[derive(Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub enum Element<U, V> {
@@ -90,12 +94,14 @@ pub enum Element<U, V> {
 
 impl_kind2!(ElementFamily, Element);
 
+/// Standalone wrapper representing a center value in [`NamedVec`]
 #[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonCenterElement<V>(pub Element<(), V>);
 
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
+/// A key/value pair
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Pair<K, V> {
@@ -1923,7 +1929,7 @@ impl<K, U, V> SplitVec<K, U, V> {
     }
 }
 
-/// Error when inserting new element into named vector
+/// Error when inserting new element into [`NamedVec`]
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
@@ -1933,7 +1939,7 @@ pub enum InsertError {
     NonUnique(NamePresentError),
 }
 
-/// Error when renaming element's name at index
+/// Error when renaming element's name at index in [`NamedVec`]
 #[derive(Debug, Display, Error)]
 pub enum RenameError {
     /// Index not found
@@ -1942,7 +1948,7 @@ pub enum RenameError {
     NonUnique(NamePresentError),
 }
 
-/// Error when inserting new center element into named vector
+/// Error when inserting new center element into [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
@@ -1950,7 +1956,7 @@ pub enum InsertCenterError {
     Index(BoundaryIndexError),
 }
 
-/// Error when pushing new center element to the right of named vector
+/// Error when pushing new center element to the right of [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushCenterError {
@@ -1958,9 +1964,9 @@ pub enum PushCenterError {
     Present(CenterPresentError),
 }
 
-/// Error when setting all keys in a named vector.
+/// Error when setting all keys in a [`NamedVec`].
 ///
-/// This is distinct from setting "names" which are Shortname types. "Keys"
+/// This is distinct from setting "names" which are [`Shortname`]. "Keys"
 /// are names in containers which may or may not contain them.
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1969,7 +1975,7 @@ pub enum SetKeysError {
     MissingCenter(MissingCenterError),
 }
 
-/// Error when setting names (Shortname) in a named vector.
+/// Error when setting names ([`Shortname`]) in a [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamesError {
@@ -1977,7 +1983,7 @@ pub enum SetNamesError {
     NonUnique(NonUniqueKeysError),
 }
 
-/// Error when assigning an element in named vector to be the center element
+/// Error when assigning an element in [`NamedVec`] to be the center element
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetCenterError {
@@ -1985,7 +1991,7 @@ pub enum SetCenterError {
     NoName(NoNameError),
 }
 
-/// Error when assigning an element in named vector to be the center element
+/// Error when assigning an element in [`NamedVec`] to be the center element
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetValuesError {
@@ -1993,7 +1999,7 @@ pub enum SetValuesError {
     Set(ElementMismatchErrors),
 }
 
-/// Error when building new named vector from list of elements
+/// Error when building new [`NamedVec`] from list of elements
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewNamedVecError {
@@ -2001,7 +2007,7 @@ pub enum NewNamedVecError {
     MultiCenter(CenterPresentError),
 }
 
-/// Error when setting/altering the elements of a named vector
+/// Error when setting/altering the elements of [`NamedVec`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
@@ -2010,41 +2016,41 @@ pub enum SetElementsError<E> {
     Mismatch(E),
 }
 
-/// Error when the center element of a named vector is already present
+/// Error when the center element of [`NamedVec`] is already present
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct CenterPresentError;
 
-/// Error when the specified element does not have a name but one is expected.
+/// Error when element in [`NamedVec`] does not have a name but one is expected.
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NoNameError;
 
-/// Error when the center element of a named vector is missing but expected
+/// Error when the center element of [`NamedVec`] is missing but expected
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct MissingCenterError;
 
-/// Error when final state of keys in named vector results in duplicates
+/// Error when final state of keys in [`NamedVec`] results in duplicates
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NonUniqueKeysError;
 
-/// Error when name in named vector is not found
+/// Error when name in [`NamedVec`] is not found
 #[derive(Debug, Error)]
 #[error("'{0}' matches no measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
 pub struct NameNotFoundError(pub Shortname);
 
-/// Error when name is already present in named vector
+/// Error when name is already present in [`NamedVec`]
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -2053,7 +2059,7 @@ pub struct NamePresentError {
     name: Shortname,
 }
 
-/// Error when index is out of bounds for named vector, optionally including center.
+/// Error when index is out of bounds for [`NamedVec`], optionally including center.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {
@@ -2061,7 +2067,7 @@ pub struct ElementIndexError {
     center: Option<MeasIndex>,
 }
 
-/// Error when element types do not match
+/// Error when element types do not match in [`NamedVec`]
 #[derive(Debug, Error, new)]
 #[error(
     "attempted to set a {to} at {index} when {from} is needed",
@@ -2095,6 +2101,7 @@ impl fmt::Display for ElementIndexError {
     }
 }
 
+/// Error when input collection does not match number of elements in [`NamedVec`]
 #[derive(Debug, Error)]
 #[error(
     "input must be {this_len} ({c}including center) elements long, got {other_len}",

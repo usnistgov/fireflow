@@ -4,7 +4,7 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
-/// The delimiter used when writing TEXT
+/// The delimiter to use when writing TEXT
 #[derive(Clone, Copy, Into)]
 #[cfg_attr(feature = "python", derive(TryFromPyObject))]
 pub struct TEXTDelim(u8);
@@ -26,7 +26,7 @@ impl TryFrom<u8> for TEXTDelim {
     }
 }
 
-/// Error when creating TEXT delimiter
+/// Error when creating [`TEXTDelim`]
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

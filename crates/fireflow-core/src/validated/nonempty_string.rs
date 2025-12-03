@@ -33,7 +33,7 @@ impl FromStr for NonEmptyString {
     }
 }
 
-/// Error when string is empty which is not supposed to be empty
+/// Error when parsing [`NonEmptyString`] from empty [`String`]
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

@@ -237,7 +237,7 @@ impl FromStr for Spillover {
     }
 }
 
-/// Error when building a new $SPILLOVER value
+/// Error when building a new [`Spillover`] value
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
@@ -252,7 +252,7 @@ pub enum NewSpilloverError {
     TooSmall,
 }
 
-/// Error when parsing $SPILLOVER from string
+/// Error when parsing [`Spillover`] from string
 #[derive(From, Debug, Display, Error)]
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
@@ -260,7 +260,7 @@ pub enum ParseSpilloverError {
     IndexLink(KeyToIndexLinkError<Spillover>),
 }
 
-/// Error when parsing spillover matrix from string with generalized rownames
+/// Error when parsing [`GenericSpillover`] from string
 #[derive(Debug, Error)]
 pub enum ParseGenericSpilloverError {
     #[error("{0}")]
@@ -273,7 +273,7 @@ pub enum ParseGenericSpilloverError {
     BadN,
 }
 
-/// Error when parsing a measurement index in $SPILLOVER
+/// Error when parsing a measurement index in [`Spillover`]
 ///
 /// Note that this is non-standard behavior. $SPILLOVER should refer to $PnN,
 /// but many vendors refer to measurements using their indices instead.

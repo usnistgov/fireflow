@@ -17,7 +17,7 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintZeroPad20,
+    HeaderString, Uint8DigitOverflowError, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
@@ -559,9 +559,9 @@ impl<T> HeaderKeywordsToWrite<T> {
         analysis_len: u64,
         other_lens: &[u64],
         has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflowError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let text_begin = Self::header_len(other_lens.len());
         let dso = DatasetOffset(0);
@@ -617,9 +617,9 @@ impl<T> HeaderKeywordsToWrite<T> {
         analysis_len: u64,
         other_lens: &[u64],
         has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflow>
+    ) -> Result<Self, Uint8DigitOverflowError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len());

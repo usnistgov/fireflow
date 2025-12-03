@@ -83,7 +83,7 @@ use crate::text::timestamps::{
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
+    HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
@@ -2250,7 +2250,7 @@ where
         path: &PathBuf,
         cores: &[Self],
         conf: &WriteTEXTInnerConfig,
-    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
     {
@@ -2271,7 +2271,7 @@ where
         &self,
         path: &PathBuf,
         conf: &WriteMultiTEXTConfig,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
     {
@@ -2287,7 +2287,7 @@ where
         h: &mut BufWriter<W>,
         conf: &WriteTEXTInnerConfig,
         has_nextdata: AppendableFlag,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
     {
@@ -2303,10 +2303,10 @@ where
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
         has_nextdata: AppendableFlag,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
         self.h_write_text_inner::<_, T>(h, &conf)
@@ -2316,10 +2316,10 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteHeaderAndTextConfig<'_>,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflow>>
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_flat_keywords(conf)
@@ -3656,10 +3656,10 @@ where
     fn header_and_flat_keywords<T>(
         &self,
         conf: &WriteHeaderAndTextConfig<'_>,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflowError>
     where
         Version: From<M::Ver>,
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let req: Vec<_> = self
             .req_root_keywords()
@@ -8698,7 +8698,7 @@ pub struct NameConversionError(Key1<Shortname>);
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(IndexedLossError),
-    Overflow(Uint8DigitOverflow),
+    Overflow(Uint8DigitOverflowError),
 }
 
 /// Error when setting measurements vector

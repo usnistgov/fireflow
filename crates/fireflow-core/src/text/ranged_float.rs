@@ -14,14 +14,14 @@ use pyo3::prelude::*;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
-/// A non-negative float
+/// A non-negative [`f32`]
 #[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
 pub struct NonNegFloat(f32);
 
-/// A positive float
+/// A positive [`f32`]
 #[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
@@ -60,7 +60,7 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
-/// Error when parsing string to float with restricted range
+/// Error when parsing either [`NonNegFloat`] or [`PositiveFloat`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]

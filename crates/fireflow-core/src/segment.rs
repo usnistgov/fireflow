@@ -75,7 +75,7 @@ pub(crate) struct GenericSegment {
 }
 
 #[derive(Clone, Debug, Display)]
-pub enum AnySrc {
+pub(crate) enum AnySrc {
     #[display("HEADER")]
     Header,
     #[display("TEXT")]
@@ -83,7 +83,7 @@ pub enum AnySrc {
 }
 
 #[derive(Clone, Debug, Display)]
-pub enum AnyRegion {
+pub(crate) enum AnyRegion {
     #[display("ANALYSIS")]
     Analysis,
     #[display("DATA")]
@@ -96,46 +96,46 @@ pub enum AnyRegion {
     Other,
 }
 
-/// Denotes a segment came from HEADER
+/// Denotes [`Segment`] came from HEADER
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromHeader;
 
-/// Denotes a segment came from TEXT
+/// Denotes [`Segment`] came from TEXT
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SegmentFromTEXT;
 
-/// Denotes a segment came from either TEXT or HEADER
+/// Denotes [`Segment`] came from either TEXT or HEADER
 #[derive(Clone, Copy, PartialEq)]
 pub struct SegmentFromAnywhere;
 
-/// Denotes the segment pertains to primary TEXT
+/// Denotes [`Segment`] pertains to primary TEXT
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PrimaryTextSegmentId;
 
-/// Denotes the segment pertains to supplemental TEXT
+/// Denotes [`Segment`] pertains to supplemental TEXT
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SupplementalTextSegmentId;
 
-/// Denotes the segment pertains to DATA
+/// Denotes [`Segment`] pertains to DATA
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataSegmentId;
 
-/// Denotes the segment pertains to ANALYSIS
+/// Denotes [`Segment`] pertains to ANALYSIS
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AnalysisSegmentId;
 
-/// Denotes the segment pertains to OTHER (indexed from 0)
+/// Denotes [`Segment`] pertains to OTHER (indexed from 0)
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
 
-/// Configuration for making a new segment
+/// Configuration for making a new [`Segment`]
 #[derive(new)]
 pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
@@ -269,6 +269,7 @@ impl NonDataSegments<'_> {
 }
 
 /// Operations to obtain optional segment from TEXT keywords
+// TODO this doesn't need to be public
 pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
@@ -1299,6 +1300,7 @@ pub enum HeaderSegmentError {
     Bytes(OffsetsNoBytesError),
 }
 
+/// Error when there are not enough bytes in file to read offsets
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
@@ -1446,7 +1448,7 @@ pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Validation(TEXTSegmentOverlapError<I>),
 }
 
-/// Error when TEXT segment overlaps with another segment
+/// Error when segment with TEXT offsets overlaps with HEADER or another segment
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
@@ -1455,6 +1457,7 @@ pub enum TEXTSegmentOverlapError<I> {
     OtherSeg(SegmentOverlapError),
 }
 
+/// Error when segment from TEXT begins in HEADER
 #[derive(Debug, Display, Error, new)]
 #[display(bound(I: HasRegion))]
 #[display(

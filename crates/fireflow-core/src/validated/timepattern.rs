@@ -6,17 +6,17 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
-/// A String that matches a time.
+/// A [`String`] that matches a time.
 ///
 /// To be used when parsing time using [`NaiveTime::parse_from_str`].
 ///
 /// This will contain all the formatting specificers native to chrono which
 /// encode for time (hours, minutes, seconds, less than seconds). Additionally,
-/// it will include two new identifiers for 60th seconds (%!) centiseconds (%@)
-/// which are present in FCS 3.0 and FCS 3.1+ respectively. These are
+/// it will include two new identifiers for 60th seconds (`"%!"`) centiseconds
+/// (`"%@"`) which are present in FCS 3.0 and FCS 3.1+ respectively. These are
 /// incompatible with any other sub-second identifiers. Since chrono cannot
 /// process these natively, these identifiers will be substituted with
-/// nanosecond fraction (%f) and converted after parsing.
+/// nanosecond fraction (`"%f"`) and converted after parsing.
 #[derive(Clone, Debug, AsRef)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct TimePattern {
@@ -134,7 +134,7 @@ impl FromStr for TimePattern {
     }
 }
 
-/// Error when parsing time pattern for configuration
+/// Error when parsing [`TimePattern`] from string for configuration
 #[derive(Debug, Error)]
 #[error(
     "time pattern must contain specifier for hour (%H/%k for 24 hours \
@@ -147,7 +147,7 @@ impl FromStr for TimePattern {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TimePatternError(String);
 
-/// Error when parsing a string to a timestamp using time pattern
+/// Error when parsing [`NaiveTime`] from string using [`TimePattern`]
 #[derive(From, Debug, Error)]
 pub enum ParseWithTimePatternError {
     #[error("{0}")]

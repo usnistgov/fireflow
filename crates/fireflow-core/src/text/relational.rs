@@ -57,9 +57,11 @@ use {
     std::fmt::Display,
 };
 
+/// Indices from all measurements except time if present
 #[derive(AsRef, From)]
 pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
 
+/// $PnN ([`Shortname`]) from all measurements except time if present
 #[derive(AsRef, From)]
 pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
 
@@ -209,7 +211,7 @@ pub enum AnyLinkError {
     Window(IndexedKeyToIndexLinkError<RegionWindow>),
 }
 
-/// Error for key which references a non-existent measurement $PnN
+/// Error when key which references a non-existent measurement $PnN
 #[derive(Debug, Display, Error, new)]
 #[display(
     "{key} references non-existent $PnN: {bad}",
@@ -226,7 +228,7 @@ pub struct NamedLinkError<T, I> {
     names: NonEmpty<Shortname>,
 }
 
-/// Error for key which references a non-existent measurement index
+/// Error when key which references a non-existent measurement index
 #[derive(Debug, Display, Error, new)]
 #[display(
     "{key} references non-existent measurement indices: {bad}",
@@ -240,7 +242,7 @@ pub struct IndexLinkError<T, I> {
     key: SpecificKey<T, I>,
 }
 
-/// Error for key which depends on another key which is invalid.
+/// Error when key which depends on another key which is invalid.
 #[derive(Debug, Display, Error, new)]
 #[display(
     "{key} depends on other keys which do not exist: {bad}",

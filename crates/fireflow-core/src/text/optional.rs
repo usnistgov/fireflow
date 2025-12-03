@@ -80,14 +80,14 @@ impl<A> Pointed<A> for Nothing<A> {
     }
 }
 
-/// A string that is stored as-is but will not be displayed/written if blank.
+/// A [`String`] that is stored as-is but will not be displayed/written if blank.
 #[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[as_ref(str)]
 pub struct OptionalString(pub String);
 
-/// A string that is stored as-is but will not be displayed/written if zero.
+/// A [`String`] that is stored as-is but will not be displayed/written if zero.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]

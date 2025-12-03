@@ -5,9 +5,9 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
-/// A String that matches a date.
+/// A [`String`] that matches a date.
 ///
-/// To be used when parsing date using
+/// This is a configuration value to be used when parsing a date using
 /// [`NaiveDate::parse_from_str`](chrono::NaiveDate::parse_from_str).
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
@@ -39,7 +39,7 @@ impl FromStr for DatePattern {
     }
 }
 
-/// Error when paring date pattern for configuration
+/// Error when parsing [`DatePattern`] from string
 #[derive(Debug, Error)]
 #[error(
     "date pattern must contain specifier for year (%y or %Y), \

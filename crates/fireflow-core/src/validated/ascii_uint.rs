@@ -21,7 +21,7 @@ use {
     pyo3::prelude::*,
 };
 
-/// An unsigned int which may only be 20 chars wide.
+/// An unsigned int which may only be 20 digits.
 ///
 /// This will always be formatted as a right-aligned 0-padded integer 20 chars
 /// wide. No validation will be performed as a u64 can only store 20 digits.
@@ -67,7 +67,7 @@ impl CheckedSub for UintZeroPad20 {
     }
 }
 
-/// An unsigned int which may only be 20 chars wide.
+/// An unsigned int which may only be 20 digits.
 ///
 /// This will always be formatted as a right-aligned space-padded integer 20
 /// chars wide. No validation will be performed as a u64 can only store 20
@@ -135,7 +135,7 @@ impl UintSpacePad20 {
 
 // for symmetry with UintSpacePad8
 impl TryFrom<u64> for UintSpacePad20 {
-    type Error = Uint8DigitOverflow;
+    type Error = Uint8DigitOverflowError;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         Ok(Self(value))
     }
@@ -233,13 +233,13 @@ impl TryFrom<i128> for UintSpacePad8 {
 }
 
 impl TryFrom<u64> for UintSpacePad8 {
-    type Error = Uint8DigitOverflow;
+    type Error = Uint8DigitOverflowError;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
         value
             .try_into()
-            .map_or(Err(Uint8DigitOverflow(value)), |x: u32| {
+            .map_or(Err(Uint8DigitOverflowError(value)), |x: u32| {
                 if x > MAX_HEADER_OFFSET {
-                    Err(Uint8DigitOverflow(x.into()))
+                    Err(Uint8DigitOverflowError(x.into()))
                 } else {
                     Ok(Self(x))
                 }
@@ -247,12 +247,12 @@ impl TryFrom<u64> for UintSpacePad8 {
     }
 }
 
-pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
+pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError> {
     if xs.is_ascii() {
         // SAFETY: we just checked that all bytes are ASCII
         Ok(unsafe { str::from_utf8_unchecked(xs) })
     } else {
-        Err(BytesNotAscii(xs.to_vec()))
+        Err(BytesNotAsciiError(xs.to_vec()))
     }
 }
 
@@ -262,7 +262,7 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
 #[derive(Display, From, Debug)]
 pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
-    NotAscii(BytesNotAscii),
+    NotAscii(BytesNotAsciiError),
     Negative(NegativeOffsetError),
 }
 
@@ -270,12 +270,12 @@ pub(crate) enum ParseFixedUintError {
 #[derive(Debug, Error)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyOverflowError))]
-pub struct Uint8DigitOverflow(u64);
+pub struct Uint8DigitOverflowError(u64);
 
 /// Error when parsing integer from ASCII with invalid ASCII characters
 #[derive(Debug, Error)]
 #[error("could not convert to ASCII string: {0:?}")]
-pub struct BytesNotAscii(Vec<u8>);
+pub struct BytesNotAsciiError(Vec<u8>);
 
 /// Error when offsets in HEADER are negative (this happens for some reason)
 #[derive(Debug, Error)]

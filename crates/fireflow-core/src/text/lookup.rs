@@ -30,16 +30,16 @@ pub type ReqIndexedKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, IndexF
 /// An error caused when parsing a required indexed standard key with external state
 pub type ReqIndexedStKeyError<T> = ReqKeyErrorInner<<T as FromStrWith>::Err, T, IndexFromOne>;
 
-/// An parse key error for an optional non-indexed key.
+/// A parse key error for an optional non-indexed key.
 pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
 
-/// An parse key error for an optional indexed key.
+/// A parse key error for an optional indexed key.
 pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
 
-/// An parse key error for an optional non-indexed key when parsing with external state.
+/// A parse key error for an optional non-indexed key when parsing with external state.
 pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
 
-/// An parse key error for an optional indexed key when parsing with external state.
+/// A parse key error for an optional indexed key when parsing with external state.
 pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
 
 /// An error caused when parsing a required standard key

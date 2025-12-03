@@ -6,7 +6,7 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::DisplayAsPyErr;
 
-/// Pattern to match a sed-like substitution operation.
+/// Pattern to match a string and apply a sed-like substitution operation.
 #[derive(Clone)]
 pub struct SubPattern {
     from: Regex,
@@ -81,7 +81,7 @@ impl SubPattern {
     }
 }
 
-/// Error when parsing subpattern for configuration
+/// Error when parsing [`SubPattern`] from string for configuration
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

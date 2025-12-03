@@ -20,16 +20,17 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
 
-/// A number representing a value with bitmask up to LEN bits
+/// The type of an integer column with `LEN` bytes in all versions.
 #[derive(PartialEq, Clone, Copy, PartialOrd, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility = "")]
 pub struct Bitmask<T, const LEN: usize> {
     /// The value to be masked.
     ///
     /// This can be any integer up to LEN bits.
     value: BitmaskValue<T>,
 
-    /// The bitmask corresponding to `value`.
+    /// The bitmask corresponding to [`Self::value`].
     ///
     /// Will always be a power of 2 minus 1 (ie, some number of contiguous bits
     /// in binary). This will be able to hold `value` but will mask out any
@@ -37,7 +38,7 @@ pub struct Bitmask<T, const LEN: usize> {
     bitmask: T,
 }
 
-/// Inner value for bitmask
+/// Integer value for [`Range`] for a bitmask
 #[derive(PartialEq, Clone, Copy, Debug, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]

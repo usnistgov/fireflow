@@ -168,7 +168,7 @@ use {
 /// * `D`: the DATA segment ([`FCSDataFrame`])
 /// * `O`: the OTHER segments ([`Others`])
 ///
-/// Each of these are either their indicated Rust type above or [`()`] if not
+/// Each of these are either their indicated Rust type above or `()` if not
 /// included. The former corresponds to [`CoreDataset`] and the latter
 /// corresponds to [`CoreTEXT`].
 ///

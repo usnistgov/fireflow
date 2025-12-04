@@ -251,7 +251,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, Nothing<NumType>>;
+pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasOrder>::Order, T, Nothing<NumType>>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 #[derive(Debug, PartialEq, Clone)]
@@ -728,30 +728,30 @@ pub trait CheckedScaleTransform {
 }
 
 /// A type which has a native Rust type
-pub trait HasNativeType: Sized {
+trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
 }
 
-/// A type which uses a defined number of bytes
-pub trait HasNativeWidth: HasNativeType {
+/// A type which uses a defined number of [`PrivBytes`]
+trait HasBytes: HasNativeType {
     /// The length of the type in an FCS file (may be less than native)
-    const BYTES: Bytes;
+    const BYTES: PrivBytes;
+}
 
-    /// The length of the native Rust type
-    const LEN: usize;
-
+/// A type which uses a defined number of bytes
+pub trait HasOrder {
     /// The sized byte order to be used with this type
     type Order;
 }
 
 /// A column which has only one $DATATYPE
-pub trait HasOneDatatype: Sized {
+trait HasOneDatatype: Sized {
     const DATATYPE: AlphaNumType;
 }
 
 /// A column which has a $DATATYPE keyword
-pub trait HasDatatype: Sized {
+trait HasDatatype: Sized {
     fn datatype(&self) -> AlphaNumType;
 
     fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
@@ -771,15 +771,6 @@ pub trait IsFixed {
     fn nbytes(&self) -> NonZeroU8;
 
     fn fixed_width(&self) -> BitsOrChars;
-
-    fn range(&self) -> Range;
-
-    fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
-        [
-            Width::Fixed(self.fixed_width()).meas_pair(i),
-            self.range().meas_pair(i),
-        ]
-    }
 }
 
 /// A column which may be transformed into a reader for a rust numeric type
@@ -2562,7 +2553,12 @@ where
         self.columns
             .iter()
             .enumerate()
-            .map(|(i, c)| c.req_meas_keywords(i.into()))
+            .map(|(i, c)| {
+                [
+                    Width::Fixed(c.fixed_width()).meas_pair(i),
+                    Range::from(c).meas_pair(i),
+                ]
+            })
             .collect()
     }
 
@@ -2871,7 +2867,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .sum()
     }
 
-    pub fn compute_nrows(
+    fn compute_nrows(
         &self,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
@@ -2952,9 +2948,11 @@ macro_rules! def_native_wrapper {
             type Native = $native;
         }
 
-        impl HasNativeWidth for $name {
-            const BYTES: Bytes = Bytes(PrivBytes::$bytes);
-            const LEN: usize = $native_size;
+        impl HasBytes for $name {
+            const BYTES: PrivBytes = PrivBytes::$bytes;
+        }
+
+        impl HasOrder for $name {
             type Order = SizedByteOrd<$size>;
         }
     };
@@ -3156,7 +3154,7 @@ impl FromRange for NullMixedType {
 
 impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
 where
-    Self: HasNativeWidth,
+    Self: HasBytes,
     u64: From<T>,
     T: Copy,
 {
@@ -3167,15 +3165,11 @@ where
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(Self::BYTES.into())
     }
-
-    fn range(&self) -> Range {
-        self.into()
-    }
 }
 
 impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
-    Self: HasNativeWidth,
+    Self: HasBytes,
     T: Copy,
     f64: From<T>,
 {
@@ -3185,10 +3179,6 @@ where
 
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(Self::BYTES.into())
-    }
-
-    fn range(&self) -> Range {
-        self.range.clone().into()
     }
 }
 
@@ -3200,10 +3190,6 @@ impl IsFixed for AsciiRange {
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(self.chars().into())
     }
-
-    fn range(&self) -> Range {
-        Range(self.value().0.into())
-    }
 }
 
 impl IsFixed for AnyNullBitmask {
@@ -3214,10 +3200,6 @@ impl IsFixed for AnyNullBitmask {
     fn fixed_width(&self) -> BitsOrChars {
         match_any_uint!(self, Self, x, { x.fixed_width() })
     }
-
-    fn range(&self) -> Range {
-        match_any_uint!(self, Self, x, { x.range() })
-    }
 }
 
 impl IsFixed for NullMixedType {
@@ -3227,10 +3209,6 @@ impl IsFixed for NullMixedType {
 
     fn fixed_width(&self) -> BitsOrChars {
         match_any_mixed!(self, x, { x.fixed_width() })
-    }
-
-    fn range(&self) -> Range {
-        match_any_mixed!(self, x, { x.range() })
     }
 }
 
@@ -3442,7 +3420,7 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
 
 impl<T, const LEN: usize, TC> OrderedLayout<Bitmask<T, LEN>, TC>
 where
-    Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+    Bitmask<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
 {
     #[must_use]
     pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
@@ -3452,7 +3430,7 @@ where
 
 impl<T, const LEN: usize, TC> OrderedLayout<FloatRange<T, LEN>, TC>
 where
-    FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+    FloatRange<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
 {
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {

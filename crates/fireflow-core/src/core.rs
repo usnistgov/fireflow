@@ -25,7 +25,7 @@ use crate::logging::{
     WarningAndGroupResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
-use crate::macros::{def_group, match_many_to_one};
+use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
@@ -8711,7 +8711,7 @@ pub enum SetMeasurementsError {
 
 pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurementsSummary>;
 
-def_group!(SetMeasurementsSummary, "could not set measurements");
+def_summary!(SetMeasurementsSummary, "could not set measurements");
 
 /// Error when setting measurements vector without names
 #[derive(From, Display, Debug, Error)]
@@ -9546,14 +9546,14 @@ pub struct CompParMismatchError {
 
 type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
 
-def_group!(
+def_summary!(
     SetOpticalSummary,
     "attempted to assign incompatible optical measurement values"
 );
 
 type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
 
-def_group!(
+def_summary!(
     SetAllMeasSummary,
     "attempted to assign incompatible optical and temporal measurement values"
 );
@@ -9579,10 +9579,10 @@ impl fmt::Display for MeasMismatchError {
 }
 
 #[cfg(feature = "python")]
-def_group!(NewCoreTEXTSummary, "could not make new CoreTEXT");
+def_summary!(NewCoreTEXTSummary, "could not make new CoreTEXT");
 
 #[cfg(feature = "python")]
-def_group!(NewCoreDatasetSummary, "could not make new CoreDataset");
+def_summary!(NewCoreDatasetSummary, "could not make new CoreDataset");
 
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
@@ -9591,42 +9591,42 @@ pub struct ConvertSummary {
     to: Version,
 }
 
-def_group!(
+def_summary!(
     SetScalesSummary,
     "could not set scales for optical measurements"
 );
 
-def_group!(
+def_summary!(
     SetTransformsSummary,
     "could not set scale transforms for optical measurements"
 );
 
-def_group!(PushTemporalSummary, "could not push temporal measurement");
+def_summary!(PushTemporalSummary, "could not push temporal measurement");
 
-def_group!(
+def_summary!(
     InsertTemporalSummary,
     "could not insert temporal measurement"
 );
 
-def_group!(PushOpticalSummary, "could not push optical measurement");
+def_summary!(PushOpticalSummary, "could not push optical measurement");
 
-def_group!(InsertOpticalSummary, "could not insert optical measurement");
+def_summary!(InsertOpticalSummary, "could not insert optical measurement");
 
-def_group!(SetAppliedGatesSummary, "could not set gating keywords");
+def_summary!(SetAppliedGatesSummary, "could not set gating keywords");
 
-def_group!(
+def_summary!(
     SetMeasurementsAndLayoutSummary,
     "could not set measurements and layout"
 );
 
-def_group!(WriteDatasetSummary, "could not write FCS file");
+def_summary!(WriteDatasetSummary, "could not write FCS file");
 
-def_group!(
+def_summary!(
     CoreTEXTFromKeywordsSummary,
     "could not create new CoreTEXT from keywords"
 );
 
-def_group!(
+def_summary!(
     StdDatasetWithKwsSummary,
     "could not read standardized dataset from keywords"
 );

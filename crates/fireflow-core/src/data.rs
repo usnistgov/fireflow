@@ -63,7 +63,7 @@ use crate::logging::{
     ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult, WarningOrErrorResult,
     WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsResult,
 };
-use crate::macros::{def_group, match_many_to_one};
+use crate::macros::{def_summary, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -4806,7 +4806,7 @@ pub struct MeasLayoutLengthsError {
 
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
 
-def_group!(
+def_summary!(
     ScaleMismatchSummary,
     "mismatch between scale and column datatypes"
 );
@@ -4814,7 +4814,7 @@ def_group!(
 pub type ScaleTransformMismatchErrors =
     ErrorGroup<ScaleTransformMismatchError, ScaleTransformMismatchSummary>;
 
-def_group!(
+def_summary!(
     ScaleTransformMismatchSummary,
     "mismatch between scale transforms and column datatypes"
 );

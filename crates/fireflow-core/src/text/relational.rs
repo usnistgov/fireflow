@@ -27,7 +27,7 @@
 /// a file and parse keywords from a hash table. The former doesn't require
 /// demoting optional keywords.
 use crate::logging::ErrorGroup;
-use crate::macros::def_group;
+use crate::macros::def_summary;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex};
 use crate::text::optional::DisplayMaybe as _;
 use crate::validated::keys::{
@@ -69,7 +69,7 @@ pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
 // Existential relational errors (do any links exist?)
 //
 
-def_group!(
+def_summary!(
     ExistingLinkFailure,
     "could not continue without breaking existing links"
 );

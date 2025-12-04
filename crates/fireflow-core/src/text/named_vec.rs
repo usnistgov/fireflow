@@ -2,7 +2,7 @@ use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
-use crate::macros::def_group;
+use crate::macros::def_summary;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
@@ -2083,7 +2083,7 @@ pub struct ElementMismatchError {
 
 pub type ElementMismatchErrors = ErrorGroup<ElementMismatchError, ElementMismatchSummary>;
 
-def_group!(ElementMismatchSummary, "could not set new values");
+def_summary!(ElementMismatchSummary, "could not set new values");
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

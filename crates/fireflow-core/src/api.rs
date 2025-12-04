@@ -23,7 +23,7 @@ use crate::logging::{
     WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
-use crate::macros::def_group;
+use crate::macros::def_summary;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
     NonDataSegments, OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError,
@@ -69,7 +69,7 @@ pub fn fcs_read_header(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
-) -> IOGroupResult<Header, ReadHeaderError, HeaderFailure> {
+) -> IOGroupResult<Header, ReadHeaderError, HeaderSummary> {
     let (st, file) = ReadState::open(path, dataset_offset, conf)
         .map_err(|e| e.fmap_once(ReadHeaderError::from))
         .map_err(IOAnonErrorGroup::from)
@@ -90,7 +90,7 @@ pub fn fcs_read_flat_text(
     FlatTEXTOutput,
     ParseFlatTEXTWarning,
     HeaderOrFlatTextError,
-    FlatTEXTFailure,
+    FlatTEXTSummary,
 > {
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
@@ -108,7 +108,7 @@ pub fn fcs_read_std_text(
     (AnyCoreTEXT, StdTEXTOutput),
     StdTEXTWarning,
     StdTEXTError,
-    StdTEXTFailure,
+    StdTEXTSummary,
 > {
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, st)| (x, st))
@@ -135,7 +135,7 @@ pub fn fcs_read_flat_dataset(
     FlatDatasetOutput,
     FlatDatasetWarning,
     FlatDatasetError,
-    FlatDatasetFailure,
+    FlatDatasetSummary,
 > {
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_pure_errors(FlatDatasetError::from)
@@ -168,7 +168,7 @@ pub fn fcs_read_std_dataset(
     (AnyCoreDataset, StdDatasetOutput),
     StdDatasetWarning,
     StdDatasetError,
-    StdDatasetFailure,
+    StdDatasetSummary,
 > {
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
@@ -198,7 +198,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
     FlatDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
-    FlatDatasetWithKwsFailure,
+    FlatDatasetWithKwsSummary,
 > {
     ReadState::open(path, dataset_offset, conf)
         .map_err(|e| e.fmap_once(LookupAndReadDataAnalysisError::from))
@@ -230,7 +230,7 @@ pub fn fcs_read_flat_texts(
     Vec<FlatTEXTOutput>,
     ParseFlatTEXTWarning,
     HeaderOrFlatTextError,
-    FlatTEXTFailure,
+    FlatTEXTSummary,
 > {
     let mut dataset_offset = Some(DatasetOffset::default());
     let mut count = 0_usize;
@@ -268,14 +268,14 @@ pub fn fcs_read_std_texts(
     Vec<(AnyCoreTEXT, StdTEXTOutput)>,
     MultiStdTEXTWarning,
     MultiStdTEXTError,
-    StdTEXTFailure,
+    StdTEXTSummary,
 > {
     read_nextdata_loop(
         path,
         skip,
         limit,
         conf,
-        StdTEXTFailure,
+        StdTEXTSummary,
         fcs_read_std_text,
         |ret| ret.1.parse.nextdata,
     )
@@ -292,14 +292,14 @@ pub fn fcs_read_flat_datasets(
     Vec<FlatDatasetOutput>,
     MultiFlatDatasetWarning,
     MultiFlatDatasetError,
-    FlatDatasetFailure,
+    FlatDatasetSummary,
 > {
     read_nextdata_loop(
         path,
         skip,
         limit,
         conf,
-        FlatDatasetFailure,
+        FlatDatasetSummary,
         fcs_read_flat_dataset,
         |ret| ret.text.parse.nextdata,
     )
@@ -316,14 +316,14 @@ pub fn fcs_read_std_datasets(
     Vec<(AnyCoreDataset, StdDatasetOutput)>,
     MultiStdDatasetWarning,
     MultiStdDatasetError,
-    StdDatasetFailure,
+    StdDatasetSummary,
 > {
     read_nextdata_loop(
         path,
         skip,
         limit,
         conf,
-        StdDatasetFailure,
+        StdDatasetSummary,
         fcs_read_std_dataset,
         |ret| ret.1.parse.nextdata,
     )
@@ -496,7 +496,7 @@ pub struct FlatTEXTParseData {
     pub byte_pairs: BytesPairs,
 }
 
-/// Warning when parsing TEXT in standard mode
+/// Warning when parsing [`Header`]
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadHeaderError {
@@ -546,7 +546,7 @@ pub enum FlatDatasetWarning {
     Read(LookupAndReadDataAnalysisWarning),
 }
 
-/// Warning when parsing TEXT+DATA in standard mode
+/// Warning when parsing TEXT+DATA in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum FlatDatasetError {
@@ -555,7 +555,7 @@ pub enum FlatDatasetError {
     Warn(FlatDatasetWarning),
 }
 
-/// Error when parsing HEADER or TEXT segments
+/// Error when parsing HEADER or TEXT segments in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrFlatTextError {
@@ -581,15 +581,7 @@ pub enum STextSegmentWarning {
     Error(STextSegmentError),
 }
 
-/// Error when parsing multiple TEXT segment in std mode
-#[derive(From, Display, Error, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum MultiStdTEXTError {
-    FLat(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
-    Single(StdTEXTError),
-}
-
-/// Warning when parsing multiple datasets in flat mode
+/// Warning when parsing multiple [`FlatDatasetOutput`]s
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetWarning {
@@ -597,7 +589,7 @@ pub enum MultiFlatDatasetWarning {
     Data(FlatDatasetWarning),
 }
 
-/// Error when parsing multiple datasets in flat mode
+/// Error when parsing multiple [`FlatDatasetOutput`]s
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetError {
@@ -605,7 +597,15 @@ pub enum MultiFlatDatasetError {
     Data(FlatDatasetError),
 }
 
-/// Warning when parsing multiple TEXT segment in std mode
+/// Error when parsing multiple TEXT segments in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdTEXTError {
+    FLat(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
+    Single(StdTEXTError),
+}
+
+/// Warning when parsing multiple TEXT segments in std mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdTEXTWarning {
@@ -613,7 +613,7 @@ pub enum MultiStdTEXTWarning {
     Std(StdTEXTWarning),
 }
 
-/// Error when parsing multiple datasets in flat mode
+/// Error when parsing multiple datasets in std mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdDatasetError {
@@ -629,7 +629,7 @@ pub enum MultiStdDatasetWarning {
     Std(StdDatasetWarning),
 }
 
-/// Warning when parsing TEXT segment
+/// Warning when parsing TEXT segment in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTWarning {
@@ -641,7 +641,7 @@ pub enum ParseFlatTEXTWarning {
     AppendSupp(StdPresent),
 }
 
-/// Error when parsing TEXT segment
+/// Error when parsing TEXT segment in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTError {
@@ -713,7 +713,7 @@ pub struct EmptyTEXTError;
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NoTEXTWordsError;
 
-/// Error when blank key is encounter in TEXT
+/// Error when blank key is encountered in TEXT
 #[derive(Debug, Error)]
 #[error("encountered blank key in {0} TEXT, skipping key and its value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -737,7 +737,7 @@ pub struct FinalDelimError {
 }
 
 #[derive(Clone, Copy, Debug, Display)]
-pub enum TEXTKind {
+enum TEXTKind {
     #[display("Primary")]
     Primary,
     #[display("Supplemental")]
@@ -1525,21 +1525,21 @@ impl FlatTEXTParseData {
     }
 }
 
-def_group!(HeaderFailure, "could not parse HEADER");
+def_summary!(HeaderSummary, "could not parse HEADER");
 
-def_group!(FlatTEXTFailure, "could not parse TEXT segment");
+def_summary!(FlatTEXTSummary, "could not parse TEXT segment");
 
-def_group!(StdTEXTFailure, "could not standardize TEXT segment");
+def_summary!(StdTEXTSummary, "could not standardize TEXT segment");
 
-def_group!(
-    StdDatasetFailure,
+def_summary!(
+    StdDatasetSummary,
     "could not read DATA with standardized TEXT"
 );
 
-def_group!(FlatDatasetFailure, "could not read DATA with flat TEXT");
+def_summary!(FlatDatasetSummary, "could not read DATA with flat TEXT");
 
-def_group!(
-    FlatDatasetWithKwsFailure,
+def_summary!(
+    FlatDatasetWithKwsSummary,
     "could not read flat dataset from keywords"
 );
 

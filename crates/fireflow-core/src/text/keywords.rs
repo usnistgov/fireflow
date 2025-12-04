@@ -1,4 +1,7 @@
-use crate::config::{AllowOptionalDropping, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    TrimIntraValueWhitespace,
+};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -121,9 +124,9 @@ impl FromStrWith for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-        if conf.fix_log_scale_offsets {
+        if conf.fix_log_scale_offsets.is_set() {
             res.or_else(|e| {
                 if let ScaleError::LogRange(le) = e {
                     le.try_fix_offset()
@@ -143,7 +146,7 @@ impl FromStr for Scale {
     type Err = ScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -219,9 +222,12 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGainError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        if AsRef::<StdTextReadConfig>::as_ref(conf).ignore_time_gain {
+        if AsRef::<ReadStdKeywordsConfig>::as_ref(conf)
+            .ignore_time_gain
+            .is_set()
+        {
             nonstd.transfer_demoted(std, Self::std(i));
             let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
             LogResult::new_switchable_ok(None, flag)
@@ -321,7 +327,7 @@ impl FromStrWith for Trigger {
     type Err = TriggerError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -330,7 +336,7 @@ impl FromStr for Trigger {
     type Err = TriggerError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -749,9 +755,9 @@ impl TemporalScale3_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<(), ReqIndexedKeyError<Self>> {
-        if conf.force_time_linear {
+        if conf.force_time_linear.is_set() {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
         } else {
@@ -932,7 +938,7 @@ impl FromStr for Wavelengths {
     type Err = WavelengthsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -940,7 +946,7 @@ impl FromStrWith for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1084,7 +1090,7 @@ impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1093,7 +1099,7 @@ impl FromStr for Compensation3_0 {
     type Err = ParseCompError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1178,7 +1184,7 @@ impl FromStrWith for Unicode {
     type Err = UnicodeError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1187,7 +1193,7 @@ impl FromStr for Unicode {
     type Err = UnicodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1336,7 +1342,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1348,7 +1354,7 @@ where
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1494,7 +1500,7 @@ impl FromStrWith for RegionWindow {
     type Err = RegionWindowError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1503,7 +1509,7 @@ impl FromStr for RegionWindow {
     type Err = RegionWindowError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1511,15 +1517,18 @@ impl FromStrDelim for RegionWindow {
     type Err = RegionWindowError;
     const DELIM: char = ';';
 
-    fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
+    fn from_str_delim(
+        s: &str,
+        trim_whitespace: TrimIntraValueWhitespace,
+    ) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
-        if trim_whitespace {
+        if trim_whitespace.is_set() {
             Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter_inner(
                 it,
-                |x| UniGate::from_str_delim(x, false),
-                |x| Vertex::from_str_delim(x, false),
+                |x| UniGate::from_str_delim(x, false.into()),
+                |x| Vertex::from_str_delim(x, false.into()),
             )
         }
     }
@@ -1527,8 +1536,8 @@ impl FromStrDelim for RegionWindow {
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         Self::from_iter_inner(
             iter,
-            |x| UniGate::from_str_delim(x, true),
-            |x| Vertex::from_str_delim(x, true),
+            |x| UniGate::from_str_delim(x, true.into()),
+            |x| Vertex::from_str_delim(x, true.into()),
         )
     }
 }
@@ -2023,7 +2032,7 @@ impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, data: (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Scale::from_str_with(s, data, conf).map(Self)
     }
 }
@@ -2122,16 +2131,17 @@ impl FromStrWith for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
 
+// TODO this is only necessary for testing
 impl FromStr for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 

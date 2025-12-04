@@ -1,4 +1,6 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey as _};
@@ -101,7 +103,7 @@ impl Datetimes {
         conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let b = BeginDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupDatetimesError::from)
@@ -150,7 +152,11 @@ macro_rules! impl_from_str_with {
             type Err = FCSDateTimeError;
             type Payload<'a> = ();
 
-            fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+            fn from_str_with(
+                s: &str,
+                (): (),
+                conf: &ReadStdKeywordsConfig,
+            ) -> Result<Self, Self::Err> {
                 FCSDateTime::from_str_with(s, (), conf).map(Self)
             }
         }
@@ -164,11 +170,11 @@ impl FromStrWith for FCSDateTime {
     type Err = FCSDateTimeError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         // first, try to parse without a timezone, defaulting to localtime and
         // converting to a fixed offset
         if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
-            if conf.disallow_localtime {
+            if conf.disallow_localtime.is_set() {
                 Err(FCSDateTimeError::Localtime)
             } else {
                 match Local::now().timezone().from_local_datetime(&naive) {
@@ -249,7 +255,7 @@ mod tests {
         type Err = FCSDateTimeError;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let conf = StdTextReadConfig::default();
+            let conf = ReadStdKeywordsConfig::default();
             Self::from_str_with(s, (), &conf)
         }
     }

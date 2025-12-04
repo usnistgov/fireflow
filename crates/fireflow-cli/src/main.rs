@@ -762,7 +762,7 @@ fn format_section(
     (h, s)
 }
 
-fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
+fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
     fn get_correction<I>(am: &ArgMatches, x0: &str, x1: &str) -> HeaderCorrection<I> {
         let y0 = am.get_one(x0).copied();
         let y1 = am.get_one(x1).copied();
@@ -776,7 +776,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
         .copied()
         .map(|x| x.try_into().unwrap())
         .unwrap_or_default();
-    config::HeaderConfigInner {
+    config::ReadHeaderInnerConfig {
         text_correction,
         data_correction,
         analysis_correction,
@@ -784,8 +784,8 @@ fn parse_header_config(sargs: &ArgMatches) -> config::HeaderConfigInner {
         other_corrections: vec![],
         max_other: sargs.get_one::<usize>(MAX_OTHER).copied(),
         other_width,
-        squish_offsets: sargs.get_flag(SQUISH_OFFSETS),
-        allow_negative: sargs.get_flag(ALLOW_NEGATIVE),
+        squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
+        allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
         truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
     }
 }
@@ -830,20 +830,20 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         supp_text_correction,
         allow_overlapping_supp_text: sargs.get_flag(ALLOW_OVERLAPPING_SUPP_TEXT).into(),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
-        use_literal_delims: sargs.get_flag(LIT_DELIMS),
+        use_literal_delims: sargs.get_flag(LIT_DELIMS).into(),
         allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
         allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
         allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
         allow_odd: sargs.get_flag(ALLOW_ODD).into(),
         allow_empty: sargs.get_flag(ALLOW_EMPTY).into(),
         allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY).into(),
-        allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8),
-        use_latin1: sargs.get_flag(USE_LATIN1),
-        allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS),
+        allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8).into(),
+        use_latin1: sargs.get_flag(USE_LATIN1).into(),
+        allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS).into(),
         allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT).into(),
         allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM).into(),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA).into(),
-        trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE),
+        trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
         ignore_standard_keys,
         rename_standard_keys,
         promote_to_standard,
@@ -854,7 +854,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     }
 }
 
-fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
+fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     let time_meas_pattern = if let Some(t) = sargs.get_one::<String>(TIME_MEAS_PATTERN) {
         if t.as_str() == "NoTime" {
             None
@@ -883,21 +883,21 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::StdTextReadConfig {
         .get_one::<String>(TIME_PATTERN)
         .cloned()
         .map(|d| d.parse::<TimePattern>().unwrap());
-    config::StdTextReadConfig {
-        trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE),
+    config::ReadStdKeywordsConfig {
+        trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
         time_meas_pattern,
-        force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR),
-        ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN),
+        force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR).into(),
+        ignore_time_gain: sargs.get_flag(IGNORE_TIME_GAIN).into(),
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME).into(),
-        parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER),
+        parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
         date_pattern,
         time_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
-        fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS),
-        disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME),
+        fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
+        disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
         nonstandard_measurement_pattern,
     }
 }
@@ -957,7 +957,7 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
     config::ReadLayoutConfig {
         allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
         transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
-        integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD),
+        integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override,
         disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
     }
@@ -970,8 +970,8 @@ fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
     }
 }
 
-fn parse_shared_config(sargs: &ArgMatches) -> config::SharedConfig {
-    config::SharedConfig {
+fn parse_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
+    config::ReadSharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
         hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }

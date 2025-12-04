@@ -52,7 +52,8 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
+    AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadEventsConfig,
+    ReadLayoutConfig,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -3317,7 +3318,7 @@ impl<T> AnyOrderedUintLayout<T> {
         // First, scan through the widths to make sure they are all fixed and
         // are all the same number of bytes as ByteOrd. Skip this step if we
         // are ignoring $PnB for width and simply using the length of $BYTEORD.
-        let width_res = if conf.integer_widths_from_byteord {
+        let width_res = if conf.integer_widths_from_byteord.is_set() {
             LogResult::new_ok(())
         } else {
             cs.iter()

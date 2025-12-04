@@ -1,4 +1,4 @@
-use crate::config::StdTextReadConfig;
+use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
@@ -178,14 +178,14 @@ impl<T> GenericSpillover<T> {
         }
     }
 
-    fn from_str<E, F, EM>(s: &str, trim_intra: bool, parse_meas: F) -> Result<Self, E>
+    fn from_str<E, F, EM>(s: &str, trim: TrimIntraValueWhitespace, parse_meas: F) -> Result<Self, E>
     where
         E: From<ParseGenericSpilloverError> + From<EM>,
         F: Fn(&str) -> Result<T, EM>,
         T: Eq + Hash,
     {
         let it = s.split(',');
-        if trim_intra {
+        if trim.is_set() {
             Self::from_iter(it.map(str::trim), parse_meas)
         } else {
             Self::from_iter(it, parse_meas)
@@ -211,9 +211,9 @@ impl FromStrWith for Spillover {
     fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<Self, Self::Err> {
-        if conf.parse_indexed_spillover {
+        if conf.parse_indexed_spillover.is_set() {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
             let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
                 s,
@@ -233,7 +233,7 @@ impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s, false, |m| Ok(Shortname::new_unchecked(m)))
+        Self::from_str(s, false.into(), |m| Ok(Shortname::new_unchecked(m)))
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
+use crate::config::{AllowNonunique, ConfigFlag as _, ReadHeaderAndTEXTConfig, UseLatin1};
 use crate::logging::{
     LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
 };
@@ -490,8 +490,8 @@ impl KeyString {
         self.0.push('_');
     }
 
-    fn from_bytes_maybe(xs: &[u8], latin1: bool) -> Option<Self> {
-        if latin1 {
+    fn from_bytes_maybe(xs: &[u8], latin1: UseLatin1) -> Option<Self> {
+        if latin1.is_set() {
             Some(Self::new(xs.iter().copied().map(char::from).collect()))
         } else if is_printable_ascii(xs) {
             // SAFETY: we just checked that the bytes are only ASCII chars
@@ -745,9 +745,9 @@ impl ParsedKeywords {
 
         let mut parse_value = || {
             let flag = conf.allow_empty;
-            let res = if conf.use_latin1 {
+            let res = if conf.use_latin1.is_set() {
                 let it = v.iter().copied().map(char::from);
-                if conf.trim_value_whitespace {
+                if conf.trim_value_whitespace.is_set() {
                     let trimmed: String = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
@@ -763,7 +763,7 @@ impl ParsedKeywords {
                     LogResult::new_ok(Some(Cow::Owned(it.collect())))
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
-                if conf.trim_value_whitespace {
+                if conf.trim_value_whitespace.is_set() {
                     let trimmed = vv.trim();
                     let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
                     LogResult::new_switchable_maybe(Some(Cow::Borrowed(trimmed)), (), e, flag)

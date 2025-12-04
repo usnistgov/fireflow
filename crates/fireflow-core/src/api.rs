@@ -1,10 +1,10 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, HeaderConfigInner, ReadEventsConfig, ReadFlatDatasetConfig,
-    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
-    ReadHeaderConfig, ReadLayoutConfig, ReadState, ReadStdDatasetConfig, ReadStdTEXTConfig,
-    ReadTEXTOffsetsConfig, SharedConfig, StdTextReadConfig, TruncateOffsets,
+    DatasetOffsetError, ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
+    ReadLayoutConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig,
+    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -343,7 +343,7 @@ where
     Fnext: FnMut(&X) -> Option<u64>,
     E: From<HeaderOrFlatTextError> + From<Ei>,
     W: From<ParseFlatTEXTWarning> + From<Wi>,
-    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<SharedConfig>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadSharedConfig>,
     G: Copy,
 {
     let mut dataset_offset = Some(DatasetOffset::default());
@@ -352,7 +352,7 @@ where
     // TODO this shouldn't be necessary
     let rconf = ReadFlatTEXTConfig {
         flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
-        shared: AsRef::<SharedConfig>::as_ref(conf).clone(),
+        shared: AsRef::<ReadSharedConfig>::as_ref(conf).clone(),
     };
     while let Some(dso) = dataset_offset
         && limit.is_none_or(|x| count <= x)
@@ -853,7 +853,7 @@ fn read_fcs_flat_text_inner<C>(
 >
 where
     C: AsRef<ReadHeaderAndTEXTConfig>
-        + AsRef<HeaderConfigInner>
+        + AsRef<ReadHeaderInnerConfig>
         + AsRef<TruncateOffsets>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
@@ -909,7 +909,7 @@ impl FlatTEXTOutput {
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<HeaderConfigInner>
+            + AsRef<ReadHeaderInnerConfig>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
@@ -936,7 +936,7 @@ impl FlatTEXTOutput {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         // TODO not DRY, make this a method
         let hs = &self.parse.header_segments;
@@ -967,7 +967,7 @@ impl FlatTEXTOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<StdTextReadConfig>
+        C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadLayoutConfig>
             + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
@@ -1184,7 +1184,7 @@ fn split_flat_text_inner(
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    if conf.use_literal_delims {
+    if conf.use_literal_delims.is_set() {
         split_flat_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
         split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
@@ -1497,7 +1497,7 @@ impl FlatTEXTParseData {
         &self,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> DeferredErrors<(), NonAsciiKeyError> {
-        if conf.allow_non_ascii_keywords {
+        if conf.allow_non_ascii_keywords.is_set() {
             LogResult::new_ok(())
         } else {
             let es = self
@@ -1512,7 +1512,7 @@ impl FlatTEXTParseData {
         &self,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> DeferredErrors<(), NonUtf8KeywordError> {
-        if conf.allow_non_utf8 {
+        if conf.allow_non_utf8.is_set() {
             LogResult::new_ok(())
         } else {
             let es = self

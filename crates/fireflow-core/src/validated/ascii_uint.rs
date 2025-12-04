@@ -1,5 +1,6 @@
 //! Types used for constructing offsets in HEADER and TEXT
 
+use crate::config::{AllowNegative, ConfigFlag as _};
 use crate::header::MAX_HEADER_OFFSET;
 use crate::validated::ascii_range::Chars;
 
@@ -117,11 +118,14 @@ impl UintSpacePad20 {
     /// Parse from a buffer that contains up to 20 bytes.
     ///
     /// Will panic if parsed digit is more than 20 digits long.
-    pub(crate) fn from_bytes(bs: &[u8], allow_negative: bool) -> Result<Self, ParseFixedUintError> {
+    pub(crate) fn from_bytes(
+        bs: &[u8],
+        allow_negative: AllowNegative,
+    ) -> Result<Self, ParseFixedUintError> {
         debug_assert!(bs.len() > 20, "cannot parse more than 20 bytes");
         let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i32>()?;
         if x < 0 {
-            if allow_negative {
+            if allow_negative.is_set() {
                 Ok(Self::zero())
             } else {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
@@ -186,7 +190,7 @@ impl UintSpacePad8 {
     pub(crate) fn from_bytes(
         bs: [u8; 8],
         allow_blank: bool,
-        allow_negative: bool,
+        allow_negative: AllowNegative,
     ) -> Result<Self, ParseFixedUintError> {
         let s = ascii_str_from_bytes(&bs[..]).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
@@ -195,7 +199,7 @@ impl UintSpacePad8 {
         }
         let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
         if x < 0 {
-            if allow_negative {
+            if allow_negative.is_set() {
                 Ok(Self::zero())
             } else {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))

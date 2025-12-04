@@ -2270,7 +2270,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreDataset", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let core_conf = config_path("ReadStdDatasetFromKeywordsConfig");
+    let core_conf = config_path("NewCoreDatasetConfig");
 
     let v = Some(version);
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
@@ -6921,7 +6921,7 @@ impl DocArgParam {
     }
 
     fn new_read_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("HeaderConfigInner");
+        let conf = config_path("ReadHeaderInnerConfig");
         let ps = vec![
             Self::new_text_correction_param(),
             Self::new_data_correction_param(),
@@ -7008,7 +7008,7 @@ impl DocArgParam {
                 .collect(),
         };
 
-        let conf = config_path("StdTextReadConfig");
+        let conf = config_path("ReadStdKeywordsConfig");
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -7086,25 +7086,8 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    // fn new_write_dataset_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-    //     let skip_conversion_check = Self::new_skip_conversion_check_param();
-    //     let conf = config_path("WriteDatasetInnerConfig");
-    //     let ps = vec![skip_conversion_check];
-    //     let js = ps.iter().map(IsDocArg::record_into).collect();
-    //     (conf, ps, js)
-    // }
-
-    // fn new_write_multi_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-    //     let appendable = Self::new_appendable_param();
-    //     let append = Self::new_append_param();
-    //     let conf = config_path("WriteMultiConfig");
-    //     let ps = vec![append, appendable];
-    //     let js = ps.iter().map(IsDocArg::record_into).collect();
-    //     (conf, ps, js)
-    // }
-
     fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("SharedConfig");
+        let conf = config_path("ReadSharedConfig");
         let warnings_are_errors = Self::new_warnings_are_errors_param();
         let hide_warnings = Self::new_hide_warnings_param();
         let ps = vec![warnings_are_errors, hide_warnings];

@@ -27,7 +27,7 @@
 //! like a transformer stack where pure errors are handled on one layer and
 //! an IO error is handled on a different layer.
 
-use crate::config::{ErrorFlag, SharedConfig};
+use crate::config::{ErrorFlag, ReadSharedConfig};
 use crate::text::optional::Nothing;
 
 use type_families::{
@@ -2681,7 +2681,7 @@ impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
 impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
     pub(crate) fn warnings_to_pure_errors<F, W>(
         self,
-        conf: &SharedConfig,
+        conf: &ReadSharedConfig,
         f: F,
     ) -> IOGroupLogResult<V, (), WC, WC, (), E, ()>
     where

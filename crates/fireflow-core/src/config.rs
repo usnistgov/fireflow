@@ -48,28 +48,29 @@ use {
 };
 
 #[derive(Default, Clone, AsRef, From)]
-pub struct ReadHeaderConfig(pub HeaderConfigInner);
+pub struct ReadHeaderConfig(pub ReadHeaderInnerConfig);
 
-/// Instructions for reading the DATA segment.
+/// Instructions for reading the HEADER and TEXT segments in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatTEXTConfig {
-    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
-    pub shared: SharedConfig,
+    pub shared: ReadSharedConfig,
 }
 
+/// Instructions for reading the HEADER and TEXT segments in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
-    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
-    #[as_ref(StdTextReadConfig)]
-    pub standard: StdTextReadConfig,
+    #[as_ref(ReadStdKeywordsConfig)]
+    pub standard: ReadStdKeywordsConfig,
 
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
@@ -77,13 +78,14 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
 
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
 }
 
+/// Instructions for reading a dataset in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetConfig {
-    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
@@ -97,31 +99,20 @@ pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
 }
 
-#[derive(Default, Clone, AsRef)]
-pub struct NewCoreTEXTConfig {
-    #[as_ref(StdTextReadConfig)]
-    pub standard: StdTextReadConfig,
-
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
-
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
-}
-
+/// Instructions for reading a dataset in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
-    #[as_ref(HeaderConfigInner, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
     #[as_ref(TruncateOffsets)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
-    #[as_ref(StdTextReadConfig)]
-    pub standard: StdTextReadConfig,
+    #[as_ref(ReadStdKeywordsConfig)]
+    pub standard: ReadStdKeywordsConfig,
 
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -132,10 +123,11 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
 }
 
+/// Instructions for reading a dataset in flat mode with a given set of keywords.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadLayoutConfig)]
@@ -147,14 +139,28 @@ pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadTEXTOffsetsConfig)]
     pub offsets: ReadTEXTOffsetsConfig,
 
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
 }
 
+/// Instructions for building a new [`crate::core::CoreTEXT`] from keywords.
 #[derive(Default, Clone, AsRef)]
-pub struct ReadStdDatasetFromKeywordsConfig {
-    #[as_ref(StdTextReadConfig)]
-    pub standard: StdTextReadConfig,
+pub struct NewCoreTEXTConfig {
+    #[as_ref(ReadStdKeywordsConfig)]
+    pub standard: ReadStdKeywordsConfig,
+
+    #[as_ref(ReadLayoutConfig)]
+    pub layout: ReadLayoutConfig,
+
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
+}
+
+/// Instructions for building a new [`crate::core::CoreDataset`] from keywords.
+#[derive(Default, Clone, AsRef)]
+pub struct NewCoreDatasetConfig {
+    #[as_ref(ReadStdKeywordsConfig)]
+    pub standard: ReadStdKeywordsConfig,
 
     #[as_ref(ReadLayoutConfig)]
     pub layout: ReadLayoutConfig,
@@ -165,28 +171,8 @@ pub struct ReadStdDatasetFromKeywordsConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
-    #[as_ref(SharedConfig)]
-    pub shared: SharedConfig,
-}
-
-/// Instructions for reading the DATA/ANALYSIS segments
-#[derive(Default, Clone)]
-pub struct ReadEventsConfig {
-    /// If `true`, allow event width to not perfectly divide DATA.
-    ///
-    /// In practice, having such a mismatch likely means either PnB or the DATA
-    /// offsets are incorrect.
-    ///
-    /// Does not apply to delimited ASCII, which does not have a fixed width.
-    pub allow_uneven_event_width: AllowUnevenEventWidth,
-
-    /// If `true`, allow $TOT to not match number of events in DATA.
-    ///
-    /// For all but delimited ASCII layouts, $TOT is unnecessary and can be
-    /// computed by dividing the bytes in DATA by the event width computed from
-    /// all $PnB. If $TOT does not match this, it may indicate an issue. If
-    /// `false`, throw an error on mismatch, and warning otherwise.
-    pub allow_tot_mismatch: AllowTotMismatch,
+    #[as_ref(ReadSharedConfig)]
+    pub shared: ReadSharedConfig,
 }
 
 /// Configuration for writing one or more HEADER+TEXT segments to file
@@ -239,7 +225,7 @@ pub struct WriteDatasetInnerConfig {
     pub skip_conversion_check: SkipConversionCheck,
 }
 
-/// Options that apply to writing multiple dataset
+/// Options that apply to writing multiple datasets
 #[derive(Clone, Copy, Default, new)]
 pub struct WriteMultiConfig {
     /// If `true` make $NEXTDATA point to the next dataset.
@@ -257,8 +243,9 @@ pub struct WriteMultiConfig {
     pub append: AppendFlag,
 }
 
+/// Specific instructions for reading HEADER
 #[derive(Default, Clone, AsRef)]
-pub struct HeaderConfigInner {
+pub struct ReadHeaderInnerConfig {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
 
@@ -306,7 +293,7 @@ pub struct HeaderConfigInner {
     /// the offsets. This also will only apply to DATA and ANALYSIS offsets,
     /// since the TEXT offsets themselves cannot be written in TEXT without
     /// unleashing the dreaded recursive doom loop monster.
-    pub squish_offsets: bool,
+    pub squish_offsets: SquishOffsets,
 
     /// If `true`, allow negative values in a HEADER offset.
     ///
@@ -319,7 +306,7 @@ pub struct HeaderConfigInner {
     /// not a valid offset.
     ///
     /// This flag will treat any negative offset as a 0.
-    pub allow_negative: bool,
+    pub allow_negative: AllowNegative,
 
     /// If `true`, truncate offsets that exceed the end of the file.
     ///
@@ -330,15 +317,14 @@ pub struct HeaderConfigInner {
     pub truncate_offsets: TruncateOffsets,
 }
 
-/// Instructions for reading the TEXT segment as flat key/value pairs.
+/// Specific instructions for reading the TEXT segment as flat key/value pairs.
 // TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
-    #[as_ref(HeaderConfigInner)]
+    #[as_ref(ReadHeaderInnerConfig)]
     #[as_ref(TruncateOffsets)]
-    pub header: HeaderConfigInner,
+    pub header: ReadHeaderInnerConfig,
 
     /// Override the version
     pub version_override: Option<Version>,
@@ -376,7 +362,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// be literal delimiters that split words. This allows words to be empty
     /// and also disallows delimiters to be included in words at all. For some
     /// files, this is the correct interpretation, albeit not compliant.
-    pub use_literal_delims: bool,
+    pub use_literal_delims: UseLiteralDelims,
 
     /// If `true`, allow delimiter to be character outside 1-126.
     pub allow_non_ascii_delim: AllowNonAsciiDelim,
@@ -422,10 +408,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Words with such bytes will be dropped regardless of this keyword.
     /// Setting this to `true` will emit an error rather than a warning in such
     /// cases.
-    pub allow_non_utf8: bool,
+    pub allow_non_utf8: AllowNonUtf8,
 
     /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
-    pub use_latin1: bool,
+    pub use_latin1: UseLatin1,
 
     /// If `true`, allow keys with non-ASCII characters.
     ///
@@ -434,7 +420,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// compliant keys must only have ASCII. Setting this to `true` will emit
     /// an error when encountering such a key. If `false`, the key will be kept
     /// as a non-standard key.
-    pub allow_non_ascii_keywords: bool,
+    pub allow_non_ascii_keywords: AllowNonAsciiKeywords,
 
     /// If `true`, allow STEXT offsets to be missing from TEXT.
     ///
@@ -470,7 +456,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped. Note
     /// that these will result in errors if [`Self::allow_empty`] is `false`.
-    pub trim_value_whitespace: bool,
+    pub trim_value_whitespace: TrimValueWhitespace,
 
     /// Remove standard keys from TEXT.
     ///
@@ -509,7 +495,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without using
-    /// [`StdTextReadConfig::allow_pseudostandard`], which is a crude
+    /// [`ReadStdKeywordsConfig::allow_pseudostandard`], which is a crude
     /// sledgehammer.
     pub demote_from_standard: KeyPatterns,
 
@@ -538,8 +524,9 @@ pub struct ReadHeaderAndTEXTConfig {
     pub substitute_standard_key_values: SubPatterns,
 }
 
+/// Specific instructions when reading offsets from TEXT
+// TODO combine this with layout config
 #[derive(Default, Clone, AsRef)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct ReadTEXTOffsetsConfig {
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
@@ -587,16 +574,15 @@ pub struct ReadTEXTOffsetsConfig {
     pub truncate_text_offsets: TruncateOffsets,
 }
 
-/// Instructions for reading the TEXT segment in a standardized structure.
+/// Specific instructions for standardizing keywords from TEXT
 #[derive(Default, Clone)]
-#[allow(clippy::struct_excessive_bools)]
-pub struct StdTextReadConfig {
+pub struct ReadStdKeywordsConfig {
     /// If `true`, remove whitespace between commas where applicable.
     ///
     /// This will only affect keywords that are given as comma-separated lists,
     /// such as $PnE. Will fix the case where `"0, 0"` is supposed to be
     /// `"0,0"`.
-    pub trim_intra_value_whitespace: bool,
+    pub trim_intra_value_whitespace: TrimIntraValueWhitespace,
 
     /// If `true`, a pattern to find/match the $PnN of the time measurement.
     ///
@@ -609,7 +595,7 @@ pub struct StdTextReadConfig {
     pub allow_missing_time: AllowMissingTime,
 
     /// If `true` force, force scale to be linear for temporal measurement.
-    pub force_time_linear: bool,
+    pub force_time_linear: ForceTimeLinear,
 
     /// If `true`, ignore $PnG for the temporal measurement.
     ///
@@ -617,7 +603,7 @@ pub struct StdTextReadConfig {
     /// channel. This library will allow gain to be 1.0 since this shouldn't
     /// hurt anything. However, some instruments set gain to be something other
     /// than 1.0, which is nonsense and can be ignored with this flag.
-    pub ignore_time_gain: bool,
+    pub ignore_time_gain: IgnoreTimeGain,
 
     /// If `true`, ignore optical keywords in time channel.
     ///
@@ -631,7 +617,7 @@ pub struct StdTextReadConfig {
     ///
     /// Indices will then be used to look up the names that should have been
     /// in their place.
-    pub parse_indexed_spillover: bool,
+    pub parse_indexed_spillover: ParseIndexedSpillover,
 
     /// If `true`, will be used as an alternative pattern when parsing $DATE.
     ///
@@ -673,7 +659,7 @@ pub struct StdTextReadConfig {
     ///
     /// This fix will replace `Y` in such cases with 1.0, such that the value
     /// becomes `"X,1.0"`.
-    pub fix_log_scale_offsets: bool,
+    pub fix_log_scale_offsets: FixLogScaleOffsets,
 
     /// If `true`, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
     ///
@@ -682,7 +668,7 @@ pub struct StdTextReadConfig {
     /// parsed using localtime, which is location-dependent.
     ///
     /// This only affects FCS 3.2
-    pub disallow_localtime: bool,
+    pub disallow_localtime: DisallowLocaltime,
 
     /// If `true`, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.
@@ -698,15 +684,26 @@ pub struct StdTextReadConfig {
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
 }
 
+/// Specific instructions for reading a data layout.
+///
+/// Note that some of these are also when reading any keyword in standard mode.
+/// Since the layout keywords always need to be read, and the rest only need to
+/// be read specifically when building [`crate::core::CoreTEXT`] or
+/// [`crate::core::CoreDataset`], these options are here since the layout is the
+/// thing they have in common.
 #[derive(Default, Clone)]
 pub struct ReadLayoutConfig {
     /// If `true`, allow optional keys to be dropped on error with a warning.
+    ///
+    /// Also used when parsing any keyword in standard mode.
     pub allow_optional_dropping: AllowOptionalDropping,
 
     /// If `true`, transfer dropped optional keys to nonstandard dict.
     ///
     /// Has no effect if [`Self::allow_optional_dropping`] is `false` as all
     /// dropped optional keywords will produce a fatal error.
+    ///
+    /// Also used when parsing any keyword in standard mode.
     pub transfer_dropped_optional: TransferDroppedOptional,
 
     /// If given, override $PnB with the number of bytes in $BYTEORD.
@@ -723,7 +720,7 @@ pub struct ReadLayoutConfig {
     /// intervention.
     ///
     /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
-    pub integer_widths_from_byteord: bool,
+    pub integer_widths_from_byteord: IntegerWidthsFromByteord,
 
     /// If given, override the $BYTEORD keyword for 2.0-3.0 integer layouts.
     ///
@@ -761,9 +758,29 @@ pub struct ReadLayoutConfig {
     pub disallow_range_truncation: DisallowRangeTrunc,
 }
 
-/// Configuration options for both reading and writing
+/// Specific instructions for reading events from DATA segment
 #[derive(Default, Clone)]
-pub struct SharedConfig {
+pub struct ReadEventsConfig {
+    /// If `true`, allow event width to not perfectly divide DATA.
+    ///
+    /// In practice, having such a mismatch likely means either PnB or the DATA
+    /// offsets are incorrect.
+    ///
+    /// Does not apply to delimited ASCII, which does not have a fixed width.
+    pub allow_uneven_event_width: AllowUnevenEventWidth,
+
+    /// If `true`, allow $TOT to not match number of events in DATA.
+    ///
+    /// For all but delimited ASCII layouts, $TOT is unnecessary and can be
+    /// computed by dividing the bytes in DATA by the event width computed from
+    /// all $PnB. If $TOT does not match this, it may indicate an issue. If
+    /// `false`, throw an error on mismatch, and warning otherwise.
+    pub allow_tot_mismatch: AllowTotMismatch,
+}
+
+/// Configuration options for across all reading functions
+#[derive(Default, Clone)]
+pub struct ReadSharedConfig {
     /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 
@@ -815,6 +832,8 @@ macro_rules! impl_error_flag {
     };
 }
 
+impl_config_flag!(SquishOffsets);
+impl_config_flag!(AllowNegative);
 impl_config_flag!(TruncateOffsets);
 
 impl_error_flag!(true_is_error AllowUnevenEventWidth);
@@ -822,27 +841,39 @@ impl_error_flag!(true_is_error AllowTotMismatch);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_error_flag!(false_is_error IgnoreSuppTEXT);
+impl_config_flag!(UseLiteralDelims);
 impl_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_error_flag!(false_is_error AllowNonunique);
 impl_error_flag!(false_is_error AllowOdd);
 impl_error_flag!(false_is_error AllowEmpty);
 impl_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_error_flag!(false_is_error AllowNonUtf8);
+impl_config_flag!(UseLatin1);
+impl_error_flag!(false_is_error AllowNonAsciiKeywords);
 impl_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
 impl_error_flag!(false_is_error AllowMissingNextdata);
+impl_config_flag!(TrimValueWhitespace);
 
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
+impl_config_flag!(TrimIntraValueWhitespace);
 impl_error_flag!(false_is_error AllowMissingTime);
+impl_config_flag!(ForceTimeLinear);
+impl_config_flag!(IgnoreTimeGain);
+impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowUnusedStandard);
 impl_error_flag!(false_is_error AllowOptionalDropping);
+impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_error_flag!(true_is_error DisallowDeprecated);
+impl_config_flag!(FixLogScaleOffsets);
+impl_error_flag!(true_is_error DisallowLocaltime);
 
 impl_error_flag!(true_is_error DisallowRangeTrunc);
 
@@ -922,7 +953,7 @@ impl FromStr for TemporalOpticalKey {
     }
 }
 
-/// Error when creating a `TemporalOpticalKey` from string
+/// Error when creating [`TemporalOpticalKey`] from string
 #[derive(Debug, Error)]
 #[error(
     "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \

@@ -1,9 +1,10 @@
 //! Reading and writing offsets in an FCS file
 
 use crate::config::{
-    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowOptionalDropping, ConfigFlag,
-    DatasetOffset, FileLen, HeaderConfigInner, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ReadState, ReadTEXTOffsetsConfig, TruncateOffsets,
+    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative,
+    AllowOptionalDropping, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
+    IgnoreTEXTDataOffsets, ReadHeaderInnerConfig, ReadState, ReadTEXTOffsetsConfig,
+    TruncateOffsets,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -943,7 +944,7 @@ impl<I: Copy> HeaderSegment<I> {
     ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
-        C: AsRef<HeaderConfigInner>,
+        C: AsRef<ReadHeaderInnerConfig>,
         I: HasRegion + Copy,
     {
         let conf = st.conf.as_ref();
@@ -978,7 +979,7 @@ impl<I: Copy> HeaderSegment<I> {
             .and_then_commutative(|(begin, end)| {
                 // TEXT segment is not squishable
                 let allow_squish = !is_text;
-                let squish = conf.squish_offsets && allow_squish;
+                let squish = conf.squish_offsets.is_set() && allow_squish;
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map_err(HeaderSegmentError::from)
                     .into_log()
@@ -1041,7 +1042,7 @@ impl OtherSegment20 {
     ) -> Result<Vec<Self>, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
-        C: AsRef<HeaderConfigInner>,
+        C: AsRef<ReadHeaderInnerConfig>,
     {
         let conf = st.conf.as_ref();
         let n = u64::from(text_begin)
@@ -1101,7 +1102,7 @@ impl OtherSegment20 {
     fn parse_other(
         bs0: &[u8],
         bs1: &[u8],
-        allow_negative: bool,
+        allow_negative: AllowNegative,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
     ) -> ErrorsResult<Self, (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {

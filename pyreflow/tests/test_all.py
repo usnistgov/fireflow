@@ -1179,7 +1179,9 @@ class TestCore:
         optical: Any,
     ) -> None:
         new = pf.OrderedUint64Layout([1])
-        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
+        core.set_named_measurements_and_layout(
+            [(LINK_NAME1, optical)], new, False, False
+        )
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1199,7 +1201,9 @@ class TestCore:
         optical: Any,
     ) -> None:
         new = pf.EndianF32Layout([Decimal(1)])
-        core.set_measurements_and_layout([(LINK_NAME1, optical)], new, False, False)
+        core.set_named_measurements_and_layout(
+            [(LINK_NAME1, optical)], new, False, False
+        )
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1217,7 +1221,7 @@ class TestCore:
         optical: Any,
         series2: pl.Series,
     ) -> None:
-        core.set_measurements_and_data(
+        core.set_named_measurements_and_data(
             [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
         )
 
@@ -1237,7 +1241,7 @@ class TestCore:
         optical: Any,
         series2: pl.Series,
     ) -> None:
-        core.set_measurements_and_data(
+        core.set_named_measurements_and_data(
             [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
         )
 

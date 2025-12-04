@@ -696,7 +696,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
     data: DataFrame
-    def set_unnamed_measurements_and_data(
+    def set_measurements_and_data(
         self,
         measurements: list[_O | _T],
         data: DataFrame,
@@ -711,14 +711,14 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_named_measurements_and_layout(
         self,
         measurements: _FlatInput[Shortname | None, _O, _T],
         layout: _AnyOrderedLayout,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_unnamed_measurements_and_layout(
+    def set_measurements_and_layout(
         self,
         measurements: list[_O | _T],
         layout: _AnyOrderedLayout,
@@ -733,28 +733,28 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_named_measurements_and_layout(
         self,
         measurements: _FlatInput[Shortname, _O, _T],
         layout: _L,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_unnamed_measurements_and_layout(
+    def set_measurements_and_layout(
         self,
         measurements: list[_O | _T],
         layout: _L,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
-    def set_measurements_and_data(
+    def set_named_measurements_and_data(
         self,
         measurements: _FlatInput[Shortname | None, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_unnamed_measurements_layout_and_data(
+    def set_measurements_layout_and_data(
         self,
         measurements: list[_O | _T],
         layout: _AnyOrderedLayout,
@@ -762,14 +762,14 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T, _L]):
-    def set_measurements_and_data(
+    def set_named_measurements_and_data(
         self,
         measurements: _FlatInput[Shortname, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_unnamed_measurements_layout_and_data(
+    def set_measurements_layout_and_data(
         self,
         measurements: list[_O | _T],
         layout: _L,

@@ -2232,7 +2232,7 @@ where
         let rs = &self.ranges;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
         if rs.is_empty() && nbytes > 0 {
-            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumn));
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
             return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
         }
         let res = T::with_tot(
@@ -2871,7 +2871,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         &self,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningOrErrorResult<u64, (), UnevenEventWidth, EventWidthError>
+    ) -> WarningOrErrorResult<u64, (), UnevenEventWidthError, EventWidthError>
     where
         S: Clone,
         C: IsFixed,
@@ -2879,12 +2879,12 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         let n = seg.len();
         let w = self.event_width();
         if w == 0 {
-            LogResult::new_err(EventWidthError::from(ZeroEventWidth::new(n)))
+            LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         } else {
             let total_events = n / w;
             let remainder = n % w;
             let is_ok = remainder == 0;
-            let e = UnevenEventWidth::new(w, n, remainder);
+            let e = UnevenEventWidthError::new(w, n, remainder);
             let flag = conf.allow_uneven_event_width;
             SwitchableErrorResult::new_switchable_ok_if(is_ok, total_events, (), e, flag)
                 .switchable_into_non_commutative()
@@ -4405,8 +4405,8 @@ pub struct WrongFloatWidth {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum EventWidthError {
-    Zero(ZeroEventWidth),
-    Uneven(UnevenEventWidth),
+    Zero(ZeroEventWidthError),
+    Uneven(UnevenEventWidthError),
 }
 
 /// Error when fixed-width layout does not evenly divide the length of DATA.
@@ -4417,7 +4417,7 @@ pub enum EventWidthError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct UnevenEventWidth {
+pub struct UnevenEventWidthError {
     event_width: u64,
     nbytes: u64,
     remainder: u64,
@@ -4428,7 +4428,7 @@ pub struct UnevenEventWidth {
 #[error("DATA segment is {event_width} bytes but event width is zero")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct ZeroEventWidth {
+pub struct ZeroEventWidthError {
     event_width: u64,
 }
 
@@ -4510,7 +4510,7 @@ pub enum ReadDataframeError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDataframeWarning {
-    Uneven(UnevenEventWidth),
+    Uneven(UnevenEventWidthError),
     Tot(TotEventMismatchError),
 }
 
@@ -4526,7 +4526,7 @@ pub enum ReadAsciiError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadFixedAsciiError {
-    Uneven(UnevenEventWidth),
+    Uneven(UnevenEventWidthError),
     Tot(TotEventMismatchError),
     ToUint(AsciiToUintError),
 }
@@ -4568,7 +4568,7 @@ pub struct TotEventMismatchError {
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
     NoRows(ReadDelimAsciiWithoutRowsError),
-    NoColumns(ReadDelimNoColumn),
+    NoColumns(ReadDelimNoColumnError),
 }
 
 /// Error when ASCII layout has no columns but segment length is nonzero
@@ -4576,7 +4576,7 @@ pub enum ReadDelimAsciiError {
 #[error("No columns given for ASCII layout but DATA segment is non-empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct ReadDelimNoColumn;
+pub struct ReadDelimNoColumnError;
 
 /// Error when reading [`DelimAsciiLayout`] with $TOT.
 #[derive(From, Display, Debug, Error)]

@@ -123,12 +123,56 @@ use {
     pyo3::prelude::*,
 };
 
-/// Represents the minimal data required to write an FCS file.
+/// A standardized representation of one FCS dataset.
 ///
-/// At minimum, this contains the TEXT keywords in a version-specific structure
-/// with a few exceptions (see next). It may also contain the DATA and ANALYSIS
-/// segments depending on how much of the FCS file is read. These fields are
-/// left generic to allow this flexibility.
+/// This is the main type that handles all "standard mode" operations.
+///
+/// This is highly generic to allow different FCS versions to share code, and
+/// also to encode presence/absence of the "data" in a dataset
+/// (ie DATA+ANALYSIS+OTHER). At minimum, this contains the TEXT segment and
+/// all keywords are decomposed and stored as native Rust types in a natural
+/// hierarchy.
+///
+/// # Concrete type overview
+///
+/// The following concrete types (along with their FCS versions) are defined:
+///
+/// | version | TEXT only       | entire dataset     |
+/// |---------|-----------------|--------------------|
+/// |     2.0 | [`CoreTEXT2_0`] | [`CoreDataset2_0`] |
+/// |     3.0 | [`CoreTEXT3_0`] | [`CoreDataset3_0`] |
+/// |     3.1 | [`CoreTEXT3_1`] | [`CoreDataset3_1`] |
+/// |     3.2 | [`CoreTEXT3_2`] | [`CoreDataset3_2`] |
+///
+/// # Generic parameters for version-specific behavior
+///
+/// * `M`: version-specific type for keywords which don't belong to a measurement (metaroot)
+/// * `T`: version-specific type for temporal measurement keywords
+/// * `P`: version-specific type for optical measurement keywords
+/// * `N`: version-specific type for $PnN
+/// * `L`: version-specific type for layout keywords
+///
+/// The types for these parameters and their specific FCS versions are
+/// summarized as follows:
+///
+/// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L`               |
+/// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_2`] |
+///
+/// # Generic parameters for data
+///
+/// * `A`: the ANALYSIS segment ([`Analysis`])
+/// * `D`: the DATA segment ([`FCSDataFrame`])
+/// * `O`: the OTHER segments ([`Others`])
+///
+/// Each of these are either their indicated Rust type above or [`()`] if not
+/// included. The former corresponds to [`CoreDataset`] and the latter
+/// corresponds to [`CoreTEXT`].
+///
+/// # Caveats
 ///
 /// Importantly this does NOT include the following:
 /// - $TOT (inferred from summed bit width and length of DATA)
@@ -369,7 +413,7 @@ pub struct Optical<X> {
     pub specific: X,
 }
 
-/// Minimal TEXT data for any supported FCS version
+/// Standardized FCS dataset for any version
 #[derive(Clone, From)]
 pub enum AnyCore<A, D, O> {
     #[from(Core2_0<A, D, O>)]
@@ -1167,10 +1211,10 @@ pub type Metaroot3_0 = Metaroot<InnerMetaroot3_0>;
 pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
-/// A minimal representation of the TEXT segment
+/// A standardized TEXT segment
 pub type CoreTEXT<M, T, P, N, L> = Core<(), (), (), M, T, P, N, L>;
 
-/// A minimal representation of the TEXT+DATA+ANALYSIS segments
+/// A standardized FCS dataset (TEXT+DATA+ANALYSIS+OTHER)
 pub type CoreDataset<M, T, P, N, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, L>;
 
 pub type Core2_0<A, D, O> = Core<
@@ -1268,14 +1312,14 @@ struct WriteHeaderAndTextConfig<'a> {
     has_nextdata: AppendableFlag,
 }
 
-/// Used for `Core::standard_keywords` to control if req/opt keys should be returned
+/// Used for [`Core::standard_keywords`] to control if req/opt keys should be returned
 pub enum IncludeReqOrOpt {
     Req_,
     Opt_,
     Both,
 }
 
-/// Used for `Core::standard_keywords` to control if root/meas keys should be returned
+/// Used for [`Core::standard_keywords`] to control if root/meas keys should be returned
 pub enum IncludeRootOrMeas {
     Root,
     Meas,
@@ -1721,6 +1765,9 @@ pub trait VersionedTEXTOffsets: Sized {
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
+/// Segment offsets and $TOT as read from TEXT segment
+///
+/// This is used later to parse DATA and ANALYSIS.
 #[derive(AsRef, new)]
 pub struct TEXTOffsets<T> {
     #[as_ref]
@@ -2246,7 +2293,7 @@ where
         M::Ver::fcs_version()
     }
 
-    pub fn write_multitext(
+    pub fn write_texts(
         path: &PathBuf,
         cores: &[Self],
         conf: &WriteTEXTInnerConfig,
@@ -4513,7 +4560,7 @@ where
             })
     }
 
-    pub fn write_multidataset(
+    pub fn write_datasets(
         path: &PathBuf,
         cores: &[Self],
         conf: &WriteDatasetInnerConfig,
@@ -4830,7 +4877,7 @@ where
             .group()
     }
 
-    /// Convert this struct into a CoreTEXT.
+    /// Convert this struct into [`CoreTEXT`].
     ///
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
@@ -8649,7 +8696,7 @@ impl OthersReader<'_> {
     }
 }
 
-/// Error when converting Core* to new FCS version
+/// Error when converting [`Core`] to new FCS version
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ConvertError {
@@ -8692,7 +8739,7 @@ pub enum OpticalConvertWarning {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct NameConversionError(Key1<Shortname>);
 
-/// Error when writing CoreDataset to file
+/// Error when writing [`CoreDataset`] to file
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
@@ -8753,7 +8800,7 @@ pub enum SetUnnamdMeasurementsAndDataError {
     Mismatch(MeasDataMismatchError),
 }
 
-/// Error when setting dataframe/DATA segment in CoreDataset
+/// Error when setting dataframe/DATA segment in [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ColumnsToDataframeError {
@@ -8777,7 +8824,7 @@ pub enum RemoveMeasByIndexError {
     Index(ElementIndexError),
 }
 
-/// Error when pushing a temporal measurement into a CoreTEXT
+/// Error when pushing a temporal measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalError {
@@ -8785,7 +8832,7 @@ pub enum PushTemporalError {
     Layout(InsertRangeError),
 }
 
-/// Error when inserting a temporal measurement into a CoreTEXT
+/// Error when inserting a temporal measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
@@ -8793,7 +8840,7 @@ pub enum InsertTemporalError {
     Layout(InsertRangeError),
 }
 
-/// Error when pushing an optical measurement into a CoreTEXT
+/// Error when pushing an optical measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
@@ -8801,7 +8848,7 @@ pub enum PushOpticalError {
     Layout(InsertRangeError),
 }
 
-/// Error when inserting an optical measurement into a CoreTEXT
+/// Error when inserting an optical measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalError {
@@ -8809,7 +8856,7 @@ pub enum InsertOpticalError {
     Layout(InsertRangeError),
 }
 
-/// Error when pushing a temporal measurement into a CoreDataset
+/// Error when pushing a temporal measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
@@ -8817,7 +8864,7 @@ pub enum PushTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when inserting a temporal measurement into a CoreDataset
+/// Error when inserting a temporal measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalToDatasetError {
@@ -8825,7 +8872,7 @@ pub enum InsertTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when pushing an optical measurement into a CoreDataset
+/// Error when pushing an optical measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalToDatasetError {
@@ -8833,7 +8880,7 @@ pub enum PushOpticalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when inserting an optical measurement into a CoreDataset
+/// Error when inserting an optical measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalInDatasetError {
@@ -9252,7 +9299,7 @@ pub enum LookupTEXTOffsetsWarning {
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
 }
 
-/// Error when building new CoreTEXT object
+/// Error when building new [`CoreTEXT`]
 ///
 /// The timestep/datetime errors are technically "relational" but are here and
 /// not in NewCoreRelationalerror because each time/date object is created
@@ -9271,7 +9318,7 @@ pub enum NewCoreTEXTError {
     Datetimes(ReversedDatetimesError),
 }
 
-/// Error when building new Core* (TEXT or dataset)
+/// Error when building new [`CoreTEXT`] or [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
@@ -9283,7 +9330,7 @@ pub enum NewCoreError {
     Warn(NewCoreWarning),
 }
 
-/// Warning when building new Core*
+/// Warning when building new [`CoreTEXT`]
 ///
 /// Each of these are also errors but can be configured to only be warnings
 /// if the user desires.

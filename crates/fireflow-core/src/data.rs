@@ -26,7 +26,7 @@
 //! 4) Mixed layouts
 //!
 //! (1) is the simplest; each column is the same type which corresponds directly
-//! with a native Rust type. This includes [`f32`], [`f64]`, and uint ranging
+//! with a native Rust type. This includes [`f32`], [`f64`], and uint ranging
 //! from 1 to 8 bytes (including those that aren't powers of 2). Each type has a
 //! slightly different reader/writer corresponding to distinct byte
 //! interpretations on disk. (2) is similar in that the entire layout is one

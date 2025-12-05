@@ -1,3 +1,4 @@
+import re
 from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
@@ -2003,7 +2004,161 @@ class TestApiFunctions:
             _ = pf.api.fcs_read_std_dataset(p, **conf, dataset_offset=0)
             _ = pf.api.fcs_read_std_datasets(p, **conf)
 
-    # TODO add test for flat_dataset_from_kws
+    def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_header(p, other_width=1)
+        _ = pf.api.fcs_read_header(p, other_width=20)
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_header(p, other_width=0)
+            _ = pf.api.fcs_read_header(p, other_width=21)
+
+    def test_key_patterns(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=(["wood"], []))
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["lawnmower+spike"]))
+        # TODO make this an error? This is apparently a valid regexp but it
+        # only should match an empty string, but keys by definition are not
+        # blank, so this is useless and confusing
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], [""]))
+        with pytest.raises(pf.ParseKeyError):
+            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([""], []))
+        with pytest.raises(re.PatternError):
+            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["(((("]))
+
+    def test_rename_standard_keys(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"dollar": "bitcoin"})
+        with pytest.raises(pf.ParseKeyError):
+            _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"": "notblank"})
+            _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"notblank": ""})
+
+    def test_replace_standard_key_values(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_flat_text(
+            p, replace_standard_key_values={"meaning_of_life": "explosions"}
+        )
+        _ = pf.api.fcs_read_flat_text(
+            p, replace_standard_key_values={"meaning_of_life": ""}
+        )
+        with pytest.raises(pf.ParseKeyError):
+            _ = pf.api.fcs_read_flat_text(
+                p, replace_standard_key_values={"": "notblank"}
+            )
+
+    def test_append_standard_keys(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_flat_text(
+            p, append_standard_keywords={"meaning_of_life": "plutonium"}
+        )
+        _ = pf.api.fcs_read_flat_text(
+            p, append_standard_keywords={"meaning_of_life": ""}
+        )
+        with pytest.raises(pf.ParseKeyError):
+            _ = pf.api.fcs_read_flat_text(p, append_standard_keywords={"": "notblank"})
+
+    def test_sub_patterns(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pf.api.fcs_read_flat_text(
+            p,
+            substitute_standard_key_values=(
+                {"history": ("viking", "pirate", True)},
+                {},
+            ),
+        )
+        _ = pf.api.fcs_read_flat_text(
+            p,
+            substitute_standard_key_values=(
+                {},
+                {"religion?": ("odin+thor", "cannons+other stuff", False)},
+            ),
+        )
+        _ = pf.api.fcs_read_flat_text(
+            p,
+            substitute_standard_key_values=(
+                {"time": ("(10[0-9]+)AD", "16${1}AD", False)},
+                {},
+            ),
+        )
+        with pytest.raises(re.PatternError):
+            _ = pf.api.fcs_read_flat_text(
+                p,
+                substitute_standard_key_values=(
+                    {"drone": ("Sunn O)))))", "refrigerator motor", False)},
+                    {},
+                ),
+            )
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_flat_text(
+                p,
+                substitute_standard_key_values=(
+                    {"spiral": ("1.61", "the meaning of life is ${1}", False)},
+                    {},
+                ),
+            )
+
+    def test_time_meas_pattern(
+        self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        blank_dataset_3_2.write_text(p)
+        _ = pf.api.fcs_read_std_text(p, time_meas_pattern="")
+        with pytest.raises(re.PatternError):
+            _ = pf.api.fcs_read_std_text(p, time_meas_pattern=")))))")
+
+    def test_ns_meas_pattern(
+        self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        blank_dataset_3_2.write_text(p)
+        _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n")
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="")
+            _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="n")
+
+    def test_int_byteord_override(
+        self, tmp_path: Path, blank_dataset_2_0: pf.CoreDataset2_0
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        blank_dataset_2_0.write_text(p)
+        _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1])
+        with pytest.raises(pf.InvalidKeywordValueError):
+            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[])
+            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1, 1])
+            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
 
 
 class TestReadWrite:

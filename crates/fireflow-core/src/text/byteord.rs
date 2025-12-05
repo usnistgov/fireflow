@@ -412,10 +412,19 @@ impl fmt::Display for PrivBytes {
 
 /// Error when making a new byte order of some size from a sequence of digits.
 #[derive(Debug, Error)]
-#[error("byte order must include 1-{0} uniquely")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct NewByteOrdError(usize);
+
+impl fmt::Display for NewByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        if self.0 == 0 {
+            write!(f, "byte order not be empty")
+        } else {
+            write!(f, "byte order must include 1-{} uniquely", self.0)
+        }
+    }
+}
 
 /// Error when parsing Endian from string
 #[derive(Debug, Error)]

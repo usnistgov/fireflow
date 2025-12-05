@@ -61,7 +61,8 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
-    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
+    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
+    ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
@@ -4140,6 +4141,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 meas_res
                     .zip_commutative(layout_res)
                     .and_then_commutative(|(ms, layout)| {
+                        // TODO if anything before this fails, it will produce
+                        // a bunch of nonsense pseudostandard errors because
+                        // this lookup function won't run. Either kill the
+                        // ps error or differentiate between fatal and non-fatal
+                        // errors. It seems like the only thing we need the
+                        // meas vector for in this case is $PnN
                         Metaroot::lookup_metaroot(std, &ms, kws.nonstd, conf)
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                             .map_errors(StdTEXTFromFlatTEXTError::from)
@@ -7118,7 +7125,7 @@ impl LookupTemporal for InnerTemporal2_0 {
             nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {
-            TemporalScale2_0::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+            TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
                 .map_switchable_errors(LookupTemporalWarning::from)
                 .switchable_into_commutative()
                 .into_semigroup()
@@ -9457,7 +9464,7 @@ pub enum LookupOpticalError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     Gain(OptIndexedKeyError<Gain>),
     TemporalGain(LookupTemporalGainError),
     Feature(OptIndexedKeyError<Feature>),
@@ -9481,7 +9488,7 @@ type LookupTemporalResult<V> =
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalError {
-    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
+    TemporalScale(ReqIndexedStKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
     Warn(LookupTemporalWarning),
 }
@@ -9490,7 +9497,7 @@ pub enum LookupTemporalError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGainError),
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),

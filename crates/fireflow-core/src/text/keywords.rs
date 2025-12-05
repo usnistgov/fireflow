@@ -733,20 +733,49 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScaleInner;
 
+// TODO only needed for testing
 impl FromStr for TemporalScaleInner {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<Scale>() {
-            Ok(Scale::Linear) => Ok(Self),
+        Self::from_str_delim(s, false.into())
+    }
+}
+
+impl FromStrDelim for TemporalScaleInner {
+    type Err = TemporalScaleError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
+        match &xs[..] {
+            ["0", "0"] => Ok(Self),
             _ => Err(TemporalScaleError),
         }
+    }
+}
+
+impl FromStrWith for TemporalScaleInner {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
 
 /// The value of the $PnE key for temporal measurements (3.0+)
 #[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
+
+impl FromStrWith for TemporalScale3_0 {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        TemporalScaleInner::from_str_with(s, (), conf).map(Self)
+    }
+}
 
 impl TemporalScale3_0 {
     pub(crate) fn lookup(
@@ -759,7 +788,7 @@ impl TemporalScale3_0 {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
         } else {
-            Self::remove_meas_req(kws, i).map(|_| ())
+            Self::remove_meas_req_with(kws, i, (), conf).map(|_| ())
         }
     }
 }
@@ -2376,23 +2405,13 @@ macro_rules! newtype_opt_int {
 }
 
 macro_rules! newtype_opt_bool {
-    ($t:ident, $inner:ident, $err:ident) => {
+    ($t:ident, $inner:ident) => {
         #[derive(Clone, PartialEq, Debug, Default, From, Into)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
         pub struct $t(pub OptionalZST<$inner>);
-
-        impl FromStr for $t {
-            type Err = $err;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                s.parse::<$inner>()
-                    .map(Some)
-                    .map(OptionalZST::from)
-                    .map(Self)
-            }
-        }
 
         impl_display_maybe_self!($t);
     };
@@ -2578,8 +2597,8 @@ macro_rules! kw_opt_region {
 }
 
 macro_rules! meas_opt_zst {
-    ($t:ident, $sym:expr, $inner:ident, $err:ident) => {
-        newtype_opt_bool!($t, $inner, $err);
+    ($t:ident, $sym:expr, $inner:ident) => {
+        newtype_opt_bool!($t, $inner);
         kw_opt_meas!($t, $sym, Self);
     };
 }
@@ -2686,7 +2705,18 @@ kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE", Option<Self>);
-meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
+meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner);
+
+impl FromStr for TemporalType {
+    type Err = TemporalTypeError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<TemporalTypeInner>()
+            .map(Some)
+            .map(OptionalZST::from)
+            .map(Self)
+    }
+}
+
 kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
@@ -2702,12 +2732,20 @@ req_meas!(Shortname); // required for 3.1+
 kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(
-    TemporalScale2_0,
-    "E",
-    TemporalScaleInner,
-    TemporalScaleError
-); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, "E", TemporalScaleInner); // optional for 2.0
+
+impl FromStrWith for TemporalScale2_0 {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        TemporalScaleInner::from_str_with(s, (), conf)
+            .map(Some)
+            .map(OptionalZST::from)
+            .map(Self)
+    }
+}
+
 kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
 kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0

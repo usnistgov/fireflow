@@ -599,7 +599,7 @@ impl FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
-        if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
+        if s.match_indices("%n").count() == 1 {
             Ok(Self(s.into()))
         } else {
             Err(NonStdMeasPatternError(s.into()))
@@ -946,10 +946,7 @@ pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
 #[derive(Error, Debug)]
-#[error(
-    "non standard measurement pattern must not \
-     start with '$' and should have one '%n', found '{0}'"
-)]
+#[error("non standard measurement pattern should have one '%n', found '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasPatternError(String);
@@ -1176,5 +1173,12 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+
+    #[test]
+    fn fromstr_nonstd_meas_pattern() {
+        assert!("".parse::<NonStdMeasPattern>().is_err());
+        assert!("n".parse::<NonStdMeasPattern>().is_err());
+        assert!("%n".parse::<NonStdMeasPattern>().is_ok());
     }
 }

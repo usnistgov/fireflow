@@ -1238,18 +1238,30 @@ fn split_flat_text_literal_delim(
         }
     }
 
+    // If last word is all spaces and we want to "trim" them, this will allow us
+    // to bypass some errors below since these can be ignored
+    let trim_trailing = prev_word
+        .iter()
+        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
+        && conf.trim_trailing_whitespace.is_set();
+
     // We should end on a blank, which corresponds to a (not valid) key. If this
     // is not the case, the number of words was not even.
+    let uneven_ok = prev_was_key || trim_trailing;
+    // Don't emit this error if we are trimming whitespace off the end, because
+    // the "odd word" in that case is entirely whitespace and therefore can be
+    // ignored
     let uneven_err = UnevenWordsError(tk).into();
-    let uneven_res =
-        LogResult::new_switchable_ok_if(prev_was_key, (), (), uneven_err, conf.allow_odd)
-            .switchable_into_commutative();
+    let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
+        .switchable_into_commutative();
 
     // If the last word was not a blank, we did not end on a delimiter.
 
     let delim_flag = conf.allow_missing_final_delim;
-    let final_delim_res =
-        check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative();
+    // Don't emit this error if we are trimming whitespace off the end because
+    // the thing immediately before the whitespace is a delimiter in this case
+    let final_delim_res = (!trim_trailing)
+        .then(|| check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative());
 
     let blank_res = LogResult::new_switchable_iter((), (), blank_errors, conf.allow_empty)
         .switchable_into_commutative();
@@ -1262,7 +1274,8 @@ fn split_flat_text_literal_delim(
     insert_results
         .into_iter()
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, final_delim_res, blank_res])
+        .chain([uneven_res, blank_res])
+        .chain(final_delim_res)
         .mappend_def_void()
 }
 
@@ -1335,6 +1348,13 @@ fn split_flat_text_escaped_delim(
         lastbuf = segment;
     }
 
+    // If last word is all spaces and we want to "trim" them, this will allow us
+    // to bypass some errors below since these can be ignored
+    let trim_trailing = lastbuf
+        .iter()
+        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
+        && conf.trim_trailing_whitespace.is_set();
+
     // If all went perfectly, we should have one consecutive blank at this point
     // since the space between the last delim and the end will show up as a
     // blank. The value of the last buffer should also be an empty slice.
@@ -1365,7 +1385,10 @@ fn split_flat_text_escaped_delim(
     }
 
     let uneven_err = if valuebuf.is_empty() {
-        Some(UnevenWordsError(tk).into())
+        // Don't emit this error if we are trimming whitespace off the end,
+        // because the "odd word" in that case is entirely whitespace and
+        // therefore can be ignored
+        (!trim_trailing).then_some(UnevenWordsError(tk).into())
     } else {
         push_pair(&keybuf, &valuebuf);
         None
@@ -1380,8 +1403,10 @@ fn split_flat_text_escaped_delim(
     let delim_flag = conf.allow_missing_final_delim;
     let even_delim_res = LogResult::new_switchable_maybe((), (), even_delim_err, delim_flag)
         .switchable_into_commutative();
-    let final_delim_res =
-        check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative();
+    // Don't emit this error if we are trimming whitespace off the end because
+    // the thing immediately before the whitespace is a delimiter in this case
+    let final_delim_res = (!trim_trailing)
+        .then(|| check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative());
 
     let boundary_res =
         LogResult::new_switchable_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
@@ -1390,7 +1415,8 @@ fn split_flat_text_escaped_delim(
     insert_results
         .into_iter()
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, final_delim_res, even_delim_res, boundary_res])
+        .chain([uneven_res, even_delim_res, boundary_res])
+        .chain(final_delim_res)
         .mappend_def_void()
 }
 

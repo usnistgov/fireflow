@@ -6958,6 +6958,7 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
+            Self::new_trim_trailing_whitespace(),
             Self::new_ignore_standard_keys(),
             Self::new_promote_to_standard(),
             Self::new_demote_from_standard(),
@@ -7497,6 +7498,14 @@ impl DocArgParam {
                  entirely spaces will become blanks, in which case it may also be \
                  sensible to enable ``allow_empty``.";
         Self::new_bool_param("trim_value_whitespace", d)
+    }
+
+    fn new_trim_trailing_whitespace() -> Self {
+        let d = "If ``True`` trim whitespace off the end of *TEXT*. This will \
+                 effectively move the ending offset of *TEXT* to the first \
+                 non-whitespace byte immediately preceding the actual ending \
+                 offset given in *HEADER*.";
+        Self::new_bool_param("trim_trailing_whitespace", d)
     }
 
     fn new_ignore_standard_keys() -> Self {

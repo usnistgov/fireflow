@@ -228,6 +228,11 @@ fn main() -> Result<(), ()> {
         "Trim whitespace from beginning and end of all values.",
     );
 
+    let trim_trailing_whitespace = flag_arg(
+        TRIM_TRAILING_WHITESPACE,
+        "Trim whitespace from end of TEXT.",
+    );
+
     let make_key_str_args = |lit_flag, pat_flag, lit_help, pat_help| {
         let lit_arg = Arg::new(lit_flag)
             .long(lit_flag)
@@ -325,6 +330,7 @@ fn main() -> Result<(), ()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
+        trim_trailing_whitespace,
         ignore_std_lit_key,
         ignore_std_pat_key,
         promote_lit_to_std,
@@ -844,6 +850,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM).into(),
         allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA).into(),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
+        trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
         rename_standard_keys,
         promote_to_standard,
@@ -1143,6 +1150,8 @@ const ALLOW_SUPP_TEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
 const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 
 const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
+
+const TRIM_TRAILING_WHITESPACE: &str = "trim-trailing-whitespace";
 
 const IGNORE_STD_LIT_KEY: &str = "ignore-std-lit-key";
 

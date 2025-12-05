@@ -458,6 +458,20 @@ pub struct ReadHeaderAndTEXTConfig {
     /// that these will result in errors if [`Self::allow_empty`] is `false`.
     pub trim_value_whitespace: TrimValueWhitespace,
 
+    /// If `true` remove whitespace after TEXT.
+    ///
+    /// In order to make TEXT a predictable length, it seems some vendors just
+    /// add padding at the end which will ensure the segment after it starts at
+    /// a predictable offset. This allows the length of digits in TEXT (such as
+    /// offsets) to vary within a given range.
+    ///
+    /// Unfortunately, it also trips off lots of errors because TEXT in these
+    /// cases will not end with a delimiter.
+    ///
+    /// This flag will "move" the end of TEXT to the latest non-whitespace
+    /// character prior to the offset actually given in HEADER.
+    pub trim_trailing_whitespace: TrimTrailingWhitespace,
+
     /// Remove standard keys from TEXT.
     ///
     /// Comparisons will be case-insensitive. Members of this list should not
@@ -855,7 +869,7 @@ impl_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
 impl_error_flag!(false_is_error AllowMissingNextdata);
 impl_config_flag!(TrimValueWhitespace);
-
+impl_config_flag!(TrimTrailingWhitespace);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);

@@ -7554,7 +7554,7 @@ impl DocArgParam {
                  string. If the global flag is ``True``, replace all found \
                  matches, otherwise only replace the first. Any references in \
                  replacement string must be given with surrounding brackets \
-                 like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.";
+                 like ``\"${1}\"`` or ``\"${cygnus}\"``.";
         let p = PyTuple::new_sub_patterns();
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }

@@ -224,13 +224,11 @@ impl Gain {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        if AsRef::<ReadStdKeywordsConfig>::as_ref(conf)
-            .ignore_time_gain
-            .is_set()
-        {
+        let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
+        let drop_flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
+        if gain_flag.is_set() {
             nonstd.transfer_demoted(std, Self::std(i));
-            let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
-            LogResult::new_switchable_ok(None, flag)
+            LogResult::new_switchable_ok(None, drop_flag)
         } else {
             Self::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)

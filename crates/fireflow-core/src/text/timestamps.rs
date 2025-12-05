@@ -1,4 +1,6 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+};
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
@@ -158,7 +160,7 @@ impl<X> Timestamps<X> {
         X: PartialOrd,
     {
         if let (Some(b), Some(e), Some(_)) = (&self.btim, &self.etim, &self.date) {
-            return b.0 < e.0;
+            return b.0 <= e.0;
         }
         true
     }

@@ -8,9 +8,9 @@ use crate::config::{
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromFlatTEXTWarning,
-    StdDatasetFromFlatTextError, StdDatasetWithKwsOutput, StdTEXTFromFlatTEXTError,
-    StdTEXTFromFlatTEXTWarning, Versioned as _,
+    LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
+    StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
+    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,

@@ -151,6 +151,7 @@ mod python {
 
     use pyo3::prelude::*;
     use regex::Regex;
+    use std::collections::HashMap;
 
     impl<'py> FromPyObject<'py> for SubPattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -162,7 +163,7 @@ mod python {
         }
     }
 
-    type _SubPattern = Vec<(String, SubPattern)>;
+    type _SubPattern = HashMap<String, SubPattern>;
 
     // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
     // where the first member is literal strings and the second is regex patterns

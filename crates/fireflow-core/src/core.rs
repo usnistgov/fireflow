@@ -1406,7 +1406,9 @@ pub trait Versioned {
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn fcs_version() -> Version;
+}
 
+pub(crate) trait PrivVersioned: Versioned {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
@@ -1470,6 +1472,28 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         ms: &NamedTemporalsAndOpticals<Self>,
         conf: &C,
     ) -> LookupMetarootResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+}
+
+pub trait LookupOptical: Sized + VersionedOptical {
+    fn lookup_specific<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &C,
+    ) -> LookupOpticalResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+}
+
+pub trait LookupTemporal: VersionedTemporal {
+    fn lookup_specific<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &C,
+    ) -> LookupTemporalResult<Self>
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -1626,17 +1650,6 @@ pub trait VersionedOptical: Sized {
     fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
-pub trait LookupOptical: Sized + VersionedOptical {
-    fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &C,
-    ) -> LookupOpticalResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
-}
-
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
     type Warning;
@@ -1653,17 +1666,6 @@ pub trait VersionedTemporal: Sized {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError>;
 
     fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
-}
-
-pub trait LookupTemporal: VersionedTemporal {
-    fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &C,
-    ) -> LookupTemporalResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
 pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
@@ -2032,9 +2034,9 @@ impl<O> Optical<O> {
     }
 }
 
-impl<M> Metaroot<M>
+impl<M, V: Versioned> Metaroot<M>
 where
-    M: VersionedMetaroot,
+    M: VersionedMetaroot<Ver = V>,
 {
     fn try_convert<ToM: ConvertFromMetaroot<M>>(
         self,
@@ -6952,6 +6954,11 @@ impl Versioned for Version3_2 {
         Self.into()
     }
 }
+
+impl PrivVersioned for Version2_0 {}
+impl PrivVersioned for Version3_0 {}
+impl PrivVersioned for Version3_1 {}
+impl PrivVersioned for Version3_2 {}
 
 impl AsScaleTransform for InnerOptical2_0 {
     fn as_transform(&self) -> ScaleTransform {

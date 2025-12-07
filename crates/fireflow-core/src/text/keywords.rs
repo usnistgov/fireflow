@@ -748,10 +748,12 @@ impl FromStrDelim for TemporalScaleInner {
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         let xs: Vec<_> = iter.collect();
-        match &xs[..] {
-            ["0", "0"] => Ok(Self),
-            _ => Err(TemporalScaleError),
+        if let [x0, x1] = &xs[..]
+            && (x0.parse::<f32>(), x1.parse::<f32>()) == (Ok(0.0), Ok(0.0))
+        {
+            return Ok(Self);
         }
+        Err(TemporalScaleError)
     }
 }
 

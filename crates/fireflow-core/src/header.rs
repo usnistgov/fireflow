@@ -1,6 +1,8 @@
 //! Reading and writing the HEADER segment
 
-use crate::config::{AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadState};
+use crate::config::{
+    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadState,
+};
 use crate::core::Other;
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
@@ -16,6 +18,7 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
 use crate::text::lookup::ReqMetarootKey as _;
+use crate::validated::ascii_range::OtherWidth;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad20, UintZeroPad20,
 };
@@ -123,13 +126,14 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn validate_text<I>(
         &self,
         s: &TEXTSegment<I>,
+        w: OtherWidth,
     ) -> DeferredErrors<Option<GenericSegment>, HeaderValidationError>
     where
         I: HasRegion,
         T: HeaderString,
     {
         let contains_res = self
-            .contains_text_segment(s)
+            .contains_text_segment(s, w)
             .map_err(HeaderValidationError::from)
             .into_deferred_nowarn();
         let overlap_res = self
@@ -142,13 +146,14 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn contains_text_segment<I>(
         &self,
         s: &TEXTSegment<I>,
+        w: OtherWidth,
     ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         I: HasRegion,
         T: HeaderString,
     {
         s.try_as_generic()
-            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
+            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
     }
 
     /// Check if TEXT segment overlaps with any in HEADER.
@@ -173,7 +178,7 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self) -> DeferredErrors<(), HeaderValidationError>
+    fn validate(&self, w: OtherWidth) -> DeferredErrors<(), HeaderValidationError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
@@ -181,19 +186,22 @@ impl<T> HeaderSegments<T> {
             .overlapping_segments()
             .map_errors(HeaderValidationError::from);
         let y = self
-            .contains_header_segments()
+            .contains_header_segments(w)
             .map_errors(HeaderValidationError::from);
         x.lift_f2_once(y, |(), ()| ())
     }
 
-    fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError>
+    fn contains_header_segments(&self, w: OtherWidth) -> DeferredErrors<(), InHeaderError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
-        let t = self.contains_header_segment(&self.text);
-        let d = self.contains_header_segment(&self.data);
-        let a = self.contains_header_segment(&self.analysis);
-        let os = self.other.iter().map(|o| self.contains_header_segment(o));
+        let t = self.contains_header_segment(&self.text, w);
+        let d = self.contains_header_segment(&self.data, w);
+        let a = self.contains_header_segment(&self.analysis, w);
+        let os = self
+            .other
+            .iter()
+            .map(|o| self.contains_header_segment(o, w));
         [t, d, a]
             .into_iter()
             .chain(os)
@@ -204,6 +212,7 @@ impl<T> HeaderSegments<T> {
     fn contains_header_segment<I, S, T0>(
         &self,
         s: &Segment<I, S, T0>,
+        w: OtherWidth,
     ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         T: HeaderString,
@@ -212,14 +221,18 @@ impl<T> HeaderSegments<T> {
         T0: Into<u64> + Copy,
     {
         s.try_as_generic()
-            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
+            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
     }
 
-    fn contains_segment(&self, s: GenericSegment) -> Result<GenericSegment, InHeaderError>
+    fn contains_segment(
+        &self,
+        s: GenericSegment,
+        w: OtherWidth,
+    ) -> Result<GenericSegment, InHeaderError>
     where
         T: HeaderString,
     {
-        if s.begin < self.nbytes() {
+        if s.begin < self.nbytes(w) {
             Err(InHeaderError(s))
         } else {
             Ok(s)
@@ -234,11 +247,11 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64
+    fn nbytes(&self, w: OtherWidth) -> u64
     where
         T: HeaderString,
     {
-        HeaderKeywordsToWrite::<T>::header_len(self.other.len())
+        HeaderKeywordsToWrite::<T>::header_len(self.other.len(), u8::from(w))
     }
 
     fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
@@ -290,13 +303,14 @@ impl Header {
         } else {
             Ok(vec![])
         };
+        let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
             .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
             .ungroup()
             .map_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
                 hdr.segments
-                    .validate()
+                    .validate(conf.other_width)
                     .map_errors(HeaderError::from)
                     .map_ok_value(|()| hdr)
             })
@@ -563,7 +577,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     where
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
-        let text_begin = Self::header_len(other_lens.len());
+        let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
         let dso = DatasetOffset(0);
 
         // +1 at end accounts for first delimiter
@@ -622,7 +636,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let dso = DatasetOffset(0);
-        let prim_text_begin = Self::header_len(other_lens.len());
+        let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
         let nooffset_req_text_len = flat_keywords_length(&req[..]);
         let opt_text_len = flat_keywords_length(&opt[..]);
@@ -733,19 +747,13 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(())
     }
 
-    fn header_len(other_n: usize) -> u64
+    fn header_len(other_n: usize, w: u8) -> u64
     where
         T: HeaderString,
     {
-        u64::from(HEADER_LEN) + Self::other_header_len(other_n)
-    }
-
-    fn other_header_len(other_n: usize) -> u64
-    where
-        T: HeaderString,
-    {
-        let n = u64::try_from(other_n).expect("OTHER segment count exceeds 2^64");
-        n * u64::from(T::WIDTH) * 2
+        let n = u64::try_from(other_n).unwrap();
+        let o = n * u64::from(w) * 2;
+        u64::from(HEADER_LEN) + o
     }
 
     #[allow(clippy::type_complexity)]

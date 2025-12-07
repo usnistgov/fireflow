@@ -1486,7 +1486,7 @@ where
             let flag = conf.allow_overlapping_supp_text;
             header
                 .segments
-                .validate_text(&seg)
+                .validate_text(&seg, conf.header.other_width)
                 .nowarn_into_switchable(flag)
                 .map_switchable_errors(STextSegmentError::from)
                 .switchable_into_commutative()

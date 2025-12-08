@@ -8,6 +8,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 

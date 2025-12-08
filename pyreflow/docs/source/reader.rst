@@ -153,19 +153,19 @@ above.
 .. autoclass:: pyreflow.api.Header
    :members:
 
-.. autoclass:: pyreflow.api.RawTEXTOutput
+.. autoclass:: pyreflow.api.FlatTEXTOutput
    :members:
   
 .. autoclass:: pyreflow.api.StdTEXTOutput
    :members:
 
-.. autoclass:: pyreflow.api.RawDatasetOutput
+.. autoclass:: pyreflow.api.FlatDatasetOutput
    :members:
 
 .. autoclass:: pyreflow.api.StdDatasetOutput
    :members:
 
-.. autoclass:: pyreflow.api.RawDatasetWithKwsOutput
+.. autoclass:: pyreflow.api.FlatDatasetWithKwsOutput
    :members:
 
 .. autoclass:: pyreflow.api.StdDatasetWithKwsOutput
@@ -180,7 +180,7 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.HeaderSegments
    :members:
 
-.. autoclass:: pyreflow.api.RawTEXTParseData
+.. autoclass:: pyreflow.api.FlatTEXTParseData
    :members:
 
 .. autoclass:: pyreflow.api.ValidKeywords

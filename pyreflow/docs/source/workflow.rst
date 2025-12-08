@@ -45,7 +45,7 @@ Legend:
 13. :py:meth:`CoreDataset*.version_*` (see :ref:`coredataset`)
 
 Flat vs standardized mode
-------------------------
+-------------------------
 
 "Flat mode" refers to parsing *TEXT* as a flat list of key/value pairs (both
 strings) with no further processing. Only when parsing *DATA* will a subset of

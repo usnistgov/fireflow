@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Exceptions &#8212; pyreflow 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Layout Classes" href="layout.html" /><link rel="stylesheet" href="https://pages.nist.gov/nist-header-footer/css/nist-combined.css">
+  <script src="https://code.jquery.com/jquery-1.12.4.min.js" type="text/javascript"></script>
+  <script src="https://pages.nist.gov/nist-header-footer/js/nist-header-footer.js" type="text/javascript" defer="defer"></script>
+
+<script type="text/javascript" src="https://pages.nist.gov/leaveNotice/js/jquery.leaveNotice-nist.min.js"></script>
+<script>
+$(document).ready(function(){
+  // Mark external (non-nist.gov) A tags with class "external"
+  //If the adress start with https and ends with nist.gov
+  var re_nist = new RegExp('^https?:\/\/((^\/)*\.)*nist\\.gov(\/|$)');
+  //Regex to find address that start with https
+  var re_absolute_address = new RegExp('^((https?:)?\/\/)');
+  $("a").each(function(){
+    var url=$(this).attr('href');
+    if(re_nist.test(url) || !re_absolute_address.test(url)){
+      $(this).addClass('local');
+    }else{
+      //This a href appears to be external, so tag it
+      $(this).addClass('external');
+    }
+  });
+  // Add leaveNotice to external A elements
+  $('a.external').leaveNotice();
+});
+</script>
+<link rel="stylesheet" type="text/css" href="https://pages.nist.gov/leaveNotice/css/jquery.leaveNotice.css" />
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="exceptions">
+<h1>Exceptions<a class="headerlink" href="#exceptions" title="Link to this heading">¶</a></h1>
+<p>These are unique exeption classes raised within <cite>pyreflow</cite>.</p>
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.PyreflowError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">PyreflowError</span></span><a class="headerlink" href="#pyreflow.PyreflowError" title="Link to this definition">¶</a></dt>
+<dd><p>Base class for all exceptions raised by <code class="docutils literal notranslate"><span class="pre">pyreflow</span></code>.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.FileLayoutError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">FileLayoutError</span></span><a class="headerlink" href="#pyreflow.FileLayoutError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised if FCS file was malformed.</p>
+<p>This includes:</p>
+<ul class="simple">
+<li><p>invalid FCS version</p></li>
+<li><p>unparsable offsets in <em>HEADER</em></p></li>
+<li><p>unparsable TEXT segment (primary and/or secondary)</p></li>
+<li><p>overlapping segment coordinates</p></li>
+<li><p>mismatches between indicated event number and actual size of <em>DATA</em></p></li>
+</ul>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.ParseKeyError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">ParseKeyError</span></span><a class="headerlink" href="#pyreflow.ParseKeyError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised if key from <em>TEXT</em> could not be parsed from bytestring.</p>
+<p>This includes:</p>
+<ul class="simple">
+<li><p>Standard keys not starting with a <code class="docutils literal notranslate"><span class="pre">&quot;$&quot;</span></code></p></li>
+<li><p>Non-standard keys starting with a <code class="docutils literal notranslate"><span class="pre">&quot;$&quot;</span></code></p></li>
+<li><p>blank keys</p></li>
+<li><p>keys already present</p></li>
+<li><p>keys with non-ASCII or non-UTF-8 characters</p></li>
+</ul>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.ParseKeywordValueError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">ParseKeywordValueError</span></span><a class="headerlink" href="#pyreflow.ParseKeywordValueError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised if keyword value could not be parsed from a string.</p>
+<p>The source string is that which is literally encoded in <em>TEXT</em>. The
+final type for the conversion will depend on the keyword and is dictated
+by its type in the standardized data structure (see <a class="reference internal" href="core.html#coretext"><span class="std std-ref">CoreTEXT*</span></a> and
+<a class="reference internal" href="core.html#coredataset"><span class="std std-ref">CoreDataset*</span></a>). For instance, <em>$ABRT</em> is an unsigned integer and
+will raise this exception if string value for this keyword contains
+invalid digits or if the resulting number is out of range.</p>
+<p>This exception will generally only be raised in standard mode, but may
+also be raised in flat mode when the <em>DATA</em> segment needs to be read
+(this requires parsing <em>$PnB</em>, <em>$PnR</em>, etc).</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.InvalidKeywordValueError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">InvalidKeywordValueError</span></span><a class="headerlink" href="#pyreflow.InvalidKeywordValueError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised if a standardized keyword value is incorrectly specified.</p>
+<p>The difference between <a class="reference internal" href="#pyreflow.ParseKeywordValueError" title="pyreflow.ParseKeywordValueError"><code class="xref py py-exc docutils literal notranslate"><span class="pre">ParseKeywordValueError</span></code></a> and
+this error is that the former applies to string conversion, and this
+applies to an invalid value within the keyword value’s native type.</p>
+<p>This is mostly used when using class constructors to build the classes
+from <a class="reference internal" href="core.html#coretext"><span class="std std-ref">CoreTEXT*</span></a> and <a class="reference internal" href="core.html#coredataset"><span class="std std-ref">CoreDataset*</span></a> from scratch without reading
+an FCS file.</p>
+<p>Furthermore, this is only needed for complicated keyword values whose
+failure mode cannot be described by a build-in Python exception. For
+instance, <em>$SPILLOVER</em> is a numpy matrix that must follow certain rules.
+Violations of these rules will trigger this error.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.ExtraKeywordError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">ExtraKeywordError</span></span><a class="headerlink" href="#pyreflow.ExtraKeywordError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when extra standard keywords are left unused in standard mode.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.FCSDeprecatedError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">FCSDeprecatedError</span></span><a class="headerlink" href="#pyreflow.FCSDeprecatedError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when a deprecated FCS feature is encountered.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.ConversionError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">ConversionError</span></span><a class="headerlink" href="#pyreflow.ConversionError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised upon failure when converting between FCS versions.</p>
+<p>This covers two broad classes of failures:</p>
+<ol class="arabic simple">
+<li><p>data is required in target version but not specified in source version</p></li>
+<li><p>data in source version is incompatible with target version</p></li>
+</ol>
+<p>For (1), this generally happens if a keyword in the source version is
+optional and missing and required in the target version (<em>$PnN</em> for
+example when going from FCS 3.0 to FCS 3.1).</p>
+<p>For (2), this may/may not trigger this exception depending on user
+configuration. In the non-fatal case, incompatible keys will be dropped
+with a warning. In the fatal case, this exception will be raised since
+dropping keywords is a destructive operation.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.RelationalError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">RelationalError</span></span><a class="headerlink" href="#pyreflow.RelationalError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when a keyword’s value is incorrect given its context.</p>
+<p>This can be triggered by the following (and more):</p>
+<ol class="arabic simple">
+<li><p>keywords which reference other data which does not exist</p></li>
+<li><p>attempting to remove a keyword on which data depends</p></li>
+<li><p>mismatches between <em>$PnB</em>, <em>$PnR</em>, <em>$DATATYPE</em>, and <em>$PnDATATYPE</em></p></li>
+<li><p>specifying a temporal value to an optical measurement (and vice versa)</p></li>
+<li><p>mismatched length between measurements, dataframe, and/or layout</p></li>
+</ol>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.EventDataError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">EventDataError</span></span><a class="headerlink" href="#pyreflow.EventDataError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when values in <em>DATA</em> segment are invalid.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.DataLossError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">DataLossError</span></span><a class="headerlink" href="#pyreflow.DataLossError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when values in <em>DATA</em> segment must be truncated.</p>
+<p>This can occur because the dataframe used to represent <em>DATA</em> is 
+allowed to contain arbitrary data types, but these must be coerced to
+a given <em>DATA</em> layout when written to an FCS file. This coercion may
+result in data loss, which is indicated by this error.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.ConfigError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">ConfigError</span></span><a class="headerlink" href="#pyreflow.ConfigError" title="Link to this definition">¶</a></dt>
+<dd><p>Raised when a configuration value is invalid.</p>
+<p>This is used for values whose failure mode cannot be captured using a
+built-in Python exception or another exception in <code class="docutils literal notranslate"><span class="pre">pyreflow</span></code>.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="pyreflow.PyreflowWarning">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">pyreflow.</span></span><span class="sig-name descname"><span class="pre">PyreflowWarning</span></span><a class="headerlink" href="#pyreflow.PyreflowWarning" title="Link to this definition">¶</a></dt>
+<dd><p>Generic warning created by <code class="docutils literal notranslate"><span class="pre">pyreflow</span></code>.</p>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">pyreflow</a></h1>
+
+
+
+
+
+
+<p>
+<iframe src="https://ghbtns.com/github-btn.html?user=usnistgov&repo=fireflow&type=watch&count=true&size=large&v=2"
+  allowtransparency="true" frameborder="0" scrolling="0" width="200px" height="35px"></iframe>
+</p>
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+<h3><a href="index.html">Table of Contents</a></h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflow.html">Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="terminology.html">Terminology</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="api.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="reader.html">Reader Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="core.html">Core* Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="measurement.html">Measurement Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gating.html">Gating Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layout.html">Layout Classes</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Exceptions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.PyreflowError"><code class="docutils literal notranslate"><span class="pre">PyreflowError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.FileLayoutError"><code class="docutils literal notranslate"><span class="pre">FileLayoutError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.ParseKeyError"><code class="docutils literal notranslate"><span class="pre">ParseKeyError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.ParseKeywordValueError"><code class="docutils literal notranslate"><span class="pre">ParseKeywordValueError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.InvalidKeywordValueError"><code class="docutils literal notranslate"><span class="pre">InvalidKeywordValueError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.ExtraKeywordError"><code class="docutils literal notranslate"><span class="pre">ExtraKeywordError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.FCSDeprecatedError"><code class="docutils literal notranslate"><span class="pre">FCSDeprecatedError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.ConversionError"><code class="docutils literal notranslate"><span class="pre">ConversionError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.RelationalError"><code class="docutils literal notranslate"><span class="pre">RelationalError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.EventDataError"><code class="docutils literal notranslate"><span class="pre">EventDataError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.DataLossError"><code class="docutils literal notranslate"><span class="pre">DataLossError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.ConfigError"><code class="docutils literal notranslate"><span class="pre">ConfigError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#pyreflow.PyreflowWarning"><code class="docutils literal notranslate"><span class="pre">PyreflowWarning</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Nate Dwarshuis.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

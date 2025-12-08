@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>API Reference &#8212; pyreflow 0.1.0 documentation</title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Reader Functions" href="reader.html" />
+    <link rel="prev" title="Terminology" href="terminology.html" /><link rel="stylesheet" href="https://pages.nist.gov/nist-header-footer/css/nist-combined.css">
+  <script src="https://code.jquery.com/jquery-1.12.4.min.js" type="text/javascript"></script>
+  <script src="https://pages.nist.gov/nist-header-footer/js/nist-header-footer.js" type="text/javascript" defer="defer"></script>
+
+<script type="text/javascript" src="https://pages.nist.gov/leaveNotice/js/jquery.leaveNotice-nist.min.js"></script>
+<script>
+$(document).ready(function(){
+  // Mark external (non-nist.gov) A tags with class "external"
+  //If the adress start with https and ends with nist.gov
+  var re_nist = new RegExp('^https?:\/\/((^\/)*\.)*nist\\.gov(\/|$)');
+  //Regex to find address that start with https
+  var re_absolute_address = new RegExp('^((https?:)?\/\/)');
+  $("a").each(function(){
+    var url=$(this).attr('href');
+    if(re_nist.test(url) || !re_absolute_address.test(url)){
+      $(this).addClass('local');
+    }else{
+      //This a href appears to be external, so tag it
+      $(this).addClass('external');
+    }
+  });
+  // Add leaveNotice to external A elements
+  $('a.external').leaveNotice();
+});
+</script>
+<link rel="stylesheet" type="text/css" href="https://pages.nist.gov/leaveNotice/css/jquery.leaveNotice.css" />
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="api-reference">
+<h1>API Reference<a class="headerlink" href="#api-reference" title="Link to this heading">¶</a></h1>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="reader.html">Reader Functions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#dataset-parsing">Dataset parsing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#header-parsing"><em>HEADER</em> parsing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#offline-keyword-repair">Offline keyword repair</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#all-functions">All functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#outputs">Outputs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reader.html#common-outputs">Common outputs</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="core.html">Core* Classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="core.html#coretext">CoreTEXT*</a></li>
+<li class="toctree-l2"><a class="reference internal" href="core.html#coredataset">CoreDataset*</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="measurement.html">Measurement Classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="measurement.html#optical">Optical</a></li>
+<li class="toctree-l2"><a class="reference internal" href="measurement.html#temporal">Temporal</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="gating.html">Gating Classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="gating.html#univariate-regions">Univariate Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gating.html#bivariate-regions">Bivariate Regions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gating.html#gated-measurements">Gated Measurements</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="layout.html">Layout Classes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="layout.html#ascii-layouts">ASCII layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layout.html#ordered-numeric-layouts">Ordered Numeric Layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layout.html#endian-numeric-layouts">Endian Numeric Layouts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layout.html#mixed-layouts">Mixed Layouts</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="exceptions.html">Exceptions</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.PyreflowError"><code class="docutils literal notranslate"><span class="pre">PyreflowError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.FileLayoutError"><code class="docutils literal notranslate"><span class="pre">FileLayoutError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.ParseKeyError"><code class="docutils literal notranslate"><span class="pre">ParseKeyError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.ParseKeywordValueError"><code class="docutils literal notranslate"><span class="pre">ParseKeywordValueError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.InvalidKeywordValueError"><code class="docutils literal notranslate"><span class="pre">InvalidKeywordValueError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.ExtraKeywordError"><code class="docutils literal notranslate"><span class="pre">ExtraKeywordError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.FCSDeprecatedError"><code class="docutils literal notranslate"><span class="pre">FCSDeprecatedError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.ConversionError"><code class="docutils literal notranslate"><span class="pre">ConversionError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.RelationalError"><code class="docutils literal notranslate"><span class="pre">RelationalError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.EventDataError"><code class="docutils literal notranslate"><span class="pre">EventDataError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.DataLossError"><code class="docutils literal notranslate"><span class="pre">DataLossError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.ConfigError"><code class="docutils literal notranslate"><span class="pre">ConfigError</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html#pyreflow.PyreflowWarning"><code class="docutils literal notranslate"><span class="pre">PyreflowWarning</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">pyreflow</a></h1>
+
+
+
+
+
+
+<p>
+<iframe src="https://ghbtns.com/github-btn.html?user=usnistgov&repo=fireflow&type=watch&count=true&size=large&v=2"
+  allowtransparency="true" frameborder="0" scrolling="0" width="200px" height="35px"></iframe>
+</p>
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+<h3><a href="index.html">Table of Contents</a></h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflow.html">Workflow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="terminology.html">Terminology</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reader.html">Reader Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="core.html">Core* Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="measurement.html">Measurement Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="gating.html">Gating Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="layout.html">Layout Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html">Exceptions</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2025, Nate Dwarshuis.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.2.3</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

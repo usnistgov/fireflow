@@ -28,3 +28,9 @@ jobs:
         with:
           branch: nist-pages
           directory: pyreflow/docs
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          branch: test-pages
+          directory: pyreflow/docs

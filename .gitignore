@@ -1,0 +1,13 @@
+*
+
+!*.html
+!*.js
+!*.png
+!*.png.map
+!*.svg
+!*.css
+!*.inv
+!*.txt
+!_static
+!_images
+!_sources

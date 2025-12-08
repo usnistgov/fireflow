@@ -21,7 +21,10 @@ jobs:
       # - name: Build docs
       #   run: make docs
 
-      - run: echo 0 > index.html
+      - run: |
+          echo 0 > index.html
+          ls -al
+          echo $PWD
 
       - name: Checkout docs branch
         uses: actions/checkout@v4

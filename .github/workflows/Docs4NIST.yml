@@ -1,6 +1,6 @@
 name: "Documentation"
 
-on: [push, pull_request, delete]
+on: [push, pull_request]
 
 jobs:
   docs:

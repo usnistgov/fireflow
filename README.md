@@ -31,6 +31,8 @@ In addition to the core Rust library, `fireflow` has several wrappers.
 
 ### Python
 
+The python API is documented [here](https://pages.nist.gov/fireflow/).
+
 The Python wrapper for `fireflow` is `pyreflow`.
 
 `pyreflow` is not yet available via PyPI or other package respositories so it
@@ -57,17 +59,6 @@ dependencies:
   - pip:
     - git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow
 ```
-
-The documentation is currently not hosted, so it needs to be built locally.
-
-Run the following (assuming you have `make` installed):
-
-```
-make docs
-```
-
-Then open the resulting index file in a web browser: 
-`pyreflow/docs/build/html/index.html`
 
 ### Command Line Interface
 

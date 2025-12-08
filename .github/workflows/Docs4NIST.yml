@@ -21,10 +21,12 @@ jobs:
       # - name: Build docs
       #   run: make docs
 
-      # - name: Checkout docs branch
-      #   uses: actions/checkout@v4
-      #   with:
-      #     ref: nist-pages
+      - run: echo 0 > index.html
+
+      - name: Checkout docs branch
+        uses: actions/checkout@v4
+        with:
+          ref: nist-pages
 
       # - name: Remove old docs
       #   run: |
@@ -33,8 +35,9 @@ jobs:
 
       - name: Move html docs to root
         run: |
+          ls -al
           echo $PWD
           mv pyreflow/docs/build/html/* ./
 
-      - name: Commit and push changes
-        uses: stefanzweifel/git-auto-commit-action@v7
+      # - name: Commit and push changes
+      #   uses: stefanzweifel/git-auto-commit-action@v7

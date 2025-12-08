@@ -30,6 +30,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: nist-pages
+          clean: false
 
       # - name: Remove old docs
       #   run: |

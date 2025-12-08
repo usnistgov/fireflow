@@ -1,4 +1,3 @@
-import re
 from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
@@ -23,16 +22,8 @@ from pyreflow.typing import (
 )
 import pyreflow as pf
 import polars as pl
-import sys
 
 from .conftest import lazy_fixture
-
-vi = sys.version_info
-
-if vi.major == 3 and vi.minor < 13:
-    pat_err = re.error
-else:
-    pat_err = re.PatternError
 
 
 _DEFAULT_CORRECTION = (0, 0)
@@ -2038,7 +2029,7 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], [""]))
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([""], []))
-        with pytest.raises(pat_err):
+        with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["(((("]))
 
     def test_rename_standard_keys(
@@ -2115,7 +2106,7 @@ class TestApiFunctions:
                 {},
             ),
         )
-        with pytest.raises(pat_err):
+        with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_text(
                 p,
                 substitute_standard_key_values=(
@@ -2140,7 +2131,7 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         blank_dataset_3_2.write_text(p)
         _ = pf.api.fcs_read_std_text(p, time_meas_pattern="")
-        with pytest.raises(pat_err):
+        with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, time_meas_pattern=")))))")
 
     def test_ns_meas_pattern(

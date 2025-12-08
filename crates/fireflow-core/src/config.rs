@@ -1077,7 +1077,7 @@ pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::PatternError;
+    use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
 
     use super::TimeMeasNamePattern;
@@ -1089,7 +1089,7 @@ mod python {
             let s: String = ob.extract()?;
             let n = s
                 .parse::<Self>()
-                .map_err(|e| PatternError::new_err(e.to_string()))?;
+                .map_err(|e| ConfigError::new_err(e.to_string()))?;
             Ok(n)
         }
     }

@@ -5007,10 +5007,6 @@ impl PyException {
         Self::new("IndexError")
     }
 
-    fn new_pattern() -> Self {
-        Self::new("~re.PatternError")
-    }
-
     fn new_overflow() -> Self {
         Self::new("OverflowError")
     }
@@ -5052,6 +5048,10 @@ impl PyException {
             "If any keys from *TEXT* contain non-ASCII characters and \
              ``allow_non_ascii_keywords`` is ``False``",
         )
+    }
+
+    fn new_config() -> Self {
+        Self::new_pyreflow(&PyreflowError::Config)
     }
 
     fn new_extra() -> Self {
@@ -5419,7 +5419,7 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_regexp() -> Self {
         let desc = format!("if %x is not a valid regular expression as described in {REGEXP_REF}");
-        let exc = PyException::new_pattern().desc(desc);
+        let exc = PyException::new_config().desc(desc);
         Self::default().exc(exc)
     }
 
@@ -5691,7 +5691,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_sub_pattern() -> Self {
         let desc = "if references in replacement string in %x \
                     do not match captures in regular expression";
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
+        let exc = PyException::new_config().desc(desc);
         Self::new1(PyStr::new_regexp())
             .add(PyStr::default())
             .add(PyBool::default())
@@ -6774,8 +6774,7 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        let exc = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x is not between 1 and 126");
+        let exc = PyException::new_config().desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = "Delimiter to use when writing *TEXT*.";
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
@@ -7153,7 +7152,7 @@ impl DocArgParam {
             "if %x does not have year, month, and day specifiers \
              as outlined in {CHRONO_REF}"
         );
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
+        let exc = PyException::new_config().desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = "If supplied, will be used as an alternative pattern when parsing \
                  *$DATE*. If not supplied, *$DATE* will be parsed according to \
@@ -7179,7 +7178,7 @@ impl DocArgParam {
              correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
              in {CHRONO_REF}"
         );
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(exc_desc);
+        let exc = PyException::new_config().desc(exc_desc);
 
         // format arg description
         let std_pat = match version {
@@ -7249,8 +7248,7 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern);
-        let exc = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x does not have ``\"%n\"``");
+        let exc = PyException::new_config().desc("if %x does not have ``\"%n\"``");
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
@@ -7330,8 +7328,7 @@ impl DocArgParam {
 
     fn new_other_width_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let e = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x is less than `1` and greater than `20`");
+        let e = PyException::new_config().desc("if %x is less than `1` and greater than `20`");
         let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))

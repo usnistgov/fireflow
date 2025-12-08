@@ -902,7 +902,7 @@ pub enum KeyOrStringPatternsError {
 /// Error when parsing [`CaseInsRegex`] from string when building [`KeyOrStringPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
@@ -955,7 +955,7 @@ pub struct NonStdMeasPatternError(String);
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]

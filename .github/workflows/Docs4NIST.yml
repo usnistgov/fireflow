@@ -8,29 +8,39 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # - uses: dtolnay/rust-toolchain@stable
+
+      # - uses: Swatinem/rust-cache@v2
+
+      # - uses: astral-sh/setup-uv@v6
+
+      # - name: Install graphviz
+      #   run: sudo apt install -y graphviz
+
+      # - name: Build docs
+      #   run: make docs
+
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: test-pages
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Install graphviz
-        run: sudo apt install -y graphviz
-
-      - name: Build docs
-        run: make docs
-
-      - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          branch: nist-pages
-          directory: pyreflow/docs
+      - run: echo 0 > index.html
 
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
           branch: test-pages
-          directory: pyreflow/docs
+        
+
+      # - name: Push changes
+      #   uses: ad-m/github-push-action@master
+      #   with:
+      #     branch: nist-pages
+      #     directory: pyreflow/docs
+
+      # - name: Push changes
+      #   uses: ad-m/github-push-action@master
+      #   with:
+      #     branch: test-pages
+      #     directory: pyreflow/docs

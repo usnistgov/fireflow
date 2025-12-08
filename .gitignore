@@ -1,5 +1,7 @@
 *
 
+!.nojekyll
+!.buildinfo
 !*.html
 !*.js
 !*.png

@@ -1912,7 +1912,7 @@ class TestLayouts:
     def test_endian_uint(self) -> None:
         ranges = [2**8 - 1, 2**16 - 1, 2**24 - 1]
         new = pf.EndianUintLayout(ranges)
-        assert new.byte_widths == [8, 16, 24]
+        assert new.byte_widths == [1, 2, 3]
         assert new.ranges == ranges
         assert new.datatype == "I"
 
@@ -1923,7 +1923,7 @@ class TestLayouts:
             ("I", 255),
         ]
         new = pf.MixedLayout(types)
-        assert new.byte_widths == [32, 64, 8]
+        assert new.byte_widths == [4, 8, 1]
         assert new.typed_ranges == types
 
 

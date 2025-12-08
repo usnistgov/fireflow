@@ -27,10 +27,12 @@ jobs:
 
       - run: echo 0 > index.html
 
-      - name: Push changes
-        uses: ad-m/github-push-action@master
-        with:
-          branch: test-pages
+      - uses: stefanzweifel/git-auto-commit-action@v7
+
+      # - name: Push changes
+      #   uses: ad-m/github-push-action@master
+      #   with:
+      #     branch: test-pages
         
 
       # - name: Push changes

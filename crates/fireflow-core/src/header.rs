@@ -355,9 +355,9 @@ where
         .resolve_nowarn()
         .map_err(IOErrorGroup::Pure)?;
 
-    let text_res = HeaderSegment::h_read_primary(h, false, text_cor, version, st);
-    let data_res = HeaderSegment::h_read_primary(h, true, data_cor, version, st);
-    let anal_res = HeaderSegment::h_read_primary(h, true, anal_cor, version, st);
+    let text_res = HeaderSegment::h_read_primary(h, true, text_cor, version, st);
+    let data_res = HeaderSegment::h_read_primary(h, false, data_cor, version, st);
+    let anal_res = HeaderSegment::h_read_primary(h, false, anal_cor, version, st);
 
     let pure_text_res = split_io!(text_res).ungroup();
     let pure_data_res = split_io!(data_res).ungroup();

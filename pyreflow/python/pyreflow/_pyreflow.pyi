@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import time, date, datetime
-from typing import TypeVar, Self, Generic, Union, final
+from typing import TypeVar, Self, Generic, Union, final, Any
 
 from polars import Series, DataFrame
 import numpy as np
@@ -48,6 +48,8 @@ from pyreflow.typing import (
     AnyCoreTEXT,
     AnyCoreDataset,
     SubPatterns,
+    ReqOrOpt,
+    RootOrMeas,
 )
 
 _X = TypeVar("_X")
@@ -67,10 +69,12 @@ _DEFAULT_TIME_MEAS_PATTERN = "^(TIME|Time)$"
 class _LayoutUnmixedCommon:
     @property
     def datatype(self) -> Datatype: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _LayoutEndianCommon:
     @property
     def endian(self) -> Endian: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _LayoutAsciiCommon(_LayoutUnmixedCommon):
     def __new__(cls, ranges: list[IntRange]) -> Self: ...
@@ -224,6 +228,8 @@ _AnyMixedLayout = Union[
 class _MeasCommon:
     nonstandard_keywords: NonStdKeywords
     longname: str
+
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _OpticalWavelength:
     wavelength: float | None
@@ -404,7 +410,7 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
 _T = TypeVar("_T", bound=Temporal2_0 | Temporal3_0 | Temporal3_1 | Temporal3_2)
 _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
 
-_RawInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
+_FlatInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
 
 @final
 class GatedMeasurement:
@@ -419,6 +425,7 @@ class GatedMeasurement:
         detector_type: str = "",
         detector_voltage: float | None = None,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     scale: tuple[()] | tuple[float, float] | None
     filter: str
     shortname: str | None
@@ -434,6 +441,7 @@ class _UnivariateRegion(Generic[_X]):
         index: _X,
         gate: tuple[float, float],
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def index(self) -> _X: ...
     @property
@@ -445,6 +453,7 @@ class _BivariateRegion(Generic[_X]):
         index: tuple[_X, _X],
         vertices: list[tuple[float, float]],
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def index(self) -> tuple[_X, _X]: ...
     @property
@@ -505,24 +514,47 @@ class _CoreCommon:
     nonstandard_keywords: NonStdKeywords
     def standard_keywords(
         self,
-        exclude_req_root: bool = False,
-        exclude_opt_root: bool = False,
-        exclude_req_meas: bool = False,
-        exclude_opt_meas: bool = False,
+        req_or_opt: ReqOrOpt,
+        root_or_meas: RootOrMeas,
     ) -> dict[str, str]: ...
     @property
     def par(self) -> int: ...
     def set_trigger_threshold(self, threshold: int) -> bool: ...
     def write_text(
-        self, path: Path, delim: int = 30, big_other: bool = False
+        self,
+        path: Path,
+        delim: int = 30,
+        big_other: bool = False,
+        appendable: bool = False,
+        append: bool = False,
+    ) -> None: ...
+    @classmethod
+    def write_texts(
+        cls,
+        path: Path,
+        datasets: list[Self],
+        delim: int = 30,
+        big_other: bool = False,
     ) -> None: ...
     @property
     def version(self) -> FCSVersion: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _CoreDatasetCommon:
     def write_dataset(
         self,
         path: Path,
+        delim: int = 30,
+        big_other: bool = False,
+        skip_conversion_check: bool = False,
+        appendable: bool = False,
+        append: bool = False,
+    ) -> None: ...
+    @classmethod
+    def write_datasets(
+        cls,
+        path: Path,
+        datasets: list[Self],
         delim: int = 30,
         big_other: bool = False,
         skip_conversion_check: bool = False,
@@ -570,8 +602,10 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     def measurements(self) -> list[_O | _T]: ...
     def remove_measurement_by_name(
         self, name: Shortname
-    ) -> tuple[MeasIndex, _O | _T]: ...
-    def remove_measurement_by_index(self, index: MeasIndex) -> tuple[_N, _O | _T]: ...
+    ) -> tuple[MeasIndex, _O | _T, Range]: ...
+    def remove_measurement_by_index(
+        self, index: MeasIndex
+    ) -> tuple[_N, _O | _T, Range]: ...
     def measurement_at(self, index: MeasIndex) -> _O | _T: ...
     def measurement_named(self, name: Shortname) -> _O | _T: ...
     def replace_optical_at(self, index: MeasIndex, meas: _O) -> _O | _T: ...
@@ -662,57 +696,84 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
     data: DataFrame
+    def set_measurements_and_data(
+        self,
+        measurements: list[_O | _T],
+        data: DataFrame,
+    ) -> None: ...
 
 class _CoreGetSetMeasOrdered(Generic[_O, _T]):
     layout: _AnyOrderedLayout
 
-    def set_measurements(
+    def set_named_measurements(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[Shortname | None, _O, _T],
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
+    ) -> None: ...
+    def set_named_measurements_and_layout(
+        self,
+        measurements: _FlatInput[Shortname | None, _O, _T],
+        layout: _AnyOrderedLayout,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: list[_O | _T],
         layout: _AnyOrderedLayout,
-        allow_shared_names: bool = False,
-        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
     layout: _L
 
-    def set_measurements(
+    def set_named_measurements(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: _FlatInput[Shortname, _O, _T],
+        allow_shared_names: bool = False,
+        skip_index_check: bool = False,
+    ) -> None: ...
+    def set_named_measurements_and_layout(
+        self,
+        measurements: _FlatInput[Shortname, _O, _T],
+        layout: _L,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
     def set_measurements_and_layout(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: list[_O | _T],
         layout: _L,
-        allow_shared_names: bool = False,
-        skip_index_check: bool = False,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
-    def set_measurements_and_data(
+    def set_named_measurements_and_data(
         self,
-        measurements: _RawInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[Shortname | None, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-
-class _CoreDatasetGetSetMeasEndian(Generic[_O, _T]):
-    def set_measurements_and_data(
+    def set_measurements_layout_and_data(
         self,
-        measurements: _RawInput[Shortname, _O, _T],
+        measurements: list[_O | _T],
+        layout: _AnyOrderedLayout,
+        data: DataFrame,
+    ) -> None: ...
+
+class _CoreDatasetGetSetMeasEndian(Generic[_O, _T, _L]):
+    def set_named_measurements_and_data(
+        self,
+        measurements: _FlatInput[Shortname, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
+    ) -> None: ...
+    def set_measurements_layout_and_data(
+        self,
+        measurements: list[_O | _T],
+        layout: _L,
+        data: DataFrame,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
@@ -1162,6 +1223,7 @@ class CoreTEXT3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        disallow_localtime: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1251,6 +1313,7 @@ class CoreDataset2_0(
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
+        dataset_offset: int = 0,
     ) -> Self: ...
 
 @final
@@ -1352,6 +1415,7 @@ class CoreDataset3_0(
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
+        dataset_offset: int = 0,
     ) -> Self: ...
 
 @final
@@ -1363,7 +1427,7 @@ class CoreDataset3_1(
     _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[Shortname, Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
-    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1],
+    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedLayout],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreSubset,
@@ -1459,6 +1523,7 @@ class CoreDataset3_1(
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
+        dataset_offset: int = 0,
     ) -> Self: ...
 
 @final
@@ -1470,7 +1535,7 @@ class CoreDataset3_2(
     _CoreReplaceTemporal3_2,
     _CoreDatasetGetSetMeas[Shortname, Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
-    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2],
+    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedLayout],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreModified,
@@ -1555,6 +1620,7 @@ class CoreDataset3_2(
         nonstandard_measurement_pattern: str | None = None,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        disallow_localtime: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1569,6 +1635,7 @@ class CoreDataset3_2(
         allow_tot_mismatch: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
+        dataset_offset: int = 0,
     ) -> Self: ...
 
 class PyreflowError(Exception): ...
@@ -1594,6 +1661,7 @@ class HeaderSegments:
         analysis_seg: Segment,
         other_segs: list[Segment],
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def text_seg(self) -> Segment: ...
     @property
@@ -1606,6 +1674,7 @@ class HeaderSegments:
 @final
 class Header:
     def __new__(cls, version: FCSVersion, segments: HeaderSegments) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
@@ -1614,6 +1683,7 @@ class Header:
 @final
 class ValidKeywords:
     def __new__(cls, std: StdKeywords, nonstd: NonStdKeywords) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def std(self) -> StdKeywords: ...
     @property
@@ -1622,6 +1692,7 @@ class ValidKeywords:
 @final
 class ExtraStdKeywords:
     def __new__(cls, pseudostandard: StdKeywords, unused: StdKeywords) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def pseudostandard(self) -> StdKeywords: ...
     @property
@@ -1634,13 +1705,14 @@ class DatasetSegments:
         data_seg: Segment,
         analysis_seg: Segment,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def data_seg(self) -> Segment: ...
     @property
     def analysis_seg(self) -> Segment: ...
 
 @final
-class RawTEXTParseData:
+class FlatTEXTParseData:
     def __new__(
         cls,
         header_segments: HeaderSegments,
@@ -1650,6 +1722,7 @@ class RawTEXTParseData:
         non_ascii: list[tuple[str, str]],
         byte_pairs: list[tuple[bytes, bytes]],
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_segments(self) -> HeaderSegments: ...
     @property
@@ -1664,22 +1737,23 @@ class RawTEXTParseData:
     def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
 
 @final
-class RawTEXTOutput:
+class FlatTEXTOutput:
     def __new__(
         cls,
         version: FCSVersion,
         kws: ValidKeywords,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
     def kws(self) -> ValidKeywords: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 @final
-class RawDatasetWithKwsOutput:
+class FlatDatasetWithKwsOutput:
     def __new__(
         cls,
         data: DataFrame,
@@ -1687,6 +1761,7 @@ class RawDatasetWithKwsOutput:
         others: list[bytes],
         dataset_segs: DatasetSegments,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def data(self) -> DataFrame: ...
     @property
@@ -1697,16 +1772,17 @@ class RawDatasetWithKwsOutput:
     def dataset_segs(self) -> DatasetSegments: ...
 
 @final
-class RawDatasetOutput:
+class FlatDatasetOutput:
     def __new__(
         cls,
-        text: RawTEXTOutput,
-        dataset: RawDatasetWithKwsOutput,
+        text: FlatTEXTOutput,
+        dataset: FlatDatasetWithKwsOutput,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text(self) -> RawTEXTOutput: ...
+    def text(self) -> FlatTEXTOutput: ...
     @property
-    def dataset(self) -> RawDatasetWithKwsOutput: ...
+    def dataset(self) -> FlatDatasetWithKwsOutput: ...
 
 @final
 class StdTEXTOutput:
@@ -1715,8 +1791,9 @@ class StdTEXTOutput:
         tot: int | None,
         dataset_segs: DatasetSegments,
         extra: ExtraStdKeywords,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def tot(self) -> int | None: ...
     @property
@@ -1724,7 +1801,7 @@ class StdTEXTOutput:
     @property
     def extra(self) -> ExtraStdKeywords: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 @final
 class StdDatasetWithKwsOutput:
@@ -1733,6 +1810,7 @@ class StdDatasetWithKwsOutput:
         dataset_segs: DatasetSegments,
         extra: ExtraStdKeywords,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
@@ -1743,12 +1821,13 @@ class StdDatasetOutput:
     def __new__(
         cls,
         dataset: StdDatasetWithKwsOutput,
-        parse: RawTEXTParseData,
+        parse: FlatTEXTParseData,
     ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def parse(self) -> RawTEXTParseData: ...
+    def parse(self) -> FlatTEXTParseData: ...
 
 def fcs_read_header(
     path: Path,
@@ -1761,10 +1840,11 @@ def fcs_read_header(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
+    dataset_offset: int = 0,
 ) -> Header: ...
 
 #
-def fcs_read_raw_text(
+def fcs_read_flat_text(
     path: Path,
     # header args
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1776,10 +1856,10 @@ def fcs_read_raw_text(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    allow_duplicated_supp_text: bool = False,
+    allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
     allow_non_ascii_delim: bool = False,
@@ -1795,6 +1875,7 @@ def fcs_read_raw_text(
     allow_supp_text_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
@@ -1805,7 +1886,8 @@ def fcs_read_raw_text(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> RawTEXTOutput: ...
+    dataset_offset: int = 0,
+) -> FlatTEXTOutput: ...
 
 #
 def fcs_read_std_text(
@@ -1820,10 +1902,10 @@ def fcs_read_std_text(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    allow_duplicated_supp_text: bool = False,
+    allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
     allow_non_ascii_delim: bool = False,
@@ -1839,6 +1921,7 @@ def fcs_read_std_text(
     allow_supp_text_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
@@ -1861,6 +1944,7 @@ def fcs_read_std_text(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1878,10 +1962,11 @@ def fcs_read_std_text(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    dataset_offset: int = 0,
 ) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
-def fcs_read_raw_dataset(
+def fcs_read_flat_dataset(
     path: Path,
     # header args
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -1893,10 +1978,10 @@ def fcs_read_raw_dataset(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    allow_duplicated_supp_text: bool = False,
+    allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
     allow_non_ascii_delim: bool = False,
@@ -1912,6 +1997,7 @@ def fcs_read_raw_dataset(
     allow_supp_text_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
@@ -1939,7 +2025,8 @@ def fcs_read_raw_dataset(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> RawTEXTOutput: ...
+    dataset_offset: int = 0,
+) -> FlatTEXTOutput: ...
 
 #
 def fcs_read_std_dataset(
@@ -1954,10 +2041,10 @@ def fcs_read_std_dataset(
     squish_offsets: bool = False,
     allow_negative: bool = False,
     truncate_offsets: bool = False,
-    # raw args
+    # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    allow_duplicated_supp_text: bool = False,
+    allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
     allow_non_ascii_delim: bool = False,
@@ -1973,6 +2060,7 @@ def fcs_read_std_dataset(
     allow_supp_text_own_delim: bool = False,
     allow_missing_nextdata: bool = False,
     trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
     demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
@@ -1995,6 +2083,7 @@ def fcs_read_std_dataset(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2015,47 +2104,98 @@ def fcs_read_std_dataset(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
+    dataset_offset: int = 0,
 ) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
 
 #
-def fcs_read_raw_dataset_with_keywords(
+def fcs_read_flat_texts(
     path: Path,
-    version: FCSVersion,
-    std: dict[str, str],
-    data_seg: Segment,
-    analysis_seg: Segment = _DEFAULT_SEGMENT,
-    other_segs: list[Segment] = [],
-    # offset args
-    text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
-    ignore_text_data_offsets: bool = False,
-    ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
-    truncate_text_offsets: bool = False,
-    # layout args
-    allow_optional_dropping: bool = False,
-    transfer_dropped_optional: bool = False,
-    integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
-    # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    skip: int | None = None,
+    limit: int | None = None,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # flat args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_overlapping_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    use_latin1: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> RawDatasetWithKwsOutput: ...
+) -> list[FlatTEXTOutput]: ...
 
 #
-def fcs_read_std_dataset_with_keywords(
+def fcs_read_std_texts(
     path: Path,
-    version: FCSVersion,
-    std: dict[str, str],
-    nonstd: dict[str, str],
-    data_seg: Segment,
-    analysis_seg: Segment = _DEFAULT_SEGMENT,
-    other_segs: list[Segment] = [],
+    skip: int | None = None,
+    limit: int | None = None,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # flat args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_overlapping_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    use_latin1: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # standard args
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,
@@ -2071,6 +2211,68 @@ def fcs_read_std_dataset_with_keywords(
     nonstandard_measurement_pattern: str | None = None,
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
+    # offset args
+    text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: ByteOrd | None = None,
+    disallow_range_truncation: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
+) -> list[tuple[AnyCoreTEXT, StdTEXTOutput]]: ...
+
+#
+def fcs_read_flat_datasets(
+    path: Path,
+    skip: int | None = None,
+    limit: int | None = None,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # flat args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_overlapping_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    use_latin1: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
     # offset args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2091,7 +2293,118 @@ def fcs_read_std_dataset_with_keywords(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> StdDatasetWithKwsOutput: ...
+) -> list[FlatTEXTOutput]: ...
+
+#
+def fcs_read_std_datasets(
+    path: Path,
+    skip: int | None = None,
+    limit: int | None = None,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # flat args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_overlapping_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    use_latin1: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
+    # standard args
+    trim_intra_value_whitespace: bool = False,
+    time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN,
+    allow_missing_time: bool = False,
+    force_time_linear: bool = False,
+    ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+    date_pattern: str | None = None,
+    time_pattern: str | None = None,
+    allow_pseudostandard: bool = False,
+    allow_unused_standard: bool = False,
+    disallow_deprecated: bool = False,
+    fix_log_scale_offsets: bool = False,
+    nonstandard_measurement_pattern: str | None = None,
+    ignore_time_gain: bool = False,
+    parse_indexed_spillover: bool = False,
+    disallow_localtime: bool = False,
+    # offset args
+    text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: ByteOrd | None = None,
+    disallow_range_truncation: bool = False,
+    # data args
+    allow_uneven_event_width: bool = False,
+    allow_tot_mismatch: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
+) -> list[tuple[AnyCoreDataset, StdDatasetOutput]]: ...
+
+#
+def fcs_read_flat_dataset_with_keywords(
+    path: Path,
+    version: FCSVersion,
+    std: dict[str, str],
+    data_seg: Segment,
+    analysis_seg: Segment = _DEFAULT_SEGMENT,
+    other_segs: list[Segment] = [],
+    # offset args
+    text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: ByteOrd | None = None,
+    disallow_range_truncation: bool = False,
+    # data args
+    allow_uneven_event_width: bool = False,
+    allow_tot_mismatch: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
+    dataset_offset: int = 0,
+) -> FlatDatasetWithKwsOutput: ...
 
 __version__: str
 
@@ -2151,10 +2464,10 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
-    "RawTEXTOutput",
-    "RawDatasetOutput",
-    "RawDatasetWithKwsOutput",
-    "RawTEXTParseData",
+    "FlatTEXTOutput",
+    "FlatDatasetOutput",
+    "FlatDatasetWithKwsOutput",
+    "FlatTEXTParseData",
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
@@ -2162,10 +2475,13 @@ __all__ = [
     "ValidKeywords",
     "DatasetSegments",
     "fcs_read_header",
-    "fcs_read_raw_text",
+    "fcs_read_flat_text",
     "fcs_read_std_text",
-    "fcs_read_raw_dataset",
+    "fcs_read_flat_dataset",
     "fcs_read_std_dataset",
-    "fcs_read_raw_dataset_with_keywords",
-    "fcs_read_std_dataset_with_keywords",
+    "fcs_read_flat_texts",
+    "fcs_read_std_texts",
+    "fcs_read_flat_datasets",
+    "fcs_read_std_datasets",
+    "fcs_read_flat_dataset_with_keywords",
 ]

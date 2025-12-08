@@ -1,6 +1,6 @@
 name: "Documentation"
 
-on: [push, pull_request, delete]
+on: [push, pull_request]
 
 jobs:
   docs:
@@ -21,8 +21,21 @@ jobs:
       - name: Build docs
         run: make docs
 
-      - name: Push changes
-        uses: ad-m/github-push-action@master
+      - name: Checkout docs branch
+        uses: actions/checkout@v4
         with:
-          branch: nist-pages
-          directory: pyreflow/docs
+          ref: nist-pages
+          # very important, otherwise new docs will be obliterated with 'git clean'
+          clean: false
+
+      - name: Remove old docs
+        run: |
+          rm -rf _images _sources _static
+          rm -f *.html *.js *.inv .buildinto .nojekyll
+
+      - name: Move html docs to root
+        run: |
+          mv pyreflow/docs/build/html/* ./
+
+      - name: Commit and push changes
+        uses: stefanzweifel/git-auto-commit-action@v7

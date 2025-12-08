@@ -1,58 +1,62 @@
-//! Things pertaining to the DATA segment (mostly)
+//! Reading and writing the DATA segment
 //!
-//! Basic overview: DATA is arranged according to version-specific "layouts".
-//! Each layout will enumerate all possible combinations for a given version,
-//! which directly correspond to all valid combinations of $BYTEORD, $DATATYPE,
-//! $PnB, $PnR, and $PnDATATYPE in the case of 3.2.
+//! # Basic overview
 //!
-//! Each layout may then be projected in a "reader" or "writer." Readers are
+//! DATA is arranged according to version-specific "layouts". Each layout will
+//! enumerate all possible combinations for a given version, which directly
+//! correspond to all valid combinations of $BYTEORD, $DATATYPE, $PnB, $PnR, and
+//! $PnDATATYPE in the case of 3.2.
+//!
+//! Each layout may then be projected into a "reader" or "writer." Readers are
 //! blank vectors waiting to accept data from disk. Writers are iterators that
 //! read values from a dataframe and possibly convert them before writing.
 //!
-//! Now for the ugly bits.
+//! # Not-so-basic overview
 //!
-//! Layouts can first be classified by column width, where "fixed" layouts have
-//! a single width per column and "delimited" layouts have a variable width. The
+//! Layouts can first be classified by column width, where *fixed* layouts have
+//! a single width per column and *delimited* layouts have a variable width. The
 //! latter only corresponds to one layout: the case where $DATATYPE=A and all
-//! $PnB=*. Values in such layouts will always be read as u64.
+//! $PnB=*. Values in such layouts will always be read as [`u64`].
 //!
-//! Fixed layouts can further be classified by the type in each column:
+//! *Fixed* layouts can further be classified by the type in each column:
+//!
 //! 1) Single-type numeric layouts (aka "matrices")
 //! 2) Fixed ASCII layouts
 //! 3) Variable-width integer layouts
 //! 4) Mixed layouts
 //!
 //! (1) is the simplest; each column is the same type which corresponds directly
-//! with a native Rust type. This includes f32, f64, and uint ranging from 1 to
-//! 8 bytes (including those that aren't powers of 2). Each type has a slightly
-//! different reader/writer corresponding to distinct byte interpretations on
-//! disk. (2) is similar in that the entire layout is one type; however, each
-//! number is always read as u64 subject to the chars allowed by $PnB. (1)/(2)
-//! are the only possibilities for FCS 2.0/3.0 since $BYTEORD restricts all $PnB
-//! to the same width in the case of numeric $DATATYPE.
+//! with a native Rust type. This includes [`f32`], [`f64`], and uint ranging
+//! from 1 to 8 bytes (including those that aren't powers of 2). Each type has a
+//! slightly different reader/writer corresponding to distinct byte
+//! interpretations on disk. (2) is similar in that the entire layout is one
+//! type; however, each number is always read as [`u64`] subject to the chars
+//! allowed by $PnB. (1)/(2) are the only possibilities for FCS 2.0/3.0 since
+//! $BYTEORD restricts all $PnB to the same width in the case of numeric
+//! $DATATYPE.
 //!
-//! (3) is a weird layout that almost nobody likely uses but is nonetheless
-//! permitted starting with 3.1. Since $BYTEORD was changed to only mean
-//! endian-ness, its relation to $PnB was severed. When DATATYPE=I, this means
-//! $PnB may be changed freely, which allows different integer widths in each
-//! column. In practice this makes the resulting data structure a dataframe (vs
-//! a matrix).
+//! (3) is a weird layout that only a few (but more than zero) vendors are known
+//! to use. Since $BYTEORD was changed to only mean endian-ness, its relation to
+//! $PnB was severed. When DATATYPE=I, this means $PnB may be changed freely,
+//! which allows different integer widths in each column. In practice this makes
+//! the resulting data structure a dataframe (vs a matrix).
 //!
-//! (4) was newly added to 3.2 by way of the PnDATATYPE keywords which now
+//! (4) was newly added to 3.2 by way of the $PnDATATYPE keywords which now
 //! allows the data layout to include any type. This obviously more complex but
 //! is not computationally very different from (3).
 //!
 //! In addition to width, layouts may also be classified by whether $TOT is
-//! known. In 2.0, $TOT is optional and may not be given. For delimited ASCII
+//! known. In 2.0, $TOT is optional and may not be given. For *delimited* ASCII
 //! layouts, not have $TOT means we need to parse until we reach the end of
-//! DATA, hoping that all columns have the same length. For fixed layouts, we
+//! DATA, hoping that all columns have the same length. For *fixed* layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, DisallowRangeTrunc, ReadLayoutConfig, ReaderConfig,
+    AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadEventsConfig,
+    ReadLayoutConfig,
 };
 use crate::core::{
-    AsScaleTransform, Measurements, ScaleTransform, TemporalsAndOpticals, VersionedMetaroot,
+    AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
@@ -60,7 +64,7 @@ use crate::logging::{
     ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult, WarningOrErrorResult,
     WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsResult,
 };
-use crate::macros::{def_group, match_many_to_one};
+use crate::macros::{def_summary, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -79,17 +83,20 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
-use crate::type_families::{Functor as _, FunctorOnce as _};
-use crate::validated::ascii_range::{AsciiRange, AsciiRangeFromKeywordsError, Chars};
+use crate::validated::ascii_range::{
+    AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
+};
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskLossError, BitmaskTruncationError,
+    Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
     AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
     LossError,
 };
 use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
+
+use type_families::{Functor as _, FunctorOnce as _};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
@@ -156,10 +163,11 @@ pub enum DataLayout3_2 {
 
 pub type MixedLayout = EndianLayout<NullMixedType, Option<NumType>>;
 
-/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+/// All possible layouts for the DATA segment in 2.0 and 3.0.
 ///
-/// It is so named "Ordered" because the BYTEORD keyword represents any possible
-/// byte ordering that may occur rather than simply little or big endian.
+/// It is so named "Ordered" because the $BYTEORD keyword represents any
+/// possible byte ordering that may occur rather than simply little or big
+/// endian.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
@@ -171,8 +179,7 @@ pub enum AnyOrderedLayout<T> {
     F64(OrderedLayout<F64Range, T>),
 }
 
-// TODO make an integer layout which has only one width, which will cover the
-// vast majority of cases and make certain operations easier.
+/// All possible endian layouts with the same datatype (3.1)
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
@@ -186,7 +193,7 @@ pub enum NonMixedEndianLayout<D> {
 
 pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
 
-/// Byte layouts for ASCII data.
+/// DATA layouts for ASCII data.
 ///
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
@@ -202,19 +209,19 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
 
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
-/// Byte layout for delimited ASCII.
+/// DATA layout for delimited ASCII.
 #[derive(Clone, Default, PartialEq, new, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DelimAsciiLayout<T, D, const ORD: bool> {
-    #[as_ref([u64])]
-    ranges: Vec<u64>,
+    #[as_ref([AsciiRangeValue])]
+    ranges: Vec<AsciiRangeValue>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<T>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<D>,
 }
 
-/// Byte layout where each column has a fixed width.
+/// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FixedLayout<C, L, T, D> {
@@ -227,14 +234,13 @@ pub struct FixedLayout<C, L, T, D> {
     _meas_data_def: PhantomData<D>,
 }
 
-/// Byte layout for integers that may be in any byte order.
+/// DATA layout for integers that may be in any byte order.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedUintLayout<T> {
-    // TODO the first two don't need to be ordered
     Uint08(OrderedLayout<Bitmask08, T>),
     Uint16(OrderedLayout<Bitmask16, T>),
     Uint24(OrderedLayout<Bitmask24, T>),
@@ -245,7 +251,7 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T, Nothing<NumType>>;
+pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasOrder>::Order, T, Nothing<NumType>>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 #[derive(Debug, PartialEq, Clone)]
@@ -370,6 +376,7 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<Nothing<NumType>>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
+/// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
     fn lookup_datatype(
         std: &mut StdKeywords,
@@ -457,7 +464,7 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Self,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
         Self::with_tot(
             (),
             tot,
@@ -471,10 +478,10 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Tot,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatch> {
+    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
-        let i = TotEventMismatch { tot, total_events };
+        let i = TotEventMismatchError { tot, total_events };
         LogResult::new_switchable_ok_if(tot.0 == count, (), (), i, flag)
     }
 }
@@ -500,10 +507,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn req_meas_keywords(&self) -> Vec<[(String, String); 2]>;
 
-    // TODO in theory this could return the thing we removed, but it doesn't
-    // seem like we have a use for it now and it would likely make this trait
-    // more more complex as we would need an associated type
-    fn remove_nocheck(&mut self, index: MeasIndex);
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
     fn h_read_df_inner<R: Read>(
         &self,
@@ -511,7 +515,7 @@ pub trait LayoutOps<'a, T>: Sized {
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot;
@@ -547,8 +551,11 @@ pub trait LayoutOps<'a, T>: Sized {
         S: CheckedScaleTransform,
         G: Default,
     {
-        // ASSUME measurements and layout columns are the same length
         let ds = self.datatypes();
+        debug_assert!(
+            xforms.len() == ds.len(),
+            "transforms length must be same as column number"
+        );
         let es = ds
             .iter()
             .zip(xforms)
@@ -595,7 +602,7 @@ pub trait InterLayoutOps<D> {
     fn clear(&mut self);
 }
 
-/// Standardized operations on layouts
+/// Standardized operations on ordered layouts
 #[delegatable_trait]
 pub trait OrderedLayoutOps: Sized {
     fn byte_order(&self) -> ByteOrd2_0;
@@ -637,7 +644,7 @@ where
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
@@ -646,16 +653,15 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        // TODO why return default rather than fail?
-        seg.as_u64().try_coords().map_or(
-            LogResult::new_ok(FCSDataFrame::default()),
-            |(begin, _)| {
+        // if we cannot get coords, it means the segment is empty, thus the
+        // returned dataframe should be empty
+        seg.try_abs_coords()
+            .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
                 h.seek(SeekFrom::Start(begin))
                     .map_err(IOErrorGroup::from)
                     .into_log()
                     .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
-            },
-        )
+            })
     }
 
     fn h_write_df<W>(
@@ -694,7 +700,7 @@ where
     #[allow(clippy::type_complexity)]
     fn try_new_measurements<M: VersionedMetaroot>(
         &self,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
     ) -> Result<Measurements<M::Name, M::Temporal, M::Optical>, MeasurementsWithLayoutError>
     where
         M::Optical: AsScaleTransform,
@@ -714,36 +720,38 @@ where
     fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
 }
 
+/// A scale transform which may be checked against a datatype to ensure compatibility
 pub trait CheckedScaleTransform {
     type Err;
 
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
 }
 
-pub trait HasNativeType: Sized {
+/// A type which has a native Rust type
+trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
 }
 
-/// A type which uses a defined number of bytes
-pub trait HasNativeWidth: HasNativeType {
+/// A type which uses a defined number of [`PrivBytes`]
+trait HasBytes: HasNativeType {
     /// The length of the type in an FCS file (may be less than native)
-    const BYTES: Bytes;
+    const BYTES: PrivBytes;
+}
 
-    /// The length of the native Rust type
-    const LEN: usize;
-
+/// A type which uses a defined number of bytes
+pub trait HasOrder {
     /// The sized byte order to be used with this type
     type Order;
 }
 
 /// A column which has only one $DATATYPE
-pub trait HasOneDatatype: Sized {
+trait HasOneDatatype: Sized {
     const DATATYPE: AlphaNumType;
 }
 
 /// A column which has a $DATATYPE keyword
-pub trait HasDatatype: Sized {
+trait HasDatatype: Sized {
     fn datatype(&self) -> AlphaNumType;
 
     fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
@@ -758,20 +766,11 @@ trait FromRange: Sized {
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error>;
 }
 
-/// A type which has a width that may vary
+/// A type which has a known width
 pub trait IsFixed {
     fn nbytes(&self) -> NonZeroU8;
 
     fn fixed_width(&self) -> BitsOrChars;
-
-    fn range(&self) -> Range;
-
-    fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String); 2] {
-        [
-            Width::Fixed(self.fixed_width()).meas_pair(i),
-            self.range().meas_pair(i),
-        ]
-    }
 }
 
 /// A column which may be transformed into a reader for a rust numeric type
@@ -2043,30 +2042,36 @@ impl NullMixedType {
     }
 }
 
-impl From<u64> for AnyNullBitmask {
+impl From<BitmaskValue<u64>> for AnyNullBitmask {
     /// Make a new bitmask from a u64.
     ///
     /// The width is determined by the magnitude of the range; the smallest
     /// possible will be used.
-    fn from(value: u64) -> Self {
-        // ASSUME these will never truncate because we check the width first
-        match PrivBytes::from_u64(value) {
-            PrivBytes::B1 => Self::Uint08(Bitmask::from_u64(value).0),
-            PrivBytes::B2 => Self::Uint16(Bitmask::from_u64(value).0),
-            PrivBytes::B3 => Self::Uint24(Bitmask::from_u64(value).0),
-            PrivBytes::B4 => Self::Uint32(Bitmask::from_u64(value).0),
-            PrivBytes::B5 => Self::Uint40(Bitmask::from_u64(value).0),
-            PrivBytes::B6 => Self::Uint48(Bitmask::from_u64(value).0),
-            PrivBytes::B7 => Self::Uint56(Bitmask::from_u64(value).0),
-            PrivBytes::B8 => Self::Uint64(Bitmask::from_u64(value).0),
+    fn from(value: BitmaskValue<u64>) -> Self {
+        macro_rules! go {
+            ($var:ident, $x:expr) => {{
+                let (ret, truncated) = Bitmask::from_u64($x.0);
+                debug_assert!(!truncated, "AnyNullBitmask input should never be truncated");
+                Self::$var(ret)
+            }};
+        }
+        match PrivBytes::from_u64(value.0) {
+            PrivBytes::B1 => go!(Uint08, value),
+            PrivBytes::B2 => go!(Uint16, value),
+            PrivBytes::B3 => go!(Uint24, value),
+            PrivBytes::B4 => go!(Uint32, value),
+            PrivBytes::B5 => go!(Uint40, value),
+            PrivBytes::B6 => go!(Uint48, value),
+            PrivBytes::B7 => go!(Uint56, value),
+            PrivBytes::B8 => go!(Uint64, value),
         }
     }
 }
 
-impl From<AnyNullBitmask> for u64 {
+impl From<AnyNullBitmask> for BitmaskValue<u64> {
     /// Convert bitmask range (not bitmask itself) to u64.
     fn from(value: AnyNullBitmask) -> Self {
-        match_any_uint!(value, AnyNullBitmask, x, { Self::from(x) })
+        match_any_uint!(value, AnyNullBitmask, x, { Self(u64::from(x)) })
     }
 }
 
@@ -2171,7 +2176,7 @@ where
     }
 
     fn ranges(&self) -> Vec<Range> {
-        self.ranges.iter().map(|x| Range::from(*x)).collect()
+        self.ranges.iter().map(|x| Range::from(x.0)).collect()
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -2193,14 +2198,18 @@ where
             .enumerate()
             .map(|(i, r)| {
                 let x = Width::Variable.meas_pair(i);
-                let y = Range((*r).into()).meas_pair(i);
+                let y = Range(r.0.into()).meas_pair(i);
                 [x, y]
             })
             .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) {
-        self.ranges.remove(index.into());
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
+        debug_assert!(
+            usize::from(index) <= self.ranges.len(),
+            "Index should be less than/equal to column number"
+        );
+        Range::from(self.ranges.remove(index.into()).0)
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2209,7 +2218,7 @@ where
         _: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        _: &ReaderConfig,
+        _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         macro_rules! go {
             ($x:expr) => {
@@ -2222,6 +2231,10 @@ where
         }
         let rs = &self.ranges;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
+        if rs.is_empty() && nbytes > 0 {
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
+        }
         let res = T::with_tot(
             h,
             tot,
@@ -2251,7 +2264,6 @@ where
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         let ncols = df.ncols();
         let nrows = df.nrows();
-        // ASSUME dataframe has correct number of columns
         let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
         let mut loss_ws = vec![None; column_srcs.len()];
 
@@ -2337,8 +2349,12 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
+        debug_assert!(
+            usize::from(index) <= self.ranges.len(),
+            "Index should be less than/equal to number of columns"
+        );
         range
-            .into_uint()
+            .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
@@ -2352,7 +2368,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         flag: DisallowRangeTrunc,
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         range
-            .into_uint()
+            .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable(flag)
@@ -2366,7 +2382,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &[u64],
+    ranges: &[AsciiRangeValue],
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -2375,16 +2391,9 @@ fn h_read_delim_with_rows<R: Read>(
     let mut last_was_delim = false;
     let nrows = tot.0;
     let ncols = ranges.len();
-    // TODO emit a real error here since this means something is probably
-    // screwy with the file
-    if (nrows == 0 || ncols == 0) && nbytes > 0 {
-        return Ok(FCSDataFrame::default());
-    }
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     // Here we have $TOT so initialize vectors to required length
     let mut data = vec![vec![0; nrows]; ncols];
-    // let mut data = self.0.columns;
-    // let nrows = data.head.len();
-    // let ncols = data.len();
     let mut row = 0;
     let mut col = 0;
     // Delimiters are tab, newline, carriage return, space, or comma. Any
@@ -2432,13 +2441,13 @@ fn h_read_delim_with_rows<R: Read>(
         .into_iter()
         .map(FCSColumn::from)
         .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because all columns should be the same
-    // length
+    // ASSUME this will never fail because we initialized all columns to be
+    // the same length
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &[u64],
+    ranges: &[AsciiRangeValue],
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -2446,11 +2455,7 @@ fn h_read_delim_without_rows<R: Read>(
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
     let ncols = data.len();
-    // TODO emit a real error here since this means something is probably
-    // screwy with the file
-    if ncols == 0 && nbytes > 0 {
-        return Ok(FCSDataFrame::default());
-    }
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     let mut col = 0;
     let mut last_was_delim = false;
     let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
@@ -2496,8 +2501,8 @@ fn h_read_delim_without_rows<R: Read>(
         .into_iter()
         .map(FCSColumn::from)
         .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because all columns should be the same
-    // length
+    // ASSUME this will never fail because we checked that all columns are the
+    // same length above
     Ok(FCSDataFrame::try_new(cs).unwrap())
 }
 
@@ -2548,12 +2553,21 @@ where
         self.columns
             .iter()
             .enumerate()
-            .map(|(i, c)| c.req_meas_keywords(i.into()))
+            .map(|(i, c)| {
+                [
+                    Width::Fixed(c.fixed_width()).meas_pair(i),
+                    Range::from(c).meas_pair(i),
+                ]
+            })
             .collect()
     }
 
-    fn remove_nocheck(&mut self, index: MeasIndex) {
-        self.columns.remove(index.into());
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
+        debug_assert!(
+            usize::from(index) <= self.columns.len(),
+            "Index should be less than/equal to column number"
+        );
+        Range::from(&self.columns.remove(index.into()))
     }
 
     fn h_read_df_inner<R: Read>(
@@ -2562,7 +2576,7 @@ where
         buf: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
     where
         T: IsTot,
@@ -2593,7 +2607,10 @@ where
     }
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         self.columns
             .iter()
             .zip(df.iter_columns())
@@ -2615,7 +2632,10 @@ where
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         let nrows = df.nrows();
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         let mut cs: Vec<_> = self
             .columns
             .iter()
@@ -2657,7 +2677,10 @@ where
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
     ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-        // ASSUME df has same number of columns as layout
+        debug_assert!(
+            self.columns.len() == df.ncols(),
+            "column number should match dataframe width"
+        );
         let mut warnings = vec![];
         let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
             |(i, (col_type, col_data))| {
@@ -2702,7 +2725,7 @@ where
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         C::from_range(range, flag)
             .map_switchable_errors(InsertRangeError::from)
-            .map_ok_value(|col| self.insert_column(index, col))
+            .map_ok_value(|col| self.insert_column_nocheck(index, col))
             .set_err_value(())
     }
 
@@ -2768,13 +2791,14 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map_ok_value(|columns| Self::new(columns, byte_layout))
     }
 
-    fn h_read_unchecked_df<R: Read>(
+    fn h_read_unchecked_df<R>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
     ) -> IOResult<FCSDataFrame, ReadDataframeError>
     where
+        R: Read,
         S: Copy,
         C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
@@ -2784,6 +2808,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .iter()
             .map(|c| c.clone().into_reader(nrows))
             .collect();
+
         for row in 0..nrows {
             for c in &mut col_readers {
                 c.h_read(h, row, self.byte_layout, buf)?;
@@ -2793,7 +2818,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
-    fn insert_column(&mut self, index: MeasIndex, col: C) {
+    fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
+        debug_assert!(
+            usize::from(index) <= self.columns.len(),
+            "Index should be less than/equal to number of columns"
+        );
         self.columns.insert(index.into(), col);
     }
 
@@ -2838,11 +2867,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .sum()
     }
 
-    pub fn compute_nrows(
+    fn compute_nrows(
         &self,
         seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> WarningOrErrorResult<u64, (), UnevenEventWidth, EventWidthError>
+        conf: &ReadEventsConfig,
+    ) -> WarningOrErrorResult<u64, (), UnevenEventWidthError, EventWidthError>
     where
         S: Clone,
         C: IsFixed,
@@ -2850,12 +2879,12 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         let n = seg.len();
         let w = self.event_width();
         if w == 0 {
-            LogResult::new_err(EventWidthError::from(ZeroEventWidth::new(n)))
+            LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         } else {
             let total_events = n / w;
             let remainder = n % w;
             let is_ok = remainder == 0;
-            let e = UnevenEventWidth::new(w, n, remainder);
+            let e = UnevenEventWidthError::new(w, n, remainder);
             let flag = conf.allow_uneven_event_width;
             SwitchableErrorResult::new_switchable_ok_if(is_ok, total_events, (), e, flag)
                 .switchable_into_non_commutative()
@@ -2878,12 +2907,12 @@ impl<C> EndianLayout<C, Option<NumType>> {
     {
         NullMixedType::from_range(range, flag).map_deferred_value(|col| match col.try_into() {
             Ok(c) => {
-                self.insert_column(index, c);
+                self.insert_column_nocheck(index, c);
                 DataLayout3_2::NonMixed(self.into())
             }
             Err(e) => {
                 let mut z = self.columns_into();
-                z.insert_column(index, e.src);
+                z.insert_column_nocheck(index, e.src);
                 z.into()
             }
         })
@@ -2919,9 +2948,11 @@ macro_rules! def_native_wrapper {
             type Native = $native;
         }
 
-        impl HasNativeWidth for $name {
-            const BYTES: Bytes = Bytes(PrivBytes::$bytes);
-            const LEN: usize = $native_size;
+        impl HasBytes for $name {
+            const BYTES: PrivBytes = PrivBytes::$bytes;
+        }
+
+        impl HasOrder for $name {
             type Order = SizedByteOrd<$size>;
         }
     };
@@ -3012,8 +3043,7 @@ where
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
-        // TODO there is probably a better place to do this subtraction
-        (range - Range::from(1_u8))
+        range
             .into_uint()
             .map_error(RangeToBitmaskError::from)
             .and_then_replace(|x| Self::try_from_native(x).map_error(RangeToBitmaskError::from))
@@ -3050,7 +3080,7 @@ impl FromRange for AsciiRange {
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
         range
-            .into_uint::<u64>()
+            .into_ascii_uint()
             .map_deferred_value(Self::from)
             .map_errors(RangeToAsciiError::from)
             .nowarn_into_switchable(flag)
@@ -3068,11 +3098,10 @@ impl FromRange for AnyNullBitmask {
         range: Range,
         flag: DisallowRangeTrunc,
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error> {
-        // TODO there is probably a better place to do this subtraction
-        (range - Range::from(1_u8))
+        range
             .into_uint()
             .map_errors(RangeToBitmaskError::from)
-            .map_deferred_value(|x: u64| Self::from(x))
+            .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
             .nowarn_into_switchable(flag)
     }
 }
@@ -3125,7 +3154,7 @@ impl FromRange for NullMixedType {
 
 impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
 where
-    Self: HasNativeWidth,
+    Self: HasBytes,
     u64: From<T>,
     T: Copy,
 {
@@ -3136,15 +3165,11 @@ where
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(Self::BYTES.into())
     }
-
-    fn range(&self) -> Range {
-        self.into()
-    }
 }
 
 impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
-    Self: HasNativeWidth,
+    Self: HasBytes,
     T: Copy,
     f64: From<T>,
 {
@@ -3154,10 +3179,6 @@ where
 
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(Self::BYTES.into())
-    }
-
-    fn range(&self) -> Range {
-        self.range.clone().into()
     }
 }
 
@@ -3169,10 +3190,6 @@ impl IsFixed for AsciiRange {
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(self.chars().into())
     }
-
-    fn range(&self) -> Range {
-        Range(self.value().into())
-    }
 }
 
 impl IsFixed for AnyNullBitmask {
@@ -3183,10 +3200,6 @@ impl IsFixed for AnyNullBitmask {
     fn fixed_width(&self) -> BitsOrChars {
         match_any_uint!(self, Self, x, { x.fixed_width() })
     }
-
-    fn range(&self) -> Range {
-        match_any_uint!(self, Self, x, { x.range() })
-    }
 }
 
 impl IsFixed for NullMixedType {
@@ -3196,10 +3209,6 @@ impl IsFixed for NullMixedType {
 
     fn fixed_width(&self) -> BitsOrChars {
         match_any_mixed!(self, x, { x.fixed_width() })
-    }
-
-    fn range(&self) -> Range {
-        match_any_mixed!(self, x, { x.range() })
     }
 }
 
@@ -3287,7 +3296,7 @@ impl<T> AnyOrderedUintLayout<T> {
         // First, scan through the widths to make sure they are all fixed and
         // are all the same number of bytes as ByteOrd. Skip this step if we
         // are ignoring $PnB for width and simply using the length of $BYTEORD.
-        let width_res = if conf.integer_widths_from_byteord {
+        let width_res = if conf.integer_widths_from_byteord.is_set() {
             LogResult::new_ok(())
         } else {
             cs.iter()
@@ -3368,7 +3377,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .enumerate()
                 .map(|(i, c)| {
                     c.range
-                        .into_uint::<u64>()
+                        .into_ascii_uint()
                         .nowarn_into_switchable(flag)
                         .map_switchable_errors(RangeToAsciiError::from)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
@@ -3392,15 +3401,15 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         Self::Fixed(FixedLayout::new(columns, NoByteOrd))
     }
 
-    fn new_delim(ranges: Vec<u64>) -> Self {
+    fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         Self::Delimited(DelimAsciiLayout::new(ranges))
     }
 }
 
 impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
-    pub fn new_ascii_u64(ranges: Vec<u64>) -> Self {
-        let rs = ranges.into_iter().map(AsciiRange::from).collect();
-        Self::new_ascii(rs)
+    #[must_use]
+    pub fn new_ascii_u64(ranges: Vec<AsciiRangeValue>) -> Self {
+        Self::new_ascii(ranges.fmap_into())
     }
 
     #[must_use]
@@ -3411,7 +3420,7 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
 
 impl<T, const LEN: usize, TC> OrderedLayout<Bitmask<T, LEN>, TC>
 where
-    Bitmask<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+    Bitmask<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
 {
     #[must_use]
     pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
@@ -3421,7 +3430,7 @@ where
 
 impl<T, const LEN: usize, TC> OrderedLayout<FloatRange<T, LEN>, TC>
 where
-    FloatRange<T, LEN>: HasNativeWidth<Order = SizedByteOrd<LEN>>,
+    FloatRange<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
 {
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {
@@ -3568,15 +3577,11 @@ impl VersionedDataLayout for DataLayout3_2 {
         match unique_dt[..] {
             // no columns, therefore undetermined datatype, use whatever the
             // default layout is
-            //
-            // ASSUME this matches with Self::new_empty above
             [] => LogResult::new_ok(NonMixedEndianLayout::new_empty1(datatype, byteord.0).into()),
             // has columns with one datatype, use nonmixed layout
             [dt] => {
-                let ds = columns
-                    .into_iter()
-                    .map(|c| ColumnLayoutValues::new(c.width, c.range, Nothing::default()))
-                    .collect();
+                let ds =
+                    columns.fmap(|c| ColumnLayoutValues::new(c.width, c.range, Nothing::default()));
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf)
                     .map_ok_value(|x| Self::NonMixed(x.phantom_into::<Option<NumType>>()))
             }
@@ -3907,7 +3912,7 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -4113,7 +4118,7 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<u64>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -4170,7 +4175,7 @@ pub enum NewDataLayoutError {
     ByteOrd(ByteOrdToSizedError),
 }
 
-/// Error when $PnB or $PnR cannot be used for an ordered integer layout (2.0/3.0 only)
+/// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintLayout`] (2.0/3.0)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewFixedIntLayoutError {
@@ -4214,7 +4219,7 @@ impl fmt::Display for WidthMismatchError {
     }
 }
 
-/// Error when using $PnB and $PnR to make a new mixed type column.
+/// Error when using $PnB and $PnR to make a new [`MixedType`].
 ///
 /// This only applies to FCS 3.2 and the value of $PnDATATYPE is implied by
 /// the variant of this enum.
@@ -4226,7 +4231,7 @@ pub enum NewMixedTypeError {
     Float(FloatWidthError),
 }
 
-/// Warning when failing to truncate $PnR for use in a 3.2 mixed type layout.
+/// Warning when failing to truncate $PnR for use in a [`DataLayout3_2`].
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMixedTypeWarning {
@@ -4246,7 +4251,7 @@ pub enum NewMixedTypeWarning {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
 
-/// Error when using $PnB or $PnR to make a new integer bitmask
+/// Error when using $PnB or $PnR to make a new [`Bitmask`]
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewUintTypeError {
@@ -4254,7 +4259,7 @@ pub enum NewUintTypeError {
     Bytes(IndexedWidthToBytesError),
 }
 
-/// Error when converting $PnB (in bits) to bytes
+/// Error when converting $PnB (in bits) to [`Bytes`]
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
@@ -4283,7 +4288,7 @@ pub enum FloatWidthError {
     Range(IndexedFloatRangeError),
 }
 
-/// Error when converting $PnR to bitmask for integer layout based on $PnB.
+/// Error when converting $PnR to [`Bitmask`] for integer layout based on $PnB.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
@@ -4309,7 +4314,7 @@ impl fmt::Display for IndexedBitmaskError {
     }
 }
 
-/// Inner error for RangeToBitmaskError without the index
+/// Inner error for [`RangeToBitmaskError`] without the index
 ///
 /// This is necessary to translate from the more general RangeToIntError to add
 /// integer-layout-specific context. Furthermore, it subsumes
@@ -4358,7 +4363,7 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
-/// Inner error for IndexedRangeToAsciiError without the index
+/// Inner error for [`IndexedRangeToAsciiError`] without the index
 #[derive(Debug, Error)]
 pub enum RangeToAsciiError {
     #[error("its value {0} cannot be represented with 8 bytes")]
@@ -4396,12 +4401,12 @@ pub struct WrongFloatWidth {
     index: MeasIndex,
 }
 
-/// Any error when computing even width for fixed-width layout
+/// Any error when computing event width for fixed-width layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum EventWidthError {
-    Zero(ZeroEventWidth),
-    Uneven(UnevenEventWidth),
+    Zero(ZeroEventWidthError),
+    Uneven(UnevenEventWidthError),
 }
 
 /// Error when fixed-width layout does not evenly divide the length of DATA.
@@ -4412,7 +4417,7 @@ pub enum EventWidthError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct UnevenEventWidth {
+pub struct UnevenEventWidthError {
     event_width: u64,
     nbytes: u64,
     remainder: u64,
@@ -4423,7 +4428,7 @@ pub struct UnevenEventWidth {
 #[error("DATA segment is {event_width} bytes but event width is zero")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct ZeroEventWidth {
+pub struct ZeroEventWidthError {
     event_width: u64,
 }
 
@@ -4449,7 +4454,7 @@ pub(crate) struct AsciiLossError(Chars);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 
-/// Error when looking up layout keywords.
+/// Error when looking up layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutError {
@@ -4460,7 +4465,7 @@ pub enum LookupLayoutError {
     Meas(LookupMeasLayoutError),
 }
 
-/// Warning when looking up layout keywords.
+/// Warning when looking up layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
@@ -4483,7 +4488,7 @@ type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
     LookupMeasLayoutError,
 >;
 
-/// Error when looking up measurement layout keywords.
+/// Error when looking up measurement for layout from key/value pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasLayoutError {
@@ -4498,18 +4503,18 @@ pub enum LookupMeasLayoutError {
 pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
-    TotMismatch(TotEventMismatch),
+    TotMismatch(TotEventMismatchError),
 }
 
 /// Warning when reading DATA segment
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDataframeWarning {
-    Uneven(UnevenEventWidth),
-    Tot(TotEventMismatch),
+    Uneven(UnevenEventWidthError),
+    Tot(TotEventMismatchError),
 }
 
-/// Error when reading any ASCII layout (fixed or delimited)
+/// Error when reading [`AnyAsciiLayout`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadAsciiError {
@@ -4517,16 +4522,17 @@ pub enum ReadAsciiError {
     Fixed(ReadFixedAsciiError),
 }
 
-/// Error when reading fixed ASCII layout
+/// Error when reading [`FixedAsciiLayout`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadFixedAsciiError {
-    Uneven(UnevenEventWidth),
-    Tot(TotEventMismatch),
+    Uneven(UnevenEventWidthError),
+    Tot(TotEventMismatchError),
     ToUint(AsciiToUintError),
 }
 
 // TODO this is probably redundant
+/// Error when reading event value in ASCII layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::EventDataError))]
@@ -4551,20 +4557,28 @@ pub struct NotAsciiError(Vec<u8>);
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct TotEventMismatch {
+pub struct TotEventMismatchError {
     tot: Tot,
     total_events: u64,
 }
 
-/// Error when reading delimited ASCII layout (with or without $TOT)
+/// Error when reading [`DelimAsciiLayout`] (with or without $TOT)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
     NoRows(ReadDelimAsciiWithoutRowsError),
+    NoColumns(ReadDelimNoColumnError),
 }
 
-/// Error when reading delimited ASCII layout with $TOT.
+/// Error when ASCII layout has no columns but segment length is nonzero
+#[derive(Debug, Error)]
+#[error("No columns given for ASCII layout but DATA segment is non-empty")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct ReadDelimNoColumnError;
+
+/// Error when reading [`DelimAsciiLayout`] with $TOT.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimWithRowsAsciiError {
@@ -4573,7 +4587,7 @@ pub enum ReadDelimWithRowsAsciiError {
     Parse(AsciiToUintError),
 }
 
-/// Error when reading delimited ASCII layout where DATA is exhausted.
+/// Error when reading [`DelimAsciiLayout`] where DATA is exhausted.
 ///
 /// This happens if $TOT is greater than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -4582,7 +4596,7 @@ pub enum ReadDelimWithRowsAsciiError {
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct RowsExceededError(usize);
 
-/// Error when reading delimited ASCII layout where parsing ends unexpectedly.
+/// Error when reading [`DelimAsciiLayout`] where parsing ends unexpectedly.
 ///
 /// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -4598,7 +4612,7 @@ pub struct DelimIncompleteError {
     nrows: usize,
 }
 
-/// Error when reading a delimited ASCII layout without $TOT
+/// Error when reading [`DelimAsciiLayout`] without $TOT
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
@@ -4606,6 +4620,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
     Unequal(ReadDelimAsciiUnequalColumnsError),
 }
 
+/// Error when reading [`DelimAsciiLayout`] where columns are not equal length
 #[derive(Debug, Error)]
 #[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -4634,7 +4649,7 @@ pub enum LayoutConvertError {
     MixedToNonMixed(MixedToNonMixedLayoutError),
 }
 
-/// Error when converting a 3.1/3.2 int layout to a 2.0/3.0 int layout.
+/// Error when converting a [`NonMixedEndianLayout`] to [`AnyOrderedUintLayout`]
 ///
 /// This arises due to 3.1+ layouts being allowed to support any width and
 /// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
@@ -4650,7 +4665,7 @@ pub enum LayoutConvertError {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
-/// Error when converting a 3.2 mixed layout to a 3.1/3.2 non-mixed layout.
+/// Error when converting a [`DataLayout3_2`] to a [`NonMixedEndianLayout`]
 ///
 /// This will fail due to type mismatches (A, I, F, or D), since the width for
 /// integer layouts is allowed to vary.
@@ -4667,7 +4682,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
-/// Error when converting a 3.2 mixed layout to a 2.0/3.0 ordered uint layout.
+/// Error when converting [`DataLayout3_2`] to [`AnyOrderedLayout`]
 ///
 /// This can fail either because of a type mismatch (ie Float vs Integer) or
 /// because the width is incorrect if the mixed layout has integer columns.
@@ -4678,9 +4693,9 @@ pub enum MixedToOrderedLayoutError {
     Other(MixedToNonMixedLayoutError),
 }
 
-/// MixedToOrderedLayoutError without the index.
+/// [`MixedToOrderedLayoutError`] without the index.
 ///
-/// Used for TryFrom impl's where the index is not known
+/// Used for [`TryFrom`] impl's where the index is not known
 #[derive(From)]
 pub enum MixedToOrderedUintError {
     Integer(UintToUintError),
@@ -4696,7 +4711,7 @@ impl MixedToOrderedUintError {
     }
 }
 
-/// Error when converting between bitmasks of different byte-widths.
+/// Error when converting between [`Bitmask`]s with different byte-widths.
 #[derive(Debug, new)]
 pub struct UintToUintError {
     from: NonZeroU8,
@@ -4710,7 +4725,7 @@ pub struct MixedToNonMixedError {
     src: NullMixedType,
 }
 
-/// Error when attempting to insert a new range into a layout.
+/// Error when attempting to insert new [`Range`] into a layout.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
@@ -4726,7 +4741,7 @@ pub enum InsertRangeError {
     Float(DecimalToFloatError),
 }
 
-/// Inner error for converting range to bitmask.
+/// Inner error for converting [`Range`] to [`Bitmask`]
 ///
 /// This is separate from RangeToBitmaskError since we need different error
 /// messages here given that $PnR and $PnB do not apply to newly supply ranges.
@@ -4770,7 +4785,7 @@ pub struct MeasLayoutLengthsError {
 
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
 
-def_group!(
+def_summary!(
     ScaleMismatchSummary,
     "mismatch between scale and column datatypes"
 );
@@ -4778,7 +4793,7 @@ def_group!(
 pub type ScaleTransformMismatchErrors =
     ErrorGroup<ScaleTransformMismatchError, ScaleTransformMismatchSummary>;
 
-def_group!(
+def_summary!(
     ScaleTransformMismatchSummary,
     "mismatch between scale transforms and column datatypes"
 );
@@ -4862,7 +4877,8 @@ mod python {
     use crate::python::InvalidKeywordValueError;
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
-    use crate::validated::ascii_range::AsciiRange;
+    use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
+    use crate::validated::bitmask::BitmaskValue;
 
     use super::{AnyNullBitmask, FloatRange, NullMixedType};
 
@@ -4914,8 +4930,12 @@ mod python {
                         .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
                     Ok(FloatRange::new(y).into())
                 }
-                AlphaNumType::Integer => Ok(AnyNullBitmask::from(value.extract::<u64>()?).into()),
-                AlphaNumType::Ascii => Ok(AsciiRange::from(value.extract::<u64>()?).into()),
+                AlphaNumType::Integer => {
+                    Ok(AnyNullBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
+                }
+                AlphaNumType::Ascii => {
+                    Ok(AsciiRange::from(value.extract::<AsciiRangeValue>()?).into())
+                }
             }
         }
     }
@@ -4928,7 +4948,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Ascii(x) => ("A", x.value()).into_pyobject(py),
-                Self::Uint(x) => ("I", u64::from(x)).into_pyobject(py),
+                Self::Uint(x) => ("I", BitmaskValue::<u64>::from(x)).into_pyobject(py),
                 Self::F32(x) => ("F", BigDecimal::from(x.range)).into_pyobject(py),
                 Self::F64(x) => ("D", BigDecimal::from(x.range)).into_pyobject(py),
             }

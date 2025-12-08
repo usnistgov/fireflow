@@ -1,6 +1,6 @@
-use crate::config::{AllowNonunique, ReadHeaderAndTEXTConfig};
+use crate::config::{AllowNonunique, ConfigFlag as _, ReadHeaderAndTEXTConfig, UseLatin1};
 use crate::logging::{
-    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
+    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
 };
 use crate::text::index::IndexFromOne;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
@@ -10,12 +10,12 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use regex::Regex;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::str;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::OnceLock;
@@ -31,9 +31,9 @@ use {
     pyo3::prelude::*,
 };
 
-/// A standard key.
+/// A key from TEXT which is codified by the FCS standard.
 ///
-/// These may only contain ASCII and must start with "$". The "$" is not
+/// These may only contain ASCII and must start with `"$"`. The `"$"` is not
 /// actually stored but will be appended when converting to a [`String`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -42,9 +42,9 @@ use {
 #[display("${_0}")]
 pub struct StdKey(KeyString);
 
-/// A non-standard key.
+/// A key from TEXT which is not codified by the FCS standard.
 ///
-/// This cannot start with '$' and may only contain ASCII characters.
+/// This cannot start with `"$"` and may only contain ASCII characters.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
@@ -60,7 +60,7 @@ pub struct NonStdKey(KeyString);
 #[as_ref(str)]
 pub struct KeyString(Ascii<String>);
 
-/// A map of keystring-keystring pairs.
+/// A map of [`KeyString`]/[`KeyString`] pairs.
 ///
 /// The main use case for this is to rename keys.
 ///
@@ -69,25 +69,25 @@ pub struct KeyString(Ascii<String>);
 #[derive(Clone, Debug, Default)]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 
-/// A map of keystrings and strings.
+/// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
 pub type KeyStringValues = HashMap<KeyString, String>;
 
-/// A String that matches part of a non-standard measurement key.
+/// A [`String`] that matches part of a [`NonStdKey`].
 ///
-/// This will have exactly one '%n' and not start with a '$'. The
-/// '%n' will be replaced by the measurement index which will be used
-/// to match keywords.
+/// This will have exactly one `"%n"` and not start with a `"$"`. The `"%n"`
+/// will be replaced by the measurement index which will be used to match
+/// keywords.
 #[derive(Clone, AsRef, Display)]
 #[as_ref(str)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct NonStdMeasPattern(String);
 
-/// A list of patterns that match standard or non-standard keys.
+/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 pub type KeyPatterns = KeyOrStringPatterns<()>;
 
-/// A list of patterns that match standard or non-standard keys.
+/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
 pub struct KeyOrStringPatterns<T>(Vec<(KeyStringOrPattern, T)>);
 
@@ -97,7 +97,7 @@ impl<T> Default for KeyOrStringPatterns<T> {
     }
 }
 
-/// Either a literal string or regexp which matches a standard/non-standard key.
+/// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
 ///
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
@@ -108,7 +108,7 @@ pub enum KeyStringOrPattern {
     Pattern(CaseInsRegex),
 }
 
-/// A collection dump for parsed keywords of varying quality
+/// A collection of [`StdKey`]s and [`NonStdKey`]s and key/values with errors.
 #[derive(Default)]
 pub struct ParsedKeywords {
     /// Standard keywords (with '$')
@@ -147,7 +147,7 @@ pub struct ValidKeywords {
 #[derive(Display)]
 pub struct MeasHeader(pub String);
 
-/// A regular expression which matches a non-standard measurement key.
+/// A regular expression which matches a [`NonStdKey`].
 ///
 /// This must be derived from [`NonStdMeasPattern`].
 #[derive(AsRef)]
@@ -164,15 +164,21 @@ pub(crate) struct KeyMatcher<'a, T> {
     pattern: Vec<(&'a CaseInsRegex, T)>,
 }
 
-/// A standard key
+/// A [`StdKey`] without an index
 ///
-/// The constant traits is assumed to only contain ASCII characters.
+/// The constant traits is validated to only contain ASCII characters.
 // TODO const_trait_impl will be able to clean this up once stable
 pub trait Key {
     const C: &'static str;
 
+    const _CHECK: () = {
+        assert!(is_alpha_underscore_str(Self::C), "C must only be letters");
+    };
+
     #[must_use]
+    #[allow(path_statements)]
     fn std() -> StdKey {
+        Self::_CHECK;
         StdKey::new(Self::C.into())
     }
 
@@ -182,13 +188,28 @@ pub trait Key {
     }
 }
 
-/// A standard key with on index
+/// A [`StdKey`] with one index
 ///
-/// The constant traits are assumed to only contain ASCII characters.
+/// The constant traits are validated to only contain ASCII characters.
 pub trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
+    const _CHECK_PREFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::PREFIX),
+            "PREFIX must only be letters"
+        );
+    };
+
+    const _CHECK_SUFFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::SUFFIX),
+            "SUFFIX must only be letters"
+        );
+    };
+
+    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, suffix, and a number with 3 digits
         let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
@@ -196,6 +217,9 @@ pub trait IndexedKey {
         s.push_str(Self::PREFIX);
         s.push_str(i.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
+        // trigger compile time error if pre/suffix are anything but letters/underscore
+        Self::_CHECK_PREFIX;
+        Self::_CHECK_SUFFIX;
         StdKey::new(s)
     }
 
@@ -212,7 +236,7 @@ pub trait IndexedKey {
         MeasHeader(s)
     }
 
-    /// Build regexp matching "<PREFIX>n<SUFFIX>"
+    /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
     #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
@@ -229,14 +253,36 @@ pub trait IndexedKey {
     }
 }
 
-/// A standard key with two indices
+/// A [`StdKey`] with two indices
 ///
-/// The constant traits are assumed to only contain ASCII characters.
-pub(crate) trait BiIndexedKey {
+/// The constant traits are validated to only contain ASCII characters.
+pub trait BiIndexedKey {
     const PREFIX: &'static str;
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
 
+    const _CHECK_PREFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::PREFIX),
+            "PREFIX must only be letters"
+        );
+    };
+
+    const _CHECK_MIDDLE: () = {
+        assert!(
+            is_alpha_underscore_str(Self::MIDDLE),
+            "MIDDLE must only be letters"
+        );
+    };
+
+    const _CHECK_SUFFIX: () = {
+        assert!(
+            is_alpha_underscore_str(Self::SUFFIX),
+            "SUFFIX must only be letters"
+        );
+    };
+
+    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
         // reserve enough space for prefix, middle, suffix, and two numbers with
         // 2 digits
@@ -247,10 +293,15 @@ pub(crate) trait BiIndexedKey {
         s.push_str(Self::MIDDLE);
         s.push_str(j.into().to_string().as_str());
         s.push_str(Self::SUFFIX);
+        // trigger compile time error if pre/mid/suffix are anything but letters/underscore
+        Self::_CHECK_PREFIX;
+        Self::_CHECK_MIDDLE;
+        Self::_CHECK_SUFFIX;
         StdKey::new(s)
     }
 
-    /// Build regexp matching "<PREFIX>m<MIDDLE>n<SUFFIX>"
+    /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
+    #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);
@@ -305,6 +356,14 @@ impl<T: BiIndexedKey> AnyKey for Key2<T> {
     }
 }
 
+/// A type representing a [`StdKey`].
+///
+/// This is useful because the value of the key is not actually stored, so this
+/// is very fast and memory-efficient. If we stored the value itself, it would
+/// be a [`String`] internally and allocated on the heap. We can get away with
+/// this because the value of each [`StdKey`] is entirely encoded by the
+/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with in index in the
+/// latter two cases).
 #[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
     index: I,
@@ -341,6 +400,7 @@ impl<T> Key2<T> {
     }
 }
 
+/// Composite index for [`StdKey`] with two index values
 #[derive(Debug, new)]
 pub struct BiIndex {
     pub i0: IndexFromOne,
@@ -430,8 +490,8 @@ impl KeyString {
         self.0.push('_');
     }
 
-    fn from_bytes_maybe(xs: &[u8], latin1: bool) -> Option<Self> {
-        if latin1 {
+    fn from_bytes_maybe(xs: &[u8], latin1: UseLatin1) -> Option<Self> {
+        if latin1.is_set() {
             Some(Self::new(xs.iter().copied().map(char::from).collect()))
         } else if is_printable_ascii(xs) {
             // SAFETY: we just checked that the bytes are only ASCII chars
@@ -442,7 +502,7 @@ impl KeyString {
     }
 
     unsafe fn from_bytes(xs: &[u8]) -> Self {
-        assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+        debug_assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
     }
@@ -539,7 +599,7 @@ impl FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
-        if has_no_std_prefix(s.as_bytes()) || s.match_indices("%n").count() == 1 {
+        if s.match_indices("%n").count() == 1 {
             Ok(Self(s.into()))
         } else {
             Err(NonStdMeasPatternError(s.into()))
@@ -662,52 +722,14 @@ impl ParsedKeywords {
         k: &[u8],
         v: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
-        // ASSUME key and value are never blank since we checked both prior to
-        // calling this. The FCS standards do not allow either to be blank.
+    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+        debug_assert!(!k.is_empty(), "key should not be empty string");
+        debug_assert!(!v.is_empty(), "value should not be empty string");
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
-        // TODO this also should skip keys before throwing a blank error
         let ignore = conf.ignore_standard_keys.as_matcher();
         let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.0;
-
-        let blank_err = || {
-            let e = KeywordInsertError::from(BlankValueError(k.to_vec()));
-            LogResult::new_deferred_switchable((), e, conf.allow_empty)
-                .switchable_into_non_commutative()
-        };
-
-        let vv = if conf.use_latin1 {
-            let it = v.iter().copied().map(char::from);
-            if conf.trim_value_whitespace {
-                let trimmed: String = it
-                    .skip_while(char::is_ascii_whitespace)
-                    .take_while(|x| !x.is_ascii_whitespace())
-                    .collect();
-                if trimmed.is_empty() {
-                    return blank_err();
-                }
-                Ok(trimmed)
-            } else {
-                Ok(it.collect())
-            }
-        } else {
-            match str::from_utf8(v) {
-                Ok(vv) => {
-                    if conf.trim_value_whitespace {
-                        let trimmed = vv.trim();
-                        if trimmed.is_empty() {
-                            return blank_err();
-                        }
-                        Ok(trimmed.into())
-                    } else {
-                        Ok(vv.into())
-                    }
-                }
-                Err(e) => Err(e),
-            }
-        };
 
         let parse_key = |s: &[u8]| {
             let (is_std, ss) = if let Some((&STD_PREFIX, sn)) = s.split_first()
@@ -721,50 +743,98 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
-        if let Ok(value) = vv {
-            if let Some((is_std, kk)) = parse_key(k) {
-                if is_std {
-                    // Standard key: starts with '$', check that remaining chars
-                    // are ASCII
-                    if ignore.is_match(&kk) {
-                        LogResult::new_ok(())
-                    } else if to_nonstd.is_match(&kk) {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    } else {
-                        let rk = renames.get(&kk).cloned().unwrap_or(kk);
-                        let rv = if let Some(s) = subs.get(&rk) {
-                            s.sub(value.as_str())
-                        } else {
-                            value
-                        };
-                        insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
-                            .switchable_into_non_commutative()
-                    }
+        let mut parse_value = || {
+            let flag = conf.allow_empty;
+            let res = if conf.use_latin1.is_set() {
+                let it = v.iter().copied().map(char::from);
+                if conf.trim_value_whitespace.is_set() {
+                    let trimmed: String = it
+                        .skip_while(char::is_ascii_whitespace)
+                        .take_while(|x| !x.is_ascii_whitespace())
+                        .collect();
+                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
+                    let ret = Cow::Owned(trimmed);
+                    SwitchableErrorResult::new_switchable_maybe(Some(ret), (), e, flag)
+                        .switchable_into_commutative()
                 } else {
-                    // Non-standard key: does not start with '$' but is still
-                    // ASCII
-                    if to_std.is_match(&kk) {
-                        insert_nonunique(&mut self.std, StdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    } else {
-                        insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
-                            .switchable_into_non_commutative()
-                    }
+                    // ASSUME this will always be a non-empty string since
+                    // it is using the value slice inputted to this function
+                    // which is validated not to be empty
+                    LogResult::new_ok(Some(Cow::Owned(it.collect())))
                 }
-            } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
-                // Non-ascii key: these are technically not allowed but save
-                // them anyways in case the user cares. If key isn't UTF-8
-                // then give up.
-                self.non_ascii.push((kk, value));
-                LogResult::new_ok(())
+            } else if let Ok(vv) = str::from_utf8(v) {
+                if conf.trim_value_whitespace.is_set() {
+                    let trimmed = vv.trim();
+                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
+                    LogResult::new_switchable_maybe(Some(Cow::Borrowed(trimmed)), (), e, flag)
+                        .switchable_into_commutative()
+                } else {
+                    LogResult::new_ok(Some(Cow::Borrowed(vv)))
+                }
             } else {
-                self.byte_pairs.push((k.to_vec(), value.into()));
-                LogResult::new_ok(())
+                self.byte_pairs.push((k.to_vec(), v.to_vec()));
+                LogResult::new_ok(None)
+            };
+            res.repack_warnings::<Vec<_>>()
+                .map_warnings_and_errors(KeywordInsertError::from)
+        };
+
+        if let Some((is_std, kk)) = parse_key(k) {
+            if is_std {
+                // Standard key: starts with '$', check that remaining chars
+                // are ASCII
+                if ignore.is_match(&kk) {
+                    LogResult::new_ok(())
+                } else {
+                    parse_value().and_then_commutative(|maybe_value| {
+                        if let Some(value) = maybe_value {
+                            let res = if to_nonstd.is_match(&kk) {
+                                let vo = value.into_owned();
+                                insert_nonunique(&mut self.nonstd, NonStdKey(kk), vo, conf)
+                            } else {
+                                let rk = renames.get(&kk).cloned().unwrap_or(kk);
+                                let rv = if let Some(s) = subs.get(&rk) {
+                                    s.sub(value.as_ref())
+                                } else {
+                                    value.into_owned()
+                                };
+                                insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
+                            };
+                            res.switchable_into_commutative().repack_warnings()
+                        } else {
+                            LogResult::new_ok(())
+                        }
+                    })
+                }
+            } else {
+                // Non-standard key: does not start with '$' but is still
+                // ASCII
+                parse_value().and_then_commutative(|maybe_value| {
+                    if let Some(value) = maybe_value.map(Cow::into_owned) {
+                        let res = if to_std.is_match(&kk) {
+                            insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                        } else {
+                            insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                        };
+                        res.switchable_into_commutative().repack_warnings()
+                    } else {
+                        LogResult::new_ok(())
+                    }
+                })
             }
         } else {
-            self.byte_pairs.push((k.to_vec(), v.to_vec()));
-            LogResult::new_ok(())
+            // Non-ascii (possibly non-Utf8) key with possibly non-Utf-8 value:
+            // these are technically not allowed but save them anyways in case
+            // the user cares
+            parse_value().and_then_commutative(|maybe_value| {
+                if let Some(value) = maybe_value.map(Cow::into_owned) {
+                    match String::from_utf8(k.to_vec()) {
+                        Ok(key) => self.non_ascii.push((key, value)),
+                        Err(e) => self.byte_pairs.push((e.into_bytes(), value.into_bytes())),
+                    }
+                }
+                LogResult::new_ok(())
+            })
         }
     }
 
@@ -786,7 +856,7 @@ impl ParsedKeywords {
     }
 }
 
-/// Error when parsing standard key
+/// Error when parsing [`StdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -799,7 +869,7 @@ pub enum StdKeyError {
     Empty,
 }
 
-/// Error when parsing nonstandard key
+/// Error when parsing [`NonStdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -810,7 +880,7 @@ pub enum NonStdKeyError {
     Prefix(KeyString),
 }
 
-/// Error when parsing key as ASCII-only string
+/// Error when parsing [`KeyString`] from string
 #[derive(PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
@@ -821,7 +891,7 @@ pub enum AsciiStringError {
     Empty,
 }
 
-/// Error when parsing literal keys or pattern strings for configuration
+/// Error when parsing literal keys or pattern strings when building [`KeyOrStringPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeyOrStringPatternsError {
@@ -829,12 +899,13 @@ pub enum KeyOrStringPatternsError {
     Ascii(AsciiStringError),
 }
 
+/// Error when parsing [`CaseInsRegex`] from string when building [`KeyOrStringPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyRegexError(regex::Error);
 
-/// Error when parsed keyword cannot be inserted into (non)standard hash table
+/// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeywordInsertError {
@@ -873,28 +944,25 @@ pub struct KeyPresent<T> {
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
-/// Error when parsing non-standard measurement pattern for configuration
+/// Error when parsing [`NonStdMeasPattern`] from string for configuration
 #[derive(Error, Debug)]
-#[error(
-    "non standard measurement pattern must not \
-     start with '$' and should have one '%n', found '{0}'"
-)]
+#[error("non standard measurement pattern should have one '%n', found '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasPatternError(String);
 
-/// Error when converting `NonStdMeasPatternError` to regular expression
+/// Error when converting [`NonStdMeasPattern`] to regular expression
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::PatternError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]
     index: IndexFromOne,
 }
 
-/// Error when parsing pairs of keys for configuration
+/// Error when building [`KeyStringPairs`] from configuration
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -936,6 +1004,21 @@ where
             LogResult::new_switchable_ok((), flag)
         }
     }
+}
+const fn is_alpha_underscore_str(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        let upper = c >= b'A' && c <= b'Z';
+        let lower = c >= b'a' && c <= b'z';
+        let underscore = c == b'_';
+        if !(upper || lower || underscore) {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 const STD_PREFIX: u8 = 36; // '$'
@@ -1090,5 +1173,12 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+
+    #[test]
+    fn fromstr_nonstd_meas_pattern() {
+        assert!("".parse::<NonStdMeasPattern>().is_err());
+        assert!("n".parse::<NonStdMeasPattern>().is_err());
+        assert!("%n".parse::<NonStdMeasPattern>().is_ok());
     }
 }

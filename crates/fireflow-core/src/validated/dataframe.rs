@@ -4,26 +4,35 @@ use crate::validated::ascii_range::Chars;
 use derive_more::{Display, From};
 use derive_new::new;
 use num_traits::identities::Zero as _;
-use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
-use polars_arrow::datatypes::ArrowDataType;
 use std::iter;
 use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    crate::validated::shortname::Shortname, fireflow_core_proc::DisplayAsPyErr, polars::prelude::*,
+    crate::validated::shortname::Shortname,
+    fireflow_core_proc::DisplayAsPyErr,
+    itertools::Itertools as _,
+    polars::prelude::*,
+    polars_arrow::array::{Array, PrimitiveArray},
+    polars_arrow::datatypes::ArrowDataType,
 };
 
-/// A dataframe without NULL and only types that make sense for FCS files.
+/// Column-major dataframe to represent events in DATA
+///
+/// This is a very light wrapper around a polars buffer which is ref-counted and
+/// therefore allows us to return event to external interfaces without copying
+/// memory. It is validated to contain no NULL values where all columns have the
+/// same length.
 #[derive(Clone, Default, PartialEq, new)]
+#[new(visibility = "")]
 pub struct FCSDataFrame {
     columns: Vec<AnyFCSColumn>,
     nrows: usize,
 }
 
-/// Any valid column from an FCS dataframe
+/// Any valid column from [`FCSDataFrame`]
 #[derive(Clone, From)]
 pub enum AnyFCSColumn {
     U08(U08Column),
@@ -34,6 +43,7 @@ pub enum AnyFCSColumn {
     F64(F64Column),
 }
 
+/// A generic column for [`FCSDataFrame`]
 #[derive(Clone, PartialEq)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
@@ -44,6 +54,7 @@ pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
 
+/// Any valid Rust numeric type which may be used in an [`FCSDataFrame`]
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub enum FCSDatatype {
     #[display("u8")]
@@ -172,7 +183,8 @@ impl AnyFCSColumn {
         }
     }
 
-    pub fn as_array(&self) -> Box<dyn Array> {
+    #[cfg(feature = "python")]
+    fn as_array(&self) -> Box<dyn Array> {
         match self.clone() {
             Self::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
             Self::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
@@ -185,22 +197,23 @@ impl AnyFCSColumn {
 
     #[cfg(feature = "python")]
     fn as_polars_column(&self, name: &Shortname) -> Column {
-        // ASSUME this will not fail because the we know the types and
-        // we don't have a validity array
+        // ASSUME this will not fail because the we know that any of the 6
+        // allowed types will be valid columns and we don't add a NULL array
+        // when making the array
         Series::from_arrow(name.as_ref().into(), self.as_array())
             .unwrap()
             .into()
     }
 }
 
-/// Error when building a new dataframe from individual columns
+/// Error when building [`FCSDataFrame`] from individual columns
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NewDataframeError;
 
-/// Error when new column has number of rows which are not equal to that of dataframe
+/// Error when new column has number of rows which are not equal to that in [`FCSDataFrame`]
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -283,15 +296,11 @@ impl FCSDataFrame {
         }
     }
 
-    // pub(crate) fn pop(&mut self) -> Option<AnyFCSColumn> {
-    //     if self.is_empty() {
-    //         None
-    //     } else {
-    //         Some(self.columns.remove(self.ncols()))
-    //     }
-    // }
-
     pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
+        debug_assert!(
+            self.check_new_column(&col).is_ok(),
+            "new column length differs from number of rows"
+        );
         if self.is_empty() {
             *self = Self::new1(col);
         } else {
@@ -299,14 +308,12 @@ impl FCSDataFrame {
         }
     }
 
-    // pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
-    //     self.check_new_column(&col)?;
-    //     self.push_column_nocheck(col);
-    //     Ok(())
-    // }
-
     // will panic if index is out of bounds
     pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
+        debug_assert!(
+            self.check_new_column(&col).is_ok(),
+            "new column length differs from number of rows"
+        );
         if self.is_empty() {
             self.nrows = col.len();
         }
@@ -314,17 +321,6 @@ impl FCSDataFrame {
         // bounds
         self.columns.insert(i, col);
     }
-
-    // // will panic if index is out of bounds
-    // pub(crate) fn insert_column(
-    //     &mut self,
-    //     i: usize,
-    //     col: AnyFCSColumn,
-    // ) -> Result<(), ColumnLengthError> {
-    //     self.check_new_column(&col)?;
-    //     self.insert_column_nocheck(i, col);
-    //     Ok(())
-    // }
 
     pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
         if let Some(df_len) = self.nrows_nonempty() {
@@ -350,7 +346,14 @@ impl FCSDataFrame {
     #[cfg(feature = "python")]
     #[must_use]
     pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        // ASSUME names is same length as columns
+        debug_assert!(
+            names.len() == self.ncols(),
+            "names is not same length as column number"
+        );
+        debug_assert!(
+            names.iter().unique().count() == names.len(),
+            "Names are not unique"
+        );
         let columns = self
             .iter_columns()
             .zip(names)
@@ -413,14 +416,14 @@ where
     }
 }
 
-/// Error when value in dataframe loses information (type conversion or something else)
+/// Error when value in [`FCSDataFrame`] loses information (type conversion or something else)
 #[derive(Clone, Copy, Display, Debug, Error)]
 pub enum LossError<E> {
     Cast(#[from] CastError),
     Other(E),
 }
 
-/// Error when value in dataframe loses information due to type conversion
+/// Error when value in [`FCSDataFrame`] loses information due to type conversion
 #[derive(Clone, Copy, Debug, Error, new)]
 #[error("data loss occurred when converting from {from} to {to}")]
 pub struct CastError {
@@ -932,8 +935,9 @@ pub(crate) mod python {
                 if ser.null_count() > 0 {
                     Err(SeriesToColumnError::HasNull(ser.name().clone()))
                 } else {
-                    // ASSUME series only has one chunk
-                    let buf = ser.into_chunks()[0]
+                    let chunks = ser.into_chunks();
+                    debug_assert!(chunks.len() == 1, "Dataframe has more than one chunk");
+                    let buf = chunks[0]
                         .as_any()
                         .downcast_ref::<PrimitiveArray<T>>()
                         .unwrap()

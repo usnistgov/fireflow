@@ -1,4 +1,4 @@
-use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig};
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::data::IndexedError;
 use crate::logging::{
@@ -6,27 +6,28 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
+use crate::text::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
 use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
-use crate::text::relational::{DependentKeyError, RemovedGateLink, RemovedGating, RemovedLink};
-use crate::type_families::{
-    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
-    impl_functor_once, impl_kind1,
+use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keywords::{
+    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
+    RegionGateIndex, RegionWindow, UniGate, Vertex,
+};
+use crate::text::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
+use crate::text::optional::{CheckMaybe as _, KeywordPairMaybe as _};
+use crate::text::relational::{
+    DependentKeyError, ExistingIndexedLinkError, MeasIndicesNoTime, RemovedGateLink, RemovedGating,
+    RemovedLink,
 };
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 
-use super::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
-use super::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
-use super::optional::{CheckMaybe as _, KeywordPairMaybe as _};
-
-use super::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
-use super::keywords::{
-    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
-    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
-    RegionGateIndex, RegionWindow, UniGate, Vertex,
+use type_families::{
+    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_common,
+    impl_functor_once, impl_kind1,
 };
-use super::relational::{ExistingIndexedLinkError, MeasIndicesNoTime};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -45,8 +46,6 @@ use serde::Serialize;
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
-///
-/// Each region is assumed to point to a member of `gated_measurements`.
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
@@ -58,9 +57,6 @@ pub struct AppliedGates2_0 {
 }
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
-///
-/// Each region is assumed to point to a member of `gated_measurements` or
-/// a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
@@ -72,8 +68,6 @@ pub struct AppliedGates3_0 {
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
-///
-/// Each region is assumed to point to a measurement in the [`Core`] struct
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[as_ref(Option<Gating>)]
 #[as_ref(HashMap<RegionIndex, Region3_2>)]
@@ -149,8 +143,6 @@ pub struct GatedMeasurement {
     pub filter: GateFilter,
 
     /// Value for $GmN
-    ///
-    /// Unlike $PnN, this is not validated to be without commas
     #[new(into)]
     pub shortname: Option<GateShortname>,
 
@@ -312,7 +304,7 @@ impl AppliedGates2_0 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates2_0Error, LookupAppliedGates2_0Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let ag = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -436,7 +428,7 @@ impl AppliedGates3_0 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_0Error, LookupAppliedGates3_0Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let s = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -544,7 +536,7 @@ impl AppliedGates3_2 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         GatingScheme::lookup(std, nonstd, conf).map_deferred_value(Self)
     }
@@ -566,7 +558,7 @@ impl GatedMeasurement {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasError, LookupGatedMeasError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -773,7 +765,7 @@ impl<I> GatingScheme<I> {
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadLayoutConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
@@ -900,7 +892,7 @@ impl<I> Region<I> {
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let index_res = RegionGateIndex::remove_or_drop_meas_opt(std, nonstd, ri, conf.as_ref())
             .map_switchable_errors(LookupRegionError::Region)
@@ -1082,7 +1074,7 @@ impl GatedMeasurements {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasurementsError, LookupGatedMeasurementsError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Gate::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)
@@ -1247,12 +1239,14 @@ impl<I: fmt::Display + Copy, const INDEX_IS_GATE: bool> fmt::Display
     }
 }
 
+/// Error when converting between region index types
 #[derive(From, Debug)]
 enum AnyIndexForRegionError<I> {
     Univariate(UniIndexForRegionError<I>),
     Bivariate(BiIndexForRegionError<I>),
 }
 
+/// Error when converting between region index types (bivariate)
 #[derive(Debug)]
 enum BiIndexForRegionError<I> {
     LeftBivariate(I),
@@ -1260,6 +1254,7 @@ enum BiIndexForRegionError<I> {
     Bivariate(I, I),
 }
 
+/// Error when converting between region index types (univariate)
 #[derive(Debug, Display)]
 pub struct UniIndexForRegionError<I>(I);
 

@@ -1,8 +1,11 @@
+//! Data structures representing standardized TEXT segment
+
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, ConfigFlag as _, DisallowDeprecated, DisallowRangeTrunc,
-    ReadLayoutConfig, ReadState, ReadTEXTOffsetsConfig, ReaderConfig, SharedConfig,
-    StdTextReadConfig, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
-    WriteConfig,
+    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
+    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
+    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, ReadTEXTOffsetsConfig, TemporalOpticalKey,
+    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -17,17 +20,17 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult, ErrorsResult,
-    GroupResult, IOErrorGroup, ImpureError, LogResult, ResultExt as _, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
-    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
-    WarningsAndIOGroupResult, WarningsResult, io_to_log,
+    GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult,
+    WarningAndGroupResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
-use crate::macros::{def_group, match_many_to_one};
+use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
-    HeaderDataSegment, KeyedOptSegment, KeyedReqSegment, OptSegmentWithDefaultWarning,
-    OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
-    SegmentMismatchWarning,
+    HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, PrimaryTextSegment,
+    ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -46,24 +49,26 @@ use crate::text::gating::{
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-    Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning,
-    DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext, Exp, ExtraStdKeywords,
-    Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier, Locationid, LogScale,
-    Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError,
-    Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename,
-    Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
+    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
+    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier,
+    Locationid, LogScale, Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError,
+    Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
+    Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
+    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
+    UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
-    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
+    OptMetarootKey as _, ReqIndexedKey as _, ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
+    ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
     NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -78,9 +83,8 @@ use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
     FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
 };
-use crate::type_families::{ApplyOnce as _, BifunctorOnce as _, FunctorOnce as _, Pointed};
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad8, UintSpacePad20,
+    HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
@@ -90,6 +94,8 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
+
+use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};
@@ -118,12 +124,56 @@ use {
     pyo3::prelude::*,
 };
 
-/// Represents the minimal data required to write an FCS file.
+/// A standardized representation of one FCS dataset.
 ///
-/// At minimum, this contains the TEXT keywords in a version-specific structure
-/// with a few exceptions (see next). It may also contain the DATA and ANALYSIS
-/// segments depending on how much of the FCS file is read. These fields are
-/// left generic to allow this flexibility.
+/// This is the main type that handles all "standard mode" operations.
+///
+/// This is highly generic to allow different FCS versions to share code, and
+/// also to encode presence/absence of the "data" in a dataset
+/// (ie DATA+ANALYSIS+OTHER). At minimum, this contains the TEXT segment and
+/// all keywords are decomposed and stored as native Rust types in a natural
+/// hierarchy.
+///
+/// # Concrete type overview
+///
+/// The following concrete types (along with their FCS versions) are defined:
+///
+/// | version | TEXT only       | entire dataset     |
+/// |---------|-----------------|--------------------|
+/// |     2.0 | [`CoreTEXT2_0`] | [`CoreDataset2_0`] |
+/// |     3.0 | [`CoreTEXT3_0`] | [`CoreDataset3_0`] |
+/// |     3.1 | [`CoreTEXT3_1`] | [`CoreDataset3_1`] |
+/// |     3.2 | [`CoreTEXT3_2`] | [`CoreDataset3_2`] |
+///
+/// # Generic parameters for version-specific behavior
+///
+/// * `M`: version-specific type for keywords which don't belong to a measurement (metaroot)
+/// * `T`: version-specific type for temporal measurement keywords
+/// * `P`: version-specific type for optical measurement keywords
+/// * `N`: version-specific type for $PnN
+/// * `L`: version-specific type for layout keywords
+///
+/// The types for these parameters and their specific FCS versions are
+/// summarized as follows:
+///
+/// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L`               |
+/// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_2`] |
+///
+/// # Generic parameters for data
+///
+/// * `A`: the ANALYSIS segment ([`Analysis`])
+/// * `D`: the DATA segment ([`FCSDataFrame`])
+/// * `O`: the OTHER segments ([`Others`])
+///
+/// Each of these are either their indicated Rust type above or `()` if not
+/// included. The former corresponds to [`CoreDataset`] and the latter
+/// corresponds to [`CoreTEXT`].
+///
+/// # Caveats
 ///
 /// Importantly this does NOT include the following:
 /// - $TOT (inferred from summed bit width and length of DATA)
@@ -364,7 +414,7 @@ pub struct Optical<X> {
     pub specific: X,
 }
 
-/// Minimal TEXT data for any supported FCS version
+/// Standardized FCS dataset for any version
 #[derive(Clone, From)]
 pub enum AnyCore<A, D, O> {
     #[from(Core2_0<A, D, O>)]
@@ -430,24 +480,23 @@ impl<A, D, O> AnyCore<A, D, O> {
 
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
-    pub(crate) fn parse_raw<C>(
+    pub(crate) fn parse_flat<C>(
         version: Version,
         kws: ValidKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         macro_rules! go {
             ($t:ident) => {
-                $t::new_from_keywords_with_offsets(kws, data, analysis, st)
+                $t::new_from_keywords_with_offsets(kws, segs, st)
                     .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
             };
         }
@@ -477,20 +526,27 @@ impl AnyCoreDataset {
         conf: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
         R: Read + Seek,
-        C: AsRef<StdTextReadConfig>
+        C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
+        let segs = NonDataSegments::new(
+            PrimaryTextSegment::default(),
+            data_seg,
+            analysis_seg,
+            other_segs,
+            None,
+        );
         macro_rules! go {
             ($t:ident) => {
-                $t::new_from_keywords_inner(h, kws, data_seg, analysis_seg, other_segs, conf)
+                $t::new_from_keywords_inner(h, kws, &segs, conf)
                     .map_ok_value(|(x, y)| (x.into(), y))
             };
         }
@@ -783,7 +839,7 @@ pub struct InnerTemporal3_1 {
     #[as_mut(Timestep)]
     pub timestep: Timestep,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -808,7 +864,7 @@ pub struct InnerTemporal3_2 {
     #[as_mut(Timestep)]
     pub timestep: Timestep,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -912,7 +968,7 @@ pub struct InnerOptical3_1 {
     #[new(into)]
     pub calibration: Option<Calibration3_1>,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -956,7 +1012,7 @@ pub struct InnerOptical3_2 {
     #[new(into)]
     pub calibration: Option<Calibration3_2>,
 
-    /// Value for $PnDISPLAY
+    /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
@@ -1156,10 +1212,10 @@ pub type Metaroot3_0 = Metaroot<InnerMetaroot3_0>;
 pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
-/// A minimal representation of the TEXT segment
+/// A standardized TEXT segment
 pub type CoreTEXT<M, T, P, N, L> = Core<(), (), (), M, T, P, N, L>;
 
-/// A minimal representation of the TEXT+DATA+ANALYSIS segments
+/// A standardized FCS dataset (TEXT+DATA+ANALYSIS+OTHER)
 pub type CoreDataset<M, T, P, N, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, L>;
 
 pub type Core2_0<A, D, O> = Core<
@@ -1247,6 +1303,50 @@ pub struct DatasetSegments {
     pub analysis: AnyAnalysisSegment,
 }
 
+/// Internal configuration options used when writing HEADER+TEXT
+struct WriteHeaderAndTextConfig<'a> {
+    delim: TEXTDelim,
+    tot: Tot,
+    data_len: u64,
+    analysis_len: u64,
+    other_segs: &'a [Other],
+    has_nextdata: AppendableFlag,
+}
+
+/// Used for [`Core::standard_keywords`] to control if req/opt keys should be returned
+pub enum IncludeReqOrOpt {
+    Req_,
+    Opt_,
+    Both,
+}
+
+/// Used for [`Core::standard_keywords`] to control if root/meas keys should be returned
+pub enum IncludeRootOrMeas {
+    Root,
+    Meas,
+    Both,
+}
+
+impl WriteHeaderAndTextConfig<'_> {
+    fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag) -> Self {
+        Self {
+            delim,
+            tot: Tot(0),
+            data_len: 0,
+            analysis_len: 0,
+            other_segs: &[],
+            has_nextdata,
+        }
+    }
+
+    fn other_lens(&self) -> Vec<u64> {
+        self.other_segs
+            .iter()
+            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
+            .collect()
+    }
+}
+
 mod private {
     pub struct NoTouchy;
 }
@@ -1307,12 +1407,13 @@ pub trait Versioned {
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn fcs_version() -> Version;
+}
 
+pub(crate) trait PrivVersioned: Versioned {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, Analysis, DatasetSegments),
@@ -1323,7 +1424,7 @@ pub trait Versioned {
     where
         R: Read + Seek,
         Self::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -1333,7 +1434,7 @@ pub trait Versioned {
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
-        let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, st)
+        let offset_res = Self::Offsets::lookup_ro(kws, segs, st)
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
@@ -1343,7 +1444,7 @@ pub trait Versioned {
             .and_then_commutative(|(layout, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
@@ -1369,11 +1470,33 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals<Self>,
+        ms: &NamedTemporalsAndOpticals<Self>,
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+}
+
+pub trait LookupOptical: Sized + VersionedOptical {
+    fn lookup_specific<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &C,
+    ) -> LookupOpticalResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+}
+
+pub trait LookupTemporal: VersionedTemporal {
+    fn lookup_specific<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &C,
+    ) -> LookupTemporalResult<Self>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
 pub trait ConvertFromShortname<T>: Sized + MightHave<Shortname> {
@@ -1528,17 +1651,6 @@ pub trait VersionedOptical: Sized {
     fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
-pub trait LookupOptical: Sized + VersionedOptical {
-    fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &C,
-    ) -> LookupOpticalResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
-}
-
 pub trait VersionedTemporal: Sized {
     type Ver: Versioned;
     type Warning;
@@ -1555,17 +1667,6 @@ pub trait VersionedTemporal: Sized {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError>;
 
     fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
-}
-
-pub trait LookupTemporal: VersionedTemporal {
-    fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &C,
-    ) -> LookupTemporalResult<Self>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>;
 }
 
 pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
@@ -1644,8 +1745,9 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -1653,8 +1755,9 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
+        // data: HeaderDataSegment,
+        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -1665,6 +1768,9 @@ pub trait VersionedTEXTOffsets: Sized {
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
+/// Segment offsets and $TOT as read from TEXT segment
+///
+/// This is used later to parse DATA and ANALYSIS.
 #[derive(AsRef, new)]
 pub struct TEXTOffsets<T> {
     #[as_ref]
@@ -1700,7 +1806,7 @@ impl<T> Temporal<T> {
     ) -> LookupTemporalResult<Self>
     where
         T: LookupTemporal,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         T::lookup_specific(std, &mut nonstd, i, conf).map_ok_value(|specific| {
             let common = CommonMeasurement::lookup(std, nonstd, i);
@@ -1768,7 +1874,7 @@ impl<O> Optical<O> {
     where
         O: LookupOptical,
         Version: From<O::Ver>,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -1929,9 +2035,9 @@ impl<O> Optical<O> {
     }
 }
 
-impl<M> Metaroot<M>
+impl<M, V: Versioned> Metaroot<M>
 where
-    M: VersionedMetaroot,
+    M: VersionedMetaroot<Ver = V>,
 {
     fn try_convert<ToM: ConvertFromMetaroot<M>>(
         self,
@@ -1960,13 +2066,13 @@ where
 
     fn lookup_metaroot<C>(
         std: &mut StdKeywords,
-        ms: &TemporalsAndOpticals<M>,
+        ms: &NamedTemporalsAndOpticals<M>,
         mut nonstd: NonStdKeywords,
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
         M: LookupMetaroot,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2130,16 +2236,29 @@ where
     }
 }
 
-pub(crate) type TemporalsAndOpticals<M> = Eithers<
+pub(crate) type TemporalOrOptical<M> = Element<
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals<M> = Vec<TemporalOrOptical<M>>;
+
+pub(crate) type NamedTemporalOrOptical<M> = EitherPair<
     <M as VersionedMetaroot>::Name,
     Temporal<<M as VersionedMetaroot>::Temporal>,
     Optical<<M as VersionedMetaroot>::Optical>,
 >;
 
-pub(crate) type TemporalsAndOpticals2_0 = TemporalsAndOpticals<InnerMetaroot2_0>;
-pub(crate) type TemporalsAndOpticals3_0 = TemporalsAndOpticals<InnerMetaroot3_0>;
-pub(crate) type TemporalsAndOpticals3_1 = TemporalsAndOpticals<InnerMetaroot3_1>;
-pub(crate) type TemporalsAndOpticals3_2 = TemporalsAndOpticals<InnerMetaroot3_2>;
+pub(crate) type NamedTemporalsAndOpticals<M> = Eithers<
+    <M as VersionedMetaroot>::Name,
+    Temporal<<M as VersionedMetaroot>::Temporal>,
+    Optical<<M as VersionedMetaroot>::Optical>,
+>;
+
+pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<InnerMetaroot2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<InnerMetaroot3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = NamedTemporalsAndOpticals<InnerMetaroot3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<InnerMetaroot3_2>;
 
 pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
@@ -2177,20 +2296,55 @@ where
         M::Ver::fcs_version()
     }
 
+    pub fn write_texts(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteTEXTInnerConfig,
+    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflowError>>
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut nd = None;
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i + 1 < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiTEXTConfig::new(*conf, multi);
+            nd = Some(c.write_text(path, &sconf)?);
+        }
+        Ok(nd)
+    }
+
+    /// Write this core structure (HEADER+TEXT) to path
+    pub fn write_text(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiTEXTConfig,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
+    where
+        Version: From<M::Ver>,
+    {
+        let opts = conf.multi.append.file_options();
+        let f = opts.open(path)?;
+        let mut h = BufWriter::new(f);
+        self.h_write_text(&mut h, &conf.inner, conf.multi.appendable)
+    }
+
     /// Write this core structure (HEADER+TEXT) to a handle
     pub fn h_write_text<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        big_other: bool,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        conf: &WriteTEXTInnerConfig,
+        has_nextdata: AppendableFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
     {
-        if big_other {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, delim)
+        if conf.big_other.is_set() {
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, delim)
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, conf.delim, has_nextdata)
         }
     }
 
@@ -2198,64 +2352,65 @@ where
         &self,
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        has_nextdata: AppendableFlag,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
-        self.h_write_text_inner::<_, T>(h, delim, Tot(0), 0, 0, &[])
+        let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
+        self.h_write_text_inner::<_, T>(h, &conf)
     }
 
     fn h_write_text_inner<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
-        delim: TEXTDelim,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_segs: &[Other],
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>>
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
-        // TODO do something useful with $NEXTDATA
-        let other_lens: Vec<_> = other_segs
-            .iter()
-            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
-            .collect();
         let hdr_kws: HeaderKeywordsToWrite<T> = self
-            .header_and_raw_keywords(tot, data_len, analysis_len, &other_lens[..], false)
+            .header_and_flat_keywords(conf)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, M::Ver::fcs_version(), delim, other_segs)?;
-        Ok(())
+        hdr_kws.h_write(h, M::Ver::fcs_version(), conf.delim, conf.other_segs)?;
+        Ok(hdr_kws.nextdata)
     }
 
     /// Return all keywords as an ordered list of pairs
     ///
-    /// Thiw will only include keywords that can be directly derived from
-    /// [`CoreTEXT`]. This means it will not include $TOT, since this depends on
-    /// the DATA segment.
-    // TODO fix clippy issue here (it has a good point)
-    #[allow(clippy::fn_params_excessive_bools)]
+    /// This will not include $TOT, $NEXTDATA, or any offset keywords since
+    /// these only matter when the dataset is written.
     pub fn standard_keywords(
         &self,
-        exclude_req_root: bool,
-        exclude_opt_root: bool,
-        exclude_req_meas: bool,
-        exclude_opt_meas: bool,
+        req_or_opt: IncludeReqOrOpt,
+        root_or_meas: IncludeRootOrMeas,
     ) -> HashMap<String, String> {
         fn go(
             xs: impl Iterator<Item = (String, String)>,
-            exclude: bool,
+            include: bool,
         ) -> impl Iterator<Item = (String, String)> {
-            (!exclude).then_some(xs).into_iter().flatten()
+            include.then_some(xs).into_iter().flatten()
         }
 
-        go(self.req_root_keywords(), exclude_req_root)
-            .chain(go(self.opt_root_keywords(), exclude_opt_root))
-            .chain(go(self.req_meas_keywords(), exclude_req_meas))
-            .chain(go(self.opt_meas_keywords(), exclude_opt_meas))
+        let (include_req_root, include_opt_root, include_req_meas, include_opt_meas) =
+            match (req_or_opt, root_or_meas) {
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Both) => (true, true, true, true),
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Root) => (true, true, false, false),
+                (IncludeReqOrOpt::Both, IncludeRootOrMeas::Meas) => (false, false, true, true),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Both) => (true, false, true, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Both) => (false, true, false, true),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Root) => (true, false, false, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Root) => (false, true, false, false),
+                (IncludeReqOrOpt::Req_, IncludeRootOrMeas::Meas) => (false, false, true, false),
+                (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Meas) => (false, false, false, true),
+            };
+
+        go(self.req_root_keywords(), include_req_root)
+            .chain(go(self.opt_root_keywords(), include_opt_root))
+            .chain(go(self.req_meas_keywords(), include_req_meas))
+            .chain(go(self.opt_meas_keywords(), include_opt_meas))
             .collect()
     }
 
@@ -2407,7 +2562,6 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        // TODO ditto above
         self.measurements.unset_center(|i, old_t| {
             M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
                 .switchable_into_non_commutative()
@@ -2438,12 +2592,11 @@ where
     /// If index points to a temporal measurement, replace it with the given
     /// optical measurement. In both cases the name is kept. Return the
     /// measurement that was replaced if the index was in bounds.
-    #[allow(clippy::type_complexity)]
     pub fn replace_optical_at(
         &mut self,
         index: MeasIndex,
         m: Optical<M::Optical>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError> {
+    ) -> Result<TemporalOrOptical<M>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -2452,22 +2605,20 @@ where
     /// If name refers to a temporal measurement, replace it with the given
     /// optical measurement. Return the measurement that was replaced if the
     /// index was in bounds.
-    #[allow(clippy::type_complexity)]
     pub fn replace_optical_named(
         &mut self,
         name: &Shortname,
         m: Optical<M::Optical>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError> {
+    ) -> Result<TemporalOrOptical<M>, NameNotFoundError> {
         self.measurements.replace_named(name, m)
     }
 
     /// Replace temporal measurement at index.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_at(
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, SetCenterError>
+    ) -> Result<TemporalOrOptical<M>, SetCenterError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -2482,14 +2633,13 @@ where
     }
 
     /// Replace temporal measurement at index.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_at_lossy(
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
     ) -> WarningOrErrorResult<
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        TemporalOrOptical<M>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByIndex,
@@ -2510,12 +2660,11 @@ where
     }
 
     /// Replace temporal measurement with name.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named(
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, NameNotFoundError>
+    ) -> Result<TemporalOrOptical<M>, NameNotFoundError>
     where
         M::Optical: OpticalFromTemporal<M::Temporal, LossFlag = ()>,
         M::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -2530,14 +2679,13 @@ where
     }
 
     /// Replace temporal measurement with name.
-    #[allow(clippy::type_complexity)]
     pub fn replace_temporal_named_lossy(
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
         allow_loss: bool,
     ) -> WarningOrErrorResult<
-        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+        TemporalOrOptical<M>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByName,
@@ -2584,8 +2732,8 @@ where
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
+        G: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>) -> R,
     {
         self.measurements.alter_values(f, g)
     }
@@ -2598,8 +2746,8 @@ where
         g: G,
     ) -> Result<Vec<R>, InputLengthError>
     where
-        F: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
+        G: Fn(IndexedElement<&M::Name, &mut Optical<M::Optical>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
     }
@@ -2711,7 +2859,7 @@ where
     where
         Optical<M::Optical>: AsMut<X>,
     {
-        let ys = xs.into_iter().map(|x| x.0).collect();
+        let ys = xs.fmap(|x| x.0);
         self.measurements.alter_elements_zip(
             ys,
             SetOpticalSummary,
@@ -3039,14 +3187,16 @@ where
             .map_err(SetScalesError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
-            // ASSUME this won't fail because we checked the length and
-            // time index first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == scales.len(),
+                    "Input scales vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         scales,
-                        |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
                         |_, _| (),
+                        |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
                     )
                     .unwrap();
             })
@@ -3076,13 +3226,16 @@ where
             .map_err(SetTransformsError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_xform_not_noop())
-            // ASSUME this won't fail because we checked the length first
             .when_ok(|| {
+                debug_assert!(
+                    self.measurements.len() == xforms.len(),
+                    "Input transforms vector should be same length as existing measurements"
+                );
                 self.measurements
                     .alter_values_zip(
                         xforms,
-                        |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
                         |_, _| (),
+                        |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
                     )
                     .unwrap();
             })
@@ -3231,18 +3384,10 @@ where
         t.as_ref().map(|&x| x.0.into())
     }
 
-    // TODO also return the removed layout
-    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
         name: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-        ),
-        RemoveMeasByNameError,
-    > {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         if let Some(&index) = self.measurement_named_indices().get(name) {
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -3251,19 +3396,15 @@ where
                 .meas_has_existing_links_with(self.par(), &ns, &js);
             ExistingLinkErrors::try_new(es)?;
         }
-        let ret = self.measurements.remove_name(name)?;
-        self.layout.remove_nocheck(ret.0);
-        Ok(ret)
+        let (i, e) = self.measurements.remove_name(name)?;
+        let r = self.layout.remove_nocheck(i);
+        Ok((i, e, r))
     }
 
-    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -3272,9 +3413,9 @@ where
                 .meas_has_existing_links_with(self.par(), &ns, &js);
             ExistingLinkErrors::try_new(es)?;
         }
-        let ret = self.measurements.remove_index(index)?;
-        self.layout.remove_nocheck(index);
-        Ok(ret)
+        let p = self.measurements.remove_index(index)?;
+        let r = self.layout.remove_nocheck(index);
+        Ok((p, r))
     }
 
     // each of these push/insert functions follow the same pattern:
@@ -3395,20 +3536,28 @@ where
     /// Return error if names are not unique, if there is more than one
     /// time measurement, or if the measurement length doesn't match the
     /// layout length.
-    pub fn set_measurements(
+    pub fn set_named_measurements(
         &mut self,
-        xs: TemporalsAndOpticals<M>,
+        xs: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsErrors>
     where
         M::Optical: AsScaleTransform,
     {
-        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)
+        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
 
-    // TODO add replace measurements function which doesn't touch PnN but
-    // requires time meas to be in the same location
+    /// Set measurements without $PnN.
+    pub fn set_measurements(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_inner(measurements)
+    }
 
     /// Get reference to data layout
     pub fn layout(&self) -> &<M::Ver as Versioned>::Layout {
@@ -3436,9 +3585,9 @@ where
     /// Return error if measurement names are not unique, there is more
     /// than one time measurement, or the layout and measurements have
     /// different lengths.
-    pub fn set_measurements_and_layout(
+    pub fn set_named_measurements_and_layout(
         &mut self,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -3464,9 +3613,21 @@ where
             .resolve_nowarn()
     }
 
-    pub fn set_measurements_inner(
+    /// Set measurements without $PnN and layout
+    pub fn set_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        self.set_measurements_and_layout_inner(measurements, layout)
+    }
+
+    fn set_named_measurements_inner(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<M>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsErrors>
@@ -3491,6 +3652,47 @@ where
             .resolve_nowarn()
     }
 
+    fn set_measurements_inner(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let xforms: Vec<_> = measurements
+            .iter()
+            .map(|m| {
+                m.as_ref()
+                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+            })
+            .collect();
+        self.layout.check_transforms_and_len(&xforms[..])?;
+        self.measurements.set_values(measurements)?;
+        Ok(())
+    }
+
+    fn set_measurements_and_layout_inner(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        // TODO not DRY
+        let xforms: Vec<_> = measurements
+            .iter()
+            .map(|m| {
+                m.as_ref()
+                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+            })
+            .collect();
+        layout.check_transforms_and_len(&xforms[..])?;
+        self.measurements.set_values(measurements)?;
+        self.layout = layout;
+        Ok(())
+    }
+
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
         let p = self.par();
         let (js, ns) = self.measurement_indices_and_names();
@@ -3501,44 +3703,41 @@ where
         Ok(())
     }
 
-    fn header_and_raw_keywords<T>(
+    fn header_and_flat_keywords<T>(
         &self,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: bool,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflow>
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflowError>
     where
         Version: From<M::Ver>,
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let req: Vec<_> = self
             .req_root_keywords()
-            .chain([tot.pair()])
+            .chain([conf.tot.pair()])
             .chain(self.req_meas_keywords())
             .collect();
         let opt: Vec<_> = self
             .opt_root_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
+        let other_lens = &conf.other_lens()[..];
         if M::Ver::fcs_version() == Version::FCS2_0 {
             HeaderKeywordsToWrite::new_2_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         } else {
             HeaderKeywordsToWrite::new_3_0(
                 req,
                 opt,
-                data_len,
-                analysis_len,
+                conf.data_len,
+                conf.analysis_len,
                 other_lens,
-                has_nextdata,
+                conf.has_nextdata,
             )
         }
     }
@@ -3603,16 +3802,10 @@ where
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(Element::non_center) {
             let lt = &self.layout;
-            let req_layout: Vec<_> = lt
-                .req_meas_keywords()
-                .into_iter()
-                .map(|[x, y]| [x.1, y.1])
-                .collect();
+            let req_layout: Vec<_> = lt.req_meas_keywords().fmap(|[x, y]| [x.1, y.1]);
             let opt_layout: Vec<_> = lt
                 .opt_meas_keywords()
-                .into_iter()
-                .map(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>())
-                .collect();
+                .fmap(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
             let header = m0.1.table_header(lt.opt_meas_headers());
             let rows = self
                 .measurements
@@ -3655,9 +3848,9 @@ where
         par: Par,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> LookupMeasurementResult<TemporalsAndOpticals<M>>
+    ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
@@ -3668,7 +3861,7 @@ where
         // measurement if they match. Only capture one warning because if the
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
-        let sconf: &StdTextReadConfig = conf.as_ref();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let blank_meas_nonstd = || vec![HashMap::new(); par.0];
         let ns_res = sconf.nonstandard_measurement_pattern.as_ref().map_or(
             LogResult::new_ok(blank_meas_nonstd()),
@@ -3686,6 +3879,30 @@ where
             },
         );
 
+        let mut found_time = false;
+
+        let mut match_time_pattern = |i, wrapped| {
+            let res = match M::Name::unwrap(wrapped) {
+                Ok(name) => {
+                    if let Some(tp) = sconf.time_meas_pattern.as_ref()
+                        && tp.0.is_match(name.as_ref())
+                    {
+                        if found_time {
+                            let e = DuplicateTimeNameError(i, name);
+                            Err(LookupMeasurementError::from(e))
+                        } else {
+                            found_time = true;
+                            Ok(Element::Center(name))
+                        }
+                    } else {
+                        Ok(Element::NonCenter(M::Name::wrap(name)))
+                    }
+                }
+                Err(key) => Ok(Element::NonCenter(key)),
+            };
+            res.into_log()
+        };
+
         // then iterate over each measurement and look for standardized keys
         ns_res.and_then_commutative(|meas_nonstds| {
             meas_nonstds
@@ -3694,46 +3911,34 @@ where
                 .map(|(n, mut meas_nonstd)| {
                     let i = n.into();
                     // Try to find $PnN first, for later versions this will
-                    // totally fail if not found since this is required. If it
-                    // does exist, also check if it matches the time pattern and
-                    // use it as the time measurement if it does.
+                    // totally fail if not found since this is required.
                     M::lookup_shortname(std, &mut meas_nonstd, i, conf.as_ref())
                         .map_commutative_warnings(LookupMeasurementWarning::from)
                         .map_errors(LookupMeasurementError::from)
                         .into_semigroup()
-                        .and_then_commutative(|wrapped| {
-                            // TODO if more than one name matches the time pattern
-                            // this will give a cryptic "cannot find $TIMESTEP" for
-                            // each subsequent match, which is not helpful. Probably
-                            // the best way around this is to add measurement index
-                            // and possibly key to the error, so at least the user
-                            // will know it is trying to find $TIMESTEP in a
-                            // nonsense measurement.
-                            let key = M::Name::unwrap(wrapped).and_then(|name| {
-                                if let Some(tp) = sconf.time_meas_pattern.as_ref()
-                                    && tp.0.is_match(name.as_ref())
-                                {
-                                    return Ok(name);
-                                }
-                                Err(M::Name::wrap(name))
-                            });
-                            // Once we checked $PnN, pull all the rest of the
-                            // standardized keywords from the hashtable and collect
-                            // errors. In general, required keywords will trigger an
-                            // error if they are missing and optional keywords will
-                            // trigger a warning. Either can generate an
-                            // error/warning if they fail to be parsed to their type
-                            match key {
-                                // TODO add switch to "downgrade" failed time
-                                // channel to optical channel, which is more general
-                                Ok(name) => Temporal::lookup_temporal(std, meas_nonstd, i, conf)
+                        // If $PnN is found, check that it matches the time
+                        // pattern (if given). Also check that only zero or one
+                        // $PnN match the time pattern, and throw error
+                        // otherwise.
+                        .and_then_commutative(|wrapped| match_time_pattern(i, wrapped))
+                        // Once we checked $PnN, pull all the rest of the
+                        // standardized keywords from the hashtable and collect
+                        // errors. In general, required keywords will trigger an
+                        // error if they are missing and optional keywords will
+                        // trigger a warning. Either can generate an
+                        // error/warning if they fail to be parsed to their type
+                        .and_then_commutative(|key| match key {
+                            Element::Center(name) => {
+                                Temporal::lookup_temporal(std, meas_nonstd, i, conf)
                                     .map_errors(LookupMeasurementError::from)
                                     .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|t| Element::Center((name, t))),
-                                Err(k) => Optical::lookup_optical(std, i, meas_nonstd, conf)
+                                    .map_ok_value(|t| Element::Center((name, t)))
+                            }
+                            Element::NonCenter(k) => {
+                                Optical::lookup_optical(std, i, meas_nonstd, conf)
                                     .map_errors(LookupMeasurementError::from)
                                     .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|m| Element::NonCenter((k, m))),
+                                    .map_ok_value(|m| Element::NonCenter((k, m)))
                             }
                         })
                 })
@@ -3830,14 +4035,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3845,22 +4049,22 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, data, analysis, st)
-            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-            .map_errors(StdTEXTFromRawError::from);
+        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, segs, st)
+            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+            .map_errors(StdTEXTFromFlatTEXTError::from);
 
         Self::lookup_inner(kws, &st.conf)
             .zip_commutative(offsets_res)
             .map_ok_value(|((x, y), z)| (x, y, z))
     }
 
-    /// Make a new CoreTEXT from raw keywords.
+    /// Make a new CoreTEXT from flat keywords.
     ///
     /// Return any errors encountered, including missing required keywords,
     /// parse errors, and/or deprecation warnings.
@@ -3872,7 +4076,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndGroupResult<
         (Self, ExtraStdKeywords),
-        StdTEXTFromRawWarning,
+        StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -3882,7 +4086,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<SharedConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadSharedConfig>,
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -3895,8 +4099,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     ) -> WarningsAndErrorsResult<
         (Self, ExtraStdKeywords),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
         M: LookupMetaroot,
@@ -3904,11 +4108,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig>,
     {
-        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
-        // processed when we read the TEXT; remove them so they don't
-        // trigger false positives later when we test for pseudostandard keys
+        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been processed
+        // when we read the TEXT; remove them so they don't trigger false
+        // positives later when we test for pseudostandard keys
         let _ = kws.std.remove(&Nextdata::std());
         let _ = kws.std.remove(&Beginstext::std());
         let _ = kws.std.remove(&Endstext::std());
@@ -3916,7 +4120,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
-            .map_err(StdTEXTFromRawError::from)
+            .map_err(StdTEXTFromFlatTEXTError::from)
             .into_log();
 
         let version = M::Ver::fcs_version();
@@ -3926,24 +4130,30 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let nonstd = &mut kws.nonstd;
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(std, par, nonstd, conf)
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(std, nonstd, par, conf.as_ref())
-                .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                .map_errors(StdTEXTFromRawError::from);
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTError::from);
 
             let root_res =
                 meas_res
                     .zip_commutative(layout_res)
                     .and_then_commutative(|(ms, layout)| {
+                        // TODO if anything before this fails, it will produce
+                        // a bunch of nonsense pseudostandard errors because
+                        // this lookup function won't run. Either kill the
+                        // ps error or differentiate between fatal and non-fatal
+                        // errors. It seems like the only thing we need the
+                        // meas vector for in this case is $PnN
                         Metaroot::lookup_metaroot(std, &ms, kws.nonstd, conf)
-                            .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                            .map_errors(StdTEXTFromRawError::from)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTError::from)
                             .and_then_commutative(|metaroot| {
                                 Self::try_new(metaroot, ms, layout, conf)
-                                    .map_commutative_warnings(StdTEXTFromRawWarning::from)
-                                    .map_errors(StdTEXTFromRawError::from)
+                                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                                    .map_errors(StdTEXTFromFlatTEXTError::from)
                             })
                     });
 
@@ -3958,22 +4168,22 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
             let us = esks.unused.keys().cloned().map(UnusedStandardError);
 
-            let sconf: &StdTextReadConfig = conf.as_ref();
+            let sconf: &ReadStdKeywordsConfig = conf.as_ref();
             root_res
                 .extend_warnings_or_errors(
                     ps,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_pseudostandard,
                 )
                 .extend_warnings_or_errors(
                     us,
                     |_v| (),
                     |_p| (),
-                    StdTEXTFromRawWarning::from,
-                    StdTEXTFromRawError::from,
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
                     sconf.allow_unused_standard,
                 )
                 .map_ok_value(|x| (x, esks))
@@ -3983,31 +4193,20 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-        ),
-        RemoveMeasByNameError,
-    > {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         self.remove_measurement_by_name_inner(n)
     }
 
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -4157,17 +4356,17 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     pub(crate) fn try_new<C>(
         mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, NewCoreError>
     where
         M::Optical: AsScaleTransform,
         Version: From<M::Ver>,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadLayoutConfig = conf.as_ref();
-        let sconf: &StdTextReadConfig = conf.as_ref();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
         let go = |ms: &NamedVec<_, _, _>| {
             if let Some(pat) = sconf.time_meas_pattern.as_ref()
@@ -4214,7 +4413,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     pub(crate) fn try_new_nodrop(
         mut metaroot: Metaroot<M>,
-        measurements: TemporalsAndOpticals<M>,
+        measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
@@ -4280,11 +4479,12 @@ where
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
+        dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         StdDatasetWithKwsSummary,
     >
     where
@@ -4293,34 +4493,40 @@ where
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<StdTextReadConfig>
+        C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
-            + AsRef<SharedConfig>
+            + AsRef<ReadEventsConfig>
+            + AsRef<ReadSharedConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        ReadState::open(p, conf)
+        let segs = NonDataSegments::new(
+            PrimaryTextSegment::default(),
+            data_seg,
+            analysis_seg,
+            other_segs,
+            None,
+        );
+        ReadState::open(p, dataset_offset, conf)
+            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
                 let mut h = BufReader::new(file);
-                Self::new_from_keywords_inner(&mut h, kws, data_seg, analysis_seg, other_segs, &st)
+                Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromRawError::from)
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextError::from)
             .deanonymize()
     }
 
     pub(crate) fn new_from_keywords_inner<C, R>(
         h: &mut BufReader<R>,
         kws: ValidKeywords,
-        data_seg: HeaderDataSegment,
-        analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment20],
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
@@ -4330,26 +4536,26 @@ where
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<StdTextReadConfig>
+        C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, data_seg, analysis_seg, st)
-            .map_commutative_warnings(StdDatasetFromRawWarning::from)
-            .map_errors(StdDatasetFromRawError::from)
+        VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, segs, st)
+            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+            .map_errors(StdDatasetFromFlatTextError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
-                let or = OthersReader::new(other_segs);
+                let or = OthersReader::new(segs.other);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReaderConfig = st.conf.as_ref();
+                let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
-                    .map_commutative_warnings(StdDatasetFromRawWarning::from)
-                    .map_pure_errors(StdDatasetFromRawError::from)
+                    .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+                    .map_pure_errors(StdDatasetFromFlatTextError::from)
                     .and_then_commutative(|data| {
                         ar.h_read(h)
                             .and_then(|analysis| {
@@ -4363,24 +4569,72 @@ where
             })
     }
 
+    pub fn write_datasets(
+        path: &PathBuf,
+        cores: &[Self],
+        conf: &WriteDatasetInnerConfig,
+    ) -> WarningsAndIOGroupResult<
+        Option<Nextdata>,
+        IndexedLossError,
+        StdWriterError,
+        WriteDatasetSummary,
+    >
+    where
+        Version: From<M::Ver>,
+    {
+        let n = cores.len();
+        let mut results = vec![];
+        for (i, c) in cores.iter().enumerate() {
+            let appendable = AppendableFlag::from(i + 1 < n);
+            let append = AppendFlag(i > 0);
+            let multi = WriteMultiConfig::new(appendable, append);
+            let sconf = WriteMultiDatasetConfig::new(*conf, multi);
+            let succ = split_log!(c.write_dataset(path, &sconf));
+            results.push(succ);
+        }
+        let mut it = results.into_iter();
+        if let Some(r0) = it.by_ref().next() {
+            let ret = it.fold(r0, |acc, r| acc.lift_f2_once(r, |_, nd| nd));
+            LogResult::Succ(ret.fmap_once(Some))
+        } else {
+            LogResult::new_ok_default()
+        }
+    }
+
+    /// Write this core structure (HEADER+TEXT) to a file path
+    pub fn write_dataset(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiDatasetConfig,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    where
+        Version: From<M::Ver>,
+    {
+        let opts = conf.multi.append.file_options();
+        let f = io_to_log!(opts.open(path));
+        let mut h = BufWriter::new(f);
+        self.h_write_dataset(&mut h, &conf.inner, conf.multi.appendable)
+    }
+
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write_dataset<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteConfig,
-    ) -> WarningsAndIOGroupResult<(), IndexedLossError, StdWriterError, WriteDatasetSummary>
+        conf: &WriteDatasetInnerConfig,
+        has_nextdata: AppendableFlag,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
         Version: From<M::Ver>,
     {
         let df = &self.data;
         let layout = &self.layout;
-        let delim = conf.delim;
+        let delim = conf.text.delim;
         let tot = Tot(df.nrows());
         let analysis_len =
             u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
         let others = &self.others.0[..];
 
-        let check_res = if conf.skip_conversion_check {
+        let check_res = if conf.skip_conversion_check.is_set() {
             LogResult::new_ok(())
         } else {
             layout.check_writer(df)
@@ -4392,26 +4646,20 @@ where
             .group()
             .map_error(IOErrorGroup::Pure)
             // write HEADER+TEXT+OTHER(s) first
-            .and_commutative(|| {
+            .and_then_commutative(|()| {
                 let data_len = layout.nbytes(df);
-                let res = if conf.big_other {
-                    self.h_write_text_inner::<_, UintSpacePad20>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                let ht_conf = WriteHeaderAndTextConfig {
+                    delim,
+                    tot,
+                    data_len,
+                    analysis_len,
+                    other_segs: others,
+                    has_nextdata,
+                };
+                let res = if conf.text.big_other.is_set() {
+                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
                 } else {
-                    self.h_write_text_inner::<_, UintSpacePad8>(
-                        h,
-                        delim,
-                        tot,
-                        data_len,
-                        analysis_len,
-                        others,
-                    )
+                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
                 };
                 res.map_err(|e| e.fmap_once(StdWriterError::from))
                     .map_err(IOErrorGroup::from)
@@ -4422,9 +4670,8 @@ where
             // through the data once at the beginning and check for
             // conversion loss.
             .and_commutative(|| {
-                layout
-                    .h_write_df(h, df, !conf.skip_conversion_check)
-                    .map_error(IOErrorGroup::from)
+                let flag = !conf.skip_conversion_check.is_set();
+                layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
             })
             // write ANALYSIS
             .and_commutative(|| {
@@ -4505,33 +4752,22 @@ where
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<
-        (
-            MeasIndex,
-            Element<Temporal<M::Temporal>, Optical<M::Optical>>,
-        ),
-        RemoveMeasByNameError,
-    > {
-        let (i, x) = self.remove_measurement_by_name_inner(n)?;
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
+        let (i, x, r) = self.remove_measurement_by_name_inner(n)?;
         self.data.drop_in_place(i.into()).unwrap();
-        Ok((i, x))
+        Ok((i, x, r))
     }
 
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<
-        EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
-        RemoveMeasByIndexError,
-    > {
+    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         let ret = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(ret)
@@ -4587,8 +4823,9 @@ where
                 self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertTemporalToDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
-            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
+            .when_ok(|| {
+                self.data.insert_column_nocheck(i.into(), col);
+            })
             .group()
     }
 
@@ -4645,12 +4882,11 @@ where
                 self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
                     .map_errors(InsertOpticalInDatasetError::from)
             })
-            // ASSUME index is within bounds here since it was checked above
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
     }
 
-    /// Convert this struct into a CoreTEXT.
+    /// Convert this struct into [`CoreTEXT`].
     ///
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
@@ -4661,9 +4897,9 @@ where
     /// Set measurements and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
-    pub fn set_measurements_and_data(
+    pub fn set_named_measurements_and_data(
         &mut self,
-        xs: TemporalsAndOpticals<M>,
+        xs: NamedTemporalsAndOpticals<M>,
         df: FCSDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -4676,7 +4912,50 @@ where
         if meas_n != data_n {
             return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
-        self.set_measurements_inner(xs, allow_shared_names, skip_index_check)?;
+        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)?;
+        self.data = df;
+        Ok(())
+    }
+
+    /// Set measurements without $PnN and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_measurements_and_data(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        df: FCSDataFrame,
+    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = measurements.len();
+        let data_n = df.ncols();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.set_measurements_inner(measurements)?;
+        self.data = df;
+        Ok(())
+    }
+
+    /// Set measurements without $PnN, layout, and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_measurements_layout_and_data(
+        &mut self,
+        measurements: TemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Layout,
+        df: FCSDataFrame,
+    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    where
+        M::Optical: AsScaleTransform,
+    {
+        let meas_n = measurements.len();
+        let data_n = df.ncols();
+        if meas_n != data_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
+        }
+        self.set_measurements_and_layout_inner(measurements, layout)?;
         self.data = df;
         Ok(())
     }
@@ -5081,7 +5360,7 @@ impl UnstainedData {
         conf: &C,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
         UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
@@ -5142,8 +5421,6 @@ impl SubsetData {
 }
 
 impl CSVFlags {
-    // TODO technically these should be marked deprecated because they were
-    // taken out in 3.2, but the standards don't say so
     fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -5526,15 +5803,26 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .flatten()
             .map(OpticalConvertWarning::Xfer);
 
+        let cal_res = value
+            .calibration
+            .map(|c| {
+                c.into_3_1(i)
+                    .nowarn_into_switchable(flag)
+                    .map_switchable_errors(OpticalConvertWarning::from)
+                    .switchable_into_commutative()
+                    .into_semigroup()
+            })
+            .transpose_log_result();
+
         SwitchableErrorsResult::new_deferred_switchable_iter((), check_errs, flag)
             .switchable_into_commutative()
+            .zip_commutative(cal_res)
             .map_errors(OpticalConvertError::from)
-            .map_ok_value(|()| {
+            .map_ok_value(|((), cal)| {
                 Self::new(
                     value.scale,
                     value.wavelengths,
-                    // TODO warn offset might be lost here
-                    value.calibration.map(Into::into),
+                    cal,
                     value.display,
                     PeakData::default(),
                 )
@@ -6399,7 +6687,7 @@ impl ScaleTransform {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -6674,6 +6962,11 @@ impl Versioned for Version3_2 {
     }
 }
 
+impl PrivVersioned for Version2_0 {}
+impl PrivVersioned for Version3_0 {}
+impl PrivVersioned for Version3_1 {}
+impl PrivVersioned for Version3_2 {}
+
 impl AsScaleTransform for InnerOptical2_0 {
     fn as_transform(&self) -> ScaleTransform {
         self.scale.map(Into::into).unwrap_or_default()
@@ -6706,7 +6999,7 @@ impl LookupOptical for InnerOptical2_0 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -6733,7 +7026,7 @@ impl LookupOptical for InnerOptical3_0 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -6757,7 +7050,7 @@ impl LookupOptical for InnerOptical3_1 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -6788,7 +7081,7 @@ impl LookupOptical for InnerOptical3_2 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -6825,14 +7118,14 @@ impl LookupTemporal for InnerTemporal2_0 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let sconf: &StdTextReadConfig = conf.as_ref();
-        let scale = if sconf.force_time_linear {
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+        let scale = if sconf.force_time_linear.is_set() {
             nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {
-            TemporalScale2_0::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+            TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
                 .map_switchable_errors(LookupTemporalWarning::from)
                 .switchable_into_commutative()
                 .into_semigroup()
@@ -6855,9 +7148,9 @@ impl LookupTemporal for InnerTemporal3_0 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let sconf: &StdTextReadConfig = conf.as_ref();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -6883,9 +7176,9 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let sconf: &StdTextReadConfig = conf.as_ref();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -6915,9 +7208,9 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let sconf: &StdTextReadConfig = conf.as_ref();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -7249,8 +7542,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7260,15 +7552,14 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(data.into_any(), analysis.into_any());
+                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7278,7 +7569,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .map_ok_value(|tot| {
-                let s = DatasetSegments::new(data.into_any(), analysis.into_any());
+                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
             })
     }
@@ -7298,8 +7589,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7308,10 +7598,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, data, st)
+        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::remove_req_or(kws, analysis, st)
+        let analysis_res = AnalysisSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7321,8 +7611,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7331,10 +7620,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, data, st)
+        let data_res = DataSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedReqSegment::get_req_or(kws, analysis, st)
+        let analysis_res = AnalysisSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7357,8 +7646,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup<C>(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7367,10 +7655,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::remove_req_or(kws, data, st)
+        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::remove_opt_or(kws, analysis, st)
+        let analysis_res = AnalysisSegmentId::remove_opt_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7380,8 +7668,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7390,10 +7677,10 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = KeyedReqSegment::get_req_or(kws, data, st)
+        let data_res = DataSegmentId::get_req_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = KeyedOptSegment::get_opt_or(kws, analysis, st)
+        let analysis_res = AnalysisSegmentId::get_opt_or(kws, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
@@ -7571,7 +7858,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
         let comp = Compensation2_0::lookup(std, par, conf.as_ref())
@@ -7613,7 +7900,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -7667,7 +7954,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -7683,7 +7970,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::Uncorrelated => Some(DeprecatedModeWarning::ModeUncorrelated),
                 Mode::List => None,
             };
-            let sconf: &StdTextReadConfig = conf.as_ref();
+            let sconf: &ReadStdKeywordsConfig = conf.as_ref();
             let flag = sconf.disallow_deprecated;
             SwitchableErrorsResult::new_switchable_iter(mode, (), err, flag)
                 .map_switchable_errors(LookupMetarootWarning::from)
@@ -7750,7 +8037,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -7771,7 +8058,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let dt = go!(Datetimes::lookup(std, nonstd, conf.as_ref()));
+        let dt = go!(Datetimes::lookup(std, nonstd, conf));
         let modif = go!(ModificationData::lookup(std, nonstd, conf.as_ref()));
         let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
@@ -8423,7 +8710,7 @@ impl OthersReader<'_> {
     }
 }
 
-/// Error when converting Core* to new FCS version
+/// Error when converting [`Core`] to new FCS version
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ConvertError {
@@ -8455,6 +8742,7 @@ pub enum OpticalConvertError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum OpticalConvertWarning {
     Wavelengths(WavelengthsLossError),
+    Calibration(CalibrationLossError),
     Xfer(AnyOpticalKeyLossError),
 }
 
@@ -8465,13 +8753,13 @@ pub enum OpticalConvertWarning {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct NameConversionError(Key1<Shortname>);
 
-/// Error when writing CoreDataset to file
+/// Error when writing [`CoreDataset`] to file
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(IndexedLossError),
-    Overflow(Uint8DigitOverflow),
+    Overflow(Uint8DigitOverflowError),
 }
 
 /// Error when setting measurements vector
@@ -8484,7 +8772,15 @@ pub enum SetMeasurementsError {
 
 pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurementsSummary>;
 
-def_group!(SetMeasurementsSummary, "could not set measurements");
+def_summary!(SetMeasurementsSummary, "could not set measurements");
+
+/// Error when setting measurements vector without names
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamedMeasurementsError {
+    New(MeasLayoutMismatchError),
+    Set(SetValuesError),
+}
 
 /// Error when setting $PnE for all measurements (3.0+)
 #[derive(From, Display, Debug, Error)]
@@ -8510,7 +8806,15 @@ pub enum SetMeasurementsAndDataError {
     Mismatch(MeasDataMismatchError),
 }
 
-/// Error when setting dataframe/DATA segment in CoreDataset
+/// Error when setting measurements without $PnN and DATA/dataframe simultaneously
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamdMeasurementsAndDataError {
+    Meas(SetUnnamedMeasurementsError),
+    Mismatch(MeasDataMismatchError),
+}
+
+/// Error when setting dataframe/DATA segment in [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ColumnsToDataframeError {
@@ -8534,7 +8838,7 @@ pub enum RemoveMeasByIndexError {
     Index(ElementIndexError),
 }
 
-/// Error when pushing a temporal measurement into a CoreTEXT
+/// Error when pushing a temporal measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalError {
@@ -8542,7 +8846,7 @@ pub enum PushTemporalError {
     Layout(InsertRangeError),
 }
 
-/// Error when inserting a temporal measurement into a CoreTEXT
+/// Error when inserting a temporal measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalError {
@@ -8550,7 +8854,7 @@ pub enum InsertTemporalError {
     Layout(InsertRangeError),
 }
 
-/// Error when pushing an optical measurement into a CoreTEXT
+/// Error when pushing an optical measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalError {
@@ -8558,7 +8862,7 @@ pub enum PushOpticalError {
     Layout(InsertRangeError),
 }
 
-/// Error when inserting an optical measurement into a CoreTEXT
+/// Error when inserting an optical measurement into [`CoreTEXT`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalError {
@@ -8566,7 +8870,7 @@ pub enum InsertOpticalError {
     Layout(InsertRangeError),
 }
 
-/// Error when pushing a temporal measurement into a CoreDataset
+/// Error when pushing a temporal measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
@@ -8574,7 +8878,7 @@ pub enum PushTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when inserting a temporal measurement into a CoreDataset
+/// Error when inserting a temporal measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalToDatasetError {
@@ -8582,7 +8886,7 @@ pub enum InsertTemporalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when pushing an optical measurement into a CoreDataset
+/// Error when pushing an optical measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalToDatasetError {
@@ -8590,7 +8894,7 @@ pub enum PushOpticalToDatasetError {
     Column(df::ColumnLengthError),
 }
 
-/// Error when inserting an optical measurement into a CoreDataset
+/// Error when inserting an optical measurement into [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalInDatasetError {
@@ -8626,14 +8930,14 @@ pub struct NonLinearTemporalTransformError;
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
-    Error(StdTEXTFromRawError),
-    Warn(StdTEXTFromRawWarning),
+    Error(StdTEXTFromFlatTEXTError),
+    Warn(StdTEXTFromFlatTEXTWarning),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawError {
+pub enum StdTEXTFromFlatTEXTError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
@@ -8646,7 +8950,7 @@ pub enum StdTEXTFromRawError {
 /// Warning when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromRawWarning {
+pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
@@ -8659,18 +8963,19 @@ pub enum StdTEXTFromRawWarning {
 /// Error when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawError {
-    TEXT(StdTEXTFromRawError),
+pub enum StdDatasetFromFlatTextError {
+    DatasetOffset(DatasetOffsetError),
+    TEXT(StdTEXTFromFlatTEXTError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
-    Warn(StdDatasetFromRawWarning),
+    Warn(StdDatasetFromFlatTEXTWarning),
 }
 
 /// Warning when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdDatasetFromRawWarning {
-    TEXT(StdTEXTFromRawWarning),
+pub enum StdDatasetFromFlatTEXTWarning {
+    TEXT(StdTEXTFromFlatTEXTWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadDataframeWarning),
 }
@@ -8955,6 +9260,7 @@ pub enum UnstainedLossError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
+    DatasetOffset(DatasetOffsetError),
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),
@@ -9007,7 +9313,7 @@ pub enum LookupTEXTOffsetsWarning {
     MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
 }
 
-/// Error when building new CoreTEXT object
+/// Error when building new [`CoreTEXT`]
 ///
 /// The timestep/datetime errors are technically "relational" but are here and
 /// not in NewCoreRelationalerror because each time/date object is created
@@ -9026,7 +9332,7 @@ pub enum NewCoreTEXTError {
     Datetimes(ReversedDatetimesError),
 }
 
-/// Error when building new Core* (TEXT or dataset)
+/// Error when building new [`CoreTEXT`] or [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
@@ -9038,7 +9344,7 @@ pub enum NewCoreError {
     Warn(NewCoreWarning),
 }
 
-/// Warning when building new Core*
+/// Warning when building new [`CoreTEXT`]
 ///
 /// Each of these are also errors but can be configured to only be warnings
 /// if the user desires.
@@ -9105,7 +9411,19 @@ pub enum LookupMeasurementError {
     Optical(LookupOpticalError),
     Shortname(LookupShortnameError),
     Warn(LookupMeasurementWarning),
+    TimeName(DuplicateTimeNameError),
 }
+
+/// Error when more than one $PnN matches the given time pattern
+#[derive(Debug, Error)]
+#[error(
+    "Time pattern matched {k} with name {1} but a previous measurement already \
+     matched; adjust time pattern so it only matches one $PnN",
+    k = Shortname::std(self.0),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 
 /// Warning when parsing any measurement keyword.
 #[derive(From, Display, Debug, Error)]
@@ -9146,7 +9464,7 @@ pub enum LookupOpticalError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     Gain(OptIndexedKeyError<Gain>),
     TemporalGain(LookupTemporalGainError),
     Feature(OptIndexedKeyError<Feature>),
@@ -9170,7 +9488,7 @@ type LookupTemporalResult<V> =
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalError {
-    TemporalScale(ReqIndexedKeyError<TemporalScale3_0>),
+    TemporalScale(ReqIndexedStKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
     Warn(LookupTemporalWarning),
 }
@@ -9179,7 +9497,7 @@ pub enum LookupTemporalError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
-    TemporalScale(OptIndexedKeyError<TemporalScale2_0>),
+    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGainError),
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyError<Display>),
@@ -9289,14 +9607,14 @@ pub struct CompParMismatchError {
 
 type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
 
-def_group!(
+def_summary!(
     SetOpticalSummary,
     "attempted to assign incompatible optical measurement values"
 );
 
 type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
 
-def_group!(
+def_summary!(
     SetAllMeasSummary,
     "attempted to assign incompatible optical and temporal measurement values"
 );
@@ -9322,10 +9640,10 @@ impl fmt::Display for MeasMismatchError {
 }
 
 #[cfg(feature = "python")]
-def_group!(NewCoreTEXTSummary, "could not make new CoreTEXT");
+def_summary!(NewCoreTEXTSummary, "could not make new CoreTEXT");
 
 #[cfg(feature = "python")]
-def_group!(NewCoreDatasetSummary, "could not make new CoreDataset");
+def_summary!(NewCoreDatasetSummary, "could not make new CoreDataset");
 
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
@@ -9334,42 +9652,42 @@ pub struct ConvertSummary {
     to: Version,
 }
 
-def_group!(
+def_summary!(
     SetScalesSummary,
     "could not set scales for optical measurements"
 );
 
-def_group!(
+def_summary!(
     SetTransformsSummary,
     "could not set scale transforms for optical measurements"
 );
 
-def_group!(PushTemporalSummary, "could not push temporal measurement");
+def_summary!(PushTemporalSummary, "could not push temporal measurement");
 
-def_group!(
+def_summary!(
     InsertTemporalSummary,
     "could not insert temporal measurement"
 );
 
-def_group!(PushOpticalSummary, "could not push optical measurement");
+def_summary!(PushOpticalSummary, "could not push optical measurement");
 
-def_group!(InsertOpticalSummary, "could not insert optical measurement");
+def_summary!(InsertOpticalSummary, "could not insert optical measurement");
 
-def_group!(SetAppliedGatesSummary, "could not set gating keywords");
+def_summary!(SetAppliedGatesSummary, "could not set gating keywords");
 
-def_group!(
+def_summary!(
     SetMeasurementsAndLayoutSummary,
     "could not set measurements and layout"
 );
 
-def_group!(WriteDatasetSummary, "could not write FCS file");
+def_summary!(WriteDatasetSummary, "could not write FCS file");
 
-def_group!(
+def_summary!(
     CoreTEXTFromKeywordsSummary,
     "could not create new CoreTEXT from keywords"
 );
 
-def_group!(
+def_summary!(
     StdDatasetWithKwsSummary,
     "could not read standardized dataset from keywords"
 );
@@ -9418,9 +9736,12 @@ mod python {
     use crate::python::InvalidKeywordValueError;
     use crate::text::ranged_float::PositiveFloat;
 
+    use super::IncludeReqOrOpt;
+    use super::IncludeRootOrMeas;
     use super::ScaleTransform;
 
     use pyo3::IntoPyObjectExt as _;
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
@@ -9448,6 +9769,34 @@ mod python {
             match self {
                 Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
                 Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for IncludeReqOrOpt {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s = ob.extract::<String>()?;
+            match s.as_str() {
+                "req_only" => Ok(Self::Req_),
+                "opt_only" => Ok(Self::Opt_),
+                "both" => Ok(Self::Both),
+                _ => Err(PyValueError::new_err(
+                    "must be one of 'req_only', 'opt_only', or 'both'",
+                )),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for IncludeRootOrMeas {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s = ob.extract::<String>()?;
+            match s.as_str() {
+                "root_only" => Ok(Self::Root),
+                "meas_only" => Ok(Self::Meas),
+                "both" => Ok(Self::Both),
+                _ => Err(PyValueError::new_err(
+                    "must be one of 'root_only', 'meas_only', or 'both'",
+                )),
             }
         }
     }

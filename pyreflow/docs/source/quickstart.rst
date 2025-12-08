@@ -18,13 +18,13 @@ Read *HEADER*:
    # show TEXT segment offsets
    out.segments.text
 
-Read *TEXT* (raw mode):
+Read *TEXT* (flat mode):
 
 .. code-block:: python
 
-   from pyreflow.api import fcs_read_raw_text
+   from pyreflow.api import fcs_read_flat_text
 
-   out = fcs_read_raw_text("tea_cells.fcs")
+   out = fcs_read_flat_text("tea_cells.fcs")
 
    # standard keywords as a dict
    out.std
@@ -72,13 +72,13 @@ Read *TEXT* (standardized mode):
    # show "pseudostandard" keywords
    uncore.pseudostandard
 
-Read dataset (raw mode):
+Read dataset (flat mode):
 
 .. code-block:: python
 
-   from pyreflow.api import fcs_read_raw_dataset
+   from pyreflow.api import fcs_read_flat_dataset
 
-   out = fcs_read_raw_dataset("tea_smells.fcs")
+   out = fcs_read_flat_dataset("tea_smells.fcs")
 
    # show DATA as dataframe
    out.data
@@ -146,26 +146,29 @@ Read (extremely) non-compliant dataset:
 .. code-block:: python
 
    from pyreflow.api import (
-       fcs_read_raw_text,
+       fcs_read_flat_text,
        fcs_read_std_dataset_with_keywords,
    )
 
    path = "foobar.fcs"
 
    # This file is so far gone that pyreflow does not have the flags to fix it.
-   # Therefore we need to correct "offline". Start by parsing TEXT in raw mode:
-   out = fcs_read_raw_text(path)
+   # Therefore we need to correct "offline". Start by parsing TEXT in flat mode:
+   out = fcs_read_flat_text(path)
 
    # Pull the standard keywords as a dict. These are what we need to fix.
    to_fix = out.std
 
-   # ... do stuff with "to_fix" using raw python code
+   # ... do stuff with "to_fix" using pure python code
+
+   
+   # check the version (assume we know its 3.2)
+   out.version
 
    # After fixing, continue parsing the file with corrected keywords:
    let hs = out.parse.header_segments
-   better = fcs_read_std_dataset_with_keywords(
+   better = CoreDataset3_2::from_kws(
        path,
-       out.version,
        to_fix,
        out.nonstd,
        hs.data,

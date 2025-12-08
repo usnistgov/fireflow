@@ -167,10 +167,9 @@ macro_rules! byteord_from_sized {
 
         impl From<SizedByteOrd<$len>> for [NonZeroU8; $len] {
             fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
+                debug_assert!($len <= 8_usize, "this should not be called for len > 8");
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
-                        // ASSUME this will never fail because we will only
-                        // call this for ints 1-8
                         let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
                         if e == Endian::Big {
                             o.reverse();
@@ -320,14 +319,14 @@ impl TryFrom<PrivBitsOrChars> for PrivBytes {
 
 impl From<PrivBytes> for NonZeroU8 {
     fn from(value: PrivBytes) -> Self {
-        // ASSUME this will never fail
+        // ASSUME this will never fail because Bytes is 1-8
         Self::new(u8::from(value)).unwrap()
     }
 }
 
 impl From<PrivBytes> for PrivBitsOrChars {
     fn from(value: PrivBytes) -> Self {
-        // ASSUME this will never fail
+        // ASSUME this will never fail because Bytes is 1-8
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
 }
@@ -413,10 +412,19 @@ impl fmt::Display for PrivBytes {
 
 /// Error when making a new byte order of some size from a sequence of digits.
 #[derive(Debug, Error)]
-#[error("byte order must include 1-{0} uniquely")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct NewByteOrdError(usize);
+
+impl fmt::Display for NewByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        if self.0 == 0 {
+            write!(f, "byte order not be empty")
+        } else {
+            write!(f, "byte order must include 1-{} uniquely", self.0)
+        }
+    }
+}
 
 /// Error when parsing Endian from string
 #[derive(Debug, Error)]

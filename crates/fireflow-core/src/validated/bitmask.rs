@@ -9,6 +9,7 @@ use crate::text::keywords::Range;
 
 use bigdecimal::BigDecimal;
 use derive_more::Display;
+use derive_new::new;
 use num_traits::PrimInt;
 use num_traits::identities::One as _;
 use std::mem::size_of;
@@ -16,22 +17,33 @@ use std::mem::size_of;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-/// A number representing a value with bitmask up to LEN bits
-#[derive(PartialEq, Clone, Copy, PartialOrd, Debug)]
+#[cfg(feature = "python")]
+use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
+
+/// The type of an integer column with `LEN` bytes in all versions.
+#[derive(PartialEq, Clone, Copy, PartialOrd, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility = "")]
 pub struct Bitmask<T, const LEN: usize> {
     /// The value to be masked.
     ///
     /// This can be any integer up to LEN bits.
-    value: T,
+    value: BitmaskValue<T>,
 
-    /// The bitmask corresponding to `value`.
+    /// The bitmask corresponding to [`Self::value`].
     ///
     /// Will always be a power of 2 minus 1 (ie, some number of contiguous bits
     /// in binary). This will be able to hold `value` but will mask out any
     /// bits beyond those needed to express `value`.
     bitmask: T,
 }
+
+/// Integer value for [`Range`] for a bitmask
+#[derive(PartialEq, Clone, Copy, Debug, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
+#[cfg_attr(feature = "python", bound(T: FromPyObject<'py>))]
+pub struct BitmaskValue<T>(pub T);
 
 pub type Bitmask08 = Bitmask<u8, 1>;
 pub type Bitmask16 = Bitmask<u16, 2>;
@@ -50,7 +62,7 @@ where
     fn from(value: &Bitmask<T, LEN>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
-        Self::from(u64::from(value.value)) + Self::from(BigDecimal::one())
+        Self::from(u64::from(value.value.0)) + Self::from(BigDecimal::one())
     }
 }
 
@@ -59,7 +71,7 @@ where
     Self: From<T>,
 {
     fn from(value: Bitmask<T, LEN>) -> Self {
-        value.value.into()
+        value.value.0.into()
     }
 }
 
@@ -82,16 +94,16 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         (e, b.min(value))
     }
 
-    pub(crate) fn try_from_native(value: T) -> DeferredError<Self, BitmaskTruncationError>
+    pub(crate) fn try_from_native(
+        value: BitmaskValue<T>,
+    ) -> DeferredError<Self, BitmaskTruncationError>
     where
         T: PrimInt,
         u64: From<T>,
     {
         let (bitmask, truncated) = Self::from_native(value);
-        let error = truncated.then(|| BitmaskTruncationError {
-            bytes: Self::bytes(),
-            value: u64::from(value),
-        });
+        let error =
+            truncated.then(|| BitmaskTruncationError::new(Self::bytes(), u64::from(value.0)));
         LogResult::new_deferred_maybe(bitmask, error)
     }
 
@@ -111,14 +123,13 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     //     BiTentative::new_either1(bitmask, error, notrunc)
     // }
 
-    pub fn from_native(value: T) -> (Self, bool)
+    pub fn from_native(value: BitmaskValue<T>) -> (Self, bool)
     where
         T: PrimInt,
     {
-        // ASSUME number of bits will never exceed 64 (or 255 for that matter)
-        // and thus will fit in a u8
+        debug_assert!(size_of::<T>() * 8 <= 64, "type can only be 64-bit or less");
         let native_bits = u8::try_from(size_of::<T>() * 8).unwrap();
-        let value_bits = native_bits - u8::try_from(value.leading_zeros()).unwrap();
+        let value_bits = native_bits - u8::try_from(value.0.leading_zeros()).unwrap();
         let truncated = value_bits > Self::bits();
         let bits = value_bits.min(Self::bits());
         let mask = if bits == 0 {
@@ -128,13 +139,8 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         } else {
             (T::one() << usize::from(bits)) - T::one()
         };
-        (
-            Self {
-                bitmask: mask,
-                value: value.min(mask),
-            },
-            truncated,
-        )
+        let v = BitmaskValue(value.0.min(mask));
+        (Self::new(v, mask), truncated)
     }
 
     pub(crate) fn from_u64(value: u64) -> (Self, bool)
@@ -142,6 +148,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         T: PrimInt + TryFrom<u64>,
     {
         T::try_from(value)
+            .map(BitmaskValue)
             .map(Self::from_native)
             .unwrap_or((Self::max(), true))
     }
@@ -150,7 +157,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     where
         T: PrimInt,
     {
-        Self::from_native(T::max_value()).0
+        Self::from_native(BitmaskValue(T::max_value())).0
     }
 
     fn bytes() -> PrivBytes {
@@ -191,7 +198,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 ///
 /// This error is meant for internal use and converted to other errors which
 /// add context.
-#[derive(Debug)]
+#[derive(Debug, new)]
 pub(crate) struct BitmaskTruncationError {
     pub(crate) bytes: PrivBytes,
     pub(crate) value: u64,
@@ -208,61 +215,61 @@ mod tests {
 
     #[test]
     fn int_to_bitmask() {
-        let x = 0xFF;
+        let x = BitmaskValue(0xFF);
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, false));
+        assert_eq!((b.value.0, b.bitmask(), trunc), (0xFF, 0xFF, false));
     }
 
     #[test]
     fn int_to_bitmask_roundup() {
-        let x = 0xFE;
+        let x = BitmaskValue(0xFE);
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (0xFE, 0xFF, false));
+        assert_eq!((b.value.0, b.bitmask(), trunc), (0xFE, 0xFF, false));
     }
 
     #[test]
     fn int_to_bitmask_trunc() {
-        let x = 0x100;
+        let x = BitmaskValue(0x100);
         let (b, trunc) = Bitmask::<u16, 1>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (0xFF, 0xFF, true));
+        assert_eq!((b.value.0, b.bitmask(), trunc), (0xFF, 0xFF, true));
     }
 
     #[test]
     fn int_to_bitmask_max_native() {
-        let x = 0xFFFF;
+        let x = BitmaskValue(0xFFFF);
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (0xFFFF, 0xFFFF, false));
+        assert_eq!((b.value.0, b.bitmask(), trunc), (0xFFFF, 0xFFFF, false));
     }
 
     #[test]
     fn int_to_bitmask_zero() {
-        let x = 0;
+        let x = BitmaskValue(0);
         let (b, trunc) = Bitmask::<u16, 2>::from_native(x);
-        assert_eq!((b.value, b.bitmask(), trunc), (0, 0, false));
+        assert_eq!((b.value.0, b.bitmask(), trunc), (0, 0, false));
     }
 
     #[test]
     fn max_1_byte() {
         let b = Bitmask::<u8, 1>::max();
-        assert_eq!((b.value, b.bitmask()), (0xFF, 0xFF));
+        assert_eq!((b.value.0, b.bitmask()), (0xFF, 0xFF));
     }
 
     #[test]
     fn max_2_byte() {
         let b = Bitmask::<u16, 2>::max();
-        assert_eq!((b.value, b.bitmask()), (0xFFFF, 0xFFFF));
+        assert_eq!((b.value.0, b.bitmask()), (0xFFFF, 0xFFFF));
     }
 
     #[test]
     fn max_3_byte() {
         let b = Bitmask::<u32, 3>::max();
-        assert_eq!((b.value, b.bitmask()), (0x00FF_FFFF, 0x00FF_FFFF));
+        assert_eq!((b.value.0, b.bitmask()), (0x00FF_FFFF, 0x00FF_FFFF));
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::Bitmask;
+    use super::{Bitmask, BitmaskValue};
 
     use pyo3::conversion::FromPyObjectBound;
     use pyo3::exceptions::PyOverflowError;
@@ -276,7 +283,7 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;
-            let (ret, trunc) = Self::from_native(x);
+            let (ret, trunc) = Self::from_native(BitmaskValue(x));
             if trunc {
                 let e = format!("could not make {LEN}-byte bitmask from {x}");
                 Err(PyOverflowError::new_err(e))
@@ -295,7 +302,7 @@ mod python {
         type Error = <T as IntoPyObject<'py>>::Error;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.value.into_pyobject(py)
+            self.value.0.into_pyobject(py)
         }
     }
 }

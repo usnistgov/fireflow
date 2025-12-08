@@ -1,4 +1,7 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    TrimIntraValueWhitespace,
+};
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::validated::keys::{
     AnyKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
@@ -30,16 +33,16 @@ pub type ReqIndexedKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, IndexF
 /// An error caused when parsing a required indexed standard key with external state
 pub type ReqIndexedStKeyError<T> = ReqKeyErrorInner<<T as FromStrWith>::Err, T, IndexFromOne>;
 
-/// An parse key error for an optional non-indexed key.
+/// A parse key error for an optional non-indexed key.
 pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
 
-/// An parse key error for an optional indexed key.
+/// A parse key error for an optional indexed key.
 pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
 
-/// An parse key error for an optional non-indexed key when parsing with external state.
+/// A parse key error for an optional non-indexed key when parsing with external state.
 pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
 
-/// An parse key error for an optional indexed key when parsing with external state.
+/// A parse key error for an optional indexed key when parsing with external state.
 pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
 
 /// An error caused when parsing a required standard key
@@ -83,9 +86,12 @@ pub trait FromStrDelim: Sized {
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
 
-    fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
+    fn from_str_delim(
+        s: &str,
+        trim_whitespace: TrimIntraValueWhitespace,
+    ) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
-        if trim_whitespace {
+        if trim_whitespace.is_set() {
             Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter(it)
@@ -101,7 +107,7 @@ pub trait FromStrWith: Sized {
     fn from_str_with(
         _: &str,
         _: Self::Payload<'_>,
-        _: &StdTextReadConfig,
+        _: &ReadStdKeywordsConfig,
     ) -> Result<Self, Self::Err>;
 }
 
@@ -139,7 +145,7 @@ pub(crate) trait Required: Sized {
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
@@ -229,7 +235,7 @@ pub(crate) trait Optional: Sized {
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
@@ -276,7 +282,7 @@ pub(crate) trait Optional: Sized {
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadLayoutConfig = conf.as_ref();
         Self::remove_opt_with(std, k, data, conf.as_ref()).inspect_err(|e| {
@@ -322,7 +328,7 @@ pub(crate) trait Optional: Sized {
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadLayoutConfig = conf.as_ref();
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
@@ -409,7 +415,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<Self, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
@@ -489,7 +495,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     ) -> Result<Self::Outer, OptKeyStError<Self>>
     where
         Self: FromStrWith,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
@@ -513,7 +519,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
     where
         Self: FromStrWith,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
@@ -597,7 +603,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }

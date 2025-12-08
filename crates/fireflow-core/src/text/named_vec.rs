@@ -2,10 +2,12 @@ use crate::logging::{
     CommutativeResult, CommutativeResultIter as _, ErrorGroup, ErrorResult, ErrorsResult,
     LogResult, ResultExt as _,
 };
+use crate::macros::def_summary;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
-use crate::type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 use crate::validated::shortname::Shortname;
+
+use type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -58,6 +60,7 @@ impl<K, U, V> Default for NamedVec<K, U, V> {
     }
 }
 
+/// An key/value pair with an index
 #[derive(new)]
 pub struct IndexedElement<K, V> {
     pub index: MeasIndex,
@@ -65,6 +68,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
+/// Inner type for [`NamedVec`] which has a center element
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitVec<K, U, V> {
@@ -73,12 +77,14 @@ pub struct SplitVec<K, U, V> {
     right: PairedVec<K, V>,
 }
 
+/// Inner type for [`NamedVec`] which does not have a center element
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct UnsplitVec<K, V> {
     members: PairedVec<K, V>,
 }
 
+/// A member in [`NamedVec`], either a "center" or "non-center" value
 #[derive(Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub enum Element<U, V> {
@@ -88,12 +94,14 @@ pub enum Element<U, V> {
 
 impl_kind2!(ElementFamily, Element);
 
+/// Standalone wrapper representing a center value in [`NamedVec`]
 #[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonCenterElement<V>(pub Element<(), V>);
 
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
+/// A key/value pair
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Pair<K, V> {
@@ -311,23 +319,49 @@ impl<K, U, V> NamedVec<K, U, V> {
         )
     }
 
+    /// Set current values to new values.
+    ///
+    /// The center in the new vector must be in the same position as the old.
+    pub(crate) fn set_values(&mut self, xs: Vec<Element<U, V>>) -> Result<(), SetValuesError> {
+        // check length and center position before doing anything, otherwise
+        // we would need to reset the new vector if any error is found
+        self.check_keys_length(&xs[..], true)?;
+        let errs = self
+            .iter()
+            .zip(xs.iter())
+            .enumerate()
+            .map(|(i, (old, new))| match (old, new) {
+                (Element::Center(_), Element::NonCenter(_)) => Some((i, true)),
+                (Element::NonCenter(_), Element::Center(_)) => Some((i, false)),
+                _ => None,
+            })
+            .filter_map(|x| x.map(|(i, is_center)| ElementMismatchError::new(i.into(), is_center)));
+        ErrorGroup::try_new(errs)?;
+        let _ = self.alter_values_zip(
+            xs,
+            |e, y| y.both(|z| *e.value = z, |_| ()),
+            |e, y| y.both(|_| (), |z| *e.value = z),
+        );
+        Ok(())
+    }
+
     /// Apply functions to values with payload, altering them in place.
     ///
     /// This will alter all values, including center and non-center values. The
     /// two functions apply to the different values contained. Return None
     /// if input vector is not the same length.
-    pub(crate) fn alter_values_zip<F, G, X, R>(
+    pub(crate) fn alter_values_zip<G, F, X, R>(
         &mut self,
         xs: Vec<X>,
         f: F,
         g: G,
     ) -> Result<Vec<R>, InputLengthError>
     where
-        F: Fn(IndexedElement<&K, &mut V>, X) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        G: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
         self.check_keys_length(&xs[..], true)?;
-        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f);
+        let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &g);
         let x = match self {
             Self::Split(s) => {
                 let nleft = s.left.len();
@@ -335,7 +369,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let mut it = xs.into_iter();
                 let left_r = go(&mut s.left, it.by_ref().take(nleft).collect(), 0);
                 let c = &mut s.center;
-                let center_r = g(
+                let center_r = f(
                     IndexedElement::new(nleft.into(), &c.key, &mut c.value),
                     it.next().unwrap(),
                 );
@@ -376,8 +410,8 @@ impl<K, U, V> NamedVec<K, U, V> {
             Self::Split(s) => {
                 let nleft = s.left.len();
                 let mut it = xs.into_iter();
-                // ASSUME this won't fail because we already counted
                 let xs_left = it.by_ref().take(nleft).collect();
+                // ASSUME this won't fail because we already counted
                 let x_center = it.by_ref().next().unwrap();
                 let xs_right = it.collect();
                 let left_res = check_optical(xs_left, 0);
@@ -409,8 +443,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Apply function(s) to all values, altering them in place.
     pub(crate) fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&K, &mut V>) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut U>) -> R,
+        F: Fn(IndexedElement<&Shortname, &mut U>) -> R,
+        G: Fn(IndexedElement<&K, &mut V>) -> R,
     {
         let xs = vec![(); self.len()];
         self.alter_values_zip(xs, |x, ()| f(x), |x, ()| g(x))
@@ -684,6 +718,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_push(&key).is_ok(), "Name is not unique");
         let p = Pair::new(key, value);
         match self {
             Self::Split(s) => s.right.push(p),
@@ -698,6 +733,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        // only check key here because index will panic if out of bounds
+        debug_assert!(self.check_key(&key, index).is_ok(), "Name is not unique");
         let i = usize::from(index);
         let p = Pair::new(key, value);
         match self {
@@ -716,7 +753,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// Return value that was replaced.
     ///
-    /// Return none if index is out of bounds. If index points to the center,
+    /// Return error if index is out of bounds. If index points to the center,
     /// convert it to a non-center value.
     pub(crate) fn replace_at(
         &mut self,
@@ -726,7 +763,15 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: Pointed<Shortname>,
     {
-        let i = self.check_element_index(index, true)?;
+        let _ = self.check_element_index(index, true)?;
+        Ok(self.replace_at_nocheck(index, value))
+    }
+
+    fn replace_at_nocheck(&mut self, index: MeasIndex, value: V) -> Element<U, V>
+    where
+        K: Pointed<Shortname>,
+    {
+        let i = usize::from(index);
         let (newself, ret) = match mem::take(self) {
             Self::Split(mut s) => {
                 let ln = s.left.len();
@@ -757,7 +802,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             }
         };
         *self = newself;
-        Ok(ret)
+        ret
     }
 
     /// Replace a value with a new value with a given name.
@@ -774,8 +819,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         let index = self.find_with_name(name)?;
-        // ASSUME this won't fail because we have a valid index from above
-        Ok(self.replace_at(index, value).unwrap())
+        Ok(self.replace_at_nocheck(index, value))
     }
 
     /// Rename an element at index.
@@ -871,10 +915,14 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
         let p = Pair::new(name, value);
         *self = match mem::take(self) {
             Self::Unsplit(u) => Self::new_split(u.members, p, vec![]),
-            s @ Self::Split(_) => s,
+            s @ Self::Split(_) => {
+                debug_assert!(false, "Center already present");
+                s
+            }
         };
     }
 
@@ -886,7 +934,9 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
+        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
         let i = usize::from(index);
+        debug_assert!(i <= self.len(), "Index is out of bounds");
         let p = Pair::new(name, value);
         *self = match mem::take(self) {
             Self::Unsplit(u) => {
@@ -895,7 +945,10 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let right: Vec<_> = it.collect();
                 Self::new_split(left, p, right)
             }
-            s @ Self::Split(_) => s,
+            s @ Self::Split(_) => {
+                debug_assert!(false, "Center already present");
+                s
+            }
         };
     }
 
@@ -1002,7 +1055,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let mut it = ks.into_iter();
                 // ASSUME this won't fail because we checked length above
                 let ks_left = it.by_ref().take(s.left.len()).collect();
-                let center = it.by_ref().next().expect("center should be set");
+                let center = it.by_ref().next().unwrap();
                 let ks_right = it.collect();
                 if let Some(center_name) = K::to_opt(center) {
                     go(&mut s.left, ks_left);
@@ -1720,10 +1773,10 @@ impl<K, U, V> Either<K, U, V> {
 }
 
 impl<U, V> Element<U, V> {
-    pub fn both<F, G, X>(self, mut f: F, mut g: G) -> X
+    pub fn both<F, G, X>(self, f: F, g: G) -> X
     where
-        F: FnMut(U) -> X,
-        G: FnMut(V) -> X,
+        F: FnOnce(U) -> X,
+        G: FnOnce(V) -> X,
     {
         match self {
             Self::Center(u) => f(u),
@@ -1750,6 +1803,10 @@ impl<U, V> Element<U, V> {
             Self::Center(u) => Some(u),
             Self::NonCenter(_) => None,
         }
+    }
+
+    pub fn is_center(&self) -> bool {
+        self.as_ref().center().is_some()
     }
 }
 
@@ -1872,7 +1929,7 @@ impl<K, U, V> SplitVec<K, U, V> {
     }
 }
 
-/// Error when inserting new element into named vector
+/// Error when inserting new element into [`NamedVec`]
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
@@ -1882,7 +1939,7 @@ pub enum InsertError {
     NonUnique(NamePresentError),
 }
 
-/// Error when renaming element's name at index
+/// Error when renaming element's name at index in [`NamedVec`]
 #[derive(Debug, Display, Error)]
 pub enum RenameError {
     /// Index not found
@@ -1891,7 +1948,7 @@ pub enum RenameError {
     NonUnique(NamePresentError),
 }
 
-/// Error when inserting new center element into named vector
+/// Error when inserting new center element into [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
@@ -1899,7 +1956,7 @@ pub enum InsertCenterError {
     Index(BoundaryIndexError),
 }
 
-/// Error when pushing new center element to the right of named vector
+/// Error when pushing new center element to the right of [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushCenterError {
@@ -1907,9 +1964,9 @@ pub enum PushCenterError {
     Present(CenterPresentError),
 }
 
-/// Error when setting all keys in a named vector.
+/// Error when setting all keys in a [`NamedVec`].
 ///
-/// This is distinct from setting "names" which are Shortname types. "Keys"
+/// This is distinct from setting "names" which are [`Shortname`]. "Keys"
 /// are names in containers which may or may not contain them.
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1918,7 +1975,7 @@ pub enum SetKeysError {
     MissingCenter(MissingCenterError),
 }
 
-/// Error when setting names (Shortname) in a named vector.
+/// Error when setting names ([`Shortname`]) in a [`NamedVec`]
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamesError {
@@ -1926,7 +1983,7 @@ pub enum SetNamesError {
     NonUnique(NonUniqueKeysError),
 }
 
-/// Error when assigning an element in named vector to be the center element
+/// Error when assigning an element in [`NamedVec`] to be the center element
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetCenterError {
@@ -1934,7 +1991,15 @@ pub enum SetCenterError {
     NoName(NoNameError),
 }
 
-/// Error when building new named vector from list of elements
+/// Error when assigning an element in [`NamedVec`] to be the center element
+#[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetValuesError {
+    Length(InputLengthError),
+    Set(ElementMismatchErrors),
+}
+
+/// Error when building new [`NamedVec`] from list of elements
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewNamedVecError {
@@ -1942,7 +2007,7 @@ pub enum NewNamedVecError {
     MultiCenter(CenterPresentError),
 }
 
-/// Error when setting/altering the elements of a named vector
+/// Error when setting/altering the elements of [`NamedVec`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
@@ -1951,41 +2016,41 @@ pub enum SetElementsError<E> {
     Mismatch(E),
 }
 
-/// Error when the center element of a named vector is already present
+/// Error when the center element of [`NamedVec`] is already present
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct CenterPresentError;
 
-/// Error when the specified element does not have a name but one is expected.
+/// Error when element in [`NamedVec`] does not have a name but one is expected.
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NoNameError;
 
-/// Error when the center element of a named vector is missing but expected
+/// Error when the center element of [`NamedVec`] is missing but expected
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct MissingCenterError;
 
-/// Error when final state of keys in named vector results in duplicates
+/// Error when final state of keys in [`NamedVec`] results in duplicates
 #[derive(Debug, Error)]
 #[error("not all supplied keys are unique")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NonUniqueKeysError;
 
-/// Error when name in named vector is not found
+/// Error when name in [`NamedVec`] is not found
 #[derive(Debug, Error)]
 #[error("'{0}' matches no measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
 pub struct NameNotFoundError(pub Shortname);
 
-/// Error when name is already present in named vector
+/// Error when name is already present in [`NamedVec`]
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1994,13 +2059,31 @@ pub struct NamePresentError {
     name: Shortname,
 }
 
-/// Error when index is out of bounds for named vector, optionally including center.
+/// Error when index is out of bounds for [`NamedVec`], optionally including center.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {
     index: IndexError,
     center: Option<MeasIndex>,
 }
+
+/// Error when element types do not match in [`NamedVec`]
+#[derive(Debug, Error, new)]
+#[error(
+    "attempted to set a {to} at {index} when {from} is needed",
+    to = if self.original_is_center { "non-center" } else { "center" },
+    from = if self.original_is_center { "center" } else { "non-center" }
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct ElementMismatchError {
+    index: MeasIndex,
+    original_is_center: bool,
+}
+
+pub type ElementMismatchErrors = ErrorGroup<ElementMismatchError, ElementMismatchSummary>;
+
+def_summary!(ElementMismatchSummary, "could not set new values");
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -2018,6 +2101,7 @@ impl fmt::Display for ElementIndexError {
     }
 }
 
+/// Error when input collection does not match number of elements in [`NamedVec`]
 #[derive(Debug, Error)]
 #[error(
     "input must be {this_len} ({c}including center) elements long, got {other_len}",

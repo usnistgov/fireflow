@@ -102,6 +102,20 @@ Per the standard, *$NEXTDATA* is a required keyword. In practice, almost no FCS
 file has multiple datasets, so this keyword does nothing. If *$NEXTDATA* is
 missing, enable `allow_missing_nextdata` to permit this error.
 
+## Whitespace after *TEXT*
+
+Some vendors will add extra "padding" (usually spaces) after the last delimiter
+in *TEXT* and up until the ending offset for *TEXT* indicated in *HEADER*. The
+reason for this probably has to do with the fact that there is a circular
+dependency between the number of digits in offset keywords in *TEXT*
+(*$BEGINDATA*, *$ENDDATA*, etc) and the length of *TEXT*. Padding the end of
+*TEXT* up to a certain length could eliminate this problem by making the length
+of *TEXT* predictable.
+
+Regardless of the root cause, the standard requires that *TEXT* end with a
+delimiter, so this behavior is not allowed. This can be fixed with
+`trim_trailing_whitespace`.
+
 # Issues with standard keys
 
 Many files are either missing standard keys or have extra standard keys given

@@ -1,12 +1,37 @@
-use crate::config::{AllowOptionalDropping, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    TrimIntraValueWhitespace,
+};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
-use crate::type_families::{impl_functor, impl_functor_common, impl_kind1};
+use crate::text::byteord::{
+    BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
+};
+use crate::text::compensation::{Compensation, NewCompError};
+use crate::text::datetimes::{BeginDateTime, EndDateTime};
+use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
+use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
+use crate::text::lookup::{
+    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
+    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+};
+use crate::text::named_vec::NameMapping;
+use crate::text::optional::{
+    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
+};
+use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
+use crate::text::relational::{
+    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
+};
+use crate::text::spillover::Spillover;
+use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
+use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
+use crate::validated::bitmask::BitmaskValue;
 use crate::validated::keys::{
     AnyKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
     StdKeywords,
@@ -15,25 +40,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use super::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd};
-use super::compensation::{Compensation, NewCompError};
-use super::datetimes::{BeginDateTime, EndDateTime};
-use super::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
-use super::index::{GateIndex, MeasIndex, RegionIndex};
-use super::lookup::{
-    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
-};
-use super::named_vec::NameMapping;
-use super::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
-};
-use super::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use super::relational::{
-    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
-};
-use super::spillover::Spillover;
-use super::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
+use type_families::{impl_functor, impl_functor_common, impl_kind1};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
@@ -65,7 +72,8 @@ use {
 };
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Nextdata(pub UintZeroPad20);
 
 /// The value for the $PnE key (all versions).
@@ -116,9 +124,9 @@ impl FromStrWith for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-        if conf.fix_log_scale_offsets {
+        if conf.fix_log_scale_offsets.is_set() {
             res.or_else(|e| {
                 if let ScaleError::LogRange(le) = e {
                     le.try_fix_offset()
@@ -138,7 +146,7 @@ impl FromStr for Scale {
     type Err = ScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -164,7 +172,7 @@ impl FromStrDelim for Scale {
     }
 }
 
-/// Error when parsing $PnE from string
+/// Error when parsing [`Scale`] from string
 #[derive(Debug, Error)]
 pub enum ScaleError {
     #[error("{0}")]
@@ -175,7 +183,7 @@ pub enum ScaleError {
     WrongFormat,
 }
 
-/// Error when parsing $PnE as log scale from string
+/// Error when parsing [`Scale`] as log from string
 #[derive(Debug, Error, new)]
 #[error("decades/offset must both be positive, got '{decades},{offset}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -214,12 +222,13 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGainError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        if AsRef::<StdTextReadConfig>::as_ref(conf).ignore_time_gain {
+        let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
+        let drop_flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
+        if gain_flag.is_set() {
             nonstd.transfer_demoted(std, Self::std(i));
-            let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
-            LogResult::new_switchable_ok(None, flag)
+            LogResult::new_switchable_ok(None, drop_flag)
         } else {
             Self::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
@@ -231,7 +240,7 @@ impl Gain {
     }
 }
 
-/// Error when parsing $PnG from string
+/// Error when lookup up [`Gain`] from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalGainError {
@@ -239,7 +248,7 @@ pub enum LookupTemporalGainError {
     HasGain(TemporalGainError),
 }
 
-/// Error triggered when time measurement has $PnG
+/// Error when time measurement has [`Gain`] ($PnG)
 #[derive(Debug, Error)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -316,7 +325,7 @@ impl FromStrWith for Trigger {
     type Err = TriggerError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -325,7 +334,7 @@ impl FromStr for Trigger {
     type Err = TriggerError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -348,7 +357,7 @@ impl FromStrDelim for Trigger {
     }
 }
 
-/// Error when parsing $TR from string
+/// Error when parsing [`Trigger`] from string
 #[derive(Debug, Error)]
 pub enum TriggerError {
     #[error("must be like 'string,f'")]
@@ -371,7 +380,7 @@ pub enum Mode {
     Correlated,
 }
 
-/// Error when $MODE has a deprecated value (FCS 3.1)
+/// Error when [`Mode`] has a deprecated value (FCS 3.1)
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
@@ -382,7 +391,7 @@ pub enum DeprecatedModeWarning {
     ModeUncorrelated,
 }
 
-/// Error when parsing $MODE from string (up to 3.1)
+/// Error when parsing [`Mode`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'C', 'L', or 'U'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -431,32 +440,34 @@ impl TryFrom<Mode> for Mode3_2 {
     }
 }
 
-/// Error when parsing $MODE from string (3.2)
+/// Error when parsing [`Mode3_2`]
 #[derive(Debug, Error)]
 #[error("can only be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
 pub struct Mode3_2Error;
 
-/// Error when converting $MODE from pre-3.2 to 3.2
+/// Error when converting [`Mode`] to [`Mode3_2`]
 #[derive(Debug, Error)]
 #[error("$MODE must be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct ModeUpgradeError;
 
-/// The value for the $PnDISPLAY key (3.1+)
+/// The value for the $PnD key (3.1+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
-    /// Linear display (value like 'Linear,<lower>,<upper>')
+    /// Linear display (value like `"Linear,<lower>,<upper>"`)
     #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
-    // TODO not clear if these can be <0
-    /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
+    /// Logarithmic display (value like `"Logarithmic,<offset>,<decades>"`)
     #[display("Logarithmic,{decades},{offset}")]
-    Log { offset: f32, decades: f32 },
+    Log {
+        offset: PositiveFloat,
+        decades: PositiveFloat,
+    },
 }
 
 impl FromStr for Display {
@@ -468,14 +479,20 @@ impl FromStr for Display {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
                 match which {
-                    "Linear" => Ok(Self::Lin {
-                        lower: f1,
-                        upper: f2,
-                    }),
-                    "Logarithmic" => Ok(Self::Log {
-                        decades: f1,
-                        offset: f2,
-                    }),
+                    "Linear" => {
+                        if f1 > f2 {
+                            Err(DisplayError::Linear(f1, f2))
+                        } else {
+                            Ok(Self::Lin {
+                                lower: f1,
+                                upper: f2,
+                            })
+                        }
+                    }
+                    "Logarithmic" => match (f1.try_into(), f2.try_into()) {
+                        (Ok(decades), Ok(offset)) => Ok(Self::Log { decades, offset }),
+                        _ => Err(DisplayError::Log(f1, f2)),
+                    },
                     _ => Err(DisplayError::InvalidType),
                 }
             }
@@ -484,7 +501,7 @@ impl FromStr for Display {
     }
 }
 
-/// Error when parsing $PnD from string
+/// Error when parsing [`enum@Display`] from string
 #[derive(Debug, Error)]
 pub enum DisplayError {
     #[error("{0}")]
@@ -493,6 +510,10 @@ pub enum DisplayError {
     InvalidType,
     #[error("must be like 'string,f1,f2'")]
     FormatError,
+    #[error("linear bounds out of order, got 'Linear,{0},{1}'")]
+    Linear(f32, f32),
+    #[error("log must only use positive floats, got 'Logarithmic,{0},{1}'")]
+    Log(f32, f32),
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
@@ -521,7 +542,7 @@ impl FromStr for NumType {
     }
 }
 
-/// Error when parsing $PnDATATYPE from string
+/// Error when parsing [`NumType`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'F', 'D', or 'A'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -560,14 +581,14 @@ impl FromStr for ByteOrd2_0 {
     }
 }
 
-/// Error when parsing $BYTEORD from string (2.0/3.0)
+/// Error when parsing [`ByteOrd2_0`] from string
 #[derive(From, Debug, Display, Error)]
 pub enum ParseByteOrdError {
     Order(NewByteOrdError),
     Digit(ByteordDigitError),
 }
 
-/// Error when $BYTEORD has invalid digit(s)
+/// Error when [`ByteOrd2_0`] has invalid digit(s)
 #[derive(Debug, Error)]
 #[error("could not parse digits from byte order")]
 pub struct ByteordDigitError;
@@ -669,14 +690,14 @@ impl FromStr for AlphaNumType {
     }
 }
 
-/// Error when $DATATYPE is ASCII which is deprecated in 3.1 and 3.2
+/// Error when [`AlphaNumType`] is ASCII which is deprecated in 3.1 and 3.2
 #[derive(Debug, Error)]
 #[error("$DATATYPE=A is deprecated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
 pub struct DeprecatedDatatypeWarning;
 
-/// Error when parsing $DATATYPE from string
+/// Error when parsing [`AlphaNumType`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -712,14 +733,36 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScaleInner;
 
+// TODO only needed for testing
 impl FromStr for TemporalScaleInner {
     type Err = TemporalScaleError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<Scale>() {
-            Ok(Scale::Linear) => Ok(Self),
-            _ => Err(TemporalScaleError),
+        Self::from_str_delim(s, false.into())
+    }
+}
+
+impl FromStrDelim for TemporalScaleInner {
+    type Err = TemporalScaleError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let xs: Vec<_> = iter.collect();
+        if let [x0, x1] = &xs[..]
+            && (x0.parse::<f32>(), x1.parse::<f32>()) == (Ok(0.0), Ok(0.0))
+        {
+            return Ok(Self);
         }
+        Err(TemporalScaleError)
+    }
+}
+
+impl FromStrWith for TemporalScaleInner {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
 
@@ -727,18 +770,27 @@ impl FromStr for TemporalScaleInner {
 #[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
 
+impl FromStrWith for TemporalScale3_0 {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        TemporalScaleInner::from_str_with(s, (), conf).map(Self)
+    }
+}
+
 impl TemporalScale3_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         i: MeasIndex,
         nonstd: &mut NonStdKeywords,
-        conf: &StdTextReadConfig,
+        conf: &ReadStdKeywordsConfig,
     ) -> Result<(), ReqIndexedKeyError<Self>> {
-        if conf.force_time_linear {
+        if conf.force_time_linear.is_set() {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
         } else {
-            Self::remove_meas_req(kws, i).map(|_| ())
+            Self::remove_meas_req_with(kws, i, (), conf).map(|_| ())
         }
     }
 }
@@ -753,15 +805,15 @@ impl KeywordPairMaybe for TemporalScale3_0 {
     type Inner = Self;
 }
 
-/// Error when parsing $PnE for temporal measurement (which must always be '0,0')
+/// Error when parsing [`TemporalScaleInner`] from string
 #[derive(Debug, Error)]
 #[error("time measurement must have linear scaling")]
 pub struct TemporalScaleError;
 
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
-/// This should be formatted like '<value>,<unit>'
-#[derive(Clone, PartialEq, Debug, Display)]
+/// This should be formatted like "`<value>,<unit>`"
+#[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{unit}")]
 pub struct Calibration3_1 {
@@ -774,16 +826,16 @@ impl FromStr for Calibration3_1 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(',').collect::<Vec<_>>()[..] {
-            [value, unit] => Ok(Self {
-                slope: value.parse().map_err(CalibrationError::Range)?,
-                unit: String::from(unit),
-            }),
+            [value, unit] => {
+                let slope = value.parse().map_err(CalibrationError::Range)?;
+                Ok(Self::new(slope, String::from(unit)))
+            }
             _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
     }
 }
 
-/// Error when $PnCALIBRATION has invalid string format for 3.1
+/// Error when parsing [`Calibration3_1`] from string
 #[derive(Debug, Error)]
 #[error("must be like 'f,string'")]
 pub struct CalibrationFormat3_1;
@@ -797,19 +849,15 @@ pub enum CalibrationError<C> {
 
 impl From<Calibration3_1> for Calibration3_2 {
     fn from(value: Calibration3_1) -> Self {
-        Self {
-            unit: value.unit,
-            offset: 0.0,
-            slope: value.slope,
-        }
+        Self::new(value.slope, 0.0, value.unit)
     }
 }
 
 /// The value for the $PnCALIBRATION key (3.2+)
 ///
-/// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
-/// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, PartialEq, Debug, Display)]
+/// This should be formatted like `"<value>,[<offset>,]<unit>"` and differs from
+/// 3.1 with the optional inclusion of `offset` (assumed 0 if not included).
+#[derive(Clone, PartialEq, Debug, Display, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{slope},{offset},{unit}")]
 pub struct Calibration3_2 {
@@ -838,19 +886,35 @@ impl FromStr for Calibration3_2 {
     }
 }
 
-/// Error when $PnCALIBRATION has invalid string format for 3.2
+/// Error when parsing [`Calibration3_2`] from string
 #[derive(Debug, Error)]
 #[error("must be like 'f1,[f2],string'")]
 pub struct CalibrationFormat3_2;
 
-impl From<Calibration3_2> for Calibration3_1 {
-    fn from(value: Calibration3_2) -> Self {
-        Self {
-            unit: value.unit,
-            slope: value.slope,
-        }
+impl Calibration3_2 {
+    pub(crate) fn into_3_1(
+        self,
+        i: MeasIndex,
+    ) -> DeferredError<Calibration3_1, CalibrationLossError> {
+        let ret = Calibration3_1::new(self.slope, self.unit);
+        let e = (!self.offset.is_zero()).then_some(CalibrationLossError(i, self.offset));
+        DeferredError::new_deferred_maybe(ret, e)
     }
 }
+
+/// Error when converting [`Calibration3_2`] to [`Calibration3_1`]
+///
+/// Loss will occur if the offset is specified, which is not applicable to FCS
+/// 3.1
+#[derive(Debug, Error)]
+#[error(
+    "{k} has offset {o} which will be lost upon conversion",
+    k = Calibration3_2::std(self.0),
+    o = self.1,
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+pub struct CalibrationLossError(MeasIndex, f32);
 
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
@@ -903,7 +967,7 @@ impl FromStr for Wavelengths {
     type Err = WavelengthsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -911,7 +975,7 @@ impl FromStrWith for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -941,7 +1005,7 @@ impl Wavelengths {
     }
 }
 
-/// Error when converting $PnL from 3.1/3.2 to 2.0/3.0
+/// Error when converting [`Wavelengths`] (3.1/3.2) to [`Wavelength`] (2.0/3.0)
 ///
 /// Loss may occur in this case because $PnL in later versions allows multiple
 /// numbers and earlier versions only allow one.
@@ -954,7 +1018,7 @@ impl Wavelengths {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
 pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
 
-/// Error when parsing $PnL from string
+/// Error when parsing [`Wavelengths`] from string
 #[derive(Debug, Error)]
 pub enum WavelengthsError {
     #[error("{0}")]
@@ -1002,7 +1066,7 @@ impl FromStr for LastModified {
     }
 }
 
-/// Error when parsing $LAST_MODIFIED from string
+/// Error when parsing [`LastModified`] from string
 #[derive(Debug, Error)]
 #[error("must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")]
 pub struct LastModifiedError;
@@ -1036,7 +1100,7 @@ impl FromStr for Originality {
     }
 }
 
-/// Error when parsing $ORIGINALITY from string
+/// Error when parsing [`Originality`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1055,7 +1119,7 @@ impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1064,7 +1128,7 @@ impl FromStr for Compensation3_0 {
     type Err = ParseCompError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1111,15 +1175,14 @@ impl Compensation3_0 {
         let m: &DMatrix<_> = c.as_ref();
         let js = (par.0..m.nrows()).map(MeasIndex::from);
         NonEmpty::collect(js).map(|xs| {
-            // ASSUME this won't fail because it should be some if we were able
-            // to get indices out
+            // ASSUME this won't fail because we filter with ? above
             let v = take(src).unwrap();
             RemovedIndexLink::new(v, xs)
         })
     }
 }
 
-/// Error when parsing $COMP from string
+/// Error when parsing [`Compensation3_0`] from string
 #[derive(Debug, Error)]
 pub enum ParseCompError {
     #[error("Expected {expected} entries, found {total}")]
@@ -1134,9 +1197,9 @@ pub enum ParseCompError {
 
 /// The value of the $UNICODE key (3.0 only)
 ///
-/// Formatted like 'codepage,[keys]'. This key is not actually used for anything
-/// in this library and is present to be complete. The original purpose was to
-/// indicate keywords which supported UTF-8, but these days it is hard to
+/// Formatted like `"codepage,[keys]"`. This key is not actually used for
+/// anything in this library and is present to be complete. The original purpose
+/// was to indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
 #[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -1150,7 +1213,7 @@ impl FromStrWith for Unicode {
     type Err = UnicodeError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1159,7 +1222,7 @@ impl FromStr for Unicode {
     type Err = UnicodeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1181,7 +1244,7 @@ impl FromStrDelim for Unicode {
     }
 }
 
-/// Error when parsing $UNICODE from string
+/// Error when parsing [`Unicode`] from string
 #[derive(Debug, Error)]
 pub enum UnicodeError {
     #[error("No keywords given")]
@@ -1194,9 +1257,9 @@ pub enum UnicodeError {
 #[derive(Clone, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
-pub struct OpticalType(pub OptionalString);
+pub struct OpticalType(OptionalString);
 
-/// Error when parsing $PnTYPE from string for optical measurement
+/// Error when parsing [`OpticalType`] from string
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1232,7 +1295,7 @@ impl FromStr for TemporalTypeInner {
     }
 }
 
-/// Error when parsing $PnTYPE from string for temporal measurement
+/// Error when parsing [`TemporalType`] from string
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall be 'Time' if given")]
 pub struct TemporalTypeError;
@@ -1267,7 +1330,7 @@ impl FromStr for Feature {
     }
 }
 
-/// Error when parsing $PnFEATURE from string
+/// Error when parsing [`Feature`]
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1308,7 +1371,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
@@ -1320,7 +1383,7 @@ where
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -1344,7 +1407,7 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     }
 }
 
-/// Error when parsing $RnI from string
+/// Error when parsing [`RegionGateIndex<I>`] from string
 #[derive(Debug, Error)]
 pub enum RegionGateIndexError<E> {
     #[error("{0}")]
@@ -1353,6 +1416,7 @@ pub enum RegionGateIndexError<E> {
     Format,
 }
 
+/// Index which can either refer to a gate ($Gn*) or a measurement ($Pn*)
 #[derive(Clone, Copy, From, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
@@ -1385,7 +1449,7 @@ impl FromStr for MeasOrGateIndex {
     }
 }
 
-/// Error when parsing $RnI index from string (3.0/3.1)
+/// Error when parsing [`RegionGateIndex<MeasOrGateIndex>`] from string (3.0/3.1)
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
@@ -1422,7 +1486,7 @@ impl FromStr for PrefixedMeasIndex {
     }
 }
 
-/// Error when parsing $RnI index from string (3.2)
+/// Error when parsing [`RegionGateIndex<PrefixedMeasIndexError>`] from string (3.2)
 #[derive(Debug, Error)]
 pub enum PrefixedMeasIndexError {
     #[error("{0}")]
@@ -1443,6 +1507,7 @@ pub enum RegionWindow {
     Bivariate(NonEmpty<Vertex>),
 }
 
+/// A vertex on a polygon gate
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{x},{y}")]
@@ -1451,6 +1516,7 @@ pub struct Vertex {
     pub y: BigDecimal,
 }
 
+/// A gate on one dimension with lower and upper bound
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("{lower},{upper}")]
@@ -1460,35 +1526,38 @@ pub struct UniGate {
 }
 
 impl FromStrWith for RegionWindow {
-    type Err = GatePairError;
+    type Err = RegionWindowError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
 
 impl FromStr for RegionWindow {
-    type Err = GatePairError;
+    type Err = RegionWindowError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
 impl FromStrDelim for RegionWindow {
-    type Err = GatePairError;
+    type Err = RegionWindowError;
     const DELIM: char = ';';
 
-    fn from_str_delim(s: &str, trim_whitespace: bool) -> Result<Self, Self::Err> {
+    fn from_str_delim(
+        s: &str,
+        trim_whitespace: TrimIntraValueWhitespace,
+    ) -> Result<Self, Self::Err> {
         let it = s.split(Self::DELIM);
-        if trim_whitespace {
+        if trim_whitespace.is_set() {
             Self::from_iter(it.map(str::trim))
         } else {
             Self::from_iter_inner(
                 it,
-                |x| UniGate::from_str_delim(x, false),
-                |x| Vertex::from_str_delim(x, false),
+                |x| UniGate::from_str_delim(x, false.into()),
+                |x| Vertex::from_str_delim(x, false.into()),
             )
         }
     }
@@ -1496,8 +1565,8 @@ impl FromStrDelim for RegionWindow {
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         Self::from_iter_inner(
             iter,
-            |x| UniGate::from_str_delim(x, true),
-            |x| Vertex::from_str_delim(x, true),
+            |x| UniGate::from_str_delim(x, true.into()),
+            |x| Vertex::from_str_delim(x, true.into()),
         )
     }
 }
@@ -1507,23 +1576,26 @@ impl RegionWindow {
         ss: impl Iterator<Item = &'a str>,
         go_uni: F,
         go_bi: G,
-    ) -> Result<Self, GatePairError>
+    ) -> Result<Self, RegionWindowError>
     where
-        F: FnOnce(&str) -> Result<UniGate, GatePairError>,
-        G: Fn(&str) -> Result<Vertex, GatePairError>,
+        F: FnOnce(&str) -> Result<UniGate, RegionWindowError>,
+        G: Fn(&str) -> Result<Vertex, RegionWindowError>,
     {
-        // ASSUME split will always contain one element
-        let xs = NonEmpty::collect(ss).unwrap();
-        if xs.tail.is_empty() {
-            go_uni(xs.head).map(RegionWindow::Univariate)
+        if let Some(xs) = NonEmpty::collect(ss) {
+            if xs.tail.is_empty() {
+                go_uni(xs.head).map(RegionWindow::Univariate)
+            } else {
+                xs.try_map(go_bi).map(Self::Bivariate)
+            }
         } else {
-            xs.try_map(go_bi).map(Self::Bivariate)
+            // this will happen if the input string is empty
+            Err(RegionWindowError::Format)
         }
     }
 }
 
 impl FromStrDelim for UniGate {
-    type Err = GatePairError;
+    type Err = RegionWindowError;
     const DELIM: char = ',';
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
@@ -1532,7 +1604,7 @@ impl FromStrDelim for UniGate {
 }
 
 impl FromStrDelim for Vertex {
-    type Err = GatePairError;
+    type Err = RegionWindowError;
     const DELIM: char = ',';
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
@@ -1542,20 +1614,20 @@ impl FromStrDelim for Vertex {
 
 fn parse_pair<'a>(
     ss: impl Iterator<Item = &'a str>,
-) -> Result<(BigDecimal, BigDecimal), GatePairError> {
+) -> Result<(BigDecimal, BigDecimal), RegionWindowError> {
     let xs: Vec<_> = ss.collect();
     match &xs[..] {
         [a, b] => a
             .parse()
             .and_then(|x| b.parse().map(|y| (x, y)))
-            .map_err(GatePairError::Num),
-        _ => Err(GatePairError::Format),
+            .map_err(RegionWindowError::Num),
+        _ => Err(RegionWindowError::Format),
     }
 }
 
-/// Error when parsing an $RnI keyword which has a pari of indices
+/// Error when parsing [`RegionWindow`] from string
 #[derive(Debug, Error)]
-pub enum GatePairError {
+pub enum RegionWindowError {
     #[error("{0}")]
     Num(ParseBigDecimalError),
     #[error("must be a string like 'f1,f2;[f3,f4;...]'")]
@@ -1731,7 +1803,7 @@ enum GatingToken {
     Other,
 }
 
-/// Error when parsing the $GATING keyword
+/// Error when parsing [`Gating`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
@@ -1778,7 +1850,21 @@ pub enum Width {
 pub struct Range(pub BigDecimal);
 
 impl Range {
-    pub(crate) fn into_uint<T>(self) -> DeferredError<T, RangeToIntError<()>>
+    pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
+    where
+        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+    {
+        (self - Self::from(1_u8))
+            .into_uint_inner()
+            .map_deferred_value(BitmaskValue)
+    }
+
+    pub(crate) fn into_ascii_uint(self) -> DeferredError<AsciiRangeValue, RangeToIntError<()>> {
+        self.into_uint_inner::<u64>()
+            .map_deferred_value(AsciiRangeValue)
+    }
+
+    fn into_uint_inner<T>(self) -> DeferredError<T, RangeToIntError<()>>
     where
         T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
     {
@@ -1848,7 +1934,7 @@ try_from_range_int!(u16, to_u16, U16);
 try_from_range_int!(u32, to_u32, U32);
 try_from_range_int!(u64, to_u64, U64);
 
-/// Error when converting $PnR to integer.
+/// Error when converting [`Range`] to integer.
 ///
 /// This is a helper type to make more specific errors and not meant for
 /// external use.
@@ -1975,7 +2061,7 @@ impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, data: (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, data: (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Scale::from_str_with(s, data, conf).map(Self)
     }
 }
@@ -2003,6 +2089,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
     }
 }
 
+/// Error when parsing [`Cyt3_2`] from string
 #[derive(Debug, Error)]
 #[error("$CYT is missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -2015,7 +2102,7 @@ pub struct NoCytError;
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
-/// Error when parsing $UNSTAINEDCENTERS from string
+/// Error when parsing [`UnstainedCenters`] from string
 #[derive(Debug, Error)]
 pub enum ParseUnstainedCenterError {
     #[error("Names are not unique")]
@@ -2073,16 +2160,17 @@ impl FromStrWith for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
     }
 }
 
+// TODO this is only necessary for testing
 impl FromStr for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false)
+        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -2319,23 +2407,13 @@ macro_rules! newtype_opt_int {
 }
 
 macro_rules! newtype_opt_bool {
-    ($t:ident, $inner:ident, $err:ident) => {
+    ($t:ident, $inner:ident) => {
         #[derive(Clone, PartialEq, Debug, Default, From, Into)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
         pub struct $t(pub OptionalZST<$inner>);
-
-        impl FromStr for $t {
-            type Err = $err;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                s.parse::<$inner>()
-                    .map(Some)
-                    .map(OptionalZST::from)
-                    .map(Self)
-            }
-        }
 
         impl_display_maybe_self!($t);
     };
@@ -2521,8 +2599,8 @@ macro_rules! kw_opt_region {
 }
 
 macro_rules! meas_opt_zst {
-    ($t:ident, $sym:expr, $inner:ident, $err:ident) => {
-        newtype_opt_bool!($t, $inner, $err);
+    ($t:ident, $sym:expr, $inner:ident) => {
+        newtype_opt_bool!($t, $inner);
         kw_opt_meas!($t, $sym, Self);
     };
 }
@@ -2629,7 +2707,18 @@ kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE", Option<Self>);
-meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner, TemporalTypeError);
+meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner);
+
+impl FromStr for TemporalType {
+    type Err = TemporalTypeError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<TemporalTypeInner>()
+            .map(Some)
+            .map(OptionalZST::from)
+            .map(Self)
+    }
+}
+
 kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
@@ -2645,12 +2734,20 @@ req_meas!(Shortname); // required for 3.1+
 kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(
-    TemporalScale2_0,
-    "E",
-    TemporalScaleInner,
-    TemporalScaleError
-); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, "E", TemporalScaleInner); // optional for 2.0
+
+impl FromStrWith for TemporalScale2_0 {
+    type Err = TemporalScaleError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        TemporalScaleInner::from_str_with(s, (), conf)
+            .map(Some)
+            .map(OptionalZST::from)
+            .map(Self)
+    }
+}
+
 kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
 
 kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0
@@ -2747,8 +2844,8 @@ kw_req_meta!(Nextdata, "NEXTDATA");
 opt_meta!(Nextdata, Option<Self>);
 
 macro_rules! kw_offset {
-    ($t:ident, $key:expr) => {
-        /// Value for $$key (3.0-3.2)
+    ($(#[$attr:meta])* $t:ident, $key:expr) => {
+        $(#[$attr])*
         #[derive(Display, From, Into, FromStr, Debug)]
         pub struct $t(pub UintZeroPad20);
 
@@ -2756,18 +2853,43 @@ macro_rules! kw_offset {
     };
 }
 
-kw_offset!(Beginanalysis, "BEGINANALYSIS");
-kw_offset!(Begindata, "BEGINDATA");
-kw_offset!(Beginstext, "BEGINSTEXT");
-kw_offset!(Endanalysis, "ENDANALYSIS");
-kw_offset!(Enddata, "ENDDATA");
-kw_offset!(Endstext, "ENDSTEXT");
+kw_offset!(
+    /// Value for $BEGINANALYSIS key (3.0-3.2)
+    Beginanalysis,
+    "BEGINANALYSIS"
+);
+kw_offset!(
+    /// Value for $BEGINDATA key (3.0-3.2)
+    Begindata,
+    "BEGINDATA"
+);
+kw_offset!(
+    /// Value for $BEGINSTEXT key (3.0-3.2)
+    Beginstext,
+    "BEGINSTEXT"
+);
+kw_offset!(
+    /// Value for $ENDANALYSIS key (3.0-3.2)
+    Endanalysis,
+    "ENDANALYSIS"
+);
+kw_offset!(
+    /// Value for $ENDDATA key (3.0-3.2)
+    Enddata,
+    "ENDDATA"
+);
+kw_offset!(
+    /// Value for $ENDSTEXT (3.0-3.2)
+    Endstext,
+    "ENDSTEXT"
+);
 
 opt_meta!(Beginanalysis, Option<Self>);
 opt_meta!(Endanalysis, Option<Self>);
 opt_meta!(Beginstext, Option<Self>);
 opt_meta!(Endstext, Option<Self>);
 
+// TODO test error cases here as well
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2793,11 +2915,8 @@ mod tests {
     #[test]
     fn pnd() {
         assert_from_to_str::<Display>("Linear,0,1");
-        // TODO seems like this shouldn't be allowed
-        assert_from_to_str::<Display>("Linear,1,0");
         assert_from_to_str::<Display>("Logarithmic,1,1");
-        // TODO this also seems like nonsense
-        assert_from_to_str::<Display>("Logarithmic,1,0");
+        assert_from_to_str::<Display>("Logarithmic,1,0.1");
     }
 
     #[test]
@@ -3129,8 +3248,8 @@ mod python {
             let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
             let ret = if is_log {
                 Self::Log {
-                    offset: x0,
-                    decades: x1,
+                    offset: x0.try_into()?,
+                    decades: x1.try_into()?,
                 }
             } else {
                 Self::Lin {
@@ -3150,7 +3269,7 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::Lin { lower, upper } => (false, lower, upper),
-                Self::Log { offset, decades } => (true, offset, decades),
+                Self::Log { offset, decades } => (true, offset.into(), decades.into()),
             };
             ret.into_pyobject(py)
         }

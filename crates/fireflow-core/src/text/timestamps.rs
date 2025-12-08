@@ -1,12 +1,14 @@
-use crate::config::{AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, StdTextReadConfig};
+use crate::config::{
+    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+};
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::type_families::ApplyOnce as _;
+use crate::text::deprecated::DeprecatedTimestampsRef;
+use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
+use crate::text::optional::KeywordPairMaybe;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use super::deprecated::DeprecatedTimestampsRef;
-use super::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
-use super::optional::KeywordPairMaybe;
+use type_families::ApplyOnce as _;
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -24,11 +26,14 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-/// A convenient bundle holding data/time keyword values.
+/// The $DATE/$BTIM/$ETIM keywords
 ///
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
+///
+/// When $DATE is present, $BTIM and $ETIM are validated to be in the correct
+/// order.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Timestamps<X> {
@@ -51,9 +56,13 @@ impl<X> Default for Timestamps<X> {
     }
 }
 
+/// Wrapper for $BTIM timestamp
 pub type Btim<T> = Xtim<false, T>;
+
+/// Wrapper for $ETIM timestamp
 pub type Etim<T> = Xtim<true, T>;
 
+/// A wrapper for timestamps which encodes if it is the start or end
 #[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
@@ -65,7 +74,7 @@ where
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
 
-    fn from_str_with<'a>(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with<'a>(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
@@ -75,7 +84,7 @@ where
     }
 }
 
-/// A date as used in the $DATE key
+/// The value of the $DATE key
 #[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
@@ -151,7 +160,7 @@ impl<X> Timestamps<X> {
         X: PartialOrd,
     {
         if let (Some(b), Some(e), Some(_)) = (&self.btim, &self.etim, &self.date) {
-            return b.0 < e.0;
+            return b.0 <= e.0;
         }
         true
     }
@@ -165,7 +174,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
-        C: AsRef<ReadLayoutConfig> + AsRef<StdTextReadConfig>,
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -248,7 +257,7 @@ impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
 
-    fn from_str_with(s: &str, (): (), conf: &StdTextReadConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
@@ -273,6 +282,7 @@ impl FromStr for FCSDate {
     }
 }
 
+/// Error when parsing [`FCSDate`] from string
 #[derive(Debug, Error)]
 #[error("must be like 'dd-mmm-yyyy'")]
 pub struct FCSDateError;
@@ -296,12 +306,14 @@ impl FromStr for FCSTime {
     }
 }
 
+/// Error when parsing [`Xtim`] from string
 #[derive(Display, Debug, Error)]
 pub enum FCSFixedTimeError<E> {
     Native(E),
     Patterned(#[from] ParseWithTimePatternError),
 }
 
+/// Error when parsing [`FCSTime`] as string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
@@ -343,6 +355,7 @@ impl fmt::Display for FCSTime60 {
     }
 }
 
+/// Error when parsing [`FCSTime60`] from string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
@@ -368,7 +381,7 @@ impl FromStr for FCSTime100 {
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
-                // ASSUME these will never fail
+                // ASSUME these will never fail because we matched only digits above
                 let hh: u32 = s1.parse().unwrap();
                 let mm: u32 = s2.parse().unwrap();
                 let ss: u32 = s3.parse().unwrap();
@@ -387,6 +400,7 @@ impl fmt::Display for FCSTime100 {
     }
 }
 
+/// Error when parsing [`FCSTime100`] from string
 #[derive(Debug, Error)]
 #[error(
     "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and 'ss' \
@@ -395,6 +409,7 @@ impl fmt::Display for FCSTime100 {
 )]
 pub struct FCSTime100Error;
 
+/// Error when looking up $BTIM/$ETIM/$DATE from key/value pairs
 #[derive(Display, Debug, Error, From)]
 #[cfg_attr(
     feature = "python",
@@ -423,14 +438,16 @@ impl From<FCSTime> for FCSTime100 {
 
 impl From<FCSTime60> for FCSTime {
     fn from(value: FCSTime60) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
+        // ASSUME this will never fail since it only returns error if
+        // nanoseconds are > 2e9
         Self(value.0.with_nanosecond(0).unwrap())
     }
 }
 
 impl From<FCSTime100> for FCSTime {
     fn from(value: FCSTime100) -> Self {
-        // ASSUME this will never fail, we are just removing nanoseconds
+        // ASSUME this will never fail since it only returns error if
+        // nanoseconds are > 2e9
         Self(value.0.with_nanosecond(0).unwrap())
     }
 }

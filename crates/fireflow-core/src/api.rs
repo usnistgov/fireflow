@@ -1,14 +1,16 @@
+//! Top-level functions for parsing FCS files
 use crate::config::{
-    AllowMissingFinalDelim, ConfigFlag as _, HeaderConfigInner, ReadHeaderAndTEXTConfig,
-    ReadHeaderConfig, ReadLayoutConfig, ReadRawDatasetConfig, ReadRawDatasetFromKeywordsConfig,
-    ReadRawTEXTConfig, ReadState, ReadStdDatasetConfig, ReadStdDatasetFromKeywordsConfig,
-    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, ReaderConfig, StdTextReadConfig, TruncateOffsets,
+    AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
+    DatasetOffsetError, ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
+    ReadLayoutConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig,
+    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, OthersReader, StdDatasetFromRawError,
-    StdDatasetFromRawWarning, StdDatasetWithKwsOutput, StdDatasetWithKwsSummary,
-    StdTEXTFromRawError, StdTEXTFromRawWarning, Versioned as _,
+    LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
+    StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
+    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::header::{
     Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
@@ -16,27 +18,29 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
+    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log, split_log,
 };
-use crate::macros::def_group;
+use crate::macros::def_summary;
 use crate::segment::{
     HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
-    OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError, SupplementalTextSegment,
-    SupplementalTextSegmentId, TEXTCorrection,
+    NonDataSegments, OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError,
+    SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
-use crate::type_families::ApplyOnce as _;
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
     StdKeywords, StdPresent, ValidKeywords,
 };
+
+use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -62,44 +66,56 @@ use {
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
-    p: &PathBuf,
+    path: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
-) -> IOGroupResult<Header, HeaderError, HeaderFailure> {
-    let (st, file) = ReadState::open(p, conf)?;
+) -> IOGroupResult<Header, ReadHeaderError, HeaderSummary> {
+    let (st, file) = ReadState::open(path, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(ReadHeaderError::from))
+        .map_err(IOAnonErrorGroup::from)
+        .map_err(IOAnonErrorGroup::deanonymize)?;
     let mut reader = BufReader::new(file);
-    Header::h_read(&mut reader, &st).map_err(IOErrorGroup::deanonymize)
+    Header::h_read(&mut reader, &st)
+        .map_err(|e| e.fmap(ReadHeaderError::from))
+        .map_err(IOErrorGroup::deanonymize)
 }
 
-/// Read HEADER and key/value pairs from TEXT in an FCS file.
+/// Read HEADER and key/value pairs from TEXT in an FCS file at a given position
 #[must_use]
-pub fn fcs_read_raw_text(
-    p: &PathBuf,
-    conf: &ReadRawTEXTConfig,
-) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure>
-{
-    read_fcs_raw_text_inner(p, conf)
+pub fn fcs_read_flat_text(
+    path: &PathBuf,
+    dataset_offset: DatasetOffset,
+    conf: &ReadFlatTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    FlatTEXTOutput,
+    ParseFlatTEXTWarning,
+    HeaderOrFlatTextError,
+    FlatTEXTSummary,
+> {
+    read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
-        .warnings_to_pure_errors(&conf.shared, HeaderOrRawError::from)
+        .warnings_to_pure_errors(&conf.shared, HeaderOrFlatTextError::from)
         .deanonymize()
 }
 
-/// Read HEADER and standardized TEXT from an FCS file.
+/// Read HEADER and standardized TEXT at a given position from an FCS file.
 #[must_use]
 pub fn fcs_read_std_text(
-    p: &PathBuf,
+    path: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreTEXT, StdTEXTOutput),
     StdTEXTWarning,
     StdTEXTError,
-    StdTEXTFailure,
+    StdTEXTSummary,
 > {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .map_commutative_warnings(StdTEXTWarning::from)
         .map_pure_errors(StdTEXTError::from)
-        .and_then_commutative(|(raw, st)| {
-            raw.into_std_text(&st)
+        .and_then_commutative(|(flat, st)| {
+            flat.into_std_text(&st)
                 .map_commutative_warnings(StdTEXTWarning::from)
                 .map_errors(StdTEXTError::from)
                 .group()
@@ -109,50 +125,56 @@ pub fn fcs_read_std_text(
         .deanonymize()
 }
 
-/// Read dataset from FCS file using standardized TEXT.
+/// Read dataset from FCS at given position file using flat TEXT.
 #[must_use]
-pub fn fcs_read_raw_dataset(
-    p: &PathBuf,
-    conf: &ReadRawDatasetConfig,
-) -> WarningsAndIOGroupResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure>
-{
-    read_fcs_raw_text_inner(p, conf)
-        .map_pure_errors(RawDatasetError::from)
-        .map_commutative_warnings(RawDatasetWarning::from)
-        .and_then_commutative(|(raw, mut h, st)| {
-            h_read_dataset_from_kws(
-                &mut h,
-                raw.version,
-                &raw.keywords.std,
-                raw.parse.header_segments.data,
-                raw.parse.header_segments.analysis,
-                &raw.parse.header_segments.other[..],
-                &st,
-            )
-            .map_ok_value(|dataset| RawDatasetOutput::new(raw, dataset))
-            .map_commutative_warnings(RawDatasetWarning::from)
-            .map_pure_errors(RawDatasetError::from)
+pub fn fcs_read_flat_dataset(
+    path: &PathBuf,
+    dataset_offset: DatasetOffset,
+    conf: &ReadFlatDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    FlatDatasetOutput,
+    FlatDatasetWarning,
+    FlatDatasetError,
+    FlatDatasetSummary,
+> {
+    read_fcs_flat_text_inner(path, dataset_offset, conf)
+        .map_pure_errors(FlatDatasetError::from)
+        .map_commutative_warnings(FlatDatasetWarning::from)
+        .and_then_commutative(|(flat, mut h, st)| {
+            let hs = &flat.parse.header_segments;
+            let segs = NonDataSegments::new(
+                hs.text,
+                hs.data,
+                hs.analysis,
+                &hs.other[..],
+                flat.parse.supp_text.as_ref().copied(),
+            );
+            h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
+                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
+                .map_commutative_warnings(FlatDatasetWarning::from)
+                .map_pure_errors(FlatDatasetError::from)
         })
-        .warnings_to_pure_errors(&conf.shared, RawDatasetError::from)
+        .warnings_to_pure_errors(&conf.shared, FlatDatasetError::from)
         .deanonymize()
 }
 
-/// Read dataset from FCS file using raw key/value pairs from TEXT.
+/// Read dataset from FCS file at given position using standardized TEXT.
 #[must_use]
 pub fn fcs_read_std_dataset(
-    p: &PathBuf,
+    path: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     (AnyCoreDataset, StdDatasetOutput),
     StdDatasetWarning,
     StdDatasetError,
-    StdDatasetFailure,
+    StdDatasetSummary,
 > {
-    read_fcs_raw_text_inner(p, conf)
+    read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
         .map_pure_errors(StdDatasetError::from)
-        .and_then_commutative(|(raw, mut h, st)| {
-            raw.into_std_dataset(&mut h, &st)
+        .and_then_commutative(|(flat, mut h, st)| {
+            flat.into_std_dataset(&mut h, &st)
                 .map_commutative_warnings(StdDatasetWarning::from)
                 .map_pure_errors(StdDatasetError::from)
         })
@@ -162,78 +184,217 @@ pub fn fcs_read_std_dataset(
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
 #[must_use]
-pub fn fcs_read_raw_dataset_with_keywords(
-    p: &PathBuf,
+#[allow(clippy::too_many_arguments)]
+pub fn fcs_read_flat_dataset_with_keywords(
+    path: &PathBuf,
     version: Version,
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment20],
-    conf: &ReadRawDatasetFromKeywordsConfig,
+    dataset_offset: DatasetOffset,
+    conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
-    RawDatasetWithKwsOutput,
+    FlatDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
-    RawDatasetWithKwsFailure,
+    FlatDatasetWithKwsSummary,
 > {
-    ReadState::open(p, conf)
+    ReadState::open(path, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(LookupAndReadDataAnalysisError::from))
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
-            let mut h = BufReader::new(file);
-            h_read_dataset_from_kws(
-                &mut h,
-                version,
-                std,
+            let segs = NonDataSegments::new(
+                PrimaryTextSegment::default(),
                 data_seg,
                 analysis_seg,
                 other_segs,
-                &st,
-            )
+                None,
+            );
+            let mut h = BufReader::new(file);
+            h_read_dataset_from_kws(&mut h, version, std, &segs, &st)
         })
         .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
 }
 
-/// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
+/// Read HEADER and TEXT from multiple datasets in flat mode.
 #[must_use]
-pub fn fcs_read_std_dataset_with_keywords(
-    p: &PathBuf,
-    version: Version,
-    kws: ValidKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment20],
-    conf: &ReadStdDatasetFromKeywordsConfig,
+pub fn fcs_read_flat_texts(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
-    (AnyCoreDataset, StdDatasetWithKwsOutput),
-    StdDatasetFromRawWarning,
-    StdDatasetFromRawError,
-    StdDatasetWithKwsSummary,
+    Vec<FlatTEXTOutput>,
+    ParseFlatTEXTWarning,
+    HeaderOrFlatTextError,
+    FlatTEXTSummary,
 > {
-    ReadState::open(p, conf)
-        .map_err(IOErrorGroup::from)
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    while let Some(dso) = dataset_offset
+        && limit.is_none_or(|x| count <= x)
+    {
+        let res = fcs_read_flat_text(path, dso, conf);
+        let succ = split_log!(res);
+        let nextdata_res = succ.fmap_once(|ret| {
+            dataset_offset = ret
+                .parse
+                .nextdata
+                .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+            ret
+        });
+        results.push(nextdata_res);
+        count += 1;
+    }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().skip(skip.unwrap_or_default()).collect())
         .into_log()
-        .and_then_commutative(|(st, file)| {
-            let mut h = BufReader::new(file);
-            AnyCoreDataset::new_from_keywords(
-                &mut h,
-                version,
-                kws,
-                data_seg,
-                analysis_seg,
-                other_segs,
-                &st,
-            )
-        })
-        .warnings_to_pure_errors(&conf.shared, StdDatasetFromRawError::from)
-        .deanonymize()
+}
+
+/// Read HEADER and TEXT from multiple datasets in standardized mode.
+#[must_use]
+pub fn fcs_read_std_texts(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadStdTEXTConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreTEXT, StdTEXTOutput)>,
+    MultiStdTEXTWarning,
+    MultiStdTEXTError,
+    StdTEXTSummary,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        StdTEXTSummary,
+        fcs_read_std_text,
+        |ret| ret.1.parse.nextdata,
+    )
+}
+
+/// Read multiple datasets from FCS file in flat mode.
+#[must_use]
+pub fn fcs_read_flat_datasets(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadFlatDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<FlatDatasetOutput>,
+    MultiFlatDatasetWarning,
+    MultiFlatDatasetError,
+    FlatDatasetSummary,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        FlatDatasetSummary,
+        fcs_read_flat_dataset,
+        |ret| ret.text.parse.nextdata,
+    )
+}
+
+/// Read multiple datasets from FCS file
+#[must_use]
+pub fn fcs_read_std_datasets(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadStdDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<(AnyCoreDataset, StdDatasetOutput)>,
+    MultiStdDatasetWarning,
+    MultiStdDatasetError,
+    StdDatasetSummary,
+> {
+    read_nextdata_loop(
+        path,
+        skip,
+        limit,
+        conf,
+        StdDatasetSummary,
+        fcs_read_std_dataset,
+        |ret| ret.1.parse.nextdata,
+    )
+}
+
+fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
+    p: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &C,
+    g: G,
+    mut f0: Fsucc,
+    mut fnext: Fnext,
+) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
+where
+    Fsucc: FnMut(&PathBuf, DatasetOffset, &C) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
+    Fnext: FnMut(&X) -> Option<u64>,
+    E: From<HeaderOrFlatTextError> + From<Ei>,
+    W: From<ParseFlatTEXTWarning> + From<Wi>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadSharedConfig>,
+    G: Copy,
+{
+    let mut dataset_offset = Some(DatasetOffset::default());
+    let mut count = 0_usize;
+    let mut results = vec![];
+    // TODO this shouldn't be necessary
+    let rconf = ReadFlatTEXTConfig {
+        flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+        shared: AsRef::<ReadSharedConfig>::as_ref(conf).clone(),
+    };
+    while let Some(dso) = dataset_offset
+        && limit.is_none_or(|x| count <= x)
+    {
+        let nextdata_res = if skip.is_some_and(|s| count < s) {
+            let res = fcs_read_flat_text(p, dso, &rconf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from)
+                .map_error(|e| e.set_group(g));
+            let succ = split_log!(res);
+            succ.fmap_once(|ret| {
+                dataset_offset = ret
+                    .parse
+                    .nextdata
+                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+                None
+            })
+        } else {
+            let res = f0(p, dso, conf)
+                .map_commutative_warnings(W::from)
+                .map_pure_errors(E::from);
+            let succ = split_log!(res);
+            succ.fmap_once(|ret| {
+                dataset_offset =
+                    fnext(&ret).and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+                Some(ret)
+            })
+        };
+        results.push(nextdata_res);
+        count += 1;
+    }
+    results
+        .into_iter()
+        .sequence_success()
+        .fmap_once(|xs| xs.into_iter().flatten().collect())
+        .into_log()
 }
 
 /// Output from parsing the TEXT segment.
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct RawTEXTOutput {
+pub struct FlatTEXTOutput {
     /// FCS version
     pub version: Version,
 
@@ -241,7 +402,7 @@ pub struct RawTEXTOutput {
     pub keywords: ValidKeywords,
 
     /// Miscellaneous data from parsing TEXT
-    pub parse: RawTEXTParseData,
+    pub parse: FlatTEXTParseData,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -259,17 +420,17 @@ pub struct StdTEXTOutput {
     pub extra: ExtraStdKeywords,
 
     /// Miscellaneous data from parsing TEXT
-    pub parse: RawTEXTParseData,
+    pub parse: FlatTEXTParseData,
 }
 
-/// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
+/// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
 #[derive(Clone, new, PartialEq)]
-pub struct RawDatasetOutput {
+pub struct FlatDatasetOutput {
     /// Output from parsing HEADER+TEXT
-    pub text: RawTEXTOutput,
+    pub text: FlatTEXTOutput,
 
     /// Output from parsing DATA+ANALYSIS
-    pub dataset: RawDatasetWithKwsOutput,
+    pub dataset: FlatDatasetWithKwsOutput,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
@@ -279,12 +440,12 @@ pub struct StdDatasetOutput {
     pub dataset: StdDatasetWithKwsOutput,
 
     /// Miscellaneous data from parsing TEXT
-    pub parse: RawTEXTParseData,
+    pub parse: FlatTEXTParseData,
 }
 
-/// Output of using keywords to read raw TEXT+DATA
+/// Output of using keywords to read flat TEXT+DATA
 #[derive(Clone, PartialEq, new)]
-pub struct RawDatasetWithKwsOutput {
+pub struct FlatDatasetWithKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
 
@@ -301,7 +462,7 @@ pub struct RawDatasetWithKwsOutput {
 /// Data pertaining to parsing the TEXT segment.
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct RawTEXTParseData {
+pub struct FlatTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,
 
@@ -335,20 +496,28 @@ pub struct RawTEXTParseData {
     pub byte_pairs: BytesPairs,
 }
 
+/// Warning when parsing [`Header`]
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadHeaderError {
+    Header(HeaderError),
+    DatasetOffset(DatasetOffsetError),
+}
+
 /// Warning when parsing TEXT in standard mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
-    Raw(ParseRawTEXTWarning),
-    Std(StdTEXTFromRawWarning),
+    Flat(ParseFlatTEXTWarning),
+    Std(StdTEXTFromFlatTEXTWarning),
 }
 
 /// Error when parsing TEXT in standard mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
-    Raw(HeaderOrRawError),
-    Std(StdTEXTFromRawError),
+    Flat(HeaderOrFlatTextError),
+    Std(StdTEXTFromFlatTEXTError),
     Warn(StdTEXTWarning),
 }
 
@@ -356,43 +525,44 @@ pub enum StdTEXTError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
-    Raw(ParseRawTEXTWarning),
-    Std(StdDatasetFromRawWarning),
+    Flat(ParseFlatTEXTWarning),
+    Std(StdDatasetFromFlatTEXTWarning),
 }
 
 /// Error when parsing TEXT+DATA in standard mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
-    Raw(HeaderOrRawError),
-    Std(StdDatasetFromRawError),
+    Flat(HeaderOrFlatTextError),
+    Std(StdDatasetFromFlatTextError),
     Warn(StdDatasetWarning),
 }
 
-/// Warning when parsing TEXT+DATA in raw mode
+/// Warning when parsing TEXT+DATA in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawDatasetWarning {
-    Raw(ParseRawTEXTWarning),
+pub enum FlatDatasetWarning {
+    Flat(ParseFlatTEXTWarning),
     Read(LookupAndReadDataAnalysisWarning),
 }
 
-/// Warning when parsing TEXT+DATA in standard mode
+/// Warning when parsing TEXT+DATA in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum RawDatasetError {
-    Raw(HeaderOrRawError),
+pub enum FlatDatasetError {
+    Flat(HeaderOrFlatTextError),
     Read(LookupAndReadDataAnalysisError),
-    Warn(RawDatasetWarning),
+    Warn(FlatDatasetWarning),
 }
 
-/// Error when parsing HEADER or TEXT segments
+/// Error when parsing HEADER or TEXT segments in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum HeaderOrRawError {
+pub enum HeaderOrFlatTextError {
+    DatasetOffset(DatasetOffsetError),
     Header(HeaderError),
-    RawTEXT(ParseRawTEXTError),
-    Warn(ParseRawTEXTWarning),
+    FlatTEXT(ParseFlatTEXTError),
+    Warn(ParseFlatTEXTWarning),
 }
 
 /// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -400,7 +570,7 @@ pub enum HeaderOrRawError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
-    Dup(DuplicatedSuppTEXT),
+    Overlap(HeaderValidationError),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -411,17 +581,58 @@ pub enum STextSegmentWarning {
     Error(STextSegmentError),
 }
 
-/// Error when primary and supplemental TEXT offsets are equal
-#[derive(Debug, Error)]
-#[error("primary and supplemental TEXT offsets are the same")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct DuplicatedSuppTEXT;
-
-/// Warning when parsing TEXT segment
+/// Warning when parsing multiple [`FlatDatasetOutput`]s
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ParseRawTEXTWarning {
+pub enum MultiFlatDatasetWarning {
+    Text(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Data(FlatDatasetWarning),
+}
+
+/// Error when parsing multiple [`FlatDatasetOutput`]s
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiFlatDatasetError {
+    Text(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
+    Data(FlatDatasetError),
+}
+
+/// Error when parsing multiple TEXT segments in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdTEXTError {
+    FLat(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
+    Single(StdTEXTError),
+}
+
+/// Warning when parsing multiple TEXT segments in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdTEXTWarning {
+    Flat(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Std(StdTEXTWarning),
+}
+
+/// Error when parsing multiple datasets in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdDatasetError {
+    Text(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
+    Data(StdDatasetError),
+}
+
+/// Warning when parsing multiple TEXT segment in std mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum MultiStdDatasetWarning {
+    Flat(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Std(StdDatasetWarning),
+}
+
+/// Warning when parsing TEXT segment in flat mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseFlatTEXTWarning {
     Char(DelimCharError),
     Primary(ParseKeywordsIssue),
     Supplemental(ParseSupplementalTEXTError),
@@ -430,10 +641,10 @@ pub enum ParseRawTEXTWarning {
     AppendSupp(StdPresent),
 }
 
-/// Error when parsing TEXT segment
+/// Error when parsing TEXT segment in flat mode
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ParseRawTEXTError {
+pub enum ParseFlatTEXTError {
     Delim(DelimVerifyError),
     Primary(ParsePrimaryTEXTError),
     Supplemental(ParseSupplementalTEXTError),
@@ -441,7 +652,6 @@ pub enum ParseRawTEXTError {
     Nextdata(ReqKeyError<Nextdata>),
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
-    Header(HeaderValidationError),
     AppendSupp(StdPresent),
 }
 
@@ -503,7 +713,7 @@ pub struct EmptyTEXTError;
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NoTEXTWordsError;
 
-/// Error when blank key is encounter in TEXT
+/// Error when blank key is encountered in TEXT
 #[derive(Debug, Error)]
 #[error("encountered blank key in {0} TEXT, skipping key and its value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -527,7 +737,7 @@ pub struct FinalDelimError {
 }
 
 #[derive(Clone, Copy, Debug, Display)]
-pub enum TEXTKind {
+enum TEXTKind {
     #[display("Primary")]
     Primary,
     #[display("Supplemental")]
@@ -631,27 +841,29 @@ impl fmt::Display for NonUtf8KeywordError {
 }
 
 #[allow(clippy::type_complexity)]
-fn read_fcs_raw_text_inner<C>(
+fn read_fcs_flat_text_inner<C>(
     p: &PathBuf,
+    dataset_offset: DatasetOffset,
     conf: C,
-) -> WarningsAndErrorResult<
-    (RawTEXTOutput, BufReader<fs::File>, ReadState<C>),
+) -> WarningsAndIOGroupResult<
+    (FlatTEXTOutput, BufReader<fs::File>, ReadState<C>),
+    ParseFlatTEXTWarning,
+    HeaderOrFlatTextError,
     (),
-    ParseRawTEXTWarning,
-    IOErrorGroup<HeaderOrRawError, ()>,
 >
 where
     C: AsRef<ReadHeaderAndTEXTConfig>
-        + AsRef<HeaderConfigInner>
+        + AsRef<ReadHeaderInnerConfig>
         + AsRef<TruncateOffsets>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
-    ReadState::open(p, conf)
+    ReadState::open(p, dataset_offset, conf)
+        .map_err(|e| e.fmap_once(HeaderOrFlatTextError::from))
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
             let mut h = BufReader::new(file);
-            RawTEXTOutput::h_read(&mut h, &st).map_ok_value(|x| (x, h, st))
+            FlatTEXTOutput::h_read(&mut h, &st).map_ok_value(|x| (x, h, st))
         })
 }
 
@@ -659,54 +871,58 @@ fn h_read_dataset_from_kws<C, R>(
     h: &mut BufReader<R>,
     version: Version,
     kws: &StdKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment20],
+    segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    RawDatasetWithKwsOutput,
+    FlatDatasetWithKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
-    kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, st)
+    kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments)| {
-            OthersReader::new(other_segs)
+            OthersReader::new(segs.other)
                 .h_read(h)
                 .map(|others| {
-                    RawDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
+                    FlatDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
                 })
                 .map_err(IOErrorGroup::from)
                 .into_log()
         })
 }
 
-impl RawTEXTOutput {
+impl FlatTEXTOutput {
     fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> WarningsAndErrorResult<Self, (), ParseRawTEXTWarning, IOErrorGroup<HeaderOrRawError, ()>>
+    ) -> WarningsAndErrorResult<
+        Self,
+        (),
+        ParseFlatTEXTWarning,
+        IOErrorGroup<HeaderOrFlatTextError, ()>,
+    >
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<HeaderConfigInner>
+            + AsRef<ReadHeaderInnerConfig>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
         Header::h_read(h, st)
             .into_log()
-            .map_pure_errors(HeaderOrRawError::from)
+            .map_pure_errors(HeaderOrFlatTextError::from)
             .and_then_commutative(|mut header| {
                 let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
                 if let Some(v) = conf.version_override {
                     header.version = v;
                 }
-                h_read_raw_text_from_header(h, header, st).map_pure_errors(HeaderOrRawError::from)
+                h_read_flat_text_from_header(h, header, st)
+                    .map_pure_errors(HeaderOrFlatTextError::from)
             })
     }
 
@@ -716,24 +932,27 @@ impl RawTEXTOutput {
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
         (),
-        StdTEXTFromRawWarning,
-        StdTEXTFromRawError,
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<StdTextReadConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
     {
-        let header = &self.parse.header_segments;
-        AnyCoreTEXT::parse_raw(
-            self.version,
-            self.keywords,
-            header.data,
-            header.analysis,
-            st,
+        // TODO not DRY, make this a method
+        let hs = &self.parse.header_segments;
+        let segs = NonDataSegments::new(
+            hs.text,
+            hs.data,
+            hs.analysis,
+            &hs.other[..],
+            self.parse.supp_text.as_ref().copied(),
+        );
+        AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
+            |(standardized, extra, offsets)| {
+                let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
+                (standardized, out)
+            },
         )
-        .map_ok_value(|(standardized, extra, offsets)| {
-            let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
-            (standardized, out)
-        })
     }
 
     fn into_std_dataset<C, R>(
@@ -742,27 +961,24 @@ impl RawTEXTOutput {
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
-        StdDatasetFromRawWarning,
-        StdDatasetFromRawError,
+        StdDatasetFromFlatTEXTWarning,
+        StdDatasetFromFlatTextError,
         (),
     >
     where
         R: Read + Seek,
-        C: AsRef<StdTextReadConfig>
+        C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadLayoutConfig>
-            + AsRef<ReaderConfig>
+            + AsRef<ReadEventsConfig>
             + AsRef<ReadTEXTOffsetsConfig>,
     {
-        AnyCoreDataset::new_from_keywords(
-            h,
-            self.version,
-            self.keywords,
-            self.parse.header_segments.data,
-            self.parse.header_segments.analysis,
-            &self.parse.header_segments.other[..],
-            st,
-        )
-        .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
+        let hs = &self.parse.header_segments;
+        let d = hs.data;
+        let a = hs.analysis;
+        let o = &hs.other[..];
+        // TODO this should take all previous segments into account
+        AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
+            .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
 }
 
@@ -770,8 +986,7 @@ fn kws_to_df_analysis<C, R>(
     version: Version,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
-    data: HeaderDataSegment,
-    analysis: HeaderAnalysisSegment,
+    segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments),
@@ -781,21 +996,21 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReaderConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
 {
     match version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, data, analysis, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, data, analysis, st),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, segs, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, segs, st),
     }
 }
 
-fn h_read_raw_text_from_header<C, R>(
+fn h_read_flat_text_from_header<C, R>(
     h: &mut BufReader<R>,
     header: Header,
     st: &ReadState<C>,
-) -> WarningsAndIOGroupResult<RawTEXTOutput, ParseRawTEXTWarning, ParseRawTEXTError, ()>
+) -> WarningsAndIOGroupResult<FlatTEXTOutput, ParseFlatTEXTWarning, ParseFlatTEXTError, ()>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderAndTEXTConfig>
@@ -808,8 +1023,8 @@ where
 
     io_to_log!(ptext_seg.h_read_contents(h, &mut buf));
     let delim_res = split_first_delim(&buf, conf)
-        .map_errors(ParseRawTEXTError::from)
-        .map_commutative_warnings(ParseRawTEXTWarning::from)
+        .map_errors(ParseFlatTEXTError::from)
+        .map_commutative_warnings(ParseFlatTEXTWarning::from)
         .into_semigroup();
 
     delim_res
@@ -817,9 +1032,9 @@ where
         .map_error(IOErrorGroup::Pure)
         .and_then_commutative(|(delim, bytes)| {
             let mut kws = ParsedKeywords::default();
-            split_raw_primary_text(&mut kws, delim, bytes, conf)
-                .map_commutative_warnings(ParseRawTEXTWarning::from)
-                .map_errors(ParseRawTEXTError::from)
+            split_flat_primary_text(&mut kws, delim, bytes, conf)
+                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                .map_errors(ParseFlatTEXTError::from)
                 .group()
                 .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|()| (kws, delim))
@@ -832,32 +1047,32 @@ where
                 let _ = kws.std.remove(&Endstext::std());
                 LogResult::new_ok((delim, kws, None))
             } else {
-                lookup_stext_offsets(&kws.std, header.version, ptext_seg, st)
-                    .map_commutative_warnings(ParseRawTEXTWarning::from)
-                    .map_errors(ParseRawTEXTError::from)
+                lookup_stext_offsets(&kws.std, &header, st)
+                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                    .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .set_err_value(())
                     .and_then_commutative(|seg| {
                         buf.clear();
-                        h_read_raw_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
-                            .map_commutative_warnings(ParseRawTEXTWarning::from)
-                            .map_pure_errors(ParseRawTEXTError::from)
+                        h_read_flat_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
+                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                            .map_pure_errors(ParseFlatTEXTError::from)
                             .map_ok_value(|()| (delim, kws, seg))
                     })
             }
         })
         .and_then_commutative(|(delim, mut kws, supp_text_seg)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
-                .map_commutative_warnings(ParseRawTEXTWarning::from)
-                .map_errors(ParseRawTEXTError::from)
+                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                .map_errors(ParseFlatTEXTError::from)
                 .into_semigroup();
 
             let repair_res = kws
                 .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
                 .switchable_into_commutative()
-                .map_commutative_warnings(ParseRawTEXTWarning::from)
-                .map_errors(ParseRawTEXTError::from);
+                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                .map_errors(ParseFlatTEXTError::from);
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
@@ -867,7 +1082,7 @@ where
                 .group()
                 .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|(nextdata, ())| {
-                    let parse = RawTEXTParseData::new(
+                    let parse = FlatTEXTParseData::new(
                         header.segments,
                         supp_text_seg,
                         nextdata,
@@ -875,29 +1090,26 @@ where
                         kws.non_ascii,
                         kws.byte_pairs,
                     );
-                    RawTEXTOutput::new(header.version, vkws, parse)
+                    FlatTEXTOutput::new(header.version, vkws, parse)
                 })
         })
-        .and_then_commutative(|raw| {
-            let p = &raw.parse;
+        .and_then_commutative(|flat| {
+            let p = &flat.parse;
             let na = p
                 .as_non_ascii_errors(conf)
-                .map_errors(ParseRawTEXTError::from);
-            let be = p.as_byte_errors(conf).map_errors(ParseRawTEXTError::from);
-            let os = p
-                .as_overlapping_segment_error()
-                .map_errors(ParseRawTEXTError::from);
-            [na, be, os]
+                .map_errors(ParseFlatTEXTError::from);
+            let be = p.as_byte_errors(conf).map_errors(ParseFlatTEXTError::from);
+            [na, be]
                 .into_iter()
                 .mappend_commutative()
                 .group()
                 .map_errors(IOErrorGroup::Pure)
                 .nowarn_into_warn()
-                .map_ok_value(|_| raw)
+                .map_ok_value(|_| flat)
         })
 }
 
-fn h_read_raw_supp_text<R: Read + Seek>(
+fn h_read_flat_supp_text<R: Read + Seek>(
     h: &mut BufReader<R>,
     maybe_seg: Option<&SupplementalTextSegment>,
     kws: &mut ParsedKeywords,
@@ -907,7 +1119,7 @@ fn h_read_raw_supp_text<R: Read + Seek>(
 ) -> WarningsAndIOGroupResult<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError, ()> {
     if let Some(seg) = maybe_seg {
         io_to_log!(seg.h_read_contents(h, buf));
-        split_raw_supp_text(kws, delim, buf, conf)
+        split_flat_supp_text(kws, delim, buf, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     } else {
@@ -931,7 +1143,7 @@ fn split_first_delim<'a>(
     }
 }
 
-fn split_raw_primary_text(
+fn split_flat_primary_text(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -940,12 +1152,12 @@ fn split_raw_primary_text(
     if bytes.is_empty() {
         LogResult::new_err(NoTEXTWordsError.into())
     } else {
-        split_raw_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
+        split_flat_text_inner(kws, delim, bytes, TEXTKind::Primary, conf)
             .map_errors(ParsePrimaryTEXTError::from)
     }
 }
 
-fn split_raw_supp_text(
+fn split_flat_supp_text(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -953,7 +1165,7 @@ fn split_raw_supp_text(
 ) -> DeferredWarningsAndErrors<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
-        split_raw_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+        split_flat_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
             .eval_deferred_warning_or_error(flag, |()| {
                 (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
@@ -965,22 +1177,22 @@ fn split_raw_supp_text(
 }
 
 // TODO this will fail early
-fn split_raw_text_inner(
+fn split_flat_text_inner(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    if conf.use_literal_delims {
-        split_raw_text_literal_delim(kws, delim, bytes, tk, conf)
+    if conf.use_literal_delims.is_set() {
+        split_flat_text_literal_delim(kws, delim, bytes, tk, conf)
     } else {
-        split_raw_text_escaped_delim(kws, delim, bytes, tk, conf)
+        split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
     }
 }
 
 // TODO this will fail early
-fn split_raw_text_literal_delim(
+fn split_flat_text_literal_delim(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -990,7 +1202,6 @@ fn split_raw_text_literal_delim(
     let mut blank_errors = vec![];
     let mut insert_results = vec![];
 
-    // ASSUME input slice does not start with delim
     let mut it = bytes.split(|x| *x == delim);
     let mut prev_was_key = false;
     let mut prev_word: &[u8] = &[];
@@ -1016,7 +1227,7 @@ fn split_raw_text_literal_delim(
             } else {
                 let e = kws
                     .insert(key, value, conf)
-                    .map_non_commutative_warnings(ParseKeywordsIssue::from)
+                    .map_commutative_warnings(ParseKeywordsIssue::from)
                     .map_errors(ParseKeywordsIssue::from);
                 insert_results.push(e);
             }
@@ -1027,18 +1238,30 @@ fn split_raw_text_literal_delim(
         }
     }
 
+    // If last word is all spaces and we want to "trim" them, this will allow us
+    // to bypass some errors below since these can be ignored
+    let trim_trailing = prev_word
+        .iter()
+        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
+        && conf.trim_trailing_whitespace.is_set();
+
     // We should end on a blank, which corresponds to a (not valid) key. If this
     // is not the case, the number of words was not even.
+    let uneven_ok = prev_was_key || trim_trailing;
+    // Don't emit this error if we are trimming whitespace off the end, because
+    // the "odd word" in that case is entirely whitespace and therefore can be
+    // ignored
     let uneven_err = UnevenWordsError(tk).into();
-    let uneven_res =
-        LogResult::new_switchable_ok_if(prev_was_key, (), (), uneven_err, conf.allow_odd)
-            .switchable_into_commutative();
+    let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
+        .switchable_into_commutative();
 
     // If the last word was not a blank, we did not end on a delimiter.
 
     let delim_flag = conf.allow_missing_final_delim;
-    let final_delim_res =
-        check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative();
+    // Don't emit this error if we are trimming whitespace off the end because
+    // the thing immediately before the whitespace is a delimiter in this case
+    let final_delim_res = (!trim_trailing)
+        .then(|| check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative());
 
     let blank_res = LogResult::new_switchable_iter((), (), blank_errors, conf.allow_empty)
         .switchable_into_commutative();
@@ -1050,13 +1273,13 @@ fn split_raw_text_literal_delim(
     // it can consume options or b) use stack-vectors for warnings
     insert_results
         .into_iter()
-        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, final_delim_res, blank_res])
+        .chain([uneven_res, blank_res])
+        .chain(final_delim_res)
         .mappend_def_void()
 }
 
-fn split_raw_text_escaped_delim(
+fn split_flat_text_escaped_delim(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -1069,7 +1292,7 @@ fn split_raw_text_escaped_delim(
     let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
         let e = kws
             .insert(kb, vb, conf)
-            .map_non_commutative_warnings(ParseKeywordsIssue::from)
+            .map_commutative_warnings(ParseKeywordsIssue::from)
             .map_errors(ParseKeywordsIssue::from);
         insert_results.push(e);
     };
@@ -1082,7 +1305,6 @@ fn split_raw_text_escaped_delim(
         }
     };
 
-    // ASSUME input slice does not start with delim
     let mut consec_blanks = 0;
     let mut lastbuf: &[u8] = &[];
     let mut keybuf: Vec<u8> = vec![];
@@ -1126,6 +1348,13 @@ fn split_raw_text_escaped_delim(
         lastbuf = segment;
     }
 
+    // If last word is all spaces and we want to "trim" them, this will allow us
+    // to bypass some errors below since these can be ignored
+    let trim_trailing = lastbuf
+        .iter()
+        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
+        && conf.trim_trailing_whitespace.is_set();
+
     // If all went perfectly, we should have one consecutive blank at this point
     // since the space between the last delim and the end will show up as a
     // blank. The value of the last buffer should also be an empty slice.
@@ -1156,7 +1385,10 @@ fn split_raw_text_escaped_delim(
     }
 
     let uneven_err = if valuebuf.is_empty() {
-        Some(UnevenWordsError(tk).into())
+        // Don't emit this error if we are trimming whitespace off the end,
+        // because the "odd word" in that case is entirely whitespace and
+        // therefore can be ignored
+        (!trim_trailing).then_some(UnevenWordsError(tk).into())
     } else {
         push_pair(&keybuf, &valuebuf);
         None
@@ -1171,8 +1403,10 @@ fn split_raw_text_escaped_delim(
     let delim_flag = conf.allow_missing_final_delim;
     let even_delim_res = LogResult::new_switchable_maybe((), (), even_delim_err, delim_flag)
         .switchable_into_commutative();
-    let final_delim_res =
-        check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative();
+    // Don't emit this error if we are trimming whitespace off the end because
+    // the thing immediately before the whitespace is a delimiter in this case
+    let final_delim_res = (!trim_trailing)
+        .then(|| check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative());
 
     let boundary_res =
         LogResult::new_switchable_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
@@ -1180,9 +1414,9 @@ fn split_raw_text_escaped_delim(
 
     insert_results
         .into_iter()
-        .map(LogResult::non_commutative_into_commutative)
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, final_delim_res, even_delim_res, boundary_res])
+        .chain([uneven_res, even_delim_res, boundary_res])
+        .chain(final_delim_res)
         .mappend_def_void()
 }
 
@@ -1199,8 +1433,7 @@ fn check_final_delimiter(
 
 fn lookup_stext_offsets<C>(
     kws: &StdKeywords,
-    version: Version,
-    text_segment: PrimaryTextSegment,
+    header: &Header,
     st: &ReadState<C>,
 ) -> DeferredWarningsAndErrors<
     Option<SupplementalTextSegment>,
@@ -1213,7 +1446,14 @@ where
         + AsRef<ReadHeaderAndTEXTConfig>,
 {
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-    let res = match version {
+    // If this flag is set, pretend that supp TEXT does not exist at all. No
+    // parsing, no errors, no testing for overlaps. Note that these keywords
+    // will be removed during standardization so we don't need to worry about
+    // triggering false positive pseudostandard errors later
+    if conf.ignore_supp_text.is_set() {
+        return LogResult::new_ok(None);
+    }
+    let res = match header.version {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
@@ -1243,32 +1483,31 @@ where
     };
     res.and_then_deferred(|x| {
         x.map_or(LogResult::new_ok(None), |seg| {
-            // shouldn't this detect any overlap?
-            if seg.same_coords(&text_segment) {
-                let flag = conf.allow_duplicated_supp_text;
-                // TODO why return None?
-                SwitchableErrorsResult::new_deferred_switchable(None, DuplicatedSuppTEXT, flag)
-                    .map_switchable_errors(STextSegmentError::from)
-                    .switchable_into_commutative()
-                    .map_commutative_warnings(STextSegmentWarning::from)
-            } else {
-                LogResult::new_ok(Some(seg))
-            }
+            let flag = conf.allow_overlapping_supp_text;
+            header
+                .segments
+                .validate_text(&seg, conf.header.other_width)
+                .nowarn_into_switchable(flag)
+                .map_switchable_errors(STextSegmentError::from)
+                .switchable_into_commutative()
+                .map_commutative_warnings(STextSegmentWarning::from)
+                .set_ok_value(Some(seg))
+                .set_err_value(None)
         })
     })
 }
 
 // TODO the reason we use get instead of remove here is because we don't want to
-// mess up the keyword list for raw mode, but in standardized mode we are
+// mess up the keyword list for flat mode, but in standardized mode we are
 // consuming the hash table as a way to test for pseudostandard keywords (ie
 // those that are left over). In order to reconcile these, we either need to
-// make two raw text reader functions which either take immutable or mutable kws
+// make two flat text reader functions which either take immutable or mutable kws
 // or use a more clever hash table that marks keys when we see them.
 fn lookup_nextdata(
     kws: &StdKeywords,
-    enforce: bool,
+    flag: AllowMissingNextdata,
 ) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
-    let ret = if enforce {
+    let ret = if flag.is_set() {
         Nextdata::get_metaroot_req(kws)
             .map(Some)
             .into_log()
@@ -1279,12 +1518,12 @@ fn lookup_nextdata(
     ret.map_deferred_value(|x| x.map(|y| u64::from(y.0)))
 }
 
-impl RawTEXTParseData {
+impl FlatTEXTParseData {
     fn as_non_ascii_errors(
         &self,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> DeferredErrors<(), NonAsciiKeyError> {
-        if conf.allow_non_ascii_keywords {
+        if conf.allow_non_ascii_keywords.is_set() {
             LogResult::new_ok(())
         } else {
             let es = self
@@ -1299,7 +1538,7 @@ impl RawTEXTParseData {
         &self,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> DeferredErrors<(), NonUtf8KeywordError> {
-        if conf.allow_non_utf8 {
+        if conf.allow_non_utf8.is_set() {
             LogResult::new_ok(())
         } else {
             let es = self
@@ -1310,42 +1549,24 @@ impl RawTEXTParseData {
             LogResult::new_err_from_iter(es, ())
         }
     }
-
-    fn as_overlapping_segment_error(&self) -> DeferredErrors<(), ParseRawTEXTError> {
-        if let Some(s) = self.supp_text {
-            let x = self
-                .header_segments
-                .contains_text_segment(&s)
-                .map_err(HeaderValidationError::from)
-                .into_log();
-            let y = self
-                .header_segments
-                .overlaps_with(&s)
-                .map_errors(HeaderValidationError::from);
-            x.lift_f2_once(y, |(), ()| ())
-                .map_errors(ParseRawTEXTError::from)
-        } else {
-            LogResult::new_ok(())
-        }
-    }
 }
 
-def_group!(HeaderFailure, "could not parse HEADER");
+def_summary!(HeaderSummary, "could not parse HEADER");
 
-def_group!(RawTEXTFailure, "could not parse TEXT segment");
+def_summary!(FlatTEXTSummary, "could not parse TEXT segment");
 
-def_group!(StdTEXTFailure, "could not standardize TEXT segment");
+def_summary!(StdTEXTSummary, "could not standardize TEXT segment");
 
-def_group!(
-    StdDatasetFailure,
+def_summary!(
+    StdDatasetSummary,
     "could not read DATA with standardized TEXT"
 );
 
-def_group!(RawDatasetFailure, "could not read DATA with raw TEXT");
+def_summary!(FlatDatasetSummary, "could not read DATA with flat TEXT");
 
-def_group!(
-    RawDatasetWithKwsFailure,
-    "could not read raw dataset from keywords"
+def_summary!(
+    FlatDatasetWithKwsSummary,
+    "could not read flat dataset from keywords"
 );
 
 #[cfg(test)]
@@ -1359,7 +1580,7 @@ mod tests {
         // NOTE should not start with delim
         let bytes = b"$P4F/700//75 BP/";
         let delim = 47;
-        let out = split_raw_text_escaped_delim(&mut kws, delim, bytes, TEXTKind::Primary, &conf);
+        let out = split_flat_text_escaped_delim(&mut kws, delim, bytes, TEXTKind::Primary, &conf);
         let (_, ws, es) = out.deconstruct();
         let v = kws
             .std

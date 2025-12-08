@@ -1,34 +1,36 @@
-/// A flexible handler for warnings and errors.
-///
-/// This is predicated on the following needs:
-///
-/// 1. We need to handle entire groups of errors all at once (rather than return
-///    the first encountered error)
-/// 2. Dynamic dispatch is yucky and evil, therefore we need a way to group
-///    errors efficiently into enums.
-/// 3. Some warnings and errors should be interchangable depending on config.
-/// 4. Error type and cardinality should be obvious based on the type
-/// 5. Invalid and nonsensible logging states should be made impossible, which
-///    in turn will guide the happy path to only permit sane operations
-/// 6. IO errors are special and should short-circuit execution no matter what,
-///    which is different from non-IO errors which can be collected and returned
-///    as a group.
-///
-/// For 6. this is not generally true of all code, but here it can be assumed
-/// because IO errors are going to depend on a state which will likely not
-/// change within the execution sequence of any given code path. For instance,
-/// an IO error may be thrown if a file is unreadable. There is only one file
-/// being read in this case and if it is not readable for one function this will
-/// likely be true for all. This is not true in general for all code because
-/// some code can read multiple files.
-///
-/// This simplification allows IO errors to be stored and thrown almost
-/// independently of other errors. In Haskell terms, this can be thought of
-/// like a transformer stack where pure errors are handled on one layer and
-/// an IO error is handled on a different layer.
-use crate::config::{ErrorFlag, SharedConfig};
+//! A flexible handler for warnings and errors. (not used publicly)
+//!
+//! This is predicated on the following needs:
+//!
+//! 1. We need to handle entire groups of errors all at once (rather than return
+//!    the first encountered error)
+//! 2. Dynamic dispatch is yucky and evil, therefore we need a way to group
+//!    errors efficiently into enums.
+//! 3. Some warnings and errors should be interchangable depending on config.
+//! 4. Error type and cardinality should be obvious based on the type
+//! 5. Invalid and nonsensible logging states should be made impossible, which
+//!    in turn will guide the happy path to only permit sane operations
+//! 6. IO errors are special and should short-circuit execution no matter what,
+//!    which is different from non-IO errors which can be collected and returned
+//!    as a group.
+//!
+//! For 6. this is not generally true of all code, but here it can be assumed
+//! because IO errors are going to depend on a state which will likely not
+//! change within the execution sequence of any given code path. For instance,
+//! an IO error may be thrown if a file is unreadable. There is only one file
+//! being read in this case and if it is not readable for one function this will
+//! likely be true for all. This is not true in general for all code because
+//! some code can read multiple files.
+//!
+//! This simplification allows IO errors to be stored and thrown almost
+//! independently of other errors. In Haskell terms, this can be thought of
+//! like a transformer stack where pure errors are handled on one layer and
+//! an IO error is handled on a different layer.
+
+use crate::config::{ErrorFlag, ReadSharedConfig};
 use crate::text::optional::Nothing;
-use crate::type_families::{
+
+use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
     Sibling1, impl_kind1,
 };
@@ -86,6 +88,7 @@ pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
 // Results with errors which can also be warnings
 //
 
+// TODO these don't need to be public
 pub type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
 pub type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
 
@@ -147,10 +150,10 @@ type IOGroupLogResult<V, P, LWC, RWC, X, E, G> =
 
 /// A result which may have many warnings, errors, and a value on the error side.
 ///
-/// This can be thought of like a regular `Result` except that the Ok side has
+/// This can be thought of like a regular [`Result`] except that the Ok side has
 /// zero or more warnings in addition to the value, and the error side has
 /// a value, zero or more warnings, and one or more errors. Additionally,
-/// the Ok side can encode a flag for results which may be switched between
+/// the Succ side can encode a flag for results which may be switched between
 /// warnings and errors depending on configuration (ie "switchable").
 ///
 /// This is primarily meant to deal with complex error handling involving
@@ -182,70 +185,77 @@ type IOGroupLogResult<V, P, LWC, RWC, X, E, G> =
 /// "cardinality". Cardinality may be controlled using the following types for
 /// each container:
 ///
-/// * Nothing<T>: zero warnings or one error
-/// * Option<T>: zero or one warning (not applicable for errors)
-/// * Vec<T>: zero or more warnings or one or more errors
+/// * [`Nothing<T>`]: zero warnings or one error
+/// * [`Option<T>`]: zero or one warning (not applicable for errors)
+/// * [`Vec<T>`]: zero or more warnings or one or more errors
+///
+/// ## Common patterns
 ///
 /// Despite its generic nature, there are only a few patterns that make sense
 /// for this type. These are collectively referred to here and throughout the
 /// code using the following terminology:
 ///
-/// Commutative: `LWC` = `RWC`. These are so named because the warning may
-/// happen (temporally) in any order relative to a failure, which is reflected
-/// in the ability to store it in either the failure or success side. This also
-/// implies that `X` (the flag) is `()` which means that the warnings and errors
-/// are not switchable. The property of commutativity also means these types can
-/// be easily combined (in Haskell typeclasses, they are instances of
-/// Applicative) since Failure and Success can happen in any order/combination
-/// and yet the errors and warnings can still be appended to each other (this
-/// assumes that the container types are appendable).
+/// ### Commutative: `LWC` = `RWC`
 ///
-/// Nowarn: `LWC` and `RWC` are both `Nothing<T>` (ie there are no warnings).
-/// These are also commutative.
+/// These are so named because the warning may happen (temporally) in any order
+/// relative to a failure, which is reflected in the ability to store it in
+/// either the failure or success side. This also implies that `X` (the flag) is
+/// `()` which means that the warnings and errors are not switchable. The
+/// property of commutativity also means these types can be easily combined (in
+/// Haskell typeclasses, they are instances of Applicative) since Failure and
+/// Success can happen in any order/combination and yet the errors and warnings
+/// can still be appended to each other (this assumes that the container types
+/// are appendable).
 ///
-/// Deferred: `V` = `P`. These are so named because the failure is "deferred"
-/// into the future by virtue of the type being present on both sides. This
-/// means that downstream code can use a plausible return value in either case.
-/// For non-switchable errors (`X` = `()`), this almost always implies that the
-/// result is commutative, since it only makes sense to return the same type on
-/// both sides if the warnings are also the same type.
+/// ### Nowarn: `LWC` and `RWC` are both [`Nothing<T>`]
 ///
-/// Switchable: `X` != `()`, `RCW` = `Nothing<T>` and warnings and errors are
-/// the same type. Presumably `X` is a boolean flag representing an error or
-/// non-error state. Furthermore, `LWC` must be in sync with `EC` in that they
-/// must have the same upper bound (ie `LWC` is `Option<E>` if `EC` is
-/// `Nothing<E>`) Unlike commutative errors, these cannot be combined since the
-/// value of the flag is encoded at runtime and not statically at the type
-/// level. Combining such types opens the possibility of combining two results
-/// with different flag values, which is nonsensical and contrary to the purpose
-/// of this type (the only way around this to to make Nowarn results with
-/// multiple errors and then "upgrade" them to switchable results which will
-/// encode the value of the flag).
+/// These indicate that there are no warnings. These are also commutative.
 ///
-/// Resolvable: `P` = `()` and `EC` = `Nothing<()>`. These are errors that may
-/// be returned at library boundaries. In plain language, an error is resolvable
-/// if it has no passthrough value (ie an error value that should be dealt with)
-/// and has only one error (which may be one collection of many errors).
+/// ### Deferred: `V` = `P`
 ///
-/// A nifty cheat-table with all possible types:
+/// These are so named because the failure is "deferred" into the future by
+/// virtue of the type being present on both sides. This means that downstream
+/// code can use a plausible return value in either case. For non-switchable
+/// errors (`X` = `()`), this almost always implies that the result is
+/// commutative, since it only makes sense to return the same type on both sides
+/// if the warnings are also the same type.
 ///
-/// | N warn | N err | LWC         | RWC         | EC         | commutative | switchable |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |      0 | 0-1   | Nothing<()> | Nothing<()> | Nothing<E> | X           |            |
-/// |      0 | 0-inf | Nothing<()> | Nothing<()> | Vec<E>     | X           |            |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Nothing<W>  | Nothing<E> |             | X          |
-/// |  0-inf | 0-inf | Vec<W>      | Nothing<W>  | Vec<E>     |             | X          |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Nothing<W>  | Nothing<E> |             |            |
-/// |    0-1 | 0-inf | Option<W>   | Nothing<W>  | Vec<E>     |             |            |
-/// |  0-inf | 0-1   | Vec<W>      | Nothing<W>  | Nothing<E> |             |            |
-/// |  0-inf | 0-inf | Vec<W>      | Nothing<W>  | Vec<E>     |             |            |
-/// |--------|-------|-------------|-------------|------------|-------------|------------|
-/// |    0-1 | 0-1   | Option<W>   | Option<W>   | Nothing<E> | X           |            |
-/// |    0-1 | 0-inf | Option<W>   | Option<W>   | Vec<E>     | X           |            |
-/// |  0-inf | 0-1   | Vec<W>      | Vec<W>      | Nothing<E> | X           |            |
-/// |  0-inf | 0-inf | Vec<W>      | Vec<W>      | Vec<E>     | X           |            |
+/// ### Switchable: `X` != `()`, `RCW` = [`Nothing<T>`], warnings and errors are the same type
+///
+/// Presumably `X` is a boolean flag representing an error or non-error state.
+/// Furthermore, `LWC` must be in sync with `EC` in that they must have the same
+/// upper bound (ie `LWC` is [`Option<E>`] if `EC` is [`Nothing<E>`]) Unlike
+/// commutative errors, these cannot be combined since the value of the flag is
+/// encoded at runtime and not statically at the type level. Combining such
+/// types opens the possibility of combining two results with different flag
+/// values, which is nonsensical and contrary to the purpose of this type (the
+/// only way around this to to make Nowarn results with multiple errors and then
+/// "upgrade" them to switchable results which will encode the value of the
+/// flag).
+///
+/// ### Resolvable: `P` = `()` and `EC` = [`Nothing<()>`]
+///
+/// These are errors that may be returned at library boundaries. In plain
+/// language, an error is resolvable if it has no passthrough value (ie an error
+/// value that should be dealt with) and has only one error (which may be one
+/// collection of many errors).
+///
+/// ## All possible types:
+///
+/// | N warn | N err | `LWC`           | `RWC`           | `EC`             | commutative | switchable |
+/// |--------|-------|-----------------|-----------------|----------------|-------------|------------|
+/// |      0 | 0-1   | [`Nothing<()>`] | [`Nothing<()>`] | [`Nothing<E>`] | X           |            |
+/// |      0 | 0-inf | [`Nothing<()>`] | [`Nothing<()>`] | [`Vec<E>`]     | X           |            |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Nothing<W>`]  | [`Nothing<E>`] |             | X          |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Nothing<W>`]  | [`Vec<E>`]     |             | X          |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Nothing<W>`]  | [`Nothing<E>`] |             |            |
+/// |    0-1 | 0-inf | [`Option<W>`]   | [`Nothing<W>`]  | [`Vec<E>`]     |             |            |
+/// |  0-inf | 0-1   | [`Vec<W>`]      | [`Nothing<W>`]  | [`Nothing<E>`] |             |            |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Nothing<W>`]  | [`Vec<E>`]     |             |            |
+/// |    0-1 | 0-1   | [`Option<W>`]   | [`Option<W>`]   | [`Nothing<E>`] | X           |            |
+/// |    0-1 | 0-inf | [`Option<W>`]   | [`Option<W>`]   | [`Vec<E>`]     | X           |            |
+/// |  0-inf | 0-1   | [`Vec<W>`]      | [`Vec<W>`]      | [`Nothing<E>`] | X           |            |
+/// |  0-inf | 0-inf | [`Vec<W>`]      | [`Vec<W>`]      | [`Vec<E>`]     | X           |            |
 #[derive(Debug, PartialEq)]
 pub enum LogResult<V, P, LWC, RWC, X, E, EC> {
     Succ(Success<V, X, LWC>),
@@ -268,6 +278,7 @@ pub struct Success<V, X, WC> {
 
 /// A failed computation, possibly with warnings, errors, and a value.
 #[derive(Debug, PartialEq, new)]
+#[new(visibility = "")]
 pub struct Failure<P, WC, E, EC> {
     warnings: WC,
     errors: GenNonEmpty<E, EC>,
@@ -283,10 +294,10 @@ pub enum IOErrorGroup<E, G> {
 }
 
 impl<E, G> IOErrorGroup<E, G> {
-    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> IOErrorGroup<X, G> {
+    pub(crate) fn set_group<G0>(self, g: G0) -> IOErrorGroup<E, G0> {
         match self {
-            Self::IO(i, g) => IOErrorGroup::IO(i, g.map(|x| x.map(f))),
-            Self::Pure(g) => IOErrorGroup::Pure(g.map(f)),
+            Self::IO(i, x) => IOErrorGroup::IO(i, x.map(|y| y.set_group(g))),
+            Self::Pure(x) => IOErrorGroup::Pure(x.set_group(g)),
         }
     }
 }
@@ -398,8 +409,8 @@ impl<E, G> ErrorGroup<E, G> {
             .map_or(Ok(()), Err)
     }
 
-    pub(crate) fn map<X, F: Fn(E) -> X>(self, f: F) -> ErrorGroup<X, G> {
-        ErrorGroup::new(self.summary, self.errors.fmap(f))
+    pub(crate) fn set_group<G0>(self, g: G0) -> ErrorGroup<E, G0> {
+        ErrorGroup::new(g, self.errors)
     }
 }
 
@@ -457,6 +468,28 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
 
 impl_kind1!(ImpureErrorFamily, ImpureError);
 
+/// Type for IOErrorGroup
+pub struct IOErrorGroupFamily<G>(PhantomData<G>);
+
+impl<G> Kind1 for IOErrorGroupFamily<G> {
+    type Type<T> = IOErrorGroup<T, G>;
+}
+
+impl<E, G> IsKind1 for IOErrorGroup<E, G> {
+    type Family = IOErrorGroupFamily<G>;
+}
+
+/// Type for ErrorGroup
+pub struct ErrorGroupFamily<G>(PhantomData<G>);
+
+impl<G> Kind1 for ErrorGroupFamily<G> {
+    type Type<T> = ErrorGroup<T, G>;
+}
+
+impl<E, G> IsKind1 for ErrorGroup<E, G> {
+    type Family = ErrorGroupFamily<G>;
+}
+
 /// Type family for `GenNonEmpty` where the container type is partially applied.
 pub struct GenNonEmptyFamily<C>(PhantomData<C>);
 
@@ -507,7 +540,7 @@ impl<V, WC, E, EC> IsKind1 for Failure<V, WC, E, EC> {
     type Family = FailureFamily<WC, E, EC>;
 }
 
-/// Type family for `LogResult` instances where are commutative and deferred.
+/// Type family for [`LogResult`] instances where are commutative and deferred.
 ///
 /// This is useful for implementing Applicative instances for these.
 pub struct DeferredFamily<WC, E, EC>(PhantomData<WC>, PhantomData<E>, PhantomData<EC>);
@@ -520,8 +553,8 @@ impl<V, WC, E, EC> IsKind1 for Deferred<V, WC, E, EC> {
     type Family = DeferredFamily<WC, E, EC>;
 }
 
-/// Extension trait for converting Option<T> to LogResult<T, ...>
-pub trait OptionExt: Sized {
+/// Extension trait for converting [`Option<T>`] to [`LogResult`]
+pub(crate) trait OptionExt: Sized {
     type Inner;
 
     fn into_option(self) -> Option<Self::Inner>;
@@ -546,16 +579,12 @@ impl<T> OptionExt for Option<T> {
     }
 }
 
-/// Extension trait for converting Result<T, E> to LogResult<T, ..., E, ...>
-pub trait ResultExt: Sized {
+/// Extension trait for converting [`Result<T, E>`] to [`LogResult`]
+pub(crate) trait ResultExt: Sized {
     type Ok;
     type Error;
 
     fn into_result(self) -> Result<Self::Ok, Self::Error>;
-
-    fn as_result(&self) -> Result<&Self::Ok, &Self::Error>;
-
-    fn as_result_mut(&mut self) -> Result<&mut Self::Ok, &mut Self::Error>;
 
     fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
         self.into_log()
@@ -573,10 +602,6 @@ pub trait ResultExt: Sized {
         self.into_log().set_err_value(Self::Ok::default())
     }
 
-    fn into_warn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
-        self.into_log()
-    }
-
     fn into_log<LWC, RWC, EC>(self) -> LogResult<Self::Ok, (), LWC, RWC, (), Self::Error, EC>
     where
         EC: Default,
@@ -587,18 +612,6 @@ pub trait ResultExt: Sized {
             |e| Fail(Failure::new_from_one(e, ())),
             |s| Succ(Success::new_non_switchable(s)),
         )
-    }
-
-    fn into_io_log<Ef, LWC, RWC, EC>(
-        self,
-    ) -> LogResult<Self::Ok, (), LWC, RWC, (), ImpureError<Ef>, EC>
-    where
-        Self: ResultExt<Error = IOError>,
-        EC: Default,
-        LWC: Default,
-        RWC: Default,
-    {
-        self.into_result().map_err(ImpureError::IO).into_log()
     }
 
     fn into_deferred_switchable<X, EC>(
@@ -634,21 +647,6 @@ pub trait ResultExt: Sized {
         X: ErrorFlag,
     {
         self.into_result().map(Some).into_deferred_switchable(flag)
-    }
-
-    fn into_deferred_switchable_def<X, EC>(
-        self,
-        default: Self::Ok,
-        flag: X,
-    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
-    where
-        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        self.into_result()
-            .into_deferred_switchable_opt(flag)
-            .map_deferred_value(|v| v.unwrap_or(default))
     }
 
     fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
@@ -737,15 +735,30 @@ impl<V, E> ResultExt for Result<V, E> {
     fn into_result(self) -> Self {
         self
     }
+}
 
-    fn as_result(&self) -> Result<&V, &E> {
-        self.as_ref()
-    }
-
-    fn as_result_mut(&mut self) -> Result<&mut V, &mut E> {
-        self.as_mut()
+/// Combine successes.
+///
+/// This is effectively the `sequence` function from Haskell's Data.Traversable
+/// where the Traversible is an iterator and `Success` forms a Monad.
+pub(crate) trait SuccessResultIter<V, WC>:
+    Iterator<Item = Success<V, (), WC>> + Sized
+{
+    fn sequence_success(self) -> Success<Vec<V>, (), WC>
+    where
+        WC: Monoid,
+    {
+        let mut xs = vec![];
+        let mut ws = WC::default();
+        for x in self {
+            xs.push(x.value);
+            ws = ws.mappend(x.warnings);
+        }
+        Success::new_non_switchable(xs).set_warnings(ws)
     }
 }
+
+impl<I, V, WC> SuccessResultIter<V, WC> for I where I: Iterator<Item = Success<V, (), WC>> {}
 
 /// Combine commutative results.
 ///
@@ -878,6 +891,7 @@ impl<I, V, WC, E, EC> DeferredIter<V, WC, E, EC> for I where
 }
 
 /// A constraint relating error and warning containers for switchable errors.
+// TODO this doesn't need to be public
 pub trait SwitchableErrorContainer: Sized {
     type Inner;
     type Warn: Pointed<Self::Inner>;
@@ -897,6 +911,21 @@ pub trait IntoNewCardinality<Other> {
 impl<A, C: Functor<A>> Functor<A> for GenNonEmpty<A, C> {
     fn fmap<F: FnMut(A) -> B, B>(self, mut f: F) -> Sibling1<Self, B> {
         GenNonEmpty::new(f(self.head), self.tail.fmap(f))
+    }
+}
+
+impl<A, G> Functor<A> for IOErrorGroup<A, G> {
+    fn fmap<F: FnMut(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
+        match self {
+            Self::IO(i, g) => IOErrorGroup::IO(i, g.map(|x| x.fmap(f))),
+            Self::Pure(g) => IOErrorGroup::Pure(g.fmap(f)),
+        }
+    }
+}
+
+impl<A, G> Functor<A> for ErrorGroup<A, G> {
+    fn fmap<F: FnMut(A) -> B, B>(self, f: F) -> Sibling1<Self, B> {
+        ErrorGroup::new(self.summary, self.errors.fmap(f))
     }
 }
 
@@ -1149,6 +1178,10 @@ impl<V, X, WC> Success<V, X, WC> {
         WC: Default,
     {
         Self::new(value, flag, WC::default())
+    }
+
+    pub fn into_log<P, RWC, E, EC>(self) -> LogResult<V, P, WC, RWC, X, E, EC> {
+        Succ(self)
     }
 
     fn remove_flag(self) -> Success<V, (), WC> {
@@ -2265,13 +2298,10 @@ impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
 //
 // Switchable LogResult
 //
-impl<V, P, X, E, EC> SwitchableResult<V, P, X, E, EC>
-where
-    EC: SwitchableErrorContainer,
-{
+impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     pub(crate) fn new_switchable_ok(value: V, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2280,7 +2310,7 @@ where
 
     pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         X: ErrorFlag,
     {
         if flag.is_error() {
@@ -2292,7 +2322,7 @@ where
 
     pub(crate) fn new_switchable_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2305,7 +2335,7 @@ where
 
     pub(crate) fn new_switchable_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2318,7 +2348,7 @@ where
     pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2342,7 +2372,7 @@ where
     ) -> LogResult<V, P, Sibling1<EC::Warn, Ef>, Nothing<()>, X, Ef, Sibling1<EC, Ef>>
     where
         F: Fn(E) -> Ef,
-        EC: SwitchableErrorContainer<Inner = E> + Functor<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Functor<E>,
         <EC as SwitchableErrorContainer>::Warn: Functor<E>,
     {
         match self {
@@ -2353,12 +2383,16 @@ where
 
     pub(crate) fn switchable_into_non_commutative(
         self,
-    ) -> NonCommutativeResult<V, P, EC::Warn, E, EC> {
+    ) -> NonCommutativeResult<V, P, EC::Warn, E, EC>
+    where
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Functor<E>,
+    {
         self.map(Success::remove_flag)
     }
 
     pub(crate) fn switchable_into_commutative(self) -> CommutativeResult<V, P, EC::Warn, E, EC>
     where
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E>,
         EC::Warn: Default,
     {
         self.map(Success::remove_flag)
@@ -2371,13 +2405,10 @@ where
 //
 // Switchable/deferred LogResult
 //
-impl<V, X, E, EC> DeferredSwitchable<V, X, E, EC>
-where
-    EC: SwitchableErrorContainer,
-{
-    pub(crate) fn new_deferred_switchable(value: V, error: E, flag: X) -> Self
+impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
+    pub(crate) fn new_deferred_switchable(value: T, error: E, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2401,9 +2432,9 @@ where
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_maybe(value: V, error: Option<E>, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_maybe(value: T, error: Option<E>, flag: X) -> Self
     where
-        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2413,10 +2444,10 @@ where
         }
     }
 
-    pub(crate) fn new_deferred_switchable_iter<I>(value: V, errors: I, flag: X) -> Self
+    pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Inner = E> + Default + Extend<E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
         X: ErrorFlag,
     {
@@ -2443,7 +2474,7 @@ where
         errors: impl IntoIterator<Item = E>,
     ) -> Self
     where
-        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
         EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
         X: ErrorFlag,
     {
@@ -2470,8 +2501,8 @@ where
 
     pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
     where
-        F: FnOnce(&V) -> Option<E>,
-        EC: Extend<E> + Default + SwitchableErrorContainer,
+        F: FnOnce(&T) -> Option<E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
         EC::Warn: Extend<E>,
         X: ErrorFlag,
     {
@@ -2494,8 +2525,8 @@ where
 
     pub(crate) fn and_then_switchable<Vf, F>(self, f: F) -> DeferredSwitchable<Vf, X, E, EC>
     where
-        F: FnOnce(V) -> NowarnResult<Vf, Vf, E, EC>,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        F: FnOnce(T) -> NowarnResult<Vf, Vf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E> + SwitchableErrorContainer<Warn = WC>,
     {
         self.and_then_switchable_(|v| v, f)
     }
@@ -2507,8 +2538,8 @@ where
     ) -> SwitchableResult<Vf, Pf, X, E, EC>
     where
         Fp: FnOnce(Vf) -> Pf,
-        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-        EC: Extend<E> + IntoIterator<Item = E>,
+        Fr: FnOnce(T) -> NowarnResult<Vf, Pf, E, EC>,
+        EC: Extend<E> + IntoIterator<Item = E> + SwitchableErrorContainer<Warn = WC>,
     {
         match self {
             Succ(x) => fr(x.value).map(|s| s.set_warnings(x.warnings).set_flag(x.flag)),
@@ -2627,7 +2658,7 @@ impl<V, P, LWC, RWC, X, E, G> IOGroupLogResult<V, P, LWC, RWC, X, E, G> {
     where
         F: Fn(E) -> Ef,
     {
-        self.map_error(|e| e.map(f))
+        self.map_error(|e| e.fmap(f))
     }
 }
 
@@ -2650,7 +2681,7 @@ impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
 impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
     pub(crate) fn warnings_to_pure_errors<F, W>(
         self,
-        conf: &SharedConfig,
+        conf: &ReadSharedConfig,
         f: F,
     ) -> IOGroupLogResult<V, (), WC, WC, (), E, ()>
     where
@@ -2815,7 +2846,7 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.map_err(|e| e.aggregate_errors(f))
     }
 
-    pub(crate) fn group<G>(self) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
+    pub fn group<G>(self) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
     where
         EC: IntoNewCardinality<Vec<E>>,
         G: Default,
@@ -2883,7 +2914,7 @@ macro_rules! split_io {
             Ok(x) => Ok(x),
             Err(x) => match x {
                 e @ crate::logging::IOErrorGroup::IO(_, _) => {
-                    return Err(e.map(Into::into));
+                    return Err(type_families::Functor::fmap(e, Into::into));
                 }
                 crate::logging::IOErrorGroup::Pure(e) => Err(e),
             },
@@ -2892,6 +2923,19 @@ macro_rules! split_io {
 }
 
 pub(crate) use split_io;
+
+macro_rules! split_log {
+    ($x:expr) => {
+        match $x {
+            crate::logging::LogResult::Succ(x) => x,
+            crate::logging::LogResult::Fail(x) => {
+                return crate::logging::LogResult::Fail(x);
+            }
+        }
+    };
+}
+
+pub(crate) use split_log;
 
 /// Lift an IO error into a LogResult with an `IOErrorGroup`.
 ///

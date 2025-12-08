@@ -155,6 +155,13 @@ restriction of log scaling to integer data only. Note that ASCII values are not
 counted as integer values here despite being processed as 64-bit integers in
 `fireflow`.
 
+### *$PnD*
+
+For linear displays, the lower bound should be less than the upper bound. For
+logarithmic displays, both decades and offsets should be positive floats. The
+standards do not enforce this (although these restrictions are implied);
+however, `fireflow` will enforce these.
+
 ### *$PnL*, *$PnO*, and *$PnV*
 
 These keywords are specified to be written as integers in some/all FCS versions.
@@ -341,5 +348,4 @@ since they can be addressed using "large" offsets.
 
 ## Other unsupported features
 
-* Multiple datasets, although this is planned
 * cyclic redundancy check (CRC)

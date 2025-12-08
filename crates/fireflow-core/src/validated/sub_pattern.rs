@@ -6,7 +6,7 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::DisplayAsPyErr;
 
-/// Pattern to match a sed-like substitution operation.
+/// Pattern to match a string and apply a sed-like substitution operation.
 #[derive(Clone)]
 pub struct SubPattern {
     from: Regex,
@@ -81,7 +81,7 @@ impl SubPattern {
     }
 }
 
-/// Error when parsing subpattern for configuration
+/// Error when parsing [`SubPattern`] from string for configuration
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -145,24 +145,25 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::PatternError;
+    use crate::python::ConfigError;
 
     use super::{SubPattern, SubPatterns};
 
     use pyo3::prelude::*;
     use regex::Regex;
+    use std::collections::HashMap;
 
     impl<'py> FromPyObject<'py> for SubPattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (r, to, global): (String, String, bool) = ob.extract()?;
             let from = r
                 .parse::<Regex>()
-                .map_err(|e| PatternError::new_err(e.to_string()))?;
+                .map_err(|e| ConfigError::new_err(e.to_string()))?;
             Ok(Self::try_new(from, to, global)?)
         }
     }
 
-    type _SubPattern = Vec<(String, SubPattern)>;
+    type _SubPattern = HashMap<String, SubPattern>;
 
     // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
     // where the first member is literal strings and the second is regex patterns

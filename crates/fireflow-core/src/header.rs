@@ -1,36 +1,40 @@
-use crate::config::{HeaderConfigInner, ReadState};
+//! Reading and writing the HEADER segment
+
+use crate::config::{
+    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadState,
+};
+use crate::core::Other;
 use crate::logging::{
-    DeferredErrors, DeferredIter as _, IOErrorGroup, IOGroupResult, LogResult, ResultExt, split_io,
+    DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
+    ResultExt, split_io,
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    OtherSegment, OtherSegment20, OtherSegmentError, PrimarySegmentError, PrimaryTextSegment,
-    Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
     TEXTSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::type_families::ApplyOnce as _;
+use crate::validated::ascii_range::OtherWidth;
 use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflow, UintSpacePad20, UintZeroPad20,
+    HeaderString, Uint8DigitOverflowError, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::keys::Key as _;
 use crate::validated::textdelim::TEXTDelim;
 
-use super::core::Other;
+use type_families::ApplyOnce as _;
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use num_traits::identities::Zero;
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
+use std::str::FromStr;
 use thiserror::Error;
-
-use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Write};
-use std::str;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -98,30 +102,58 @@ impl<T> HeaderSegments<T> {
     where
         T: HeaderString + Zero,
     {
-        // ASSUME this is a total of 58 bytes long (sans OTHER)
-        for s in [
+        let towrite = [
             version.to_string(),           // 6 bytes
             "    ".into(),                 // 4 bytes
             self.text.header_string(),     // 16 bytes
             self.data.header_string(),     // 16 bytes
             self.analysis.header_string(), // 16 bytes
-        ]
-        .into_iter()
-        .chain(self.other.iter().map(Segment::header_string))
+        ];
+        debug_assert!(
+            towrite.iter().join("").len() == 58,
+            "HEADER (without OTHER) should be 58 bytes"
+        );
+        for s in towrite
+            .into_iter()
+            .chain(self.other.iter().map(Segment::header_string))
         {
             h.write_all(s.as_bytes())?;
         }
         Ok(())
     }
 
+    /// Ensure that TEXT segment does not start in HEADER and does not overlap.
+    pub(crate) fn validate_text<I>(
+        &self,
+        s: &TEXTSegment<I>,
+        w: OtherWidth,
+    ) -> DeferredErrors<Option<GenericSegment>, HeaderValidationError>
+    where
+        I: HasRegion,
+        T: HeaderString,
+    {
+        let contains_res = self
+            .contains_text_segment(s, w)
+            .map_err(HeaderValidationError::from)
+            .into_deferred_nowarn();
+        let overlap_res = self
+            .overlaps_with(s)
+            .map_errors(HeaderValidationError::from);
+        contains_res.lift_f2_once(overlap_res, |q, _| q)
+    }
+
     /// Check if TEXT segment starts within HEADER
-    pub(crate) fn contains_text_segment<I>(&self, s: &TEXTSegment<I>) -> Result<(), InHeaderError>
+    pub(crate) fn contains_text_segment<I>(
+        &self,
+        s: &TEXTSegment<I>,
+        w: OtherWidth,
+    ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         I: HasRegion,
         T: HeaderString,
     {
         s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
+            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
     }
 
     /// Check if TEXT segment overlaps with any in HEADER.
@@ -130,7 +162,7 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn overlaps_with<I>(
         &self,
         s: &TEXTSegment<I>,
-    ) -> DeferredErrors<(), SegmentOverlapError>
+    ) -> DeferredErrors<Option<GenericSegment>, SegmentOverlapError>
     where
         I: HasRegion,
         T: Copy + Into<u64>,
@@ -139,14 +171,14 @@ impl<T> HeaderSegments<T> {
             self.as_generics()
                 .map(|x| x.overlaps(&q).into_log())
                 .mappend_def()
-                .set_deferred_value(())
+                .set_deferred_value(Some(q))
         } else {
-            LogResult::new_ok(())
+            LogResult::new_ok(None)
         }
     }
 
     /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self) -> DeferredErrors<(), HeaderValidationError>
+    fn validate(&self, w: OtherWidth) -> DeferredErrors<(), HeaderValidationError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
@@ -154,27 +186,34 @@ impl<T> HeaderSegments<T> {
             .overlapping_segments()
             .map_errors(HeaderValidationError::from);
         let y = self
-            .contains_header_segments()
+            .contains_header_segments(w)
             .map_errors(HeaderValidationError::from);
         x.lift_f2_once(y, |(), ()| ())
     }
 
-    fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError>
+    fn contains_header_segments(&self, w: OtherWidth) -> DeferredErrors<(), InHeaderError>
     where
         T: Copy + Into<u64> + HeaderString,
     {
-        let t = self.contains_header_segment(&self.text);
-        let d = self.contains_header_segment(&self.data);
-        let a = self.contains_header_segment(&self.analysis);
-        let os = self.other.iter().map(|o| self.contains_header_segment(o));
+        let t = self.contains_header_segment(&self.text, w);
+        let d = self.contains_header_segment(&self.data, w);
+        let a = self.contains_header_segment(&self.analysis, w);
+        let os = self
+            .other
+            .iter()
+            .map(|o| self.contains_header_segment(o, w));
         [t, d, a]
             .into_iter()
             .chain(os)
-            .map(ResultExt::into_log)
+            .map(ResultExt::into_deferred_nowarn)
             .mappend_def_void()
     }
 
-    fn contains_header_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Result<(), InHeaderError>
+    fn contains_header_segment<I, S, T0>(
+        &self,
+        s: &Segment<I, S, T0>,
+        w: OtherWidth,
+    ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         T: HeaderString,
         I: HasRegion,
@@ -182,17 +221,21 @@ impl<T> HeaderSegments<T> {
         T0: Into<u64> + Copy,
     {
         s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
+            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
     }
 
-    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError>
+    fn contains_segment(
+        &self,
+        s: GenericSegment,
+        w: OtherWidth,
+    ) -> Result<GenericSegment, InHeaderError>
     where
         T: HeaderString,
     {
-        if s.begin < self.nbytes() {
+        if s.begin < self.nbytes(w) {
             Err(InHeaderError(s))
         } else {
-            Ok(())
+            Ok(s)
         }
     }
 
@@ -204,11 +247,11 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64
+    fn nbytes(&self, w: OtherWidth) -> u64
     where
         T: HeaderString,
     {
-        HeaderKeywordsToWrite::<T>::header_len(self.other.len())
+        HeaderKeywordsToWrite::<T>::header_len(self.other.len(), u8::from(w))
     }
 
     fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
@@ -248,9 +291,10 @@ impl Header {
         st: &ReadState<C>,
     ) -> IOGroupResult<Self, HeaderError, ()>
     where
-        C: AsRef<HeaderConfigInner>,
-        R: Read,
+        C: AsRef<ReadHeaderInnerConfig>,
+        R: Read + Seek,
     {
+        h.seek(SeekFrom::Start(st.dataset_offset.0))?;
         let (version, text, data, analysis) = h_read_required_header(h, st)?;
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
@@ -259,13 +303,14 @@ impl Header {
         } else {
             Ok(vec![])
         };
+        let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
             .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
             .ungroup()
             .map_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
                 hdr.segments
-                    .validate()
+                    .validate(conf.other_width)
                     .map_errors(HeaderError::from)
                     .map_ok_value(|()| hdr)
             })
@@ -289,56 +334,91 @@ fn h_read_required_header<C, R>(
     (),
 >
 where
-    R: Read,
-    C: AsRef<HeaderConfigInner>,
+    R: Read + Seek,
+    C: AsRef<ReadHeaderInnerConfig>,
 {
     let conf = &st.conf.as_ref();
     let text_cor = conf.text_correction;
     let data_cor = conf.data_correction;
     let anal_cor = conf.analysis_correction;
 
-    let vers_res = split_io!(Version::h_read(h))
+    let vers_res = split_io!(Version::h_read(h, st))
         .ungroup()
         .map_errors(HeaderError::from);
-    let space_res = split_io!(h_read_spaces(h))
+    let space_res = split_io!(h_read_spaces(h, st))
         .ungroup()
         .map_errors(HeaderError::from);
 
-    let text_res = split_io!(HeaderSegment::h_read_primary(h, false, text_cor, st)).ungroup();
-    let data_res = split_io!(HeaderSegment::h_read_primary(h, true, data_cor, st)).ungroup();
-    let anal_res = split_io!(HeaderSegment::h_read_primary(h, true, anal_cor, st)).ungroup();
+    let (version, ()) = vers_res
+        .zip_commutative(space_res)
+        .group()
+        .resolve_nowarn()
+        .map_err(IOErrorGroup::Pure)?;
 
-    let offset_res = text_res
-        .zip3_commutative(data_res, anal_res)
-        .map_errors(HeaderError::from);
-    vers_res
-        .zip3_commutative(space_res, offset_res)
-        .map_ok_value(|(version, (), (text, data, analysis))| (version, text, data, analysis))
+    let text_res = HeaderSegment::h_read_primary(h, false, text_cor, version, st);
+    let data_res = HeaderSegment::h_read_primary(h, true, data_cor, version, st);
+    let anal_res = HeaderSegment::h_read_primary(h, true, anal_cor, version, st);
+
+    let pure_text_res = split_io!(text_res).ungroup();
+    let pure_data_res = split_io!(data_res).ungroup();
+    let pure_anal_res = split_io!(anal_res).ungroup();
+
+    pure_text_res
+        .zip3_commutative(pure_data_res, pure_anal_res)
+        .map_errors(HeaderError::from)
         .group()
         .resolve_nowarn()
         .map_err(IOErrorGroup::Pure)
+        .map(|(t, d, a)| (version, t, d, a))
 }
 
-fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<(), HeaderSpacesError, ()> {
+fn h_read_spaces<R, C>(
+    h: &mut BufReader<R>,
+    st: &ReadState<C>,
+) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
+where
+    R: Read + Seek,
+{
+    let remaining = st.remaining_bytes(h)?;
+    if remaining < 4 {
+        let e = HeaderSpacesNoBytesError(remaining).into();
+        return Err(IOAnonErrorGroup::new_pure_one(e));
+    }
     let mut buf = [0_u8; 4];
     h.read_exact(&mut buf)?;
     if buf.iter().all(|x| *x == 32) {
         Ok(())
     } else {
-        Err(IOErrorGroup::new_pure_one(HeaderSpacesError))
+        Err(IOAnonErrorGroup::new_pure_one(
+            HeaderSpacesFormatError.into(),
+        ))
     }
 }
 
 impl Version {
-    fn h_read<R: Read>(h: &mut BufReader<R>) -> IOGroupResult<Self, VersionError, ()> {
+    fn h_read<R, C>(
+        h: &mut BufReader<R>,
+        st: &ReadState<C>,
+    ) -> IOGroupResult<Self, VersionError, ()>
+    where
+        R: Read + Seek,
+    {
+        let remaining = st.remaining_bytes(h)?;
+        if remaining < 6 {
+            let e = VersionNoBytesError(remaining).into();
+            return Err(IOAnonErrorGroup::new_pure_one(e));
+        }
         let mut buf = [0; 6];
         h.read_exact(&mut buf)?;
         if buf.is_ascii() {
             // SAFETY: we just checked that all bytes are ASCII
             let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse().map_err(IOErrorGroup::new_pure_one)
+            s.parse()
+                .map_err(VersionError::from)
+                .map_err(IOErrorGroup::new_pure_one)
         } else {
-            Err(IOErrorGroup::new_pure_one(VersionError(buf.to_vec())))
+            let e = VersionNonUtf8Error(buf.to_vec());
+            Err(IOErrorGroup::new_pure_one(e.into()))
         }
     }
 
@@ -385,8 +465,8 @@ impl Version {
     }
 }
 
-impl str::FromStr for Version {
-    type Err = VersionError;
+impl FromStr for Version {
+    type Err = VersionFormatError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -394,7 +474,7 @@ impl str::FromStr for Version {
             "FCS3.0" => Ok(Self::FCS3_0),
             "FCS3.1" => Ok(Self::FCS3_1),
             "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionError(s.as_bytes().to_vec())),
+            _ => Err(VersionFormatError(s.to_owned())),
         }
     }
 }
@@ -403,11 +483,18 @@ impl str::FromStr for Version {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
-    Primary(PrimarySegmentError),
-    Other(OtherSegmentError),
+    Segment(HeaderSegmentError),
     Version(VersionError),
     Validation(HeaderValidationError),
     Space(HeaderSpacesError),
+}
+
+/// Error when parsing spaces after FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum HeaderSpacesError {
+    Format(HeaderSpacesFormatError),
+    Bytes(HeaderSpacesNoBytesError),
 }
 
 /// Error when version is not follow by proper number of spaces in HEADER
@@ -415,7 +502,14 @@ pub enum HeaderError {
 #[error("version must be followed by 4 spaces")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct HeaderSpacesError;
+pub struct HeaderSpacesFormatError;
+
+/// Error when spaces could not be read because not enough bytes were present
+#[derive(Debug, Error)]
+#[error("needed 4 bytes to read spaces after FCS version, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct HeaderSpacesNoBytesError(u64);
 
 /// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error)]
@@ -432,31 +526,42 @@ pub enum HeaderValidationError {
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
-/// Error when parsing FCS version
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct VersionError(Vec<u8>);
-
-impl fmt::Display for VersionError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if let Ok(s) = str::from_utf8(&self.0) {
-            write!(f, "'{s}' is not a valid or supported FCS version")
-        } else {
-            write!(
-                f,
-                "could not read FCS version, got bytes [{}]",
-                self.0.iter().join(",")
-            )
-        }
-    }
+/// Error when validating segments in HEADER
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum VersionError {
+    Format(VersionFormatError),
+    NonUtf8(VersionNonUtf8Error),
+    Bytes(VersionNoBytesError),
 }
 
+/// Error when parsing FCS version
+#[derive(Debug, Error)]
+#[error("'{0}' is not a valid or supported FCS version")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct VersionFormatError(String);
+
+/// Error when parsing FCS version
+#[derive(Debug, Error)]
+#[error("invalid bytes found when parsing version: {}", self.0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct VersionNonUtf8Error(Vec<u8>);
+
+/// Error when not enough bytes to parse version
+#[derive(Debug, Error)]
+#[error("needed 6 bytes to parse FCS version, got {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct VersionNoBytesError(u64);
+
+#[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: HeaderSegments<T>,
     pub(crate) primary: KeywordsWriter,
     pub(crate) supplemental: KeywordsWriter,
-    pub(crate) _nextdata: Nextdata,
+    pub(crate) nextdata: Nextdata,
 }
 
 impl<T> HeaderKeywordsToWrite<T> {
@@ -467,32 +572,33 @@ impl<T> HeaderKeywordsToWrite<T> {
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
-        has_nextdata: bool,
-    ) -> Result<Self, Uint8DigitOverflow>
+        has_nextdata: AppendableFlag,
+    ) -> Result<Self, Uint8DigitOverflowError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
-        let text_begin = Self::header_len(other_lens.len());
+        let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
+        let dso = DatasetOffset(0);
 
         // +1 at end accounts for first delimiter
         let text_len: u64 =
-            raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
-        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
+            flat_keywords_length(&req[..]) + flat_keywords_length(&opt[..]) + nextdata_len() + 1;
+        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
-        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
+        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens, dso)?;
 
-        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
+        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
 
-        let analysis_begin = data_seg.try_next_byte().map_or(text_begin, u64::from);
-        let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
+        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
+        let analysis_seg =
+            HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len, dso)?;
 
-        let nextdata = Nextdata(if has_nextdata {
-            UintZeroPad20(
-                analysis_seg
-                    .try_next_byte()
-                    .map_or(analysis_begin, u64::from),
-            )
+        let nextdata = Nextdata(if has_nextdata.is_set() {
+            let n = analysis_seg
+                .try_next_byte()
+                .map_or(analysis_begin, u64::from);
+            UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
         });
@@ -506,12 +612,12 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
 
-        Ok(Self {
+        Ok(Self::new(
             header,
             primary,
-            supplemental: KeywordsWriter::default(),
-            _nextdata: nextdata,
-        })
+            KeywordsWriter::default(),
+            nextdata,
+        ))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
@@ -524,22 +630,23 @@ impl<T> HeaderKeywordsToWrite<T> {
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
-        has_nextdata: bool,
-    ) -> Result<Self, Uint8DigitOverflow>
+        has_nextdata: AppendableFlag,
+    ) -> Result<Self, Uint8DigitOverflowError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflow> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
-        let prim_text_begin = Self::header_len(other_lens.len());
+        let dso = DatasetOffset(0);
+        let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        let nooffset_req_text_len = raw_keywords_length(&req[..]);
-        let opt_text_len = raw_keywords_length(&opt[..]);
+        let nooffset_req_text_len = flat_keywords_length(&req[..]);
+        let opt_text_len = flat_keywords_length(&opt[..]);
         // +1 accounts for first delimiter
         let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
         let supp_text_len = opt_text_len + 1;
         let all_text_len = opt_text_len + nosupp_text_len;
 
         let make_text_seg = |len| {
-            PrimaryTextSegment::try_new_with_len(prim_text_begin, len).map(|seg| {
+            PrimaryTextSegment::try_new_with_len(prim_text_begin, len, dso).map(|seg| {
                 let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
                 (seg, other_begin)
             })
@@ -550,7 +657,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let prim_text_res = make_text_seg(all_text_len);
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
-                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
+                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens, dso)?;
                 (
                     prim_text_seg,
                     other_segs,
@@ -559,29 +666,29 @@ impl<T> HeaderKeywordsToWrite<T> {
                 )
             } else {
                 let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
-                let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
+                let (other_segs, supp_text_begin) =
+                    Self::other_segments(other_begin, other_lens, dso)?;
                 let supp_text_seg =
-                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
+                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len, dso);
                 let data_begin = supp_text_seg
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
             };
 
-        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
+        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len, dso);
 
         let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
+        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len, dso);
 
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if has_nextdata {
-            UintZeroPad20(
-                analysis_seg
-                    .try_next_byte()
-                    .map_or(analysis_begin, u64::from),
-            )
+        let nextdata = Nextdata(if has_nextdata.is_set() {
+            let n = analysis_seg
+                .try_next_byte()
+                .map_or(analysis_begin, u64::from);
+            UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
         });
@@ -602,19 +709,14 @@ impl<T> HeaderKeywordsToWrite<T> {
             (all_req.collect(), opt)
         };
 
-        let header = HeaderSegments {
-            text: prim_text_seg,
-            analysis: h_analysis_seg,
-            data: h_data_seg,
-            other: other_segs,
-        };
+        let header = HeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
 
-        Ok(Self {
+        Ok(Self::new(
             header,
-            primary: KeywordsWriter(primary),
-            supplemental: KeywordsWriter(supplemental),
-            _nextdata: nextdata,
-        })
+            KeywordsWriter(primary),
+            KeywordsWriter(supplemental),
+            nextdata,
+        ))
     }
 
     pub(crate) fn h_write<W: Write>(
@@ -645,25 +747,20 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(())
     }
 
-    fn header_len(other_n: usize) -> u64
+    fn header_len(other_n: usize, w: u8) -> u64
     where
         T: HeaderString,
     {
-        u64::from(HEADER_LEN) + Self::other_header_len(other_n)
-    }
-
-    fn other_header_len(other_n: usize) -> u64
-    where
-        T: HeaderString,
-    {
-        let n = u64::try_from(other_n).expect("OTHER segment count exceeds 2^64");
-        n * u64::from(T::WIDTH) * 2
+        let n = u64::try_from(other_n).unwrap();
+        let o = n * u64::from(w) * 2;
+        u64::from(HEADER_LEN) + o
     }
 
     #[allow(clippy::type_complexity)]
     fn other_segments(
         begin: u64,
         other_lens: &[u64],
+        offset: DatasetOffset,
     ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
     where
         T: Copy + TryFrom<u64> + Into<u64>,
@@ -671,7 +768,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let ret = other_lens
             .iter()
             .scan(begin, |b, &length| {
-                let s = OtherSegment::try_new_with_len(*b, length);
+                let s = OtherSegment::try_new_with_len(*b, length, offset);
                 *b += length;
                 Some(s)
             })
@@ -699,7 +796,7 @@ impl KeywordsWriter {
     }
 }
 
-fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
+fn flat_keywords_length(ks: &[(String, String)]) -> u64 {
     let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
     u64::try_from(n).expect("length of TEXT exceeds 2^64")
 }

@@ -25,11 +25,11 @@ macro_rules! impl_newtype_try_from {
 
 pub(crate) use impl_newtype_try_from;
 
-macro_rules! def_group {
+macro_rules! def_summary {
     ($failname:ident, $msg:expr) => {
         // make these pub no matter what since they will be in public error
         // interfaces
-        #[derive(Default, Debug)]
+        #[derive(Default, Debug, Clone, Copy)]
         pub struct $failname;
 
         impl std::fmt::Display for $failname {
@@ -40,4 +40,4 @@ macro_rules! def_group {
     };
 }
 
-pub(crate) use def_group;
+pub(crate) use def_summary;

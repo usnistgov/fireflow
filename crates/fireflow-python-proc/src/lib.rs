@@ -28,13 +28,15 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let conf_path = config_path("ReadHeaderConfig");
 
-    let (conf_inner_path, args, inner_args) = DocArgParam::new_header_config_params();
+    let (conf_inner_path, args, inner_args) = DocArgParam::new_read_header_config_params();
 
     let exc = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("if *HEADER* segment is unparsable");
 
     let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
-        .args(once(DocArg::new_path_param(true)).chain(args))
+        .arg(DocArg::new_path_param(true))
+        .args(args)
+        .arg(DocArg::new_dataset_offset_param())
         .returns(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc]));
 
     let fun_args = doc.fun_args();
@@ -46,48 +48,85 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
-            Ok(#fun_path(&path, &conf)?.into())
+            Ok(#fun_path(&path, dataset_offset, &conf)?.into())
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_one_path = &parsed.fun_singular;
+    let fun_many_path = &parsed.fun_plural;
 
-    let conf_path = config_path("ReadRawTEXTConfig");
+    let conf_path = config_path("ReadFlatTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let skip_arg = DocArg::new_skip_param("Number of datasets to skip");
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+
+    let conf_args: Vec<_> = header_args
+        .into_iter()
+        .chain(flat_args)
+        .chain(shared_args)
+        .collect();
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are not parsable");
-
     let exc1 = PyException::new_non_ascii();
+    let xs = [exc0, exc1];
 
-    let doc = DocString::new_fun("Read *HEADER* and *TEXT* as key/value pairs from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawTEXTOutput")).exc([exc0, exc1]));
+    let ret_pt = PyClass::new_py(["api"], "FlatTEXTOutput");
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let one_doc = DocString::new_fun("Read *HEADER* and *TEXT* from first dataset in FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(ret_pt.clone()).exc(xs.clone()));
+
+    let many_doc =
+        DocString::new_fun("Read *HEADER* and *TEXT* from multiple datasets in FCS file.")
+            .arg(path_arg)
+            .arg(skip_arg)
+            .arg(limit_arg)
+            .args(conf_args)
+            .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
+
+    let one_fun_args = one_doc.fun_args();
+    let one_ret_path = one_doc.ret_path();
+
+    let many_fun_args = many_doc.fun_args();
+    let many_ret_path = many_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { flat, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_text(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, shared };
-            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
+        pub fn fcs_read_flat_text(#one_fun_args) -> #one_ret_path {
+            #conf_q
+            Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        }
+
+        #[pyfunction]
+        #many_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_flat_texts(#many_fun_args) -> #many_ret_path {
+            #conf_q
+            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(Into::into))
         }
     }
     .into()
@@ -95,17 +134,36 @@ pub fn def_fcs_read_raw_text(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_one_path = &parsed.fun_singular;
+    let fun_many_path = &parsed.fun_plural;
 
     let conf_path = config_path("ReadStdTEXTConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let conf_args = header_args
+        .into_iter()
+        .chain(flat_args)
+        .chain(std_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(shared_args);
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are unparsable");
@@ -118,57 +176,92 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let doc = DocString::new_fun("Read *HEADER* and standardized *TEXT* from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(std_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(shared_args)
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyUnion::new_anycoretext())
-                    .add(PyClass::new_py(["api"], "StdTEXTOutput")),
-            )
-            .exc(xs),
-        );
+    let pt_ret =
+        PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let one_doc = DocString::new_fun("Read standardized *TEXT* from first dataset in FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+
+    let many_doc =
+        DocString::new_fun("Read standardized *TEXT* from multiple datasets in FCS file.")
+            .arg(path_arg)
+            .arg(skip_arg)
+            .arg(limit_arg)
+            .args(conf_args)
+            .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let one_fun_args = one_doc.fun_args();
+    let one_ret_path = one_doc.ret_path();
+    let many_fun_args = many_doc.fun_args();
+    let many_ret_path = many_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
+        let standard = #std_conf { #(#std_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { flat, standard, offsets, layout, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_text(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let standard = #std_conf { #(#std_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, standard, offsets, layout, shared };
-            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
+        pub fn fcs_read_std_text(#one_fun_args) -> #one_ret_path {
+            #conf_q
+            let (core, data) = #fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
+        }
+
+        #[pyfunction]
+        #many_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_texts(#many_fun_args) -> #many_ret_path {
+            #conf_q
+            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_one_path = &parsed.fun_singular;
+    let fun_many_path = &parsed.fun_plural;
 
-    let conf_path = config_path("ReadRawDatasetConfig");
+    let conf_path = config_path("ReadFlatDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+
+    let conf_args = header_args
+        .into_iter()
+        .chain(flat_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args);
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -184,32 +277,52 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let doc = DocString::new_fun("Read raw dataset from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(data_args)
-        .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetOutput")).exc(xs));
+    let pt_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let one_doc = DocString::new_fun("Read one dataset from FCS file in flat mode.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+
+    let many_doc = DocString::new_fun("Read multiple datasets from FCS file in flat mode.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let one_fun_args = one_doc.fun_args();
+    let one_ret_path = one_doc.ret_path();
+    let many_fun_args = many_doc.fun_args();
+    let many_ret_path = many_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let data = #data_conf { #(#data_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { flat, layout, offsets, data, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let data = #data_conf { #(#data_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, layout, offsets, data, shared };
-            Ok(#fun_path(&path, &conf).py_resolve_commutative()?.into())
+        pub fn fcs_read_flat_dataset(#one_fun_args) -> #one_ret_path {
+            #conf_q
+            Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+        }
+
+        #[pyfunction]
+        #many_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_flat_datasets(#many_fun_args) -> #many_ret_path {
+            #conf_q
+            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(Into::into))
         }
     }
     .into()
@@ -217,18 +330,38 @@ pub fn def_fcs_read_raw_dataset(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
+    let parsed = parse_macro_input!(input as ReadFunArgs);
+    let fun_one_path = &parsed.fun_singular;
+    let fun_many_path = &parsed.fun_plural;
 
     let conf_path = config_path("ReadStdDatasetConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let (header_conf, header_args, header_recs) = DocArgParam::new_header_config_params();
-    let (raw_conf, raw_args, raw_recs) = DocArgParam::new_raw_config_params();
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+
+    let conf_args = header_args
+        .into_iter()
+        .chain(flat_args)
+        .chain(std_args)
+        .chain(offsets_args)
+        .chain(layout_args)
+        .chain(data_args)
+        .chain(shared_args);
+
+    let skip_arg = DocArg::new_skip_param(
+        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
+         datasets will still be read to obtain *$NEXTDATA* for the next \
+         dataset in the file.",
+    );
+    let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
@@ -244,51 +377,65 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5, exc6];
 
-    let doc = DocString::new_fun("Read standardized dataset from FCS file.")
-        .arg(path_arg)
-        .args(header_args)
-        .args(raw_args)
-        .args(std_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(data_args)
-        .args(shared_args)
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyUnion::new_anycoredataset())
-                    .add(PyClass::new_py(["api"], "StdDatasetOutput")),
-            )
-            .exc(xs),
-        );
+    let pt_ret = PyTuple::new1(PyUnion::new_anycoredataset())
+        .add(PyClass::new_py(["api"], "StdDatasetOutput"));
 
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
+    let one_doc = DocString::new_fun("Read one standardized dataset from FCS file.")
+        .arg(path_arg.clone())
+        .args(conf_args.clone())
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+
+    let many_doc = DocString::new_fun("Read multiple standardized datasets from FCS file.")
+        .arg(path_arg)
+        .arg(skip_arg)
+        .arg(limit_arg)
+        .args(conf_args)
+        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+
+    let one_fun_args = one_doc.fun_args();
+    let one_ret_path = one_doc.ret_path();
+    let many_fun_args = many_doc.fun_args();
+    let many_ret_path = many_doc.ret_path();
+
+    let conf_q = quote! {
+        let header = #header_conf { #(#header_recs),* };
+        let flat = #flat_conf { header, #(#flat_recs),* };
+        let standard = #std_conf { #(#std_recs),* };
+        let offsets = #offsets_conf { #(#offsets_recs),* };
+        let layout = #layout_conf { #(#layout_recs),* };
+        let data = #data_conf { #(#data_recs),* };
+        let shared = #shared_conf { #(#shared_recs),* };
+        let conf = #conf_path { flat, standard, offsets, layout, data, shared };
+    };
 
     quote! {
         #[pyfunction]
-        #doc
+        #one_doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_dataset(#fun_args) -> #ret_path {
-            let header = #header_conf { #(#header_recs),* };
-            let raw = #raw_conf { header, #(#raw_recs),* };
-            let standard = #std_conf { #(#std_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let data = #data_conf { #(#data_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { raw, standard, offsets, layout, data, shared };
-            let (core, data) = #fun_path(&path, &conf).py_resolve_commutative()?;
+        pub fn fcs_read_std_dataset(#one_fun_args) -> #one_ret_path {
+            #conf_q
+            let (core, data) = #fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
+        }
+
+        #[pyfunction]
+        #many_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_read_std_datasets(#many_fun_args) -> #many_ret_path {
+            #conf_q
+            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
         }
     }
     .into()
 }
 
 #[proc_macro]
-pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream {
+pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
 
-    let conf_path = config_path("ReadRawDatasetFromKeywordsConfig");
+    let conf_path = config_path("ReadFlatDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
     let version_arg = DocArg::new_version_param();
@@ -296,10 +443,12 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
     let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
     let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_arg = DocArg::new_other_segs_param(true);
+    let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let (offsets_conf, offsets_args, offsets_recs) =
+        DocArgParam::new_read_offsets_config_params(None);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 =
@@ -315,7 +464,7 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
 
     let xs = [exc0, exc1, exc2, exc3, exc4];
 
-    let doc = DocString::new_fun("Read raw dataset from FCS file from keywords.")
+    let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
         .arg(version_arg)
         .arg(std_arg)
@@ -326,7 +475,8 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "RawDatasetWithKwsOutput")).exc(xs));
+        .arg(dataset_offset_arg)
+        .returns(DocReturn::new(PyClass::new_py(["api"], "FlatDatasetWithKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -335,94 +485,16 @@ pub fn def_fcs_read_raw_dataset_with_keywords(input: TokenStream) -> TokenStream
         #[pyfunction]
         #doc
         #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_raw_dataset_with_keywords(#fun_args) -> #ret_path {
+        pub fn fcs_read_flat_dataset_with_keywords(#fun_args) -> #ret_path {
             let offsets = #offsets_conf { #(#offsets_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offsets, layout, data, shared };
             let ret = #fun_path(
-                &path, version, &std, data_seg, analysis_seg, &other_segs[..], &conf
+                &path, version, &std, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn def_fcs_read_std_dataset_with_keywords(input: TokenStream) -> TokenStream {
-    let fun_path = parse_macro_input!(input as Path);
-
-    let conf_path = config_path("ReadStdDatasetFromKeywordsConfig");
-
-    let path_arg = DocArg::new_path_param(true);
-    let version_arg = DocArg::new_version_param();
-    let std_arg = DocArg::new_std_keywords_param();
-    let nonstd_arg = DocArg::new_nonstd_keywords_param();
-    let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
-    let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
-    let other_arg = DocArg::new_other_segs_param(true);
-
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(None);
-    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_offsets_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_layout_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
-    let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
-
-    let exc0 =
-        PyException::new_pyreflow(&PyreflowError::FileLayout).desc("If *DATA* is unparsable");
-    let exc1 = PyException::new_deprecated();
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
-        "If keywords are incompatible with indicated layout of *DATA* or \
-         if keywords that are referenced by other keywords do not exist",
-    );
-    let exc4 = PyException::new_event_data();
-    let exc5 = PyException::new_extra();
-
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
-
-    let doc = DocString::new_fun("Read standardized dataset from FCS file.")
-        .arg(path_arg)
-        .arg(version_arg)
-        .arg(std_arg)
-        .arg(nonstd_arg)
-        .arg(data_arg)
-        .arg(analysis_arg)
-        .arg(other_arg)
-        .args(std_args)
-        .args(offsets_args)
-        .args(layout_args)
-        .args(data_args)
-        .args(shared_args)
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyUnion::new_anycoredataset())
-                    .add(PyClass::new_py(["api"], "StdDatasetWithKwsOutput")),
-            )
-            .exc(xs),
-        );
-
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
-
-    quote! {
-        #[pyfunction]
-        #doc
-        #[allow(clippy::too_many_arguments)]
-        pub fn fcs_read_std_dataset_with_keywords(#fun_args) -> #ret_path {
-            let kws = fireflow_core::validated::keys::ValidKeywords::new(std, nonstd);
-            let standard = #std_conf { #(#std_recs),* };
-            let offsets = #offsets_conf { #(#offsets_recs),* };
-            let layout = #layout_conf { #(#layout_recs),* };
-            let data = #data_conf { #(#data_recs),* };
-            let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { standard, offsets, layout, data, shared };
-            let (core, data) = #fun_path(
-                &path, version, kws, data_seg, analysis_seg, &other_segs[..], &conf
-            ).py_resolve_commutative()?;
-            Ok((core.into(), data.into()))
         }
     }
     .into()
@@ -509,7 +581,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -536,27 +608,27 @@ pub fn impl_py_raw_text_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
     let text = DocArg::new_ivar_ro(
         "text",
-        PyClass::new_py(["api"], "RawTEXTOutput"),
+        PyClass::new_py(["api"], "FlatTEXTOutput"),
         "Parsed *TEXT* segment.",
         |_, _| quote!(self.0.text.clone().into()),
     );
 
     let dataset = DocArg::new_ivar_ro(
         "dataset",
-        PyClass::new_py(["api"], "RawDatasetWithKwsOutput"),
+        PyClass::new_py(["api"], "FlatDatasetWithKwsOutput"),
         "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
         |_, _| quote!(self.0.dataset.clone().into()),
     );
 
     let args = [text, dataset];
 
-    let doc = DocString::new_class("Parsed raw dataset from FCS file.").args(args);
+    let doc = DocString::new_class("Dataset from FCS file parsed with flat mode.").args(args);
 
     let new = |fun_args| {
         quote! {
@@ -569,7 +641,7 @@ pub fn impl_py_raw_dataset_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -581,7 +653,7 @@ pub fn impl_py_raw_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
     let args = [data, analysis, others, dataset_segs];
-    let doc = DocString::new_class("Dataset from parsing raw *TEXT*.").args(args);
+    let doc = DocString::new_class("Dataset from parsing flat *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
@@ -667,7 +739,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py(["api"], "RawTEXTParseData"),
+        PyClass::new_py(["api"], "FlatTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -699,7 +771,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
 
     let parse = DocArgROIvar::new_ivar_ro(
         "parse",
-        PyClass::new_py(["api"], "RawTEXTParseData"),
+        PyClass::new_py(["api"], "FlatTEXTParseData"),
         "Miscellaneous data when parsing *TEXT*.",
         |_, _| quote!(self.0.parse.clone().into()),
     );
@@ -743,7 +815,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_text_parse_data(input: TokenStream) -> TokenStream {
+pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -820,7 +892,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let fun_name = format_ident!("try_new_{vsu}");
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
-    let meas: AnyDocArg = DocArg::new_measurements_param(version).into();
+    let meas: AnyDocArg = DocArg::new_paired_measurements_param(version).into();
     let layout: AnyDocArg = DocArg::new_layout_ivar(version).into();
     let data: AnyDocArg = DocArg::new_df_ivar().into();
     let analysis: AnyDocArg = DocArg::new_analysis_ivar().into();
@@ -1063,15 +1135,7 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         &t,
         "all_meas_nonstandard_keywords",
         true,
-        |_, _| {
-            quote!(
-                self.0
-                    .get_meas_nonstandard()
-                    .into_iter()
-                    .map(|x| x.clone())
-                    .collect()
-            )
-        },
+        |_, _| quote!(self.0.get_meas_nonstandard().clone().fmap(Clone::clone)),
         |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
     )
     .into()
@@ -1082,33 +1146,29 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let ident = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&ident);
 
-    let make_param = |req: bool, root: bool| {
-        let (x, a) = if req {
-            ("req", "required")
-        } else {
-            ("opt", "non-required")
-        };
-        let (y, b) = if root {
-            ("root", "non-measurement")
-        } else {
-            ("meas", "measurement")
-        };
-        DocArg::new_bool_param(
-            format!("exclude_{x}_{y}"),
-            format!("Do not include {a} {b} keywords."),
-        )
-    };
+    let req_or_opt_path = parse_quote!(fireflow_core::core::IncludeReqOrOpt);
+    let root_or_meas_path = parse_quote!(fireflow_core::core::IncludeRootOrMeas);
+
+    let req_or_opt = DocArg::new_param(
+        "req_or_opt",
+        PyLiteral::new2(["both", "req_only", "opt_only"], req_or_opt_path),
+        "Selects if required, optional, or both keywords should be returned",
+    );
+
+    let root_or_meas = DocArg::new_param(
+        "root_or_meas",
+        PyLiteral::new2(["both", "req_only", "opt_only"], root_or_meas_path),
+        "Selects if required, optional, or both keywords should be returned",
+    );
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para("Each key will be prefixed with *$*.")
         .para(
-            "This will not include *$TOT*, *$NEXTDATA* or any of the \
-             offset keywords since these are not encoded in this class.",
+            "This will not include *$TOT*, *$NEXTDATA*, or any of the \
+             offset keywords since these only matter if the dataset is written.",
         )
-        .args(
-            [(true, true), (false, true), (true, false), (false, false)]
-                .map(|(x, y)| make_param(x, y)),
-        )
+        .arg(req_or_opt)
+        .arg(root_or_meas)
         .returns(DocReturn::new(PyDict::new_keywords()).desc("A list of standard keywords."));
 
     let fun_args = doc.fun_args();
@@ -1161,23 +1221,41 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_segment_overflow(version);
     let exc1 = PyException::new_other_overflow();
 
+    let nextdata = PyInt::new_nextdata();
+    let ret = DocReturn::new(nextdata)
+        .exc([exc0, exc1])
+        .desc("the value of $NEXTDATA as written to the dataset");
+
     let doc = DocString::new_method("Write data to path.")
         .para("Resulting FCS file will include *HEADER* and *TEXT*.")
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
+        .arg(DocArg::new_appendable_param())
+        .arg(DocArg::new_append_param())
+        .returns(ret);
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn write_text(&self, #fun_args) -> PyResult<()> {
-                let f = std::fs::File::options().write(true).create(true).open(path)?;
-                let mut h = std::io::BufWriter::new(f);
-                Ok(self.0.h_write_text(&mut h, delim, big_other)?)
+            fn write_text(&self, #fun_args) -> #ret_path {
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                    delim,
+                    big_other.into(),
+                );
+                let mconf = fireflow_core::config::WriteMultiConfig::new(
+                    appendable.into(),
+                    append.into(),
+                );
+                let conf = fireflow_core::config::WriteMultiTEXTConfig::new(
+                    tconf,
+                    mconf,
+                );
+                Ok(self.0.write_text(&path, &conf)?)
             }
         }
     }
@@ -1192,7 +1270,10 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_segment_overflow(version);
     let exc1 = PyException::new_other_overflow();
 
-    let conv_exc = PyreflowError::DataLoss.fmt_ref();
+    let nextdata = PyInt::new_nextdata();
+    let ret = DocReturn::new(nextdata)
+        .exc([exc0, exc1])
+        .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(
@@ -1202,35 +1283,36 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_bool_param(
-            "skip_conversion_check",
-            format!(
-                "Skip check to ensure that types of the dataframe match the \
-                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-                 perform this check before writing, and raise {conv_exc} on \
-                 failure. If ``True``, raise warnings as file is being \
-                 written. Skipping this is faster since the data needs to be \
-                 traversed twice to perform the conversion check, but may \
-                 result in loss of precision and/or truncation."
-            ),
-        ))
-        .returns(DocReturn::new(PyTuple::default()).exc([exc0, exc1]));
+        .arg(DocArg::new_skip_conversion_check_param())
+        .arg(DocArg::new_appendable_param())
+        .arg(DocArg::new_append_param())
+        .returns(ret);
 
     let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
 
     quote! {
         #[pymethods]
         impl #i {
             #doc
-            fn write_dataset(&self, #fun_args) -> PyResult<()> {
-                let f = std::fs::File::options().write(true).create(true).open(path)?;
-                let mut h = std::io::BufWriter::new(f);
-                let conf = fireflow_core::config::WriteConfig {
+            fn write_dataset(&self, #fun_args) -> #ret_path {
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
-                    skip_conversion_check,
-                    big_other,
-                };
-                self.0.h_write_dataset(&mut h, &conf).py_resolve_commutative()
+                    big_other.into(),
+                );
+                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                    tconf,
+                    skip_conversion_check.into(),
+                );
+                let mconf = fireflow_core::config::WriteMultiConfig::new(
+                    appendable.into(),
+                    append.into(),
+                );
+                let conf = fireflow_core::config::WriteMultiDatasetConfig::new(
+                    dconf,
+                    mconf,
+                );
+                self.0.write_dataset(&path, &conf).py_resolve_commutative()
             }
         }
     }
@@ -1313,15 +1395,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames_maybe",
         true,
-        |_, _| {
-            quote! {
-                self.0
-                    .shortnames_maybe()
-                    .into_iter()
-                    .map(|x| x.cloned())
-                    .collect()
-            }
-        },
+        |_, _| quote!(self.0.shortnames_maybe().fmap(|x| x.cloned())),
         |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).map(|_| ())?)),
     )
     .into()
@@ -1612,21 +1686,32 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
         PyList::new1(PyUnion::new_measurement(version)),
     );
 
-    doc.into_impl_get(&i, "measurements", |_, _| {
-        quote! {
-            // This might seem inefficient since we are cloning
-            // everything, but if we want to map a python lambda
-            // function over the measurements we would need to to do
-            // this anyways, so simply returning a copied list doesn't
-            // lose anything and keeps this API simpler.
-            self.0
-                .measurements()
-                .iter()
-                .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
-                .map(|v| v.bimap_into_once())
-                .collect()
-        }
-    })
+    doc.into_impl_get_set(
+        &i,
+        "measurements",
+        true,
+        |_, _| {
+            quote! {
+                // This might seem inefficient since we are cloning everything,
+                // but if we want to map a python lambda function over the
+                // measurements we would need to to do this anyways, so simply
+                // returning a copied list doesn't lose anything and keeps this
+                // API simpler.
+                self.0
+                    .measurements()
+                    .iter()
+                    .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
+                    .map(|v| v.bimap_into_once())
+                    .collect()
+            }
+        },
+        |n, _| {
+            quote! {
+                let ms = #n.into_iter().map(|m| m.bimap_into_once()).collect();
+                Ok(self.0.set_measurements(ms)?)
+            }
+        },
+    )
     .into()
 }
 
@@ -1708,7 +1793,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
+pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
@@ -1732,9 +1817,9 @@ pub fn impl_core_set_measurements(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
-            fn set_measurements(&mut self, #fun_args) -> PyResult<()> {
+            fn set_named_measurements(&mut self, #fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_measurements(
+                    .set_named_measurements(
                         measurements.into(),
                         allow_shared_names,
                         skip_index_check,
@@ -1809,7 +1894,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_name_param("Name to remove."))
         .returns(
             DocReturn::new(
-                PyTuple::new1(PyInt::new_meas_index()).add(PyUnion::new_measurement(version)),
+                PyTuple::new1(PyInt::new_meas_index())
+                    .add(PyUnion::new_measurement(version))
+                    .add(PyDecimal::new_range()),
             )
             .desc("Index and measurement object.")
             .exc([PyException::new_key().desc("If ``name`` not found")]),
@@ -1818,9 +1905,13 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
         .arg(DocArg::new_index_param("Index to remove."))
         .returns(
-            DocReturn::new(PyTuple::new1(name_pytype).add(PyUnion::new_measurement(version)))
-                .desc("Name and measurement object.")
-                .exc([PyException::new_index().desc("If ``index`` not found")]),
+            DocReturn::new(
+                PyTuple::new1(name_pytype)
+                    .add(PyUnion::new_measurement(version))
+                    .add(PyDecimal::new_range()),
+            )
+            .desc("Name and measurement object.")
+            .exc([PyException::new_index().desc("If ``index`` not found")]),
         );
 
     let name_arg = by_name_doc.fun_args();
@@ -1843,7 +1934,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 Ok(self
                    .0
                    .remove_measurement_by_name(&#name_ident)
-                   .map(|(i, x)| (i, x.bimap_into_once()))?)
+                   .map(|(i, x, r)| (i, x.bimap_into_once(), r))?)
             }
 
             #by_index_doc
@@ -1851,8 +1942,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                let (n, v) = self.0.remove_measurement_by_index(#index_ident)?.unzip();
-                Ok((n, v.bimap_into_once()))
+                let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
+                let (n, v) = p.unzip();
+                Ok((n, v.bimap_into_once(), r))
             }
         }
     }
@@ -2092,9 +2184,9 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let core_conf = config_path("NewCoreTEXTConfig");
 
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
-    let (layout_conf, layout_args, layout_recs) =
-        DocArgParam::new_layout_config_params(Some(version));
+    let v = Some(version);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let other_kws = if version == Version::FCS2_0 {
@@ -2178,14 +2270,13 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("CoreDataset", &ident);
     let pyname = format_ident!("Py{ident}");
 
-    let core_conf = config_path("ReadStdDatasetFromKeywordsConfig");
+    let core_conf = config_path("NewCoreDatasetConfig");
 
-    let (std_conf, std_args, std_recs) = DocArgParam::new_std_config_params(Some(version));
-    let (layout_conf, layout_args, layout_recs) =
-        DocArgParam::new_layout_config_params(Some(version));
-    let (offsets_conf, offsets_args, offsets_recs) =
-        DocArgParam::new_offsets_config_params(Some(version));
-    let (data_conf, data_args, data_recs) = DocArgParam::new_reader_config_params();
+    let v = Some(version);
+    let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
+    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
+    let (offsets_conf, offsets_args, offsets_recs) = DocArgParam::new_read_offsets_config_params(v);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let config_args: Vec<_> = std_args
@@ -2209,6 +2300,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let data_seg_param = DocArg::new_data_seg_param(SegmentSrc::Header);
     let analysis_seg_param = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
     let other_segs_param = DocArg::new_other_segs_param(true);
+    let dataset_offset_param = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_deprecated();
     let exc1 = PyException::new_parse_keyval();
@@ -2229,6 +2321,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .arg(analysis_seg_param)
         .arg(other_segs_param)
         .args(config_args)
+        .arg(dataset_offset_param)
         .returns(
             DocReturn::new(PyTuple::new2([
                 PyClass::new_coredataset(version),
@@ -2275,9 +2368,119 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let conf = #core_conf { standard, layout, offsets, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
-                    &path, kws, data_seg, analysis_seg, &other_segs[..], &conf
+                    &path, kws, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let ident = path.segments.last().unwrap().ident.clone();
+    let version = split_ident_version_checked("CoreTEXT", &ident);
+    let pyname = format_ident!("Py{ident}");
+
+    let path_arg = DocArg::new_path_param(false);
+    let cores_arg = DocArg::new_param(
+        "datasets",
+        PyList::new1(PyClass::new_coretext(version)),
+        "datasets to write",
+    );
+
+    let (conf, args, recs) = DocArgParam::new_write_text_config_params();
+
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
+
+    let xs = [exc0, exc1];
+
+    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+        .desc("the value of *$NEXTDATA* as written in the last dataset")
+        .exc(xs);
+
+    let doc = DocString::new_fun("Write multiple datasets to path.")
+        .para("The resulting file will have *HEADER* and *TEXT* from each object")
+        .arg(path_arg)
+        .arg(cores_arg)
+        .args(args)
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #pyname {
+            #[classmethod]
+            #doc
+            fn write_texts(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
+                let conf = #conf { #(#recs),* };
+                let cs = datasets.fmap(|c| c.0);
+                Ok(#path::write_texts(&path, &cs[..], &conf)?)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let ident = path.segments.last().unwrap().ident.clone();
+    let version = split_ident_version_checked("CoreDataset", &ident);
+    let pyname = format_ident!("Py{ident}");
+
+    let path_arg = DocArg::new_path_param(false);
+    let cores_arg = DocArg::new_param(
+        "datasets",
+        PyList::new1(PyClass::new_coredataset(version)),
+        "datasets to write",
+    );
+
+    let exc0 = PyException::new_segment_overflow(version);
+    let exc1 = PyException::new_other_overflow();
+
+    let xs = [exc0, exc1];
+
+    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+        .desc("the value of *$NEXTDATA* as written in the last dataset if written")
+        .exc(xs);
+
+    let doc = DocString::new_fun("Write multiple datasets to path.")
+        .para(
+            "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
+             *ANALYSIS*, and *OTHER* as they present from this class.",
+        )
+        .arg(path_arg)
+        .arg(cores_arg)
+        .arg(DocArg::new_textdelim_param())
+        .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_skip_conversion_check_param())
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #pyname {
+            #[classmethod]
+            #doc
+            fn write_datasets(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
+                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                    delim,
+                    big_other.into(),
+                );
+                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                    tconf,
+                    skip_conversion_check.into(),
+                );
+                let cs = datasets.fmap(|c| c.0);
+                #path::write_datasets(&path, &cs[..], &dconf).py_resolve_commutative()
             }
         }
     }
@@ -2377,31 +2580,43 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     } else {
         ""
     };
-    let ps = [
-        "This is equivalent to updating all *$PnN* keywords at once.".into(),
-        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}."),
-    ];
-    let doc = DocString::new_method("Set all measurements at once.")
-        .paras(ps)
+    let length_para =
+        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}.");
+
+    let named_doc = DocString::new_method("Set all measurements, names, and layout at once.")
+        .para(length_para.clone())
         .arg(DocArg::new_set_meas_param(version))
-        .arg(param_type_set_layout)
+        .arg(param_type_set_layout.clone())
         .arg(DocArg::new_allow_shared_names_param())
         .arg(DocArg::new_skip_index_check_param());
 
-    let fun_args = doc.fun_args();
+    let unnamed_doc = DocString::new_method("Set all measurements and layout at once.")
+        .para(length_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_layout);
+
+    let named_fun_args = named_doc.fun_args();
+    let unnamed_fun_args = unnamed_doc.fun_args();
 
     quote! {
         #[pymethods]
         impl #i {
-            #doc
-            fn set_measurements_and_layout(&mut self, #fun_args) -> PyResult<()> {
+            #named_doc
+            fn set_named_measurements_and_layout(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_measurements_and_layout(
+                    .set_named_measurements_and_layout(
                         measurements.into(),
                         layout.into(),
                         allow_shared_names,
                         skip_index_check,
                     )?;
+                Ok(ret)
+            }
+
+            #unnamed_doc
+            fn set_measurements_and_layout(&mut self, #unnamed_fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_measurements_and_layout(ms, layout.into())?;
                 Ok(ret)
             }
         }
@@ -2410,19 +2625,74 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
 }
 
 #[proc_macro]
-pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenStream {
+pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
     let param_type_set_df =
         DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
+    let len_para = "Length of ``measurements`` must match number of columns in ``data``.";
 
-    let doc = DocString::new_method("Set measurements and data at once.")
-        .para("Length of ``measurements`` must match number of columns in ``data``.")
+    let named_doc = DocString::new_method("Set measurements, names, and data at once.")
+        .para(len_para)
         .arg(DocArg::new_set_meas_param(version))
-        .arg(param_type_set_df)
+        .arg(param_type_set_df.clone())
         .arg(DocArg::new_allow_shared_names_param())
         .arg(DocArg::new_skip_index_check_param());
+
+    let unnamed_doc = DocString::new_method("Set measurements and data at once.")
+        .para(len_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_df);
+
+    let named_fun_args = named_doc.fun_args();
+    let unnamed_fun_args = unnamed_doc.fun_args();
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #named_doc
+            fn set_named_measurements_and_data(&mut self, #named_fun_args) -> PyResult<()> {
+                let ret = self.0
+                    .set_named_measurements_and_data(
+                        measurements.into(),
+                        data,
+                        allow_shared_names,
+                        skip_index_check,
+                    )?;
+                Ok(ret)
+            }
+
+            #unnamed_doc
+            fn set_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_measurements_and_data(ms, data)?;
+                Ok(ret)
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_checked("PyCoreDataset", &i);
+
+    let layout = DocArg::new_layout_ivar(version);
+
+    let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
+
+    let param_type_set_df =
+        DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
+    let len_para =
+        "Length of ``measurements`` and ``layout`` must match number of columns in ``data``.";
+
+    let doc = DocString::new_method("Set measurements, layout, and data at once.")
+        .para(len_para)
+        .arg(DocArg::new_measurements_param(version))
+        .arg(param_type_set_layout)
+        .arg(param_type_set_df);
 
     let fun_args = doc.fun_args();
 
@@ -2430,14 +2700,9 @@ pub fn impl_coredataset_set_measurements_and_data(input: TokenStream) -> TokenSt
         #[pymethods]
         impl #i {
             #doc
-            fn set_measurements_and_data(&mut self, #fun_args) -> PyResult<()> {
-                let ret = self.0
-                    .set_measurements_and_data(
-                        measurements.into(),
-                        data,
-                        allow_shared_names,
-                        skip_index_check,
-                    )?;
+            fn set_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
+                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ret = self.0.set_measurements_layout_and_data(ms, layout.into(), data)?;
                 Ok(ret)
             }
         }
@@ -3130,7 +3395,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let chars_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_ascii_range_value()),
         "The range for each measurement. Equivalent to *$PnR*. The value of \
          *$PnB* will be derived from these and will be equivalent to the number \
          of digits for each value.",
@@ -3156,13 +3421,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         );
 
     let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
-        quote! {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u64::from(u8::from(x)))
-                .collect()
-        }
+        quote!(self.0.widths().fmap(|x| u64::from(u8::from(x))))
     });
 
     let datatype = make_layout_datatype(&pyname, "A");
@@ -3183,7 +3442,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_ascii_range_value()),
         "The range for each measurement. Equivalent to the *$PnR* keyword. \
          This is not used internally.",
         |_, _| quote!(self.0.as_ref().to_vec()),
@@ -3380,7 +3639,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_int(RsInt::U64)),
+        PyList::new1(PyInt::new_bitmask_value64()),
         "The range of each measurement. Corresponds to the *$PnR* \
          keyword less one. The number of bytes used to encode each \
          measurement (*$PnB*) will be the minimum required to express this \
@@ -3388,7 +3647,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
          will set *$PnR* to ``1024``, and encode values for this measurement as \
          16-bit integers. The values of a measurement will be less than or \
          equal to this value.",
-        |_, _| quote!(self.0.columns().iter().map(|c| u64::from(*c)).collect()),
+        |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
 
     let is_big_param = DocArgROIvar::new_endian_param(4);
@@ -3399,7 +3658,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let rs = ranges.into_iter().map(#bitmask::from).collect();
+                let rs = ranges.fmap(#bitmask::from);
                 #fixed::new(rs, endian).into()
             }
         }
@@ -3467,13 +3726,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     );
 
     doc.into_impl_get(&t, "byte_widths", |_, _| {
-        quote! {
-            self.0
-                .widths()
-                .into_iter()
-                .map(|x| u32::from(u8::from(x)))
-                .collect()
-        }
+        quote!(self.0.widths().fmap(|x| u32::from(u8::from(x)) / 8))
     })
     .into()
 }
@@ -3596,6 +3849,24 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     };
 
     doc.into_impl_class(name, path, new).1.into()
+}
+
+/// Macro args for implementing read functions for both position and multiple datasets
+struct ReadFunArgs {
+    fun_singular: Path,
+    fun_plural: Path,
+}
+
+impl Parse for ReadFunArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let fun_at = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let fun_loop = input.parse::<Path>()?;
+        Ok(Self {
+            fun_singular: fun_at,
+            fun_plural: fun_loop,
+        })
+    }
 }
 
 /// Macro args for implementing new Core* classes
@@ -4736,10 +5007,6 @@ impl PyException {
         Self::new("IndexError")
     }
 
-    fn new_pattern() -> Self {
-        Self::new("~re.PatternError")
-    }
-
     fn new_overflow() -> Self {
         Self::new("OverflowError")
     }
@@ -4781,6 +5048,10 @@ impl PyException {
             "If any keys from *TEXT* contain non-ASCII characters and \
              ``allow_non_ascii_keywords`` is ``False``",
         )
+    }
+
+    fn new_config() -> Self {
+        Self::new_pyreflow(&PyreflowError::Config)
     }
 
     fn new_extra() -> Self {
@@ -5007,9 +5278,19 @@ impl<E> PyInt<E> {
 }
 
 impl<E: From<PyException>> PyInt<E> {
+    fn new_nextdata() -> Self {
+        let p = keyword_path("Nextdata");
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
+    }
+
     fn new_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::MeasIndex);
         Self::new_nonzero_usize().rstype(p).no_exc()
+    }
+
+    fn new_dataset_offset() -> Self {
+        let p = parse_quote!(fireflow_core::config::DatasetOffset);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
     fn new_gate_index() -> Self {
@@ -5033,6 +5314,16 @@ impl<E: From<PyException>> PyInt<E> {
     fn new_int(intkind: RsInt) -> Self {
         let e = PyException::new_overflow().desc(intkind.exc_desc());
         Self::from(intkind).exc(e)
+    }
+
+    fn new_ascii_range_value() -> Self {
+        let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
+    }
+
+    fn new_bitmask_value64() -> Self {
+        let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
+        Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
     fn new_bitmask(nbytes: usize) -> Self {
@@ -5128,7 +5419,7 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_regexp() -> Self {
         let desc = format!("if %x is not a valid regular expression as described in {REGEXP_REF}");
-        let exc = PyException::new_pattern().desc(desc);
+        let exc = PyException::new_config().desc(desc);
         Self::default().exc(exc)
     }
 
@@ -5400,7 +5691,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_sub_pattern() -> Self {
         let desc = "if references in replacement string in %x \
                     do not match captures in regular expression";
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
+        let exc = PyException::new_config().desc(desc);
         Self::new1(PyStr::new_regexp())
             .add(PyStr::default())
             .add(PyBool::default())
@@ -6397,6 +6688,21 @@ impl DocArgParam {
         DocArgRWIvar::new(self.argname, self.pytype, self.desc, self.default, methods)
     }
 
+    fn new_dataset_offset_param() -> Self {
+        let desc = "Starting position in the file of the dataset to be read";
+        Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
+    }
+
+    fn new_skip_param(desc: &str) -> Self {
+        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        Self::new_param("skip", pt, desc).def_auto()
+    }
+
+    fn new_limit_param(desc: &str) -> Self {
+        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        Self::new_param("limit", pt, desc).def_auto()
+    }
+
     fn new_path_param(read: bool) -> Self {
         let s = if read { "read" } else { "written" };
         let pt = PyClass::new1("~pathlib.Path").rstype(parse_quote!(std::path::PathBuf));
@@ -6438,7 +6744,7 @@ impl DocArgParam {
 
     fn new_parse_output_param() -> Self {
         let desc = "Miscellaneous data obtained when parsing *TEXT*.";
-        Self::new_param("parse", PyClass::new_py(["api"], "RawTEXTParseData"), desc)
+        Self::new_param("parse", PyClass::new_py(["api"], "FlatTEXTParseData"), desc)
     }
 
     fn new_text_seg_param() -> Self {
@@ -6468,8 +6774,7 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        let exc = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x is not between 1 and 126");
+        let exc = PyException::new_config().desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = "Delimiter to use when writing *TEXT*.";
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
@@ -6480,10 +6785,53 @@ impl DocArgParam {
         Self::new_bool_param("big_other", desc)
     }
 
-    fn new_measurements_param(version: Version) -> Self {
+    fn new_skip_conversion_check_param() -> Self {
+        let conv_exc = PyreflowError::DataLoss.fmt_ref();
+        Self::new_bool_param(
+            "skip_conversion_check",
+            format!(
+                "Skip check to ensure that types of the dataframe match the \
+                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+                 perform this check before writing, and raise {conv_exc} on \
+                 failure. If ``True``, raise warnings as file is being \
+                 written. Skipping this is faster since the data needs to be \
+                 traversed twice to perform the conversion check, but may \
+                 result in loss of precision and/or truncation."
+            ),
+        )
+    }
+
+    fn new_appendable_param() -> Self {
+        Self::new_bool_param(
+            "appendable",
+            "If ``True``, set *$NEXTDATA* in written dataset so it points to \
+             the next dataset. This obviously assumes the next dataset is actually \
+             written, which will require another call to this method with ``append`` \
+             set to ``True``.",
+        )
+    }
+
+    fn new_append_param() -> Self {
+        Self::new_bool_param(
+            "append",
+            "If ``True``, append this dataset to the end of the file if it exists \
+             and already has at least one dataset in it. This assumes that the \
+             previous dataset was written with ``appendable`` set to ``True`` so \
+             that *$NEXTDATA* is properly set.",
+        )
+    }
+
+    fn new_paired_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
         Self::new_param("measurements", PyTuple::new_meas(version), meas_desc)
+    }
+
+    fn new_measurements_param(version: Version) -> Self {
+        let meas_desc = "Measurements corresponding to columns in FCS file. \
+                         Temporal must be given zero or one times.";
+        let pt = PyList::new1(PyUnion::new_measurement(version));
+        Self::new_param("measurements", pt, meas_desc)
     }
 
     fn new_set_meas_param(version: Version) -> Self {
@@ -6571,8 +6919,8 @@ impl DocArgParam {
         Self::new_param("others", PyList::new_others(), desc).def_auto_if(default)
     }
 
-    fn new_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("HeaderConfigInner");
+    fn new_read_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("ReadHeaderInnerConfig");
         let ps = vec![
             Self::new_text_correction_param(),
             Self::new_data_correction_param(),
@@ -6588,12 +6936,12 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_raw_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_flat_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let conf = config_path("ReadHeaderAndTEXTConfig");
         let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
-            Self::new_allow_duplicated_supp_text(),
+            Self::new_allow_overlapping_supp_text(),
             Self::new_ignore_supp_text(),
             Self::new_use_literal_delims(),
             Self::new_allow_non_ascii_delim(),
@@ -6609,6 +6957,7 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
+            Self::new_trim_trailing_whitespace(),
             Self::new_ignore_standard_keys(),
             Self::new_promote_to_standard(),
             Self::new_demote_from_standard(),
@@ -6621,9 +6970,12 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_std_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_std_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let ignore_time_gain = Self::new_ignore_time_gain_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
+        let disallow_localtime = Self::new_disallow_localtime_param();
 
         let std_common_args = [
             Self::new_trim_intra_value_whitespace_param(),
@@ -6644,17 +6996,26 @@ impl DocArgParam {
         let ps: Vec<_> = match version {
             Some(Version::FCS2_0) => std_common_args.collect(),
             Some(Version::FCS3_0) => std_common_args.chain([ignore_time_gain]).collect(),
-            _ => std_common_args
+            Some(Version::FCS3_1) => std_common_args
                 .chain([ignore_time_gain, parse_indexed_spillover])
+                .collect(),
+            _ => std_common_args
+                .chain([
+                    ignore_time_gain,
+                    parse_indexed_spillover,
+                    disallow_localtime,
+                ])
                 .collect(),
         };
 
-        let conf = config_path("StdTextReadConfig");
+        let conf = config_path("ReadStdKeywordsConfig");
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
-    fn new_layout_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_layout_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_optional_dropping = Self::new_allow_optional_dropping();
         let transfer_dropped_optional = Self::new_transfer_dropped_optional();
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
@@ -6685,7 +7046,9 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_offsets_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_offsets_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
@@ -6705,17 +7068,26 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_reader_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+    fn new_read_events_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_uneven_event_width = Self::new_allow_uneven_event_width_param();
         let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
-        let conf = config_path("ReaderConfig");
+        let conf = config_path("ReadEventsConfig");
         let ps = vec![allow_uneven_event_width, allow_tot_mismatch];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
+    fn new_write_text_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let delim = Self::new_textdelim_param();
+        let big_other = Self::new_big_other_param();
+        let conf = config_path("WriteTEXTInnerConfig");
+        let ps = vec![delim, big_other];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
     fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("SharedConfig");
+        let conf = config_path("ReadSharedConfig");
         let warnings_are_errors = Self::new_warnings_are_errors_param();
         let hide_warnings = Self::new_hide_warnings_param();
         let ps = vec![warnings_are_errors, hide_warnings];
@@ -6780,7 +7152,7 @@ impl DocArgParam {
             "if %x does not have year, month, and day specifiers \
              as outlined in {CHRONO_REF}"
         );
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(desc);
+        let exc = PyException::new_config().desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = "If supplied, will be used as an alternative pattern when parsing \
                  *$DATE*. If not supplied, *$DATE* will be parsed according to \
@@ -6806,7 +7178,7 @@ impl DocArgParam {
              correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
              in {CHRONO_REF}"
         );
-        let exc = PyException::new_pyreflow(&PyreflowError::Config).desc(exc_desc);
+        let exc = PyException::new_config().desc(exc_desc);
 
         // format arg description
         let std_pat = match version {
@@ -6865,10 +7237,18 @@ impl DocArgParam {
         Self::new_bool_param("fix_log_scale_offsets", d)
     }
 
+    fn new_disallow_localtime_param() -> Self {
+        let d = "If ``true``, require that *$BEGINDATETIME* and *$ENDDATETIME* \
+                 have a timezone if provided. This is not required by the \
+                 standard, but not having a timezone is ambiguous since the \
+                 absolute value of the timestamp is dependent on localtime and \
+                 therefore is location-dependent. Only affects FCS 3.2.";
+        Self::new_bool_param("disallow_localtime", d)
+    }
+
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern);
-        let exc = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x does not have ``\"%n\"``");
+        let exc = PyException::new_config().desc("if %x does not have ``\"%n\"``");
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
@@ -6948,8 +7328,7 @@ impl DocArgParam {
 
     fn new_other_width_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let e = PyException::new_pyreflow(&PyreflowError::Config)
-            .desc("if %x is less than `1` and greater than `20`");
+        let e = PyException::new_config().desc("if %x is less than `1` and greater than `20`");
         let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
@@ -7002,12 +7381,15 @@ impl DocArgParam {
         )
     }
 
-    fn new_allow_duplicated_supp_text() -> Self {
-        let d = "If ``True`` allow supplemental *TEXT* offsets to match the primary \
-                 *TEXT* offsets from *HEADER*. Some vendors will duplicate these \
-                 two segments despite supplemental *TEXT* not being present, which \
-                 is incorrect.";
-        Self::new_bool_param("allow_duplicated_supp_text", d)
+    fn new_allow_overlapping_supp_text() -> Self {
+        let exc = PyreflowError::FileLayout.fmt_ref();
+        let d = format!(
+            "If ``True`` allow supplemental *TEXT* offsets to overlap the \
+             primary *TEXT* offsets from *HEADER* or *HEADER* itself and raise \
+             a warning if such an overlap is found. Otherwise raise a {exc}. \
+             The offsets will not be used if an overlap is found in either case."
+        );
+        Self::new_bool_param("allow_overlapping_supp_text", d)
     }
 
     fn new_ignore_supp_text() -> Self {
@@ -7115,6 +7497,14 @@ impl DocArgParam {
         Self::new_bool_param("trim_value_whitespace", d)
     }
 
+    fn new_trim_trailing_whitespace() -> Self {
+        let d = "If ``True`` trim whitespace off the end of *TEXT*. This will \
+                 effectively move the ending offset of *TEXT* to the first \
+                 non-whitespace byte immediately preceding the actual ending \
+                 offset given in *HEADER*.";
+        Self::new_bool_param("trim_trailing_whitespace", d)
+    }
+
     fn new_ignore_standard_keys() -> Self {
         let d = "Remove standard keys from *TEXT*. The leading *$* is implied \
                  so do not include it.";
@@ -7170,7 +7560,7 @@ impl DocArgParam {
                  string. If the global flag is ``True``, replace all found \
                  matches, otherwise only replace the first. Any references in \
                  replacement string must be given with surrounding brackets \
-                 like ``\"${{1}}\"`` or ``\"${{cygnus}}\"``.";
+                 like ``\"${1}\"`` or ``\"${cygnus}\"``.";
         let p = PyTuple::new_sub_patterns();
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
@@ -7319,6 +7709,11 @@ impl ClassDocString {
                 #new
 
                 #get_set_methods
+
+                // allow all classes to be deepcopy-ed
+                fn __deepcopy__(&self, _memo: &Bound<'_, pyo3::PyAny>) -> Self {
+                    self.clone()
+                }
             }
         };
         (pyname, s)
@@ -7526,7 +7921,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
         );
 
         let ps = &self.args;
-        let (raw_sig, txt_sig_): (Vec<_>, Vec<_>) = ps
+        let (flat_sig, txt_sig_): (Vec<_>, Vec<_>) = ps
             .iter()
             .map(|a| {
                 let n = &a.argname();
@@ -7548,7 +7943,7 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
                 .join(", ")
         );
         quote! {
-            #[pyo3(signature = (#(#raw_sig),*))]
+            #[pyo3(signature = (#(#flat_sig),*))]
             #[pyo3(text_signature = #txt_sig)]
         }
     }

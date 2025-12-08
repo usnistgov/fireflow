@@ -1,5 +1,5 @@
+use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
-use pyo3::{create_exception, import_exception};
 
 // Each of these docstrings needs to conform to PEP8 (72 chars or less) and
 // follow sphinx formatting. They also refer to stuff in the .rst docs
@@ -57,7 +57,7 @@ create_exception!(
      invalid digits or if the resulting number is out of range.\n\
      \n\
      This exception will generally only be raised in standard mode, but may\n\
-     also be raised in raw mode when the *DATA* segment needs to be read\n\
+     also be raised in flat mode when the *DATA* segment needs to be read\n\
      (this requires parsing *$PnB*, *$PnR*, etc)."
 );
 
@@ -166,6 +166,3 @@ create_exception!(
     PyWarning,
     "Generic warning created by ``pyreflow``."
 );
-
-// imported exceptions
-import_exception!(re, PatternError);

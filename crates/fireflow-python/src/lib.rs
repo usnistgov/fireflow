@@ -71,14 +71,14 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
-use fireflow_core::type_families::{BifunctorOnce as _, Functor as _};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
 
-use fireflow_python_proc::def_fcs_read_std_dataset_with_keywords;
+use type_families::{BifunctorOnce as _, Functor as _};
+
 use fireflow_python_proc::{
-    def_fcs_read_header, def_fcs_read_raw_dataset, def_fcs_read_raw_dataset_with_keywords,
-    def_fcs_read_raw_text, def_fcs_read_std_dataset, def_fcs_read_std_text,
+    def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,
+    def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text,
     impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
     impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
     impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
@@ -88,20 +88,22 @@ use fireflow_python_proc::{
     impl_core_get_measurements, impl_core_get_named_measurement, impl_core_get_set_timestep,
     impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
     impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
-    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements,
-    impl_core_set_measurements_and_layout, impl_core_set_temporal, impl_core_set_tr_threshold,
+    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements_and_layout,
+    impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
-    impl_coredataset_set_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_gated_meas, impl_layout_byte_widths, impl_new_core,
-    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
-    impl_py_extra_std_keywords, impl_py_header, impl_py_header_segments,
-    impl_py_raw_dataset_output, impl_py_raw_dataset_with_kws_output, impl_py_raw_text_output,
-    impl_py_raw_text_parse_data, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
-    impl_py_std_text_output, impl_py_valid_keywords,
+    impl_coredataset_set_measurements_layout_and_data,
+    impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
+    impl_coredataset_unset_data, impl_coredataset_write_multi, impl_coretext_from_kws,
+    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_coretext_write_multi,
+    impl_gated_meas, impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
+    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords,
+    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output,
+    impl_py_flat_text_parse_data, impl_py_header, impl_py_header_segments,
+    impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output, impl_py_std_text_output,
+    impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -111,12 +113,11 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 def_fcs_read_header!(api::fcs_read_header);
-def_fcs_read_raw_text!(api::fcs_read_raw_text);
-def_fcs_read_std_text!(api::fcs_read_std_text);
-def_fcs_read_raw_dataset!(api::fcs_read_raw_dataset);
-def_fcs_read_std_dataset!(api::fcs_read_std_dataset);
-def_fcs_read_raw_dataset_with_keywords!(api::fcs_read_raw_dataset_with_keywords);
-def_fcs_read_std_dataset_with_keywords!(api::fcs_read_std_dataset_with_keywords);
+def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
+def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
+def_fcs_read_flat_dataset!(api::fcs_read_flat_dataset, api::fcs_read_flat_datasets);
+def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
+def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
@@ -124,10 +125,10 @@ impl_py_valid_keywords!(keys::ValidKeywords);
 impl_py_extra_std_keywords!(kws::ExtraStdKeywords);
 impl_py_dataset_segments!(core::DatasetSegments);
 
-impl_py_raw_text_output!(api::RawTEXTOutput);
-impl_py_raw_dataset_output!(api::RawDatasetOutput);
-impl_py_raw_text_parse_data!(api::RawTEXTParseData);
-impl_py_raw_dataset_with_kws_output!(api::RawDatasetWithKwsOutput);
+impl_py_flat_text_output!(api::FlatTEXTOutput);
+impl_py_flat_dataset_output!(api::FlatDatasetOutput);
+impl_py_flat_text_parse_data!(api::FlatTEXTParseData);
+impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
 
 impl_py_std_text_output!(api::StdTEXTOutput);
 impl_py_std_dataset_output!(api::StdDatasetOutput);
@@ -192,12 +193,12 @@ macro_rules! impl_common {
         // are slightly different for each version
         impl_core_unset_temporal!($pytype);
 
-        // method to get all measurements as read-only list
+        // method to get/set unnamed measurements
         impl_core_get_measurements!($pytype);
 
         // method to set all measurements; this cannot be combined with
         // impl_core_get_measurements! because this method takes arguments
-        impl_core_set_measurements!($pytype);
+        impl_core_set_named_measurements!($pytype);
 
         // method to get one measurement by index
         impl_core_get_measurement!($pytype);
@@ -282,6 +283,18 @@ impl_coredataset_from_kws!(core::CoreDataset3_0);
 impl_coredataset_from_kws!(core::CoreDataset3_1);
 impl_coredataset_from_kws!(core::CoreDataset3_2);
 
+// impl write_multitext for all CoreTEXT*
+impl_coretext_write_multi!(core::CoreTEXT2_0);
+impl_coretext_write_multi!(core::CoreTEXT3_0);
+impl_coretext_write_multi!(core::CoreTEXT3_1);
+impl_coretext_write_multi!(core::CoreTEXT3_2);
+
+// impl write_multidataset for all CoreDataset*
+impl_coredataset_write_multi!(core::CoreDataset2_0);
+impl_coredataset_write_multi!(core::CoreDataset3_0);
+impl_coredataset_write_multi!(core::CoreDataset3_1);
+impl_coredataset_write_multi!(core::CoreDataset3_2);
+
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {
     ($pytype:ident) => {
@@ -298,7 +311,8 @@ impl_coretext_common!(PyCoreTEXT3_2);
 // Common methods for all CoreDataset* versions.
 macro_rules! impl_coredataset_common {
     ($pytype:ident) => {
-        impl_coredataset_set_measurements_and_data!($pytype);
+        impl_coredataset_set_named_measurements_and_data!($pytype);
+        impl_coredataset_set_measurements_layout_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
         impl_coredataset_truncate_data!($pytype);

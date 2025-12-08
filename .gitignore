@@ -1,12 +1,13 @@
-*target
+*
 
-# python stuff
-
-*__pycache__/
-*.py[cod]
-*.so
-*.venv
-*.mypy_cache/
-
-*perf.data*
-*.svg
+!*.html
+!*.js
+!*.png
+!*.png.map
+!*.svg
+!*.css
+!*.inv
+!*.txt
+!_static
+!_images
+!_sources

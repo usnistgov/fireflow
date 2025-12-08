@@ -3726,7 +3726,7 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
     );
 
     doc.into_impl_get(&t, "byte_widths", |_, _| {
-        quote!(self.0.widths().fmap(|x| u32::from(u8::from(x))))
+        quote!(self.0.widths().fmap(|x| u32::from(u8::from(x)) / 8))
     })
     .into()
 }

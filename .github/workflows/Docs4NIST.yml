@@ -31,11 +31,12 @@ jobs:
       - name: Remove old docs
         run: |
           rm -rf _images _sources _static
-          rm -f *.html *.js *.inv .buildinto .nojekyll
+          rm -f *.html *.js *.inv .buildinfo .nojekyll
 
       - name: Move html docs to root
         run: |
           mv pyreflow/docs/build/html/* ./
+          mv pyreflow/docs/build/html/.* ./
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v7

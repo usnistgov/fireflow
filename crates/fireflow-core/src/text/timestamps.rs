@@ -13,6 +13,7 @@ use type_families::ApplyOnce as _;
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
+use num_traits::cast::ToPrimitive as _;
 use regex::Regex;
 use std::fmt;
 use std::mem;
@@ -363,8 +364,19 @@ impl FromStr for FCSTime60 {
                     let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
                     let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
                     let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                    let nn = tt * 1_000_000 / 60;
-                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn).ok_or(FCSTime60Error)
+                    if tt > 59 {
+                        return Err(FCSTime60Error);
+                    }
+                    // Use ceiling to map 1/60 seconds to nanoseconds to exactly
+                    // mirror what we do in the Display impl where we use floor
+                    //
+                    // ASSUME this will not fail because we only allow 0-59
+                    // which will map exactly to f32. Also, multiplying by 1e6
+                    // should not overflow since the max exact integer of f32 is
+                    // 2^23 (~8e6)
+                    let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
+                    let nn_ = nn.ceil().to_u32().unwrap();
+                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_).ok_or(FCSTime60Error)
                 }
                 _ => Err(FCSTime60Error),
             })
@@ -518,8 +530,7 @@ mod tests {
     fn str_timestamps3_0() {
         assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
         assert_from_to_str::<FCSTime60>("23:58:00:30");
-        // TODO should probably avoid stuff like this
-        assert_from_to_str_almost::<FCSTime60>("23:58:00:13", "23:58:00:12");
+        assert_from_to_str::<FCSTime60>("23:58:00:13");
         // this is an overflow
         assert!("23:58:00:60".parse::<FCSTime60>().is_err());
     }

@@ -3311,7 +3311,7 @@ impl<T> AnyOrderedUintLayout<T> {
                 .map(Result::into_log::<_, _, Vec<_>>)
                 .mappend_commutative()
                 .and_then_commutative(|widths| {
-                    let ws = widths.into_iter().filter(|&w| w != n);
+                    let ws = widths.into_iter().filter(|&w| w != n).unique();
                     if let Some(mismatches) = NonEmpty::collect(ws) {
                         let e = WidthMismatchError::new(real_bo, mismatches);
                         LogResult::new_err(SingleFixedWidthError::from(e))

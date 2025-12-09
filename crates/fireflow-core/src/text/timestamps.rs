@@ -340,9 +340,9 @@ pub struct FCSTime60(pub NaiveTime);
 impl PartialEq for FCSTime60 {
     fn eq(&self, other: &Self) -> bool {
         // compare both timestamps with the precision used on disk when writing
-        // a file, which means we need to put in 1/60 seconds and back to
-        // truncate any extra precision the timestamps may have
-        let go = |s: &Self| (u64::from(s.0.nanosecond()) * 60 / 1_000_000_000) * 1_000_000_000 / 60;
+        // a file, which means we need to put in 1/60 seconds to truncate any
+        // extra precision the timestamps may have
+        let go = |s: &Self| u64::from(s.0.nanosecond()) * 60 / 1_000_000_000;
         let cc0 = go(self);
         let cc1 = go(other);
         cc0 == cc1
@@ -398,9 +398,9 @@ pub struct FCSTime100(pub NaiveTime);
 impl PartialEq for FCSTime100 {
     fn eq(&self, other: &Self) -> bool {
         // compare both timestamps with the precision used on disk when writing
-        // a file, which means we need to put in centiseconds and back to
-        // truncate any extra precision the timestamps may have
-        let go = |s: &Self| (s.0.nanosecond() / 10_000_000) * 10_000_000;
+        // a file, which means we need to put in centiseconds to truncate any
+        // extra precision the timestamps may have
+        let go = |s: &Self| s.0.nanosecond() / 10_000_000;
         let cc0 = go(self);
         let cc1 = go(other);
         cc0 == cc1

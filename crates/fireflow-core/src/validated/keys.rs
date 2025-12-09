@@ -716,6 +716,7 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
@@ -743,8 +744,17 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
+        let check_trim = |trimmed| {
+            if AsRef::<str>::as_ref(&trimmed).is_empty() {
+                let e = BlankValueError(k.to_vec());
+                SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty)
+                    .switchable_into_commutative()
+            } else {
+                LogResult::new_ok(Some(trimmed))
+            }
+        };
+
         let mut parse_value = || {
-            let flag = conf.allow_empty;
             let res = if conf.use_latin1.is_set() {
                 let it = v.iter().copied().map(char::from);
                 if conf.trim_value_whitespace.is_set() {
@@ -752,10 +762,7 @@ impl ParsedKeywords {
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
-                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
-                    let ret = Cow::Owned(trimmed);
-                    SwitchableErrorResult::new_switchable_maybe(Some(ret), (), e, flag)
-                        .switchable_into_commutative()
+                    check_trim(Cow::Owned(trimmed))
                 } else {
                     // ASSUME this will always be a non-empty string since
                     // it is using the value slice inputted to this function
@@ -764,10 +771,7 @@ impl ParsedKeywords {
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
                 if conf.trim_value_whitespace.is_set() {
-                    let trimmed = vv.trim();
-                    let e = trimmed.is_empty().then(|| BlankValueError(k.to_vec()));
-                    LogResult::new_switchable_maybe(Some(Cow::Borrowed(trimmed)), (), e, flag)
-                        .switchable_into_commutative()
+                    check_trim(Cow::Borrowed(vv.trim()))
                 } else {
                     LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }

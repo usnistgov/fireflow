@@ -84,6 +84,14 @@ pub type KeyStringValues = HashMap<KeyString, String>;
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub struct NonStdMeasPattern(String);
 
+impl Default for NonStdMeasPattern {
+    fn default() -> Self {
+        // ASSUME this wouldn't have caused an error if parsed directly from
+        // a string
+        Self("^P%n".into())
+    }
+}
+
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 pub type KeyPatterns = KeyOrStringPatterns<()>;
 

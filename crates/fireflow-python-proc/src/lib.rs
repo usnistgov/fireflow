@@ -7257,7 +7257,8 @@ impl DocArgParam {
              Otherwise should be a normal regular expression as defined in \
              {REGEXP_REF}."
         );
-        Self::new_opt_param("nonstandard_measurement_pattern", pytype, d)
+        Self::new_param("nonstandard_measurement_pattern", PyOpt::new(pytype), d)
+            .def(DocDefault::Str("^P%n".into()))
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {

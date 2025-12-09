@@ -589,7 +589,7 @@ pub struct ReadTEXTOffsetsConfig {
 }
 
 /// Specific instructions for standardizing keywords from TEXT
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ReadStdKeywordsConfig {
     /// If `true`, remove whitespace between commas where applicable.
     ///
@@ -696,6 +696,28 @@ pub struct ReadStdKeywordsConfig {
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+}
+
+impl Default for ReadStdKeywordsConfig {
+    fn default() -> Self {
+        Self {
+            trim_intra_value_whitespace: TrimIntraValueWhitespace::default(),
+            time_meas_pattern: None,
+            allow_missing_time: AllowMissingTime::default(),
+            force_time_linear: ForceTimeLinear::default(),
+            ignore_time_gain: IgnoreTimeGain::default(),
+            ignore_time_optical_keys: HashSet::default(),
+            parse_indexed_spillover: ParseIndexedSpillover::default(),
+            date_pattern: None,
+            time_pattern: None,
+            allow_pseudostandard: AllowPseudostandard::default(),
+            allow_unused_standard: AllowUnusedStandard::default(),
+            disallow_deprecated: DisallowDeprecated::default(),
+            fix_log_scale_offsets: FixLogScaleOffsets::default(),
+            disallow_localtime: DisallowLocaltime::default(),
+            nonstandard_measurement_pattern: Some(NonStdMeasPattern::default()),
+        }
+    }
 }
 
 /// Specific instructions for reading a data layout.

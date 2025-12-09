@@ -4,7 +4,7 @@ use crate::config::{
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
-use crate::text::optional::KeywordPairMaybe;
+use crate::text::optional::{DisplayMaybe as _, KeywordPairMaybe};
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
@@ -15,6 +15,7 @@ use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use regex::Regex;
 use std::fmt;
+use std::fmt::Debug;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -171,8 +172,8 @@ impl<X> Timestamps<X> {
         conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
     where
-        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
-        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
+        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>> + Debug,
+        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>> + Debug,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -192,6 +193,10 @@ impl<X> Timestamps<X> {
             .and_then_deferred(|(btim, etim, date)| {
                 Self::try_new(btim, etim, date)
                     .map_errors(LookupTimestampsError::Reversed)
+                    .map_ok_value(|ret| {
+                        println!("{}", ret.btim.display_maybe().unwrap());
+                        ret
+                    })
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
@@ -288,11 +293,21 @@ impl FromStr for FCSDate {
 pub struct FCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Display, Debug)]
+#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
+
+impl PartialEq for FCSTime {
+    fn eq(&self, other: &Self) -> bool {
+        // ignore sub-seconds since these timestamps do not have this level of
+        // precision in FCS files
+        self.0.second() == other.0.second()
+            && self.0.minute() == other.0.minute()
+            && self.0.hour() == other.0.hour()
+    }
+}
 
 const FCS_TIME_FORMAT: &str = "%H:%M:%S";
 
@@ -322,10 +337,25 @@ pub enum FCSFixedTimeError<E> {
 pub struct FCSTimeError;
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
+#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime60(pub NaiveTime);
+
+impl PartialEq for FCSTime60 {
+    fn eq(&self, other: &Self) -> bool {
+        // compare both timestamps with the precision used on disk when writing
+        // a file, which means we need to put in 1/60 seconds and back to
+        // truncate any extra precision the timestamps may have
+        let go = |s: &Self| (s.0.nanosecond() * 60 / 1_000_000_000) * 1_000_000_000 / 60;
+        let cc0 = go(self);
+        let cc1 = go(other);
+        cc0 == cc1
+            && self.0.second() == other.0.second()
+            && self.0.minute() == other.0.minute()
+            && self.0.hour() == other.0.hour()
+    }
+}
 
 impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
@@ -365,10 +395,25 @@ impl fmt::Display for FCSTime60 {
 pub struct FCSTime60Error;
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, From, Into, Debug)]
+#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct FCSTime100(pub NaiveTime);
+
+impl PartialEq for FCSTime100 {
+    fn eq(&self, other: &Self) -> bool {
+        // compare both timestamps with the precision used on disk when writing
+        // a file, which means we need to put in centiseconds and back to
+        // truncate any extra precision the timestamps may have
+        let go = |s: &Self| (s.0.nanosecond() / 10_000_000) * 10_000_000;
+        let cc0 = go(self);
+        let cc1 = go(other);
+        cc0 == cc1
+            && self.0.second() == other.0.second()
+            && self.0.minute() == other.0.minute()
+            && self.0.hour() == other.0.hour()
+    }
+}
 
 impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;

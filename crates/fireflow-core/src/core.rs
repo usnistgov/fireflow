@@ -1844,6 +1844,18 @@ impl<T> Temporal<T> {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
+
+    fn all_opt_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)>
+    where
+        T: VersionedTemporal,
+    {
+        self.opt_meas_keywords(n).chain(
+            self.common
+                .nonstandard_keywords
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone())),
+        )
+    }
 }
 
 impl<O> Optical<O> {
@@ -3747,7 +3759,7 @@ where
         let lv = self.layout.opt_meas_keywords();
         self.measurements
             .iter_with(
-                &|i, x| Temporal::opt_meas_keywords(&x.value, i).collect::<Vec<_>>(),
+                &|i, x| Temporal::all_opt_keywords(&x.value, i).collect::<Vec<_>>(),
                 &|i, x| Optical::all_opt_keywords(&x.value, i).collect(),
             )
             .flatten()

@@ -4,7 +4,7 @@ use crate::config::{
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
-use crate::text::optional::{DisplayMaybe as _, KeywordPairMaybe};
+use crate::text::optional::KeywordPairMaybe;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
@@ -15,7 +15,6 @@ use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use regex::Regex;
 use std::fmt;
-use std::fmt::Debug;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -172,8 +171,8 @@ impl<X> Timestamps<X> {
         conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
     where
-        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>> + Debug,
-        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>> + Debug,
+        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
+        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -193,10 +192,6 @@ impl<X> Timestamps<X> {
             .and_then_deferred(|(btim, etim, date)| {
                 Self::try_new(btim, etim, date)
                     .map_errors(LookupTimestampsError::Reversed)
-                    .map_ok_value(|ret| {
-                        println!("{}", ret.btim.display_maybe().unwrap());
-                        ret
-                    })
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard

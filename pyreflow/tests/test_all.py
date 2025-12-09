@@ -446,6 +446,71 @@ class TestCore:
         with pytest.raises(TypeError):
             setattr(core, attr, "thermonuclear war")
 
+    @pytest.mark.parametrize(
+        "core0",
+        [lazy_fixture(f"blank_{t}_2_0") for t in ["text", "dataset"]],
+    )
+    def test_imprecise_time_2_0(
+        self, core0: pf.CoreTEXT2_0 | pf.CoreDataset2_0
+    ) -> None:
+        # these timestamps should be "the same" because 2.0 doesn't have sub-seconds
+        t0 = time(23, 58, 0, 0)
+        t1 = time(23, 58, 0, 1)
+        # and this should be different
+        t2 = time(23, 58, 1, 1)
+        core1 = deepcopy(core0)
+        assert core0 == core1
+        core0.btim = t0
+        core1.btim = t1
+        assert core0 == core1
+        core1.btim = t2
+        assert core0 != core1
+
+    @pytest.mark.parametrize(
+        "core0",
+        [lazy_fixture(f"blank_{t}_3_0") for t in ["text", "dataset"]],
+    )
+    def test_imprecise_time_3_0(
+        self, core0: pf.CoreTEXT3_0 | pf.CoreDataset3_0
+    ) -> None:
+        # these timestamps should be "the same" because 3.0 is only precise up to 1/60 seconds
+        t0 = time(23, 58, 0, 17000)
+        t1 = time(23, 58, 0, 18000)
+        # and this one should be different
+        t2 = time(23, 58, 0, 340000)
+        core1 = deepcopy(core0)
+        assert core0 == core1
+        core0.btim = t0
+        core1.btim = t1
+        assert core0 == core1
+        core1.btim = t2
+        assert core0 != core1
+
+    @pytest.mark.parametrize(
+        "core0",
+        [
+            lazy_fixture(f"blank_{t}_{v}")
+            for t in ["text", "dataset"]
+            for v in ["3_1", "3_2"]
+        ],
+    )
+    def test_imprecise_time_3_1(
+        self,
+        core0: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        # these timestamps should be "the same" because 3.1 is only precise up to centiseconds
+        t0 = time(23, 58, 0, 0)
+        t1 = time(23, 58, 0, 1)
+        # and this one should be different
+        t2 = time(23, 58, 0, 10000)
+        core1 = deepcopy(core0)
+        assert core0 == core1
+        core0.btim = t0
+        core1.btim = t1
+        assert core0 == core1
+        core1.btim = t2
+        assert core0 != core1
+
     @all_blank_core
     def test_date(self, core: AnyCore) -> None:
         good = date(1991, 8, 25)

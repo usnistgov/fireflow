@@ -342,7 +342,7 @@ impl PartialEq for FCSTime60 {
         // compare both timestamps with the precision used on disk when writing
         // a file, which means we need to put in 1/60 seconds and back to
         // truncate any extra precision the timestamps may have
-        let go = |s: &Self| (s.0.nanosecond() * 60 / 1_000_000_000) * 1_000_000_000 / 60;
+        let go = |s: &Self| (u64::from(s.0.nanosecond()) * 60 / 1_000_000_000) * 1_000_000_000 / 60;
         let cc0 = go(self);
         let cc1 = go(other);
         cc0 == cc1

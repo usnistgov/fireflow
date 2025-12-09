@@ -3888,8 +3888,11 @@ where
                             nonstd.extract_if(|k, _| r.is_match(k.as_ref())).collect()
                         })
                     })
-                    .rev()
                     .collect::<Result<Vec<_>, _>>()
+                    .map(|mut ns| {
+                        ns.reverse();
+                        ns
+                    })
                     .map_err(LookupMeasurementWarning::from)
                     .into_succ_or(blank_meas_nonstd())
             },

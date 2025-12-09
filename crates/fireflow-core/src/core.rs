@@ -3878,7 +3878,10 @@ where
         let ns_res = sconf.nonstandard_measurement_pattern.as_ref().map_or(
             LogResult::new_ok(blank_meas_nonstd()),
             |pat| {
+                // match largest indices first to avoid matching incomplete
+                // prefix (ie "P1" will match "P11")
                 (0..par.0)
+                    .rev()
                     .map(|n| {
                         pat.apply_index(n).map(|p| {
                             let r: &Regex = p.as_ref();

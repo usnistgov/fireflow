@@ -3812,19 +3812,24 @@ where
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0.into()).ok().and_then(Element::non_center) {
+        if let Ok(m0) = ms.get(0.into()) {
             let lt = &self.layout;
             let req_layout: Vec<_> = lt.req_meas_keywords().fmap(|[x, y]| [x.1, y.1]);
             let opt_layout: Vec<_> = lt
                 .opt_meas_keywords()
                 .fmap(|xs| xs.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
-            let header = m0.1.table_header(lt.opt_meas_headers());
+            let header = m0
+                .both(
+                    |t| M::Optical::from_temporal_unchecked(t.1.clone()).0,
+                    |o| o.1.clone(),
+                )
+                .table_header(lt.opt_meas_headers());
             let rows = self
                 .measurements
                 .iter()
+                // NOTE this will force-convert all fields in the time
+                // measurement, which for this is actually want we want
                 .map(|r| {
-                    // NOTE this will force-convert all fields in the time
-                    // measurement, which for this is actually want we want
                     r.both(
                         |t| {
                             let v = M::Optical::from_temporal_unchecked(t.value.clone());

@@ -17,7 +17,7 @@ use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBoun
 use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
 use crate::text::lookup::{
     FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqIndexedKey, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey, Required,
+    ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required,
 };
 use crate::text::named_vec::NameMapping;
 use crate::text::optional::{
@@ -62,6 +62,8 @@ use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::lookup::ReqIndexedStKeyError;
 
 #[cfg(feature = "python")]
 use {
@@ -139,14 +141,6 @@ impl FromStrWith for Scale {
         } else {
             res
         }
-    }
-}
-
-impl FromStr for Scale {
-    type Err = ScaleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -327,14 +321,6 @@ impl FromStrWith for Trigger {
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-impl FromStr for Trigger {
-    type Err = TriggerError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -733,15 +719,6 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScaleInner;
 
-// TODO only needed for testing
-impl FromStr for TemporalScaleInner {
-    type Err = TemporalScaleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
-    }
-}
-
 impl FromStrDelim for TemporalScaleInner {
     type Err = TemporalScaleError;
     const DELIM: char = ',';
@@ -767,7 +744,7 @@ impl FromStrWith for TemporalScaleInner {
 }
 
 /// The value of the $PnE key for temporal measurements (3.0+)
-#[derive(Clone, PartialEq, Display, Debug, Default, FromStr)]
+#[derive(Clone, PartialEq, Display, Debug, Default)]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
 
 impl FromStrWith for TemporalScale3_0 {
@@ -785,7 +762,7 @@ impl TemporalScale3_0 {
         i: MeasIndex,
         nonstd: &mut NonStdKeywords,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<(), ReqIndexedKeyError<Self>> {
+    ) -> Result<(), ReqIndexedStKeyError<Self>> {
         if conf.force_time_linear.is_set() {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
@@ -963,14 +940,6 @@ impl From<Wavelengths> for Vec<f32> {
     }
 }
 
-impl FromStr for Wavelengths {
-    type Err = WavelengthsError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
-    }
-}
-
 impl FromStrWith for Wavelengths {
     type Err = WavelengthsError;
     type Payload<'a> = ();
@@ -1038,15 +1007,6 @@ pub enum WavelengthsError {
 pub struct LastModified(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
-
-// TODO only needed for tests
-impl FromStr for LastModified {
-    type Err = LastModifiedError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_with(s, (), &ReadStdKeywordsConfig::default())
-    }
-}
 
 impl FromStrWith for LastModified {
     type Err = LastModifiedError;
@@ -1144,14 +1104,6 @@ impl FromStrWith for Compensation3_0 {
     }
 }
 
-impl FromStr for Compensation3_0 {
-    type Err = ParseCompError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
-    }
-}
-
 impl FromStrDelim for Compensation3_0 {
     type Err = ParseCompError;
     const DELIM: char = ',';
@@ -1235,14 +1187,6 @@ impl FromStrWith for Unicode {
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-impl FromStr for Unicode {
-    type Err = UnicodeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -2071,7 +2015,7 @@ impl_non_neg_float! {
 }
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, Copy, Display, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct GateScale(pub Scale);
@@ -2917,7 +2861,17 @@ mod tests {
 
     #[test]
     fn tr() {
-        assert_from_to_str::<Trigger>("Wooden Leg Pt 3,456");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Trigger>("Wooden Leg Pt 3,456", (), &conf);
+    }
+
+    #[test]
+    fn tr_commas() {
+        let v = "Wookie Leg Pt 3, 666";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Trigger::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Trigger>(v, "Wookie Leg Pt 3,666", (), &conf);
     }
 
     #[test]
@@ -2955,11 +2909,6 @@ mod tests {
     }
 
     #[test]
-    fn pne_time() {
-        assert_from_to_str::<TemporalScale3_0>("0,0");
-    }
-
-    #[test]
     fn pncalibration_3_1() {
         assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
     }
@@ -2971,17 +2920,41 @@ mod tests {
 
     #[test]
     fn pnl_3_1() {
-        assert_from_to_str_maybe::<Wavelengths>("1");
-        assert_from_to_str_maybe::<Wavelengths>("1,2");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with_maybe::<Wavelengths>("1", (), &conf);
+        assert_from_to_str_with_maybe::<Wavelengths>("1,2", (), &conf);
+    }
+
+    #[test]
+    fn pnl_3_1_commas() {
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Wavelengths::from_str_with("1, 2", (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_eq!(
+            Wavelengths::from_str_with("1, 2", (), &conf)
+                .unwrap()
+                .display_maybe(),
+            Some("1,2".into())
+        );
     }
 
     #[test]
     fn last_modified() {
-        assert_from_to_str_almost::<LastModified>(
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<LastModified>("01-Jan-2112 00:00:00.01", (), &conf);
+        assert_from_to_str_almost_with::<LastModified>(
             "01-Jan-2112 00:00:00",
             "01-Jan-2112 00:00:00.00",
+            (),
+            &conf,
         );
-        assert_from_to_str::<LastModified>("01-Jan-2112 00:00:00.01");
+        conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
+        assert_from_to_str_almost_with::<LastModified>(
+            "01-Jan-2112 00:00",
+            "01-Jan-2112 00:00:00.00",
+            (),
+            &conf,
+        );
     }
 
     #[test]
@@ -2994,10 +2967,20 @@ mod tests {
 
     #[test]
     fn unicode() {
-        assert_from_to_str::<Unicode>("42,$BYTEORD");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Unicode>("42,$BYTEORD", (), &conf);
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
-        assert_from_to_str::<Unicode>("42,$40DOLLARBILL");
+        assert_from_to_str_with::<Unicode>("42,$40DOLLARBILL", (), &conf);
+    }
+
+    #[test]
+    fn unicode_commas() {
+        let v = "50 ,something tour";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Unicode::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Unicode>(v, "50,something tour", (), &conf);
     }
 
     #[test]
@@ -3075,24 +3058,37 @@ mod tests {
 
     #[test]
     fn str_compensation() {
-        assert_from_to_str::<Compensation3_0>("2,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0");
-        assert_from_to_str::<Compensation3_0>("2,1.1,1,0,-1.5");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Compensation3_0>("2,0,0,0,0", (), &conf);
+        assert_from_to_str_with::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0", (), &conf);
+        assert_from_to_str_with::<Compensation3_0>("2,1.1,1,0,-1.5", (), &conf);
     }
 
     #[test]
     fn str_compensation_too_small() {
-        assert!("1,0".parse::<Compensation3_0>().is_err());
+        let conf = ReadStdKeywordsConfig::default();
+        assert!(Compensation3_0::from_str_with("1,0", (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_mismatch() {
-        assert!("2,0,0,0".parse::<Compensation3_0>().is_err());
+        let conf = ReadStdKeywordsConfig::default();
+        assert!(Compensation3_0::from_str_with("2,0,0,0", (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_badfloats() {
-        assert!("2,zero,0,coconut".parse::<Compensation3_0>().is_err());
+        let conf = ReadStdKeywordsConfig::default();
+        assert!(Compensation3_0::from_str_with("2,zero,0,coconut", (), &conf).is_err());
+    }
+
+    #[test]
+    fn str_compensation_commas() {
+        let v = "2, 0, 0, 0, 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Compensation3_0::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Compensation3_0>(v, "2,0,0,0,0", (), &conf);
     }
 
     #[test]
@@ -3143,13 +3139,85 @@ mod tests {
 
     #[test]
     fn scale() {
-        assert_from_to_str::<Scale>("0,0");
-        assert_from_to_str::<Scale>("4.5,0.01");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Scale>("0,0", (), &conf);
+        assert_from_to_str_with::<Scale>("4.5,0.01", (), &conf);
     }
 
     #[test]
-    fn scale_invalid() {
-        assert!("4.5,0".parse::<Scale>().is_err());
+    fn scale_zero_log() {
+        let v = "4.5,0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Scale::from_str_with(v, (), &conf).is_err());
+        conf.fix_log_scale_offsets = true.into();
+        assert_from_to_str_almost_with::<Scale>(v, "4.5,1", (), &conf);
+    }
+
+    #[test]
+    fn scale_commas() {
+        let v = "0, 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Scale::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Scale>(v, "0,0", (), &conf);
+    }
+
+    #[test]
+    fn tmp_scale2() {
+        let conf = ReadStdKeywordsConfig::default();
+        // no display, so just check parse
+        assert!(TemporalScale2_0::from_str_with("0,0", (), &conf).is_ok());
+        assert!(TemporalScale2_0::from_str_with("1,1", (), &conf).is_err());
+    }
+
+    #[test]
+    fn tmp_scale2_commas() {
+        let v = "0, 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_ok());
+    }
+
+    #[test]
+    fn tmp_scale3() {
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<TemporalScale3_0>("0,0", (), &conf);
+        assert!(TemporalScale3_0::from_str_with("1,1", (), &conf).is_err());
+    }
+
+    #[test]
+    fn tmp_scale3_commas() {
+        let v = "0, 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(TemporalScale3_0::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<TemporalScale3_0>(v, "0,0", (), &conf);
+    }
+
+    #[test]
+    fn gate_scale() {
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<GateScale>("0,0", (), &conf);
+        assert_from_to_str_with::<GateScale>("4.5,0.01", (), &conf);
+    }
+
+    #[test]
+    fn gate_scale_zero_log() {
+        let v = "4.5,0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(GateScale::from_str_with(v, (), &conf).is_err());
+        conf.fix_log_scale_offsets = true.into();
+        assert_from_to_str_almost_with::<GateScale>(v, "4.5,1", (), &conf);
+    }
+
+    #[test]
+    fn gate_scale_commas() {
+        let v = "0, 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(GateScale::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<GateScale>(v, "0,0", (), &conf);
     }
 }
 

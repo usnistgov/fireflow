@@ -45,6 +45,8 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
+use super::lookup::OptIndexedKeyStError;
+
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -1394,7 +1396,7 @@ pub enum LookupGatedMeasurementsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasError {
-    Scale(OptIndexedKeyError<GateScale>),
+    Scale(OptIndexedKeyStError<GateScale>),
     Shortname(OptIndexedKeyError<GateShortname>),
     PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
     Range(OptIndexedKeyError<GateRange>),

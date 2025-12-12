@@ -2107,7 +2107,7 @@ where
 
         let abrt_res = Abrt::remove_or_drop_root_opt(std, &mut nonstd, conf.as_ref());
         let lost_res = Lost::remove_or_drop_root_opt(std, &mut nonstd, conf.as_ref());
-        let tr_res = Trigger::remove_or_drop_root_opt(std, &mut nonstd, conf.as_ref());
+        let tr_res = Trigger::remove_or_drop_root_opt_with(std, &mut nonstd, (), conf);
 
         let spec_res = M::lookup_specific(std, &mut nonstd, ms, conf);
 
@@ -7940,7 +7940,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cyt = Cyt::remove_root_opt_nofail(std);
         let cytsn = Cytsn::remove_root_opt_nofail(std);
 
-        let comp = Compensation3_0::remove_or_drop_root_opt(std, nonstd, conf.as_ref());
+        let comp = Compensation3_0::remove_or_drop_root_opt_with(std, nonstd, (), conf);
         let ts = Timestamps::lookup(std, nonstd, conf);
         let uni = Unicode::remove_or_drop_root_opt_with(std, nonstd, (), conf);
 
@@ -9405,7 +9405,7 @@ pub enum LookupMetarootError {
 pub enum LookupMetarootWarning {
     Trigger(OptKeyStError<Trigger>),
     Comp2_0(LookupComp2_0Error),
-    Comp3_0(OptKeyError<Compensation3_0>),
+    Comp3_0(OptKeyStError<Compensation3_0>),
     Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
     Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
     Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
@@ -9482,7 +9482,7 @@ type LookupOpticalResult<V> =
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
     Xform(ScaleTransformError),
-    Scale(ReqIndexedKeyError<Scale>),
+    Scale(ReqIndexedStKeyError<Scale>),
     Warn(LookupOpticalWarning),
 }
 

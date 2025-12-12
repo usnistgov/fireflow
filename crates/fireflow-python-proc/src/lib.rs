@@ -6985,6 +6985,8 @@ impl DocArgParam {
             Self::new_ignore_time_optical_keys_param(),
             Self::new_date_pattern_param(),
             Self::new_time_pattern_param(version),
+            Self::new_datetime_pattern_param(),
+            Self::new_last_modified_pattern_param(),
             Self::new_allow_pseudostandard_param(),
             Self::new_allow_unused_standard_param(),
             Self::new_disallow_deprecated_param(),
@@ -7158,6 +7160,25 @@ impl DocArgParam {
                  *$DATE*. If not supplied, *$DATE* will be parsed according to \
                  the standard pattern which is ``%d-%b-%Y``.";
         Self::new_opt_param("date_pattern", pytype, d)
+    }
+
+    fn new_datetime_pattern_param() -> Self {
+        let pytype = PyStr::default();
+        let d = "If supplied, will be used as an alternative pattern when parsing \
+                 *$BEGINDATETIME* and *ENDDATETIME*. The pattern must follow the \
+                 format outlined in {CHRONO_REF}. If not supplied, these will \
+                 be parsed as ISO timestamps with optional timezone.";
+        Self::new_opt_param("datetime_pattern", pytype, d)
+    }
+
+    fn new_last_modified_pattern_param() -> Self {
+        let pytype = PyStr::default();
+        let d = "If supplied, will be used as an alternative pattern when parsing \
+                 *$LAST_MODIFIED*. The pattern must follow the format outlined in \
+                 {CHRONO_REF}. If not supplied, these will be parsed according to \
+                 the default pattern which is  ``\"%d-%b-%Y %H:%M:%S\"`` possibly \
+                 with centiseconds after.";
+        Self::new_opt_param("last_modified_pattern", pytype, d)
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {

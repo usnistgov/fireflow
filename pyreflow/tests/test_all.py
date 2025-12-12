@@ -78,6 +78,8 @@ STD_DEFAULT_CONFIG: dict[str, Any] = {
     "ignore_time_optical_keys": [],
     "date_pattern": None,
     "time_pattern": None,
+    "datetime_pattern": None,
+    "last_modified_pattern": None,
     "allow_pseudostandard": False,
     "allow_unused_standard": False,
     "disallow_deprecated": False,

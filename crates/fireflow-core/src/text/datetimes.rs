@@ -171,9 +171,14 @@ impl FromStrWith for FCSDateTime {
     type Payload<'a> = ();
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        // first, try to parse without a timezone, defaulting to localtime and
-        // converting to a fixed offset
-        if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+        if let Some(pat) = conf.datetime_pattern.as_ref() {
+            // first, try the given alternative format if it exists
+            DateTime::parse_from_str(s, pat.as_str())
+                .map(Self)
+                .map_err(|_| FCSDateTimeError::AltFormat(pat.to_owned()))
+        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+            // next, try to parse without a timezone, defaulting to localtime and
+            // converting to a fixed offset
             if conf.disallow_localtime.is_set() {
                 Err(FCSDateTimeError::Localtime)
             } else {
@@ -214,6 +219,8 @@ pub struct ReversedDatetimesError;
 pub enum FCSDateTimeError {
     #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
     Format,
+    #[error("could not parse with pattern '{0}'")]
+    AltFormat(String),
     #[error(
         "timestamp parsed using localtime due to missing timezone, but this time \
          occurred when clock was turned backward which resulted in ambiguous UTC time"

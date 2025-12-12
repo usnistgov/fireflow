@@ -1039,26 +1039,42 @@ pub struct LastModified(pub NaiveDateTime);
 
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
+// TODO only needed for tests
 impl FromStr for LastModified {
     type Err = LastModifiedError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_with(s, (), &ReadStdKeywordsConfig::default())
+    }
+}
+
+impl FromStrWith for LastModified {
+    type Err = LastModifiedError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        if let Some(pat) = conf.last_modified_pattern.as_ref() {
+            return NaiveDateTime::parse_from_str(s, pat.as_str())
+                .map(Self)
+                .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
+        }
         let (t, cc) = match &s.split('.').collect::<Vec<_>>()[..] {
             [t] => (*t, ""),
             [t, cc] => (*t, *cc),
-            _ => return Err(LastModifiedError),
+            _ => return Err(LastModifiedError::Format),
         };
         NaiveDateTime::parse_from_str(t, DATETIME_FMT)
-            .or(Err(LastModifiedError))
+            .or(Err(LastModifiedError::Format))
             .and_then(|dt| {
                 if cc.is_empty() {
                     Ok(dt)
                 } else {
-                    let tt = cc.parse::<u32>().or(Err(LastModifiedError))?;
+                    let tt = cc.parse::<u32>().or(Err(LastModifiedError::Format))?;
                     if tt > 100 {
-                        Err(LastModifiedError)
+                        Err(LastModifiedError::Format)
                     } else {
-                        dt.with_nanosecond(tt * 10_000_000).ok_or(LastModifiedError)
+                        dt.with_nanosecond(tt * 10_000_000)
+                            .ok_or(LastModifiedError::Format)
                     }
                 }
             })
@@ -1068,8 +1084,12 @@ impl FromStr for LastModified {
 
 /// Error when parsing [`LastModified`] from string
 #[derive(Debug, Error)]
-#[error("must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")]
-pub struct LastModifiedError;
+pub enum LastModifiedError {
+    #[error("could not parse with format string '{0}'")]
+    AltFormat(String),
+    #[error("must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")]
+    Format,
+}
 
 /// The value for the $ORIGINALITY key (3.1+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]

@@ -633,7 +633,7 @@ pub struct ReadStdKeywordsConfig {
     /// in their place.
     pub parse_indexed_spillover: ParseIndexedSpillover,
 
-    /// If `true`, will be used as an alternative pattern when parsing $DATE.
+    /// If set, will be used as an alternative pattern when parsing $DATE.
     ///
     /// It should have specifiers for year, month, and day as outlined in
     /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
@@ -643,6 +643,22 @@ pub struct ReadStdKeywordsConfig {
 
     /// If `true`, will be used as an alternative pattern toe parse $BTIM/$ETIM.
     pub time_pattern: Option<TimePattern>,
+
+    /// If set, will be used to parse $BEGINDATETIME and $ENDDATETIME.
+    ///
+    /// It should follow the format outline in
+    /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
+    /// If not supplied, timestamps will be parsed as an ISO-formatted timestamp
+    /// possibly with a timezone.
+    pub datetime_pattern: Option<String>,
+
+    /// If set, will be used to parse $LAST_MODIFIED.
+    ///
+    /// It should follow the format outline in
+    /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
+    /// If not supplied, timestamps will be parsed according to the standard
+    /// format which is `"%d-%b-%Y %H:%M:%S"` possibly with centiseconds after.
+    pub last_modified_pattern: Option<String>,
 
     /// If `true`, allow non-standard keywords starting with `"$"`.
     ///
@@ -710,11 +726,14 @@ impl Default for ReadStdKeywordsConfig {
             parse_indexed_spillover: ParseIndexedSpillover::default(),
             date_pattern: None,
             time_pattern: None,
+            datetime_pattern: None,
+            last_modified_pattern: None,
             allow_pseudostandard: AllowPseudostandard::default(),
             allow_unused_standard: AllowUnusedStandard::default(),
             disallow_deprecated: DisallowDeprecated::default(),
             fix_log_scale_offsets: FixLogScaleOffsets::default(),
             disallow_localtime: DisallowLocaltime::default(),
+            // this default impl exists entirely so that this can be Some(...)
             nonstandard_measurement_pattern: Some(NonStdMeasPattern::default()),
         }
     }

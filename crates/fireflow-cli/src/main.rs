@@ -449,6 +449,25 @@ fn main() -> Result<(), ()> {
             kw_style.paint("$ETIM"),
         ));
 
+    let datetime_pattern = Arg::new(DATETIME_PATTERN)
+        .long(DATETIME_PATTERN)
+        .value_name("PATTERN")
+        .help(format!(
+            "If supplied, will be used as an alternative pattern when parsing \
+             {} and {}. It should follow the format outline in {CHRONO_REF}.",
+            kw_style.paint("$BEGINDATETIME"),
+            kw_style.paint("ENDDATETIME"),
+        ));
+
+    let last_modified_pattern = Arg::new(LAST_MODIFIED_PATTERN)
+        .long(LAST_MODIFIED_PATTERN)
+        .value_name("PATTERN")
+        .help(format!(
+            "If supplied, will be used as an alternative pattern when parsing \
+             {}. It should follow the format outline in {CHRONO_REF}.",
+            kw_style.paint("LAST_MODIFIED"),
+        ));
+
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
         .long(NS_MEAS_PATTERN)
         .value_name("REGEXP")
@@ -467,6 +486,8 @@ fn main() -> Result<(), ()> {
         parse_indexed_spillover,
         date_pattern,
         time_pattern,
+        datetime_pattern,
+        last_modified_pattern,
         allow_pseudostandard,
         allow_unused_standard,
         disallow_deprecated,
@@ -890,6 +911,8 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .get_one::<String>(TIME_PATTERN)
         .cloned()
         .map(|d| d.parse::<TimePattern>().unwrap());
+    let datetime_pattern = sargs.get_one::<String>(DATETIME_PATTERN).cloned();
+    let last_modified_pattern = sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned();
     config::ReadStdKeywordsConfig {
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
         time_meas_pattern,
@@ -900,6 +923,8 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
         date_pattern,
         time_pattern,
+        datetime_pattern,
+        last_modified_pattern,
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
@@ -1178,6 +1203,10 @@ const SUB_STD_PAT_KEY_VALS: &str = "sub-std-pat-key-vals";
 const DATE_PATTERN: &str = "date-pattern";
 
 const TIME_PATTERN: &str = "time-pattern";
+
+const DATETIME_PATTERN: &str = "datetime-pattern";
+
+const LAST_MODIFIED_PATTERN: &str = "last-modified-pattern";
 
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 

@@ -5492,19 +5492,22 @@ impl CSVFlags {
 }
 
 impl ModificationData {
-    fn lookup(
+    fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &ReadLayoutConfig,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError> {
+        conf: &C,
+    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+    {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
-        let last_mod_date = LastModified::remove_or_transfer_root_opt(std, nonstd, conf)
+        let last_mod_date = LastModified::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf)
+        let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let flag = conf.allow_optional_dropping;
+        let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
             .nowarn_into_switchable(flag)
@@ -8011,7 +8014,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
 
-        let modif = go!(ModificationData::lookup(std, nonstd, conf.as_ref()));
+        let modif = go!(ModificationData::lookup(std, nonstd, conf));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(
@@ -8083,7 +8086,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let carrier = CarrierData::lookup(std);
 
         let dt = go!(Datetimes::lookup(std, nonstd, conf));
-        let modif = go!(ModificationData::lookup(std, nonstd, conf.as_ref()));
+        let modif = go!(ModificationData::lookup(std, nonstd, conf));
         let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
@@ -9559,7 +9562,7 @@ pub enum LookupCSVFlagsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupModifiedDataError {
-    LastModTime(OptKeyError<LastModified>),
+    LastModTime(OptKeyStError<LastModified>),
     Originality(OptKeyError<Originality>),
 }
 

@@ -456,12 +456,26 @@ pub enum Display {
     },
 }
 
-impl FromStr for Display {
+impl FromStrWith for Display {
     type Err = DisplayError;
+    type Payload<'a> = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(',').collect::<Vec<_>>()[..] {
-            [which, s1, s2] => {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStrDelim for Display {
+    type Err = DisplayError;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        let x3 = iter.next();
+        match (x0, x1, x2, x3) {
+            (Some(which), Some(s1), Some(s2), None) => {
                 let f1 = s1.parse().map_err(DisplayError::FloatError)?;
                 let f2 = s2.parse().map_err(DisplayError::FloatError)?;
                 match which {
@@ -2883,9 +2897,19 @@ mod tests {
 
     #[test]
     fn pnd() {
-        assert_from_to_str::<Display>("Linear,0,1");
-        assert_from_to_str::<Display>("Logarithmic,1,1");
-        assert_from_to_str::<Display>("Logarithmic,1,0.1");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Display>("Linear,0,1", (), &conf);
+        assert_from_to_str_with::<Display>("Logarithmic,1,1", (), &conf);
+        assert_from_to_str_with::<Display>("Logarithmic,1,0.1", (), &conf);
+    }
+
+    #[test]
+    fn pnd_commas() {
+        let v = "Linear, 0 , 1";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(Display::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Display>(v, "Linear,0,1", (), &conf);
     }
 
     #[test]

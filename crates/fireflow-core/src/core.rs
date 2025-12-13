@@ -7088,7 +7088,7 @@ impl LookupOptical for InnerOptical3_1 {
         }
         let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let cal = Calibration3_1::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
         let scale = ScaleTransform::lookup(std, nonstd, i, conf);
@@ -7121,7 +7121,7 @@ impl LookupOptical for InnerOptical3_2 {
 
         let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let cal = Calibration3_2::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
         let feat = Feature::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
 
@@ -7209,7 +7209,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -7241,7 +7241,7 @@ impl LookupTemporal for InnerTemporal3_2 {
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -9501,7 +9501,7 @@ pub enum LookupOpticalWarning {
     Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
     TemporalType(OptIndexedKeyError<TemporalType>),
     OpticalType(OptIndexedKeyError<OpticalType>),
-    Display(OptIndexedKeyError<Display>),
+    Display(OptIndexedKeyStError<Display>),
     Power(OptIndexedKeyError<Power>),
     PercentEmitted(OptIndexedKeyError<PercentEmitted>),
     DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
@@ -9527,7 +9527,7 @@ pub enum LookupTemporalWarning {
     TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGainError),
     TemporalType(OptIndexedKeyError<TemporalType>),
-    Display(OptIndexedKeyError<Display>),
+    Display(OptIndexedKeyStError<Display>),
     Peak(LookupPeakError),
 }
 

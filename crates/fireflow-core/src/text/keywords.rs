@@ -1340,17 +1340,6 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     }
 }
 
-impl<I> FromStr for RegionGateIndex<I>
-where
-    I: FromStr,
-{
-    type Err = RegionGateIndexError<<I as FromStr>::Err>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
-    }
-}
-
 impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     const DELIM: char = ',';
@@ -1495,14 +1484,6 @@ impl FromStrWith for RegionWindow {
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-impl FromStr for RegionWindow {
-    type Err = RegionWindowError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -2126,15 +2107,6 @@ impl FromStrWith for UnstainedCenters {
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
-// TODO this is only necessary for testing
-impl FromStr for UnstainedCenters {
-    type Err = ParseUnstainedCenterError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, false.into())
     }
 }
 
@@ -2921,8 +2893,8 @@ mod tests {
     #[test]
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with_maybe::<Wavelengths>("1", (), &conf);
-        assert_from_to_str_with_maybe::<Wavelengths>("1,2", (), &conf);
+        assert_from_to_str_maybe_with::<Wavelengths>("1", (), &conf);
+        assert_from_to_str_maybe_with::<Wavelengths>("1,2", (), &conf);
     }
 
     #[test]
@@ -3009,28 +2981,68 @@ mod tests {
 
     #[test]
     fn rni_2_0() {
-        assert_from_to_str::<RegionGateIndex<GateIndex>>("1");
-        assert_from_to_str::<RegionGateIndex<GateIndex>>("1,2");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1,2", (), &conf);
+    }
+
+    #[test]
+    fn rni_2_0_commas() {
+        let v = "1, 2";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(RegionGateIndex::<GateIndex>::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<RegionGateIndex<GateIndex>>(v, "1,2", (), &conf);
     }
 
     #[test]
     fn rni_3_0() {
-        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1");
-        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("P1,P2");
-        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1");
-        assert_from_to_str::<RegionGateIndex<MeasOrGateIndex>>("G1,G2");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1,P2", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1,G2", (), &conf);
+    }
+
+    #[test]
+    fn rni_3_0_commas() {
+        let v = "P1, G2";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<RegionGateIndex<MeasOrGateIndex>>(v, "P1,G2", (), &conf);
     }
 
     #[test]
     fn rni_3_2() {
-        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1");
-        assert_from_to_str::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2", (), &conf);
+    }
+
+    #[test]
+    fn rni_3_2_commas() {
+        let v = "P1, P2";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<RegionGateIndex<PrefixedMeasIndex>>(v, "P1,P2", (), &conf);
     }
 
     #[test]
     fn rnw() {
-        assert_from_to_str::<RegionWindow>("1,1");
-        assert_from_to_str::<RegionWindow>("1,1;2,3;5,8;13,21");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<RegionWindow>("1,1", (), &conf);
+        assert_from_to_str_with::<RegionWindow>("1,1;2,3;5,8;13,21", (), &conf);
+    }
+
+    #[test]
+    fn rnw_commas() {
+        let v = "1, 1 ; 2, 2";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(RegionWindow::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<RegionWindow>(v, "1,1;2,2", (), &conf);
     }
 
     #[test]
@@ -3043,17 +3055,34 @@ mod tests {
     // TODO this is hard(er) to test since the order will be random
     #[test]
     fn unstained_centers() {
-        assert_from_to_str_maybe::<UnstainedCenters>("1,X,0");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_maybe_with::<UnstainedCenters>("1,X,0", (), &conf);
+    }
+
+    #[test]
+    fn unstained_centers_commas() {
+        let v = "1, X , 0";
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert!(UnstainedCenters::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_eq!(
+            UnstainedCenters::from_str_with(v, (), &conf)
+                .unwrap()
+                .display_maybe(),
+            Some("1,X,0".into())
+        );
     }
 
     #[test]
     fn unstained_centers_wrong_len() {
-        assert!("2,X,0".parse::<UnstainedCenters>().is_err());
+        let conf = ReadStdKeywordsConfig::default();
+        assert!(UnstainedCenters::from_str_with("2,X,0", (), &conf).is_err());
     }
 
     #[test]
     fn unstained_centers_nonunique() {
-        assert!("3,Y,Y,Z,0,0,0".parse::<UnstainedCenters>().is_err());
+        let conf = ReadStdKeywordsConfig::default();
+        assert!(UnstainedCenters::from_str_with("3,Y,Y,Z,0,0,0", (), &conf).is_err());
     }
 
     #[test]

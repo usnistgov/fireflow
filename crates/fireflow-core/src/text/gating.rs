@@ -896,7 +896,7 @@ impl<I> Region<I> {
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let index_res = RegionGateIndex::remove_or_drop_meas_opt(std, nonstd, ri, conf.as_ref())
+        let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Region)
             .switchable_into_commutative()
             .into_semigroup();
@@ -1332,7 +1332,7 @@ pub type LookupRegionIndex3_0Error = LookupRegionIndexError<MeasOrGateIndex>;
 pub type LookupRegionIndex3_2Error = LookupRegionIndexError<PrefixedMeasIndex>;
 
 /// Error when parsing $RnI keyword (generic)
-pub type LookupRegionIndexError<I> = OptIndexedKeyError<RegionGateIndex<I>>;
+pub type LookupRegionIndexError<I> = OptIndexedKeyStError<RegionGateIndex<I>>;
 
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
 #[derive(Display, Debug, Error)]
@@ -1368,7 +1368,7 @@ pub enum LookupGatingSchemeError<E> {
 pub enum LookupRegionError<E> {
     Mismatch(IndexWindowMismatchError),
     Region(E),
-    Window(OptIndexedKeyError<RegionWindow>),
+    Window(OptIndexedKeyStError<RegionWindow>),
 }
 
 /// Error when $RnI and $RnW keywords mismatch

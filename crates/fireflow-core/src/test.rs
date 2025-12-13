@@ -54,7 +54,7 @@ where
 }
 
 /// Assert that Display and FromStrWith are perfect inverses for given input
-pub fn assert_from_to_str_with_maybe<T>(
+pub fn assert_from_to_str_maybe_with<T>(
     s: &str,
     payload: <T as FromStrWith>::Payload<'_>,
     conf: &ReadStdKeywordsConfig,

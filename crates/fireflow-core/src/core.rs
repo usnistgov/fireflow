@@ -7087,7 +7087,7 @@ impl LookupOptical for InnerOptical3_1 {
             };
         }
         let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let cal = Calibration3_1::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let cal = Calibration3_1::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
@@ -7120,7 +7120,7 @@ impl LookupOptical for InnerOptical3_2 {
         }
 
         let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let cal = Calibration3_2::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let cal = Calibration3_2::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let dpy = Display::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
         let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
         let feat = Feature::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
@@ -9497,8 +9497,8 @@ pub enum LookupOpticalWarning {
     Feature(OptIndexedKeyError<Feature>),
     Wavelengths(OptIndexedKeyStError<Wavelengths>),
     Wavelength(OptIndexedKeyError<Wavelength>),
-    Calibration3_1(OptIndexedKeyError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyError<Calibration3_2>),
+    Calibration3_1(OptIndexedKeyStError<Calibration3_1>),
+    Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
     TemporalType(OptIndexedKeyError<TemporalType>),
     OpticalType(OptIndexedKeyError<OpticalType>),
     Display(OptIndexedKeyError<Display>),

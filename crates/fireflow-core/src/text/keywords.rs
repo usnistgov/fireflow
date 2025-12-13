@@ -798,12 +798,25 @@ pub struct Calibration3_1 {
     pub unit: String,
 }
 
-impl FromStr for Calibration3_1 {
+impl FromStrWith for Calibration3_1 {
     type Err = CalibrationError<CalibrationFormat3_1>;
+    type Payload<'a> = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(',').collect::<Vec<_>>()[..] {
-            [value, unit] => {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStrDelim for Calibration3_1 {
+    type Err = CalibrationError<CalibrationFormat3_1>;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        match (x0, x1, x2) {
+            (Some(value), Some(unit), None) => {
                 let slope = value.parse().map_err(CalibrationError::Range)?;
                 Ok(Self::new(slope, String::from(unit)))
             }
@@ -843,11 +856,21 @@ pub struct Calibration3_2 {
     pub unit: String,
 }
 
-impl FromStr for Calibration3_2 {
+impl FromStrWith for Calibration3_2 {
     type Err = CalibrationError<CalibrationFormat3_2>;
+    type Payload<'a> = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (slope, offset, unit) = match s.split(',').collect::<Vec<_>>()[..] {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+    }
+}
+
+impl FromStrDelim for Calibration3_2 {
+    type Err = CalibrationError<CalibrationFormat3_2>;
+    const DELIM: char = ',';
+
+    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let (slope, offset, unit) = match iter.collect::<Vec<_>>()[..] {
             [slope, unit] => Ok((slope, 0.0, unit)),
             [slope, soffset, unit] => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
@@ -855,11 +878,11 @@ impl FromStr for Calibration3_2 {
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        Ok(Self {
-            slope: slope.parse().map_err(CalibrationError::Range)?,
+        Ok(Self::new(
+            slope.parse().map_err(CalibrationError::Range)?,
             offset,
-            unit: unit.into(),
-        })
+            unit.into(),
+        ))
     }
 }
 
@@ -2882,12 +2905,33 @@ mod tests {
 
     #[test]
     fn pncalibration_3_1() {
-        assert_from_to_str::<Calibration3_1>("0.1,cubic imperial lightyears");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Calibration3_1>("0.1,cubic imperial lightyears", (), &conf);
+    }
+
+    #[test]
+    fn pncalibration_3_1_commas() {
+        let mut conf = ReadStdKeywordsConfig::default();
+        let v = "1000 , yodabytes";
+        assert!(Calibration3_1::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Calibration3_1>(v, "1000,yodabytes", (), &conf);
     }
 
     #[test]
     fn pncalibration_3_2() {
-        assert_from_to_str::<Calibration3_2>("1.1,3.5813,progressive metal albums");
+        let conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Calibration3_2>("1.1,3.5813,progressive metal albums", (), &conf);
+        assert_from_to_str_with::<Calibration3_2>("1.61,0,quartic slugs", (), &conf);
+    }
+
+    #[test]
+    fn pncalibration_3_2_commas() {
+        let mut conf = ReadStdKeywordsConfig::default();
+        let v = "1, 0.2, nanobytes";
+        assert!(Calibration3_2::from_str_with(v, (), &conf).is_err());
+        conf.trim_intra_value_whitespace = true.into();
+        assert_from_to_str_almost_with::<Calibration3_2>(v, "1,0.2,nanobytes", (), &conf);
     }
 
     #[test]
@@ -2900,10 +2944,11 @@ mod tests {
     #[test]
     fn pnl_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Wavelengths::from_str_with("1, 2", (), &conf).is_err());
+        let v = "1, 2";
+        assert!(Wavelengths::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         assert_eq!(
-            Wavelengths::from_str_with("1, 2", (), &conf)
+            Wavelengths::from_str_with(v, (), &conf)
                 .unwrap()
                 .display_maybe(),
             Some("1,2".into())

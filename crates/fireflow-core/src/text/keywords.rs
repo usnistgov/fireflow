@@ -1100,7 +1100,6 @@ pub struct OriginalityError;
 #[as_ref(DMatrix<f32>, Compensation)]
 pub struct Compensation3_0(pub Compensation);
 
-// TODO check that nrows/columns = PAR
 impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();

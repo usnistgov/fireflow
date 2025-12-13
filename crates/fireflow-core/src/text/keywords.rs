@@ -1117,20 +1117,17 @@ impl FromStrDelim for Compensation3_0 {
         if let Some(first) = iter.next().and_then(|x| x.parse::<usize>().ok()) {
             let n = first;
             let nn = n * n;
-            let values: Vec<_> = iter.by_ref().take(nn).collect();
+            let values = iter
+                .by_ref()
+                .take(nn)
+                .map(str::parse::<f32>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ParseCompError::BadFloat)?;
             let remainder = iter.by_ref().count();
             let total = values.len() + remainder;
             if total == nn {
-                if let Ok(fvalues) = values
-                    .into_iter()
-                    .map(str::parse::<f32>)
-                    .collect::<Result<Vec<_>, _>>()
-                {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                    Ok(Compensation::try_from(matrix).map(Self)?)
-                } else {
-                    Err(ParseCompError::BadFloat)
-                }
+                let matrix = DMatrix::from_row_iterator(n, n, values);
+                Ok(Compensation::try_from(matrix).map(Self)?)
             } else {
                 Err(ParseCompError::WrongLength {
                     expected: nn,

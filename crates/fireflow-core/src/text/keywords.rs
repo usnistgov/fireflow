@@ -63,7 +63,7 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::ReqIndexedStKeyError;
+use super::lookup::{ReqIndexedStKeyError, impl_from_str_with_delim};
 
 #[cfg(feature = "python")]
 use {
@@ -148,10 +148,12 @@ impl FromStrDelim for Scale {
     type Err = ScaleError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = iter.collect();
-        match &xs[..] {
-            [ds, os] => {
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        match (x0, x1, x2) {
+            (Some(ds), Some(os), None) => {
                 let f1 = ds.parse().map_err(ScaleError::FloatError)?;
                 let f2 = os.parse().map_err(ScaleError::FloatError)?;
                 match (f1, f2) {
@@ -315,33 +317,29 @@ impl Trigger {
     }
 }
 
-impl FromStrWith for Trigger {
-    type Err = TriggerError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Trigger {
     type Err = TriggerError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = iter.collect();
-        match &xs[..] {
-            [p, n1] => n1
-                .parse()
-                .map_err(TriggerError::IntFormat)
-                .map(|threshold| Self {
-                    measurement: Shortname::new_unchecked(p),
-                    threshold,
-                }),
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        match (x0, x1, x2) {
+            (Some(p), Some(n1), None) => {
+                n1.parse()
+                    .map_err(TriggerError::IntFormat)
+                    .map(|threshold| Self {
+                        measurement: Shortname::new_unchecked(p),
+                        threshold,
+                    })
+            }
             _ => Err(TriggerError::WrongFieldNumber),
         }
     }
 }
+
+impl_from_str_with_delim!(Trigger, TriggerError);
 
 /// Error when parsing [`Trigger`] from string
 #[derive(Debug, Error)]
@@ -456,15 +454,6 @@ pub enum Display {
     },
 }
 
-impl FromStrWith for Display {
-    type Err = DisplayError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Display {
     type Err = DisplayError;
     const DELIM: char = ',';
@@ -500,6 +489,8 @@ impl FromStrDelim for Display {
         }
     }
 }
+
+impl_from_str_with_delim!(Display, DisplayError);
 
 /// Error when parsing [`enum@Display`] from string
 #[derive(Debug, Error)]
@@ -737,10 +728,12 @@ impl FromStrDelim for TemporalScaleInner {
     type Err = TemporalScaleError;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = iter.collect();
-        if let [x0, x1] = &xs[..]
-            && (x0.parse::<f32>(), x1.parse::<f32>()) == (Ok(0.0), Ok(0.0))
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        if let (Some(y0), Some(y1), None) = (x0, x1, x2)
+            && (y0.parse::<f32>(), y1.parse::<f32>()) == (Ok(0.0), Ok(0.0))
         {
             return Ok(Self);
         }
@@ -748,14 +741,7 @@ impl FromStrDelim for TemporalScaleInner {
     }
 }
 
-impl FromStrWith for TemporalScaleInner {
-    type Err = TemporalScaleError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
+impl_from_str_with_delim!(TemporalScaleInner, TemporalScaleError);
 
 /// The value of the $PnE key for temporal measurements (3.0+)
 #[derive(Clone, PartialEq, Display, Debug, Default)]
@@ -812,15 +798,6 @@ pub struct Calibration3_1 {
     pub unit: String,
 }
 
-impl FromStrWith for Calibration3_1 {
-    type Err = CalibrationError<CalibrationFormat3_1>;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Calibration3_1 {
     type Err = CalibrationError<CalibrationFormat3_1>;
     const DELIM: char = ',';
@@ -838,6 +815,8 @@ impl FromStrDelim for Calibration3_1 {
         }
     }
 }
+
+impl_from_str_with_delim!(Calibration3_1, CalibrationError<CalibrationFormat3_1>);
 
 /// Error when parsing [`Calibration3_1`] from string
 #[derive(Debug, Error)]
@@ -870,23 +849,18 @@ pub struct Calibration3_2 {
     pub unit: String,
 }
 
-impl FromStrWith for Calibration3_2 {
-    type Err = CalibrationError<CalibrationFormat3_2>;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Calibration3_2 {
     type Err = CalibrationError<CalibrationFormat3_2>;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let (slope, offset, unit) = match iter.collect::<Vec<_>>()[..] {
-            [slope, unit] => Ok((slope, 0.0, unit)),
-            [slope, soffset, unit] => {
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        let x3 = iter.next();
+        let (slope, offset, unit) = match (x0, x1, x2, x3) {
+            (Some(slope), Some(unit), None, None) => Ok((slope, 0.0, unit)),
+            (Some(slope), Some(soffset), Some(unit), None) => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
                 Ok((slope, f2, unit))
             }
@@ -899,6 +873,8 @@ impl FromStrDelim for Calibration3_2 {
         ))
     }
 }
+
+impl_from_str_with_delim!(Calibration3_2, CalibrationError<CalibrationFormat3_2>);
 
 /// Error when parsing [`Calibration3_2`] from string
 #[derive(Debug, Error)]
@@ -977,15 +953,6 @@ impl From<Wavelengths> for Vec<f32> {
     }
 }
 
-impl FromStrWith for Wavelengths {
-    type Err = WavelengthsError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Wavelengths {
     type Err = WavelengthsError;
     const DELIM: char = ',';
@@ -996,6 +963,8 @@ impl FromStrDelim for Wavelengths {
         Ok(Self(ys.into()))
     }
 }
+
+impl_from_str_with_delim!(Wavelengths, WavelengthsError);
 
 impl Wavelengths {
     pub(crate) fn into_wavelength(
@@ -1218,15 +1187,6 @@ pub struct Unicode {
     pub kws: Vec<String>,
 }
 
-impl FromStrWith for Unicode {
-    type Err = UnicodeError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for Unicode {
     type Err = UnicodeError;
     const DELIM: char = ',';
@@ -1244,6 +1204,8 @@ impl FromStrDelim for Unicode {
         }
     }
 }
+
+impl_from_str_with_delim!(Unicode, UnicodeError);
 
 /// Error when parsing [`Unicode`] from string
 #[derive(Debug, Error)]
@@ -1381,14 +1343,16 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     const DELIM: char = ',';
 
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs: Vec<_> = iter.collect();
-        match &xs[..] {
-            [x] => x
+    fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        let x0 = iter.next();
+        let x1 = iter.next();
+        let x2 = iter.next();
+        match (x0, x1, x2) {
+            (Some(x), None, None) => x
                 .parse()
                 .map(RegionGateIndex::Univariate)
                 .map_err(RegionGateIndexError::Int),
-            [x, y] => x
+            (Some(x), Some(y), None) => x
                 .parse()
                 .and_then(|a| y.parse().map(|b| Self::Bivariate(IndexPair { x: a, y: b })))
                 .map_err(RegionGateIndexError::Int),
@@ -1515,15 +1479,6 @@ pub struct UniGate {
     pub upper: BigDecimal,
 }
 
-impl FromStrWith for RegionWindow {
-    type Err = RegionWindowError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for RegionWindow {
     type Err = RegionWindowError;
     const DELIM: char = ';';
@@ -1552,6 +1507,8 @@ impl FromStrDelim for RegionWindow {
         )
     }
 }
+
+impl_from_str_with_delim!(RegionWindow, RegionWindowError);
 
 impl RegionWindow {
     fn from_iter_inner<'a, F, G>(
@@ -1595,11 +1552,13 @@ impl FromStrDelim for Vertex {
 }
 
 fn parse_pair<'a>(
-    ss: impl Iterator<Item = &'a str>,
+    mut ss: impl Iterator<Item = &'a str>,
 ) -> Result<(BigDecimal, BigDecimal), RegionWindowError> {
-    let xs: Vec<_> = ss.collect();
-    match &xs[..] {
-        [a, b] => a
+    let x0 = ss.next();
+    let x1 = ss.next();
+    let x2 = ss.next();
+    match (x0, x1, x2) {
+        (Some(a), Some(b), None) => a
             .parse()
             .and_then(|x| b.parse().map(|y| (x, y)))
             .map_err(RegionWindowError::Num),
@@ -2138,15 +2097,6 @@ impl UnstainedCenters {
     }
 }
 
-impl FromStrWith for UnstainedCenters {
-    type Err = ParseUnstainedCenterError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-    }
-}
-
 impl FromStrDelim for UnstainedCenters {
     type Err = ParseUnstainedCenterError;
     const DELIM: char = ',';
@@ -2185,6 +2135,8 @@ impl FromStrDelim for UnstainedCenters {
         }
     }
 }
+
+impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 
 impl DisplayMaybe for UnstainedCenters {
     fn display_maybe(&self) -> Option<String> {

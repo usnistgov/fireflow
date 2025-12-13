@@ -111,6 +111,26 @@ pub trait FromStrWith: Sized {
     ) -> Result<Self, Self::Err>;
 }
 
+// this won't be necessary once rust gets specialization
+macro_rules! impl_from_str_with_delim {
+    ($t:path, $e:path) => {
+        impl crate::text::lookup::FromStrWith for $t {
+            type Err = $e;
+            type Payload<'a> = ();
+
+            fn from_str_with(
+                s: &str,
+                (): (),
+                conf: &crate::config::ReadStdKeywordsConfig,
+            ) -> Result<Self, Self::Err> {
+                Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+            }
+        }
+    };
+}
+
+pub(crate) use impl_from_str_with_delim;
+
 /// Any required key
 pub(crate) trait Required: Sized {
     fn get_req<I>(

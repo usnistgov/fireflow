@@ -2820,6 +2820,10 @@ mod tests {
     fn tr() {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Trigger>("Wooden Leg Pt 3,456", (), &conf);
+        assert!(Trigger::from_str_with("x,x", (), &conf).is_err());
+        assert!(Trigger::from_str_with("x,0.0", (), &conf).is_err());
+        assert!(Trigger::from_str_with("x", (), &conf).is_err());
+        assert!(Trigger::from_str_with("x,x,x", (), &conf).is_err());
     }
 
     #[test]
@@ -2836,11 +2840,14 @@ mod tests {
         assert_from_to_str::<Mode>("C");
         assert_from_to_str::<Mode>("L");
         assert_from_to_str::<Mode>("U");
+        assert!(Mode::from_str("X").is_err());
     }
 
     #[test]
     fn mode_3_2() {
         assert_from_to_str::<Mode3_2>("L");
+        assert!(Mode3_2::from_str("C").is_err());
+        assert!(Mode3_2::from_str("U").is_err());
     }
 
     #[test]
@@ -2849,6 +2856,9 @@ mod tests {
         assert_from_to_str_with::<Display>("Linear,0,1", (), &conf);
         assert_from_to_str_with::<Display>("Logarithmic,1,1", (), &conf);
         assert_from_to_str_with::<Display>("Logarithmic,1,0.1", (), &conf);
+        assert!(Display::from_str_with("LIN,0,1", (), &conf).is_err());
+        assert!(Display::from_str_with("LOG,1,1", (), &conf).is_err());
+        assert!(Display::from_str_with("Logicle,0,1,2,3", (), &conf).is_err());
     }
 
     #[test]
@@ -2865,6 +2875,7 @@ mod tests {
         assert_from_to_str::<NumType>("I");
         assert_from_to_str::<NumType>("F");
         assert_from_to_str::<NumType>("D");
+        assert!(NumType::from_str("A").is_err());
     }
 
     #[test]
@@ -2873,12 +2884,16 @@ mod tests {
         assert_from_to_str::<AlphaNumType>("F");
         assert_from_to_str::<AlphaNumType>("D");
         assert_from_to_str::<AlphaNumType>("A");
+        assert!(AlphaNumType::from_str("X").is_err());
     }
 
     #[test]
     fn pncalibration_3_1() {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_1>("0.1,cubic imperial lightyears", (), &conf);
+        assert!(Calibration3_1::from_str_with("x", (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with("x,x", (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with("x,0.1", (), &conf).is_err());
     }
 
     #[test]
@@ -2895,6 +2910,10 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_2>("1.1,3.5813,progressive metal albums", (), &conf);
         assert_from_to_str_with::<Calibration3_2>("1.61,0,quartic slugs", (), &conf);
+        assert!(Calibration3_2::from_str_with("x", (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with("x,x", (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with("x,0.1", (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with("0.1,x,x", (), &conf).is_err());
     }
 
     #[test]
@@ -2909,8 +2928,9 @@ mod tests {
     #[test]
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_maybe_with::<Wavelengths>("1", (), &conf);
-        assert_from_to_str_maybe_with::<Wavelengths>("1,2", (), &conf);
+        assert_from_to_str_maybe_with::<Wavelengths>("0.5", (), &conf);
+        assert_from_to_str_maybe_with::<Wavelengths>("0.5,2", (), &conf);
+        assert!(Wavelengths::from_str_with("x", (), &conf).is_err());
     }
 
     #[test]
@@ -2937,13 +2957,10 @@ mod tests {
             (),
             &conf,
         );
+        let v = "01-Jan-2112 00:00";
+        assert!(LastModified::from_str_with(v, (), &conf).is_err());
         conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
-        assert_from_to_str_almost_with::<LastModified>(
-            "01-Jan-2112 00:00",
-            "01-Jan-2112 00:00:00.00",
-            (),
-            &conf,
-        );
+        assert_from_to_str_almost_with::<LastModified>(v, "01-Jan-2112 00:00:00.00", (), &conf);
     }
 
     #[test]
@@ -2952,6 +2969,7 @@ mod tests {
         assert_from_to_str::<Originality>("NonDataModified");
         assert_from_to_str::<Originality>("Appended");
         assert_from_to_str::<Originality>("DataModified");
+        assert!(Originality::from_str("x").is_err());
     }
 
     #[test]
@@ -2961,6 +2979,7 @@ mod tests {
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
         assert_from_to_str_with::<Unicode>("42,$40DOLLARBILL", (), &conf);
+        assert!(Unicode::from_str_with("42", (), &conf).is_err());
     }
 
     #[test]
@@ -2974,6 +2993,7 @@ mod tests {
 
     #[test]
     fn pntype_optical() {
+        // this can basically be everything, even though only a few values make sense
         assert_from_to_str_maybe::<OpticalType>("Forward Scatter");
         assert_from_to_str_maybe::<OpticalType>("Side Scatter");
         assert_from_to_str_maybe::<OpticalType>("Raw Fluorescence");
@@ -2982,11 +3002,13 @@ mod tests {
         assert_from_to_str_maybe::<OpticalType>("Electronic Volume");
         assert_from_to_str_maybe::<OpticalType>("Index");
         assert_from_to_str_maybe::<OpticalType>("Classification");
+        assert_from_to_str_maybe::<OpticalType>("Spongebob");
     }
 
     #[test]
     fn pntype_time() {
         assert_from_to_str_maybe::<TemporalType>("Time");
+        assert!(TemporalType::from_str("Space").is_err());
     }
 
     #[test]
@@ -2994,6 +3016,7 @@ mod tests {
         assert_from_to_str::<Feature>("Area");
         assert_from_to_str::<Feature>("Width");
         assert_from_to_str::<Feature>("Height");
+        assert!(Feature::from_str("Volume").is_err());
     }
 
     #[test]
@@ -3001,6 +3024,8 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1", (), &conf);
         assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1,2", (), &conf);
+        assert!(RegionGateIndex::<GateIndex>::from_str_with("x", (), &conf).is_err());
+        assert!(RegionGateIndex::<GateIndex>::from_str_with("1,2,3", (), &conf).is_err());
     }
 
     #[test]
@@ -3019,6 +3044,8 @@ mod tests {
         assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1,P2", (), &conf);
         assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1", (), &conf);
         assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1,G2", (), &conf);
+        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("x", (), &conf).is_err());
+        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("P1,G2,P3", (), &conf).is_err());
     }
 
     #[test]
@@ -3035,6 +3062,10 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1", (), &conf);
         assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2", (), &conf);
+        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with("x", (), &conf).is_err());
+        assert!(
+            RegionGateIndex::<PrefixedMeasIndex>::from_str_with("P1,P2,P3", (), &conf).is_err()
+        );
     }
 
     #[test]
@@ -3051,6 +3082,10 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionWindow>("1,1", (), &conf);
         assert_from_to_str_with::<RegionWindow>("1,1;2,3;5,8;13,21", (), &conf);
+        assert!(RegionWindow::from_str_with("1", (), &conf).is_err());
+        assert!(RegionWindow::from_str_with("1,1,1", (), &conf).is_err());
+        assert!(RegionWindow::from_str_with("1;1", (), &conf).is_err());
+        assert!(RegionWindow::from_str_with("1,1,1;1,1,1", (), &conf).is_err());
     }
 
     #[test]
@@ -3067,6 +3102,7 @@ mod tests {
         assert_from_to_str::<Gating>("R1");
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");
+        assert!(Gating::from_str("NAND R1").is_err());
     }
 
     // TODO this is hard(er) to test since the order will be random

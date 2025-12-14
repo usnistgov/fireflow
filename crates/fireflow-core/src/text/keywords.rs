@@ -2810,7 +2810,6 @@ opt_meta!(Endanalysis, Option<Self>);
 opt_meta!(Beginstext, Option<Self>);
 opt_meta!(Endstext, Option<Self>);
 
-// TODO test error cases here as well
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3105,7 +3104,6 @@ mod tests {
         assert!(Gating::from_str("NAND R1").is_err());
     }
 
-    // TODO this is hard(er) to test since the order will be random
     #[test]
     fn unstained_centers() {
         let conf = ReadStdKeywordsConfig::default();

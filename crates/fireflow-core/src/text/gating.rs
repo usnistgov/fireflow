@@ -308,6 +308,7 @@ impl AppliedGates2_0 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
+        // TODO demote as necessary
         let ag = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
             .map_commutative_warnings(LookupAppliedGatesError::Scheme);
@@ -432,6 +433,7 @@ impl AppliedGates3_0 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
+        // TODO demote as necessary
         let s = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
             .map_commutative_warnings(LookupAppliedGatesError::Scheme);
@@ -540,7 +542,23 @@ impl AppliedGates3_2 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        GatingScheme::lookup(std, nonstd, conf).map_deferred_value(Self)
+        let rconf: &ReadLayoutConfig = conf.as_ref();
+        GatingScheme::lookup(std, nonstd, conf)
+            .map_deferred_value(Self)
+            .map_err_value(|ret| {
+                if rconf.transfer_dropped_optional.is_set() {
+                    ret.0
+                        .gating
+                        .as_ref()
+                        .inspect(|&x| nonstd.insert_demoted_metaroot(x));
+                    ret.0
+                        .regions
+                        .iter()
+                        .flat_map(|(i, r)| r.opt_keywords_std(*i))
+                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                }
+                ret
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -766,12 +784,11 @@ impl<I> GatingScheme<I> {
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
     >
     where
-        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadLayoutConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
-        // TODO demote as necessary
         Gating::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupGatingSchemeError::Gating)
             .switchable_into_commutative()
@@ -791,7 +808,6 @@ impl<I> GatingScheme<I> {
                             .mappend_def()
                     })
                     .and_then_deferred_switchable_result(flag, |rs| {
-                        // TODO impl iterator for try_new
                         let regions = rs.into_iter().flatten().collect();
                         Self::try_new(gating, regions).map_err(LookupGatingSchemeError::Link)
                     })

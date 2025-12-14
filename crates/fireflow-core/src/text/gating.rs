@@ -308,7 +308,6 @@ impl AppliedGates2_0 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        // TODO demote as necessary
         let ag = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
             .map_commutative_warnings(LookupAppliedGatesError::Scheme);
@@ -317,23 +316,32 @@ impl AppliedGates2_0 {
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let rconf: &ReadLayoutConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
-        ag.zip_f2_once(gm).and_then_deferred_switchable_result(
-            flag,
-            |(scheme, gated_measurements)| {
+        ag.zip_f2_once(gm)
+            .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme).map_err(LookupAppliedGatesError::Link)
-            },
-        )
+            })
+            .map_err_value(|ret| {
+                if rconf.transfer_dropped_optional.is_set() {
+                    ret.opt_keywords_std()
+                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                }
+                ret
+            })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
         let gate = Gate(self.gated_measurements.0.len());
         self.gated_measurements
             .0
             .iter()
             .enumerate()
-            .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([gate.root_pair()])
-            .chain(self.scheme.opt_keywords())
+            .flat_map(|(i, m)| m.opt_keywords_std(i.into()))
+            .chain([gate.root_pair_std()])
+            .chain(self.scheme.opt_keywords_std())
+    }
+
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        self.opt_keywords_std().map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = AppliedGates2_0To3_2LossError> {
@@ -433,31 +441,42 @@ impl AppliedGates3_0 {
     where
         C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        // TODO demote as necessary
         let s = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
             .map_commutative_warnings(LookupAppliedGatesError::Scheme);
         let ms = GatedMeasurements::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
+        let rconf: &ReadLayoutConfig = conf.as_ref();
         s.zip_f2_once(ms)
             .and_then_deferred(|(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme)
                     .map_err(LookupAppliedGatesError::Link)
                     .into_succ()
             })
+            .map_err_value(|ret| {
+                if rconf.transfer_dropped_optional.is_set() {
+                    ret.opt_keywords_std()
+                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                }
+                ret
+            })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
         let g = self.gated_measurements.0.len();
         let gate = if g == 0 { None } else { Some(Gate(g)) };
         self.gated_measurements
             .0
             .iter()
             .enumerate()
-            .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain(self.scheme.opt_keywords())
-            .chain(gate.map(|x| OptMetarootKey::root_pair(&x)))
+            .flat_map(|(i, m)| m.opt_keywords_std(i.into()))
+            .chain(self.scheme.opt_keywords_std())
+            .chain(gate.map(|x| OptMetarootKey::root_pair_std(&x)))
+    }
+
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        self.opt_keywords_std().map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn try_into_2_0(
@@ -548,13 +567,7 @@ impl AppliedGates3_2 {
             .map_err_value(|ret| {
                 if rconf.transfer_dropped_optional.is_set() {
                     ret.0
-                        .gating
-                        .as_ref()
-                        .inspect(|&x| nonstd.insert_demoted_metaroot(x));
-                    ret.0
-                        .regions
-                        .iter()
-                        .flat_map(|(i, r)| r.opt_keywords_std(*i))
+                        .opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
                 ret
@@ -562,7 +575,7 @@ impl AppliedGates3_2 {
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.0.opt_keywords()
+        self.0.opt_keywords_std().map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError> {
@@ -622,15 +635,15 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
-    fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
-        let x0 = self.scale.meas_opt_pair(i);
-        let x1 = self.filter.meas_opt_pair(i);
-        let x2 = self.shortname.meas_opt_pair(i);
-        let x3 = self.percent_emitted.meas_opt_pair(i);
-        let x4 = self.range.meas_opt_pair(i);
-        let x5 = self.longname.meas_opt_pair(i);
-        let x6 = self.detector_type.meas_opt_pair(i);
-        let x7 = self.detector_voltage.meas_opt_pair(i);
+    fn opt_keywords_std(&self, i: GateIndex) -> impl Iterator<Item = (StdKey, String)> {
+        let x0 = self.scale.meas_opt_pair_std(i);
+        let x1 = self.filter.meas_opt_pair_std(i);
+        let x2 = self.shortname.meas_opt_pair_std(i);
+        let x3 = self.percent_emitted.meas_opt_pair_std(i);
+        let x4 = self.range.meas_opt_pair_std(i);
+        let x5 = self.longname.meas_opt_pair_std(i);
+        let x6 = self.detector_type.meas_opt_pair_std(i);
+        let x7 = self.detector_voltage.meas_opt_pair_std(i);
         [x0, x1, x2, x3, x4, x5, x6, x7]
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -814,15 +827,25 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
+    pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)>
     where
         I: fmt::Display + FromStr + Copy,
     {
         self.regions
             .iter()
-            .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
+            .flat_map(|(ri, r)| r.opt_keywords_std(*ri))
+            .chain(self.gating.as_ref().map(OptMetarootKey::root_pair_std))
     }
+
+    // pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
+    // where
+    //     I: fmt::Display + FromStr + Copy,
+    // {
+    //     self.regions
+    //         .iter()
+    //         .flat_map(|(ri, r)| r.opt_keywords(*ri))
+    //         .chain(self.gating.as_ref().map(OptMetarootKey::root_pair))
+    // }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError>
     where
@@ -965,13 +988,6 @@ impl<I> Region<I> {
     {
         let (ri, rw) = self.split();
         [ri.meas_pair_std(i), rw.meas_pair_std(i)].into_iter()
-    }
-
-    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
-    where
-        I: Copy + FromStr + fmt::Display,
-    {
-        self.opt_keywords_std(i).map(|(k, v)| (k.to_string(), v))
     }
 
     fn loss_errors(i: RegionIndex) -> impl Iterator<Item = GateRegionLossError>

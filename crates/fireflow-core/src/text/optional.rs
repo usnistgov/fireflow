@@ -1,6 +1,6 @@
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::text::index::IndexFromOne;
-use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader};
+use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader, StdKey};
 
 use type_families::{
     Monoid, Pointed, Semigroup, Sibling1, impl_functor, impl_functor_common, impl_functor_once,
@@ -139,11 +139,19 @@ pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
         (Self::Inner::std().to_string(), self.display_maybe())
     }
 
+    fn meas_opt_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, Option<String>)
+    where
+        Self::Inner: IndexedKey,
+    {
+        (Self::Inner::std(i), self.display_maybe())
+    }
+
     fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
     where
         Self::Inner: IndexedKey,
     {
-        (Self::Inner::std(i).to_string(), self.display_maybe())
+        let (k, v) = self.meas_opt_pair_std(i);
+        (k.to_string(), v)
     }
 
     fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)

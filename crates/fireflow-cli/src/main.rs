@@ -1,5 +1,5 @@
 use fireflow_core::api::{
-    fcs_read_flat_text, fcs_read_header, fcs_read_std_dataset, fcs_read_std_text,
+    fcs_read_flat_text, fcs_read_header, fcs_read_std_dataset, fcs_read_std_text, fcs_summarize,
 };
 use fireflow_core::config::{self, DatasetOffset};
 use fireflow_core::core::AnyCoreDataset;
@@ -641,6 +641,12 @@ fn main() -> Result<(), ()> {
         .help("Delimiter to use for tabular output.")
         .default_value("\t");
 
+    let skip_arg = Arg::new(SKIP).long(SKIP).help("Number of datasets to skip");
+
+    let limit_arg = Arg::new(LIMIT)
+        .long(LIMIT)
+        .help("Number of datasets to return");
+
     let input_arg = Arg::new(INPUT_PATH)
         .short('i')
         .long(INPUT_PATH)
@@ -719,6 +725,19 @@ fn main() -> Result<(), ()> {
                 .args(&all_shared_args)
                 .arg(&delim_arg)
                 .after_long_help(&std_long_help),
+        )
+        .subcommand(
+            Command::new(SUBCMD_SUMMARIZE)
+                .about("Summarize datasets in FCS file")
+                .arg(&input_arg)
+                .args(&all_header_args)
+                .args(&all_flat_args)
+                .args(&all_offset_args)
+                .args(&all_layout_args)
+                .args(&all_dataset_args)
+                .args(&all_shared_args)
+                .arg(&skip_arg)
+                .arg(&limit_arg),
         );
 
     let args = cmd.get_matches();
@@ -767,12 +786,22 @@ fn main() -> Result<(), ()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
-            let conf = parse_dataset_config(sargs);
+            let conf = parse_std_dataset_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let ((), res) = fcs_read_std_dataset(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             res.map(|(core, _)| print_parsed_data(&core, delim))
+        }
+
+        Some((SUBCMD_SUMMARIZE, sargs)) => {
+            let conf = parse_flat_dataset_config(sargs);
+            let filepath = parse_input_path(sargs);
+            let skip = parse_skip(sargs);
+            let limit = parse_limit(sargs);
+            let ((), res) = fcs_summarize(filepath, skip, limit, &conf)
+                .resolve_commutative(print_warnings, |s| print_errors(&s));
+            res.map(|ss| print_json(&ss))
         }
 
         _ => Ok(()),
@@ -961,7 +990,17 @@ fn parse_std_config(sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     }
 }
 
-fn parse_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
+fn parse_flat_dataset_config(sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
+    config::ReadFlatDatasetConfig {
+        flat: parse_header_and_text_config(sargs),
+        offsets: parse_offsets_config(sargs),
+        layout: parse_layout_config(sargs),
+        data: parse_dataset_inner_config(sargs),
+        shared: parse_shared_config(sargs),
+    }
+}
+
+fn parse_std_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
     config::ReadStdDatasetConfig {
         flat: parse_header_and_text_config(sargs),
         standard: parse_std_inner_config(sargs),
@@ -1080,6 +1119,14 @@ fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
     sargs.get_one::<PathBuf>(INPUT_PATH).unwrap()
 }
 
+fn parse_skip(sargs: &ArgMatches) -> Option<usize> {
+    sargs.get_one::<usize>(SKIP).copied()
+}
+
+fn parse_limit(sargs: &ArgMatches) -> Option<usize> {
+    sargs.get_one::<usize>(LIMIT).copied()
+}
+
 fn parse_delim(sargs: &ArgMatches) -> &String {
     sargs.get_one::<String>(DELIM).unwrap()
 }
@@ -1125,6 +1172,8 @@ const SUBCMD_FLAT: &str = "flat";
 const SUBCMD_STD: &str = "std";
 
 const SUBCMD_DATA: &str = "data";
+
+const SUBCMD_SUMMARIZE: &str = "summarize";
 
 const SUBCMD_MEAS: &str = "measurements";
 
@@ -1281,6 +1330,10 @@ const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 
 const DELIM: &str = "delimiter";
+
+const SKIP: &str = "skip";
+
+const LIMIT: &str = "limit";
 
 const INPUT_PATH: &str = "input-path";
 

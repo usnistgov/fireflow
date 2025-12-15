@@ -329,6 +329,23 @@ pub fn fcs_read_std_datasets(
     )
 }
 
+/// Summarize the contents of an FCS file
+#[must_use]
+pub fn fcs_summarize(
+    path: &PathBuf,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    conf: &ReadFlatDatasetConfig,
+) -> WarningsAndIOGroupResult<
+    Vec<DatasetSummary>,
+    MultiFlatDatasetWarning,
+    MultiFlatDatasetError,
+    FlatDatasetSummary,
+> {
+    fcs_read_flat_datasets(path, skip, limit, conf)
+        .map_ok_value(|x| x.fmap(FlatDatasetOutput::summarize))
+}
+
 fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
     p: &PathBuf,
     skip: Option<usize>,
@@ -494,6 +511,51 @@ pub struct FlatTEXTParseData {
     /// These have either a key or value or both that is not a UTF-8 string.
     /// Included here for debugging
     pub byte_pairs: BytesPairs,
+}
+
+/// Summary of an FCS dataset
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct DatasetSummary {
+    /// FCS version
+    pub version: Version,
+
+    /// Length of TEXT (in bytes)
+    pub text_len: u64,
+
+    /// Length of DATA (in bytes)
+    pub data_len: u64,
+
+    /// Length of ANALYSIS (in bytes)
+    pub analysis_len: u64,
+
+    /// Number of events ($TOT)
+    pub n_events: usize,
+
+    /// Number of measurements ($PAR)
+    pub n_measurements: usize,
+
+    /// Number of OTHER segments
+    pub n_other: usize,
+
+    /// Total length of OTHER segments (in bytes)
+    pub others_len: usize,
+    // TODO add data layout information
+}
+
+impl FlatDatasetOutput {
+    fn summarize(self) -> DatasetSummary {
+        DatasetSummary {
+            version: self.text.version,
+            text_len: self.text.parse.header_segments.text.len(),
+            data_len: self.dataset.dataset_segments.data.len(),
+            analysis_len: self.dataset.dataset_segments.analysis.len(),
+            n_events: self.dataset.data.nrows(),
+            n_measurements: self.dataset.data.ncols(),
+            n_other: self.dataset.others.0.len(),
+            others_len: self.dataset.others.0.iter().map(|x| x.0.len()).sum(),
+        }
+    }
 }
 
 /// Warning when parsing [`Header`]

@@ -1260,10 +1260,19 @@ impl FromStr for TemporalTypeInner {
 pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
+#[derive(Clone, PartialEq, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum Feature {
+    #[display("{_0}")]
+    Optical(OpticalFeature),
+    #[display("{_0}")]
+    Other(NonEmptyString),
+}
+
+/// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum Feature {
+pub enum OpticalFeature {
     #[display("{}", AREA)]
     Area,
     #[display("{}", WIDTH)]
@@ -1272,29 +1281,58 @@ pub enum Feature {
     Height,
 }
 
-const AREA: &str = "Area";
-const WIDTH: &str = "Width";
-const HEIGHT: &str = "Height";
-
-impl FromStr for Feature {
-    type Err = FeatureError;
+impl FromStr for OpticalFeature {
+    type Err = OpticalFeatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             AREA => Ok(Self::Area),
             WIDTH => Ok(Self::Width),
             HEIGHT => Ok(Self::Height),
-            _ => Err(FeatureError),
+            _ => Err(OpticalFeatureError),
         }
     }
 }
 
-/// Error when parsing [`Feature`]
+const AREA: &str = "Area";
+const WIDTH: &str = "Width";
+const HEIGHT: &str = "Height";
+
+impl FromStrWith for Feature {
+    type Err = FeatureError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        match s.parse::<OpticalFeature>() {
+            Ok(f) => Ok(Self::Optical(f)),
+            Err(e) => {
+                if conf.allow_other_feature.is_set() {
+                    Ok(Self::Other(s.parse().map_err(|_| FeatureError::Other)?))
+                } else {
+                    Err(FeatureError::Optical(e))
+                }
+            }
+        }
+    }
+}
+
+/// Error when parsing [`Feature`] (optical only)
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
-pub struct FeatureError;
+pub struct OpticalFeatureError;
+
+/// Error when parsing [`Feature`]
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+pub enum FeatureError {
+    #[error("{0}")]
+    Optical(OpticalFeatureError),
+    #[error("non-area/width/height feature must not be empty")]
+    Other,
+}
 
 /// The value of the $RnI key (all versions)
 #[derive(Clone, Copy, Display, Debug, PartialEq)]

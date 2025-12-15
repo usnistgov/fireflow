@@ -1,4 +1,4 @@
-use derive_more::{Display, Into};
+use derive_more::{AsRef, Display, Into};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -16,9 +16,10 @@ use {
 /// This is useful for required keywords which are strings. For optional
 /// strings, empty string means the value is missing, so required keys simply
 /// forbid empty strings.
-#[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug)]
+#[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
+#[as_ref(str)]
 pub struct NonEmptyString(String);
 
 impl FromStr for NonEmptyString {

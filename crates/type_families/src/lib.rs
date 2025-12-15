@@ -452,24 +452,24 @@ macro_rules! impl_functor_common {
 #[macro_export]
 macro_rules! impl_functor {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
-        impl_functor_common!($t, Functor, fmap, FnMut, $self, mut $f, $body);
+        $crate::impl_functor_common!($t, Functor, fmap, FnMut, $self, mut $f, $body);
     };
 
     ($t:ident, $self:ident, $f:ident, $body:expr) => {
-        impl_functor_common!($t, Functor, fmap, FnMut, $self, $f, $body);
+        $crate::impl_functor_common!($t, Functor, fmap, FnMut, $self, $f, $body);
     };
 }
 
 #[macro_export]
 macro_rules! impl_functor_once {
     ($t:ident, $self:ident, mut $f:ident, $body:expr) => {
-        impl_functor!($t, $self, mut $f, $body);
-        impl_functor_common!($t, FunctorOnce, fmap_once, FnOnce, $self, $f, $body);
+        $crate::impl_functor!($t, $self, mut $f, $body);
+        $crate::impl_functor_common!($t, FunctorOnce, fmap_once, FnOnce, $self, $f, $body);
     };
 
     ($t:ident, $self:ident, $f:ident, $body:expr) => {
-        impl_functor!($t, $self, $f, $body);
-        impl_functor_common!($t, FunctorOnce, fmap_once, FnOnce, $self, $f, $body);
+        $crate::impl_functor!($t, $self, $f, $body);
+        $crate::impl_functor_common!($t, FunctorOnce, fmap_once, FnOnce, $self, $f, $body);
     };
 }
 

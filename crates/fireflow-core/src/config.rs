@@ -660,6 +660,28 @@ pub struct ReadStdKeywordsConfig {
     /// format which is `"%d-%b-%Y %H:%M:%S"` possibly with centiseconds after.
     pub last_modified_pattern: Option<String>,
 
+    /// If `true`, capture other values for $PnFEATURE not mentioned in the standard.
+    ///
+    /// $PnFEATURE as described in the standard only explicitly mentions
+    /// `"Area"`, `"Width"`, and `"Height"` as allowed values. It is not clear
+    /// if these were intended as the only allowed values, but they make sense
+    /// when describing any measurement which is physically a time-based
+    /// detector response. However, some newer machines (particularly those with
+    /// imaging capabilities) will consider something like `"Eccentricity"` as a
+    /// "feature" which will thus be stored $PnFEATURE. However, this is a
+    /// different physical measurement (pixels vs time-based response) and
+    /// is thus distinct from area/width/height.
+    ///
+    /// Given that the standard clearly intended for area/width/height to be
+    /// described with $PnFEATURE and that other values correspond to separate
+    /// measurements, the default behavior is only to allow `"Area"`, `"Width"`,
+    /// and `"Height"`. Anything else will result in an error.
+    ///
+    /// If `true`, other values for $PnFEATURE will be captured but will be
+    /// separate from area/width/height and will be accessible using a different
+    /// keyword.
+    pub allow_other_feature: AllowOtherFeature,
+
     /// If `true`, allow non-standard keywords starting with `"$"`.
     ///
     /// The `"$`" prefix is reserved for standard keywords only. While little
@@ -728,6 +750,7 @@ impl Default for ReadStdKeywordsConfig {
             time_pattern: None,
             datetime_pattern: None,
             last_modified_pattern: None,
+            allow_other_feature: AllowOtherFeature::default(),
             allow_pseudostandard: AllowPseudostandard::default(),
             allow_unused_standard: AllowUnusedStandard::default(),
             disallow_deprecated: DisallowDeprecated::default(),
@@ -921,6 +944,7 @@ impl_error_flag!(false_is_error AllowMissingTime);
 impl_config_flag!(ForceTimeLinear);
 impl_config_flag!(IgnoreTimeGain);
 impl_config_flag!(ParseIndexedSpillover);
+impl_error_flag!(false_is_error AllowOtherFeature);
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowUnusedStandard);
 impl_error_flag!(false_is_error AllowOptionalDropping);

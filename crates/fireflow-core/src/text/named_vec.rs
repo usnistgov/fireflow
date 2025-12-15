@@ -7,7 +7,9 @@ use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
 
-use type_families::{BifunctorOnce, Functor, Monoid, Pointed, impl_kind2};
+use type_families::{
+    BifunctorOnce, Functor, Monoid, Pointed, impl_functor_once, impl_kind1, impl_kind2,
+};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -98,6 +100,14 @@ impl_kind2!(ElementFamily, Element);
 #[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonCenterElement<V>(pub Element<(), V>);
+
+impl_kind1!(NonCenterElementFamily, NonCenterElement);
+impl_functor_once!(
+    NonCenterElement,
+    self,
+    f,
+    NonCenterElement(self.0.second_once(f))
+);
 
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 

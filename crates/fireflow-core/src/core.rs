@@ -53,9 +53,9 @@ use crate::text::keywords::{
     DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
     Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier,
     Locationid, LogScale, Longname, LookupTemporalGainError, Lost, Mode, Mode3_2, ModeUpgradeError,
-    Nextdata, NoCytError, Op, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted,
-    Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src, Sys, Tag,
-    TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
+    Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
+    PercentEmitted, Plateid, Platename, Power, Proj, PseudostandardError, Range, Scale, Smno, Src,
+    Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot, Trigger, Unicode,
     UnstainedCenters, UnstainedInfo, UnusedStandardError, Vol, Wavelength, Wavelengths,
     WavelengthsLossError, Wellid,
 };
@@ -3168,6 +3168,58 @@ where
         self.measurements
             .iter()
             .map(|x| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
+    }
+
+    /// Return $PnFEATURE if it is area/width/height (3.2+)
+    ///
+    /// Values which are not area, width, or height will be returned as `None`.
+    pub fn awh_features(&self) -> impl Iterator<Item = NonCenterElement<Option<OpticalFeature>>>
+    where
+        Optical<M::Optical>: AsRef<Option<Feature>>,
+    {
+        self.optical_opt().map(|x| {
+            x.fmap_once(|y| {
+                let f = y?;
+                if let Feature::Optical(i) = f {
+                    Some(*i)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    /// Return $PnFEATURE if it is not area/width/height (3.2+)
+    pub fn other_features(&self) -> impl Iterator<Item = NonCenterElement<Option<&str>>>
+    where
+        Optical<M::Optical>: AsRef<Option<Feature>>,
+    {
+        self.optical_opt().map(|x| {
+            x.fmap_once(|y| {
+                let f = y?;
+                if let Feature::Other(i) = f {
+                    Some(i.as_ref())
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
+    /// Return $PnFEATURE if it is area/width/height (3.2+)
+    ///
+    /// This should be used only if the required features are area, width, and
+    /// height. Any `None` values in the vector will unset the value of
+    /// $PnFEATURE for that measurement.
+    pub fn set_awh_features(
+        &mut self,
+        xs: Vec<NonCenterElement<Option<OpticalFeature>>>,
+    ) -> Result<(), SetOpticalError>
+    where
+        Optical<M::Optical>: AsMut<Option<Feature>>,
+    {
+        let ys = xs.fmap(|y| y.fmap_once(|z| z.fmap_once(Feature::Optical)));
+        self.set_optical(ys)
     }
 
     /// Set $PnE (2.0)
@@ -7123,7 +7175,7 @@ impl LookupOptical for InnerOptical3_2 {
         let cal = Calibration3_2::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
-        let feat = Feature::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let feat = Feature::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
 
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
@@ -9494,7 +9546,7 @@ pub enum LookupOpticalWarning {
     TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     Gain(OptIndexedKeyError<Gain>),
     TemporalGain(LookupTemporalGainError),
-    Feature(OptIndexedKeyError<Feature>),
+    Feature(OptIndexedKeyStError<Feature>),
     Wavelengths(OptIndexedKeyStError<Wavelengths>),
     Wavelength(OptIndexedKeyError<Wavelength>),
     Calibration3_1(OptIndexedKeyStError<Calibration3_1>),

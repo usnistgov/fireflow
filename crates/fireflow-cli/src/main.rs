@@ -390,6 +390,14 @@ fn main() -> Result<(), ()> {
         ),
     );
 
+    let allow_other_feature = flag_arg(
+        ALLOW_OTHER_FEATURE,
+        format!(
+            "Allow {} to be a value other than \"Area\", \"Width\", or \"Height\"",
+            kw_style.paint("$PnFEATURE")
+        ),
+    );
+
     let allow_pseudostandard = flag_arg(
         ALLOW_PSEUDOSTANDARD,
         "Allow non-standard keywords that start with a '$'.",
@@ -488,6 +496,7 @@ fn main() -> Result<(), ()> {
         time_pattern,
         datetime_pattern,
         last_modified_pattern,
+        allow_other_feature,
         allow_pseudostandard,
         allow_unused_standard,
         disallow_deprecated,
@@ -925,6 +934,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         time_pattern,
         datetime_pattern,
         last_modified_pattern,
+        allow_other_feature: sargs.get_flag(ALLOW_OTHER_FEATURE).into(),
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
         allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
@@ -1225,6 +1235,8 @@ const FORCE_TIME_LINEAR: &str = "force-time-linear";
 const IGNORE_TIME_GAIN: &str = "ignore-time-gain";
 
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
+
+const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
 
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 

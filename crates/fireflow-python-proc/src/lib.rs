@@ -2852,9 +2852,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let analyte = DocArg::new_meas_kw_str("Analyte", "analyte", "ANALYTE");
 
-    let feature = DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| {
-        PyLiteral::new_feature()
-    });
+    let feature =
+        DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyStr::new_feature());
 
     let detector_name = DocArg::new_meas_kw_str("DetectorName", "detector_name", "DET");
 
@@ -3121,10 +3120,70 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+
+    let inner_pytype = PyOpt::new(PyLiteral::new_awh_feature());
+
+    let inner_rstype = inner_pytype.as_rust_type();
+
+    let doc_summary = "Value of *$PnFEATURE* (area/width/height) for all measurements.";
+    let p0 = "This should be the preferred way to get and set this keyword if \
+              one knows that only ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
+              will be used for this dataset since it has a well-defined type.";
+    let p1 = "``()`` will be returned for the time measurement.";
+
+    let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
+
+    // TODO exception if time channel is in the wrong spot
+    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default(), nce_path);
+
+    let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).paras([p0, p1]);
+
+    doc.into_impl_get_set(
+        &i,
+        "all_awh_features",
+        true,
+        |_, _| quote!(self.0.awh_features().collect()),
+        |n, _| quote!(Ok(self.0.set_awh_features(#n)?)),
+    )
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+
+    let inner_pytype = PyOpt::new(PyStr::default());
+    let inner_rstype = inner_pytype.as_rust_type();
+
+    let doc_summary = "Value of *$PnFEATURE* (not area/width/height) for all measurements.";
+    let p0 = "Values which are not ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
+              will be returned as ``None``.";
+    let p1 = "``()`` will be returned for the time measurement.";
+
+    let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
+
+    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default(), nce_path);
+
+    let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).paras([p0, p1]);
+
+    doc.into_impl_get(&i, "all_other_features", |_, _| {
+        quote!(
+            self.0
+                .other_features()
+                .map(|x| x.fmap_once(|y| y.fmap_once(|z| z.to_owned())))
+                .collect()
+        )
+    })
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     core_all_optical_attr(&i, "Feature", "features", "FEATURE", |_| {
-        PyLiteral::new_feature()
+        PyStr::new_feature()
     })
 }
 
@@ -3140,6 +3199,29 @@ pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
         false,
         true,
     )
+}
+
+#[proc_macro]
+pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+
+    let pytype = PyOpt::new(PyLiteral::new_awh_feature());
+
+    let doc_summary = "Value of *$PnFEATURE* (area/width/height).";
+    let p = "This should be the preferred way to get and set this keyword if \
+             one knows that only ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
+             will be used since it has a well-defined type.";
+
+    let doc = DocString::new_ivar(doc_summary, pytype).para(p);
+
+    doc.into_impl_get_set(
+        &i,
+        "awh_feature",
+        false,
+        |_, _| quote!(self.0.awh_feature()),
+        |n, _| quote!(self.0.set_awh_feature(#n)),
+    )
+    .into()
 }
 
 fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
@@ -5436,6 +5518,11 @@ impl<E: From<PyException>> PyStr<E> {
         let e = PyException::new_invalid_keyword().desc("if %x is empty");
         Self::default().rstype(path).exc(e)
     }
+
+    fn new_feature() -> Self {
+        let path = keyword_path("Feature");
+        Self::default().rstype(path)
+    }
 }
 
 impl<E> PyBool<E> {
@@ -5611,8 +5698,8 @@ impl PyLiteral {
         Self::new2(["A", "I", "F", "D"], path)
     }
 
-    fn new_feature() -> Self {
-        let path = keyword_path("Feature");
+    fn new_awh_feature() -> Self {
+        let path = keyword_path("OpticalFeature");
         Self::new2(["Area", "Width", "Height"], path)
     }
 
@@ -6987,6 +7074,7 @@ impl DocArgParam {
             Self::new_time_pattern_param(version),
             Self::new_datetime_pattern_param(),
             Self::new_last_modified_pattern_param(),
+            Self::new_allow_other_feature_param(),
             Self::new_allow_pseudostandard_param(),
             Self::new_allow_unused_standard_param(),
             Self::new_disallow_deprecated_param(),
@@ -7179,6 +7267,12 @@ impl DocArgParam {
                  the default pattern which is  ``\"%d-%b-%Y %H:%M:%S\"`` possibly \
                  with centiseconds after.";
         Self::new_opt_param("last_modified_pattern", pytype, d)
+    }
+
+    fn new_allow_other_feature_param() -> Self {
+        let d = "If ``true``, allow *$PnFEATURE* to be a value other than \
+                 `\"Area\"`, `\"Width\"`, or `\"Height\"`.";
+        Self::new_bool_param("allow_other_feature", d)
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {

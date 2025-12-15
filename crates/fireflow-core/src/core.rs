@@ -1859,6 +1859,25 @@ impl<T> Temporal<T> {
 }
 
 impl<O> Optical<O> {
+    pub fn awh_feature(&self) -> Option<OpticalFeature>
+    where
+        Self: AsRef<Option<Feature>>,
+    {
+        let x: &Option<Feature> = self.as_ref();
+        if let Feature::Optical(i) = x.as_ref()? {
+            Some(*i)
+        } else {
+            None
+        }
+    }
+
+    pub fn set_awh_feature(&mut self, v: Option<OpticalFeature>)
+    where
+        Self: AsMut<Option<Feature>>,
+    {
+        *self.as_mut() = v.map(Feature::Optical);
+    }
+
     fn try_convert<Of: ConvertFromOptical<O>>(
         self,
         i: MeasIndex,

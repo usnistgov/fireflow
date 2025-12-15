@@ -74,17 +74,18 @@ use fireflow_core::text::optional::{Identity, Nothing};
 use fireflow_core::validated::ascii_uint::UintSpacePad20;
 use fireflow_core::validated::keys;
 
-use type_families::{BifunctorOnce as _, Functor as _};
+use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
 
 use fireflow_python_proc::{
     def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,
     def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text,
-    impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs, impl_core_all_pnanalyte,
-    impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet,
-    impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old,
-    impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt,
-    impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
-    impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr, impl_core_get_measurement,
+    impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs,
+    impl_core_all_pnanalyte, impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd,
+    impl_core_all_pndet, impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new,
+    impl_core_all_pnl_old, impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns,
+    impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv,
+    impl_core_all_shortnames_attr, impl_core_all_shortnames_maybe_attr,
+    impl_core_all_transforms_attr, impl_core_get_all_other_pnfeature, impl_core_get_measurement,
     impl_core_get_measurements, impl_core_get_named_measurement, impl_core_get_set_timestep,
     impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
     impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
@@ -96,14 +97,14 @@ use fireflow_python_proc::{
     impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
     impl_coredataset_unset_data, impl_coredataset_write_multi, impl_coretext_from_kws,
     impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_coretext_write_multi,
-    impl_gated_meas, impl_layout_byte_widths, impl_new_core, impl_new_delim_ascii_layout,
-    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_extra_std_keywords,
-    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output,
-    impl_py_flat_text_parse_data, impl_py_header, impl_py_header_segments,
-    impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output, impl_py_std_text_output,
-    impl_py_valid_keywords,
+    impl_gated_meas, impl_layout_byte_widths, impl_meas_awh_pnfeature, impl_new_core,
+    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
+    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
+    impl_py_extra_std_keywords, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_py_flat_text_output, impl_py_flat_text_parse_data, impl_py_header,
+    impl_py_header_segments, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
+    impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -154,6 +155,9 @@ impl_new_meas!(core::Optical2_0);
 impl_new_meas!(core::Optical3_0);
 impl_new_meas!(core::Optical3_1);
 impl_new_meas!(core::Optical3_2);
+
+// Implement $PnFEATURE (area/width/height) get/set for 3.2
+impl_meas_awh_pnfeature!(PyOptical3_2);
 
 // Implement python classes for Temporal* structs (as PyTemporal*)
 //
@@ -390,6 +394,14 @@ impl_core_all_pntype!(PyCoreDataset3_2);
 // Get/set methods for $PnFEATURE (3.2)
 impl_core_all_pnfeature!(PyCoreTEXT3_2);
 impl_core_all_pnfeature!(PyCoreDataset3_2);
+
+// Get/set methods for area/width/height $PnFEATURE (3.2)
+impl_core_all_awh_pnfeature!(PyCoreTEXT3_2);
+impl_core_all_awh_pnfeature!(PyCoreDataset3_2);
+
+// Get/set methods for non-area/width/height $PnFEATURE (3.2)
+impl_core_get_all_other_pnfeature!(PyCoreTEXT3_2);
+impl_core_get_all_other_pnfeature!(PyCoreDataset3_2);
 
 // Get/set methods for $PnANALYTE (3.2)
 impl_core_all_pnanalyte!(PyCoreTEXT3_2);

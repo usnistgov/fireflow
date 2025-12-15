@@ -40,7 +40,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use type_families::{impl_functor, impl_functor_common, impl_kind1};
+use type_families::{impl_functor, impl_kind1};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
@@ -1262,6 +1262,7 @@ pub struct TemporalTypeError;
 /// The value of the $PnFEATURE key (3.2+)
 #[derive(Clone, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum Feature {
     #[display("{_0}")]
     Optical(OpticalFeature),
@@ -1269,9 +1270,41 @@ pub enum Feature {
     Other(NonEmptyString),
 }
 
+#[cfg(feature = "python")]
+impl FromStr for Feature {
+    type Err = FeatureError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let conf = ReadStdKeywordsConfig {
+            allow_other_feature: true.into(),
+            ..ReadStdKeywordsConfig::default()
+        };
+        Self::from_str_with(s, (), &conf)
+    }
+}
+
+impl FromStrWith for Feature {
+    type Err = FeatureError;
+    type Payload<'a> = ();
+
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+        match s.parse::<OpticalFeature>() {
+            Ok(f) => Ok(Self::Optical(f)),
+            Err(e) => {
+                if conf.allow_other_feature.is_set() {
+                    Ok(Self::Other(s.parse().map_err(|_| FeatureError::Other)?))
+                } else {
+                    Err(FeatureError::Optical(e))
+                }
+            }
+        }
+    }
+}
+
 /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
 #[derive(Clone, Copy, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum OpticalFeature {
     #[display("{}", AREA)]
     Area,
@@ -1297,24 +1330,6 @@ impl FromStr for OpticalFeature {
 const AREA: &str = "Area";
 const WIDTH: &str = "Width";
 const HEIGHT: &str = "Height";
-
-impl FromStrWith for Feature {
-    type Err = FeatureError;
-    type Payload<'a> = ();
-
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        match s.parse::<OpticalFeature>() {
-            Ok(f) => Ok(Self::Optical(f)),
-            Err(e) => {
-                if conf.allow_other_feature.is_set() {
-                    Ok(Self::Other(s.parse().map_err(|_| FeatureError::Other)?))
-                } else {
-                    Err(FeatureError::Optical(e))
-                }
-            }
-        }
-    }
-}
 
 /// Error when parsing [`Feature`] (optical only)
 #[derive(Debug, Error)]
@@ -3050,10 +3065,13 @@ mod tests {
 
     #[test]
     fn pnfeature() {
-        assert_from_to_str::<Feature>("Area");
-        assert_from_to_str::<Feature>("Width");
-        assert_from_to_str::<Feature>("Height");
-        assert!(Feature::from_str("Volume").is_err());
+        let mut conf = ReadStdKeywordsConfig::default();
+        assert_from_to_str_with::<Feature>("Area", (), &conf);
+        assert_from_to_str_with::<Feature>("Width", (), &conf);
+        assert_from_to_str_with::<Feature>("Height", (), &conf);
+        assert!(Feature::from_str_with("Volume", (), &conf).is_err());
+        conf.allow_other_feature = true.into();
+        assert_from_to_str_with::<Feature>("Volume", (), &conf);
     }
 
     #[test]

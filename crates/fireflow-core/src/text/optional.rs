@@ -2,10 +2,7 @@ use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::text::index::IndexFromOne;
 use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader, StdKey};
 
-use type_families::{
-    Monoid, Pointed, Semigroup, Sibling1, impl_functor, impl_functor_common, impl_functor_once,
-    impl_kind1,
-};
+use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
 use derive_more::{AsMut, AsRef, From, FromStr};
 use std::fmt;

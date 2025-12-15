@@ -80,6 +80,7 @@ STD_DEFAULT_CONFIG: dict[str, Any] = {
     "time_pattern": None,
     "datetime_pattern": None,
     "last_modified_pattern": None,
+    "allow_other_feature": False,
     "allow_pseudostandard": False,
     "allow_unused_standard": False,
     "disallow_deprecated": False,
@@ -920,8 +921,29 @@ class TestCore:
         core.all_features == [None, ()]
         core.all_features = ["Area", ()]
         assert core.all_features == ["Area", ()]
+        # this is also allowed
+        core.all_features = ["Urea", ()]
+        assert core.all_features == ["Urea", ()]
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_awh_feature(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        core.all_awh_features == [None, ()]
+        core.all_awh_features = ["Height", ()]
+        assert core.all_features == ["Height", ()]
         with pytest.raises(pf.ParseKeywordValueError):
-            core.all_features = ["Earth Minutes", ()]  # type: ignore
+            core.all_awh_features = ["Seight", ()]  # type: ignore
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_other_feature(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        core.all_other_features == [None, ()]
+        core.all_awh_features = ["Width", ()]
+        assert core.all_other_features == [None, ()]
+        core.all_features = ["htdiW", ()]
+        assert core.all_other_features == ["htdiW", ()]
 
     @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
     def test_meas_3_1_calibration(
@@ -1914,8 +1936,17 @@ class TestMeas:
         assert meas.feature is None
         meas.feature = "Area"
         assert meas.feature == "Area"
+        # this is also allowed for this attribute
+        meas.feature = "under da curv"
+        assert meas.feature == "under da curv"
+
+    @parameterize_versions("meas", ["3_2"], ["blank_optical"])
+    def test_awh_feature_3_2(self, meas: pf.Optical3_2) -> None:
+        assert meas.awh_feature is None
+        meas.awh_feature = "Area"
+        assert meas.awh_feature == "Area"
         with pytest.raises(pf.ParseKeywordValueError):
-            meas.feature = "under da curv"  # type: ignore
+            meas.awh_feature = "under da curv"  # type: ignore
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     @pytest.mark.parametrize("attr", ["detector_name", "tag", "analyte"])

@@ -336,7 +336,8 @@ class Optical3_2(
     detector_name: str | None
     tag: str | None
     measurement_type: str
-    feature: Feature | None
+    feature: str | None
+    awh_feature: Feature | None
     analyte: str | None
 
     def __new__(
@@ -346,7 +347,7 @@ class Optical3_2(
         calibration: Calibration3_2 | None = None,
         display: Display | None = None,
         analyte: str = "",
-        feature: Feature | None = None,
+        feature: str | None = None,
         tag: str = "",
         measurement_type: str = "",
         detector_name: str = "",
@@ -863,7 +864,9 @@ class _Core3_2:
 
     all_detector_names: _OpticalKeyVals[str]
     all_tags: _OpticalKeyVals[str]
-    all_features: _OpticalKeyVals[Feature]
+    all_features: _OpticalKeyVals[str]
+    all_awh_features: _OpticalKeyVals[Feature]
+    all_other_features: _OpticalKeyVals[str]
     all_analytes: _OpticalKeyVals[str]
     all_measurement_types: list[str]
 
@@ -952,6 +955,7 @@ class CoreTEXT2_0(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1037,6 +1041,7 @@ class CoreTEXT3_0(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1130,6 +1135,7 @@ class CoreTEXT3_1(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1225,6 +1231,7 @@ class CoreTEXT3_2(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1310,6 +1317,7 @@ class CoreDataset2_0(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1406,6 +1414,7 @@ class CoreDataset3_0(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1517,6 +1526,7 @@ class CoreDataset3_1(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1630,6 +1640,7 @@ class CoreDataset3_2(
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
+        allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
         allow_unused_standard: bool = False,
         disallow_deprecated: bool = False,
@@ -1956,6 +1967,7 @@ def fcs_read_std_text(
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
+    allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
@@ -2097,6 +2109,7 @@ def fcs_read_std_dataset(
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
+    allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
@@ -2227,6 +2240,7 @@ def fcs_read_std_texts(
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
+    allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,
@@ -2370,6 +2384,7 @@ def fcs_read_std_datasets(
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
+    allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
     allow_unused_standard: bool = False,
     disallow_deprecated: bool = False,

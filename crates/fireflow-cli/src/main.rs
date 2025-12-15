@@ -1,5 +1,5 @@
 use fireflow_core::api::{
-    fcs_read_flat_text, fcs_read_header, fcs_read_std_dataset, fcs_read_std_text, fcs_summarize,
+    fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{self, DatasetOffset};
 use fireflow_core::core::AnyCoreDataset;
@@ -641,10 +641,20 @@ fn main() -> Result<(), ()> {
         .help("Delimiter to use for tabular output.")
         .default_value("\t");
 
-    let skip_arg = Arg::new(SKIP).long(SKIP).help("Number of datasets to skip");
+    let dataset_index_arg = Arg::new(DATASET_INDEX)
+        .long(DATASET_INDEX)
+        .short('I')
+        .value_parser(value_parser!(usize))
+        .help("Index of the dataset to parse (starting from 0)");
+
+    let skip_arg = Arg::new(SKIP)
+        .long(SKIP)
+        .value_parser(value_parser!(usize))
+        .help("Number of datasets to skip");
 
     let limit_arg = Arg::new(LIMIT)
         .long(LIMIT)
+        .value_parser(value_parser!(usize))
         .help("Number of datasets to return");
 
     let input_arg = Arg::new(INPUT_PATH)
@@ -669,6 +679,7 @@ fn main() -> Result<(), ()> {
             Command::new(SUBCMD_FLAT)
                 .about("Show flat keywords as JSON.")
                 .arg(&input_arg)
+                .arg(&dataset_index_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_shared_args)
@@ -678,6 +689,7 @@ fn main() -> Result<(), ()> {
             Command::new(SUBCMD_STD)
                 .about("Dump standardized keywords as JSON.")
                 .arg(&input_arg)
+                .arg(&dataset_index_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
@@ -690,6 +702,7 @@ fn main() -> Result<(), ()> {
             Command::new(SUBCMD_MEAS)
                 .about("Show a table of standardized measurement values.")
                 .arg(&input_arg)
+                .arg(&dataset_index_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
@@ -703,6 +716,7 @@ fn main() -> Result<(), ()> {
             Command::new(SUBCMD_SPILL)
                 .about("Dump the spillover matrix if present.")
                 .arg(&input_arg)
+                .arg(&dataset_index_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
@@ -716,6 +730,7 @@ fn main() -> Result<(), ()> {
             Command::new(SUBCMD_DATA)
                 .about(format!("Show a table of the {data_seg} segment."))
                 .arg(&input_arg)
+                .arg(&dataset_index_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
@@ -754,44 +769,59 @@ fn main() -> Result<(), ()> {
         Some((SUBCMD_FLAT, sargs)) => {
             let conf = parse_flat_config(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_flat_text(filepath, DatasetOffset(0), &conf)
+            let skip = parse_dataset_index(sargs);
+            let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|flat| print_json(&flat))
+            // ASSUME this won't fail because we ask for one dataset
+            res.map(|mut cores| cores.remove(0))
+                .map(|flat| print_json(&flat))
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
+            let skip = parse_dataset_index(sargs);
+            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|(core, _)| core.print_comp_or_spillover_table(delim))
+            // ASSUME this won't fail because we ask for one dataset
+            res.map(|mut cores| cores.remove(0))
+                .map(|(core, _)| core.print_comp_or_spillover_table(delim))
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
             let conf = parse_std_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
+            let skip = parse_dataset_index(sargs);
+            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|(core, _)| core.print_meas_table(delim))
+            // ASSUME this won't fail because we ask for one dataset
+            res.map(|mut cores| cores.remove(0))
+                .map(|(core, _)| core.print_meas_table(delim))
         }
 
         Some((SUBCMD_STD, sargs)) => {
             let conf = parse_std_config(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_text(filepath, DatasetOffset(0), &conf)
+            let skip = parse_dataset_index(sargs);
+            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|(core, _)| print_json(&core))
+            // ASSUME this won't fail because we ask for one dataset
+            res.map(|mut cores| cores.remove(0))
+                .map(|(core, _)| print_json(&core))
         }
 
         Some((SUBCMD_DATA, sargs)) => {
             let conf = parse_std_dataset_config(sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
-            let ((), res) = fcs_read_std_dataset(filepath, DatasetOffset(0), &conf)
+            let skip = parse_dataset_index(sargs);
+            let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
-            res.map(|(core, _)| print_parsed_data(&core, delim))
+            // ASSUME this won't fail because we ask for one dataset
+            res.map(|mut cores| cores.remove(0))
+                .map(|(core, _)| print_parsed_data(&core, delim))
         }
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
@@ -1119,6 +1149,10 @@ fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
     sargs.get_one::<PathBuf>(INPUT_PATH).unwrap()
 }
 
+fn parse_dataset_index(sargs: &ArgMatches) -> Option<usize> {
+    sargs.get_one::<usize>(DATASET_INDEX).copied()
+}
+
 fn parse_skip(sargs: &ArgMatches) -> Option<usize> {
     sargs.get_one::<usize>(SKIP).copied()
 }
@@ -1330,6 +1364,8 @@ const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 
 const DELIM: &str = "delimiter";
+
+const DATASET_INDEX: &str = "dataset-index";
 
 const SKIP: &str = "skip";
 

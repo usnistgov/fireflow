@@ -1671,6 +1671,48 @@ class TestCore:
         new = core.to_dataset(pl.DataFrame([series1, series2]), b"", [])
         assert isinstance(new, target)
 
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text_2_0", pf.CoreDataset2_0),
+                ("text_3_0", pf.CoreDataset3_0),
+                ("text_3_1", pf.CoreDataset3_1),
+                ("text_3_2", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_text_to_dataset_chunked(
+        self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
+    ) -> None:
+        # TODO this should fail because it has multiple chunks, but it doesn't
+        d0 = pl.DataFrame([[1, 2]], {LINK_NAME1: pl.UInt32})
+        d1 = pl.DataFrame([[3, 4]], {LINK_NAME1: pl.UInt32})
+        d2 = d0.vstack(d1)
+        assert d2.n_chunks() == 2
+        new = core.to_dataset(d2, b"", [])
+        assert isinstance(new, target)
+
+    @pytest.mark.parametrize(
+        "core, target",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text_2_0", pf.CoreDataset2_0),
+                ("text_3_0", pf.CoreDataset3_0),
+                ("text_3_1", pf.CoreDataset3_1),
+                ("text_3_2", pf.CoreDataset3_2),
+            ]
+        ],
+    )
+    def test_text_to_dataset_null(
+        self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
+    ) -> None:
+        d = pl.DataFrame([[1, None]], {LINK_NAME1: pl.UInt32})
+        with pytest.raises(pf.EventDataError):
+            core.to_dataset(d, b"", [])
+
 
 class TestGating:
     def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:

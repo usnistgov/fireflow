@@ -18,6 +18,10 @@ rs-lint:
 rs-test:
 	cargo test -p fireflow-core
 
+.PHONY: rs-docs
+rs-test:
+	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
+
 .PHONY: py-lint
 py-lint: pyreflow/.venv
 	$(uv_at) run ruff format --check
@@ -38,7 +42,7 @@ build-prod: pyreflow/.venv
 	$(uv_at) run maturin develop --uv --release
 
 .PHONY: all-dev
-all-dev: rs-lint rs-test build-dev py-lint py-test
+all-dev: rs-lint rs-test rs-docs build-dev py-lint py-test
 
 .PHONY: docs
 docs: build-dev

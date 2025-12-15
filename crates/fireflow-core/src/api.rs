@@ -514,8 +514,9 @@ pub struct FlatTEXTParseData {
 }
 
 /// Summary of an FCS dataset
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[allow(clippy::too_many_arguments)]
 pub struct DatasetSummary {
     /// FCS version
     pub version: Version,

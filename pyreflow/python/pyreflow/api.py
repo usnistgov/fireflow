@@ -10,6 +10,7 @@ from ._pyreflow import fcs_read_std_datasets as fcs_read_std_datasets
 from ._pyreflow import (
     fcs_read_flat_dataset_with_keywords as fcs_read_flat_dataset_with_keywords,
 )
+from ._pyreflow import fcs_summarize as fcs_summarize
 
 from ._pyreflow import Header as Header
 from ._pyreflow import HeaderSegments as HeaderSegments

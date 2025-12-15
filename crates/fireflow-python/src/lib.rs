@@ -101,10 +101,10 @@ use fireflow_python_proc::{
     impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
     impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
     impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
-    impl_py_extra_std_keywords, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
-    impl_py_flat_text_output, impl_py_flat_text_parse_data, impl_py_header,
-    impl_py_header_segments, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
-    impl_py_std_text_output, impl_py_valid_keywords,
+    impl_py_dataset_summary, impl_py_extra_std_keywords, impl_py_flat_dataset_output,
+    impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output, impl_py_flat_text_parse_data,
+    impl_py_header, impl_py_header_segments, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -116,7 +116,11 @@ use std::hash::BuildHasher;
 def_fcs_read_header!(api::fcs_read_header);
 def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
 def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
-def_fcs_read_flat_dataset!(api::fcs_read_flat_dataset, api::fcs_read_flat_datasets);
+def_fcs_read_flat_dataset!(
+    api::fcs_read_flat_dataset,
+    api::fcs_read_flat_datasets,
+    api::fcs_summarize
+);
 def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
 def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
 
@@ -134,6 +138,8 @@ impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
 impl_py_std_text_output!(api::StdTEXTOutput);
 impl_py_std_dataset_output!(api::StdDatasetOutput);
 impl_py_std_dataset_with_kws_output!(core::StdDatasetWithKwsOutput);
+
+impl_py_dataset_summary!(api::DatasetSummary);
 
 // Implement python classes for core* structs
 //

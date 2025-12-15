@@ -103,6 +103,12 @@ multiple datasets requires *TEXT* to be parsed to obtain *NEXTDATA*
 This function also takes a ``dataset_offset`` argument, so one can theoretically
 read any *HEADER* in the file if one knows its offset.
 
+Summarization
+-------------
+
+:func:`~pyreflow.api.fcs_summarize` will provide a high-level summary of an
+FCS file.
+
 Offline keyword repair
 ----------------------
 
@@ -144,6 +150,8 @@ All functions
 
 .. autofunction:: pyreflow.api.fcs_read_flat_dataset_with_keywords
 
+.. autofunction:: pyreflow.api.fcs_summarize
+
 Outputs
 -------
 
@@ -169,6 +177,9 @@ above.
    :members:
 
 .. autoclass:: pyreflow.api.StdDatasetWithKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetSummary
    :members:
   
   

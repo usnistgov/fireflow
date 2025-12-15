@@ -88,6 +88,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyExtraStdKeywords>()?;
     m.add_class::<ff::PyValidKeywords>()?;
     m.add_class::<ff::PyDatasetSegments>()?;
+    m.add_class::<ff::PyDatasetSummary>()?;
 
     m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(ff::fcs_read_flat_text, m)?)?;
@@ -102,6 +103,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
         ff::fcs_read_flat_dataset_with_keywords,
         m
     )?)?;
+    m.add_function(wrap_pyfunction!(ff::fcs_summarize, m)?)?;
 
     Ok(())
 }

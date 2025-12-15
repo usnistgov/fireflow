@@ -1857,6 +1857,37 @@ class StdDatasetOutput:
     @property
     def parse(self) -> FlatTEXTParseData: ...
 
+@final
+class DatasetSummary:
+    def __new__(
+        cls,
+        version: FCSVersion,
+        text_len: int,
+        data_len: int,
+        analysis_len: int,
+        n_events: int,
+        n_measurements: int,
+        n_other: int,
+        others_len: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def version(self) -> FCSVersion: ...
+    @property
+    def text_len(self) -> int: ...
+    @property
+    def data_len(self) -> int: ...
+    @property
+    def analysis_len(self) -> int: ...
+    @property
+    def n_events(self) -> int: ...
+    @property
+    def n_measurements(self) -> int: ...
+    @property
+    def n_other(self) -> int: ...
+    @property
+    def others_len(self) -> int: ...
+
 def fcs_read_header(
     path: Path,
     text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
@@ -2446,6 +2477,70 @@ def fcs_read_flat_dataset_with_keywords(
     dataset_offset: int = 0,
 ) -> FlatDatasetWithKwsOutput: ...
 
+#
+def fcs_summarize(
+    path: Path,
+    skip: int | None = None,
+    limit: int | None = None,
+    # header args
+    text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    other_corrections: list[OffsetCorrection] = [],
+    max_other: int | None = None,
+    other_width: int = _DEFAULT_OTHER_WIDTH,
+    squish_offsets: bool = False,
+    allow_negative: bool = False,
+    truncate_offsets: bool = False,
+    # flat args
+    version_override: FCSVersion | None = None,
+    supp_text_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    allow_overlapping_supp_text: bool = False,
+    ignore_supp_text: bool = False,
+    use_literal_delims: bool = False,
+    allow_non_ascii_delim: bool = False,
+    allow_missing_final_delim: bool = False,
+    allow_nonunique: bool = False,
+    allow_odd: bool = False,
+    allow_empty: bool = False,
+    allow_delim_at_boundary: bool = False,
+    allow_non_utf8: bool = False,
+    use_latin1: bool = False,
+    allow_non_ascii_keywords: bool = False,
+    allow_missing_supp_text: bool = False,
+    allow_supp_text_own_delim: bool = False,
+    allow_missing_nextdata: bool = False,
+    trim_value_whitespace: bool = False,
+    trim_trailing_whitespace: bool = False,
+    ignore_standard_keys: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    promote_to_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    demote_from_standard: KeyPatterns = _DEFAULT_KEY_PATTERNS,
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: SubPatterns = ({}, {}),
+    # offset args
+    text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+    ignore_text_data_offsets: bool = False,
+    ignore_text_analysis_offsets: bool = False,
+    allow_header_text_offset_mismatch: bool = False,
+    allow_missing_required_offsets: bool = False,
+    truncate_text_offsets: bool = False,
+    # layout args
+    allow_optional_dropping: bool = False,
+    transfer_dropped_optional: bool = False,
+    integer_widths_from_byteord: bool = False,
+    integer_byteord_override: ByteOrd | None = None,
+    disallow_range_truncation: bool = False,
+    # data args
+    allow_uneven_event_width: bool = False,
+    allow_tot_mismatch: bool = False,
+    # shared args
+    warnings_are_errors: bool = False,
+    hide_warnings: bool = False,
+) -> list[DatasetSummary]: ...
+
 __version__: str
 
 __all__ = [
@@ -2514,6 +2609,7 @@ __all__ = [
     "ExtraStdKeywords",
     "ValidKeywords",
     "DatasetSegments",
+    "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",
     "fcs_read_std_text",
@@ -2524,4 +2620,5 @@ __all__ = [
     "fcs_read_flat_datasets",
     "fcs_read_std_datasets",
     "fcs_read_flat_dataset_with_keywords",
+    "fcs_summarize",
 ]

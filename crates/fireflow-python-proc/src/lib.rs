@@ -56,9 +56,9 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
-    let parsed = parse_macro_input!(input as ReadFunArgs);
-    let fun_one_path = &parsed.fun_singular;
-    let fun_many_path = &parsed.fun_plural;
+    let parsed = parse_macro_input!(input as ReadPaths2);
+    let fun_one_path = &parsed.path0;
+    let fun_many_path = &parsed.path1;
 
     let conf_path = config_path("ReadFlatTEXTConfig");
 
@@ -134,9 +134,9 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
-    let parsed = parse_macro_input!(input as ReadFunArgs);
-    let fun_one_path = &parsed.fun_singular;
-    let fun_many_path = &parsed.fun_plural;
+    let parsed = parse_macro_input!(input as ReadPaths2);
+    let fun_one_path = &parsed.path0;
+    let fun_many_path = &parsed.path1;
 
     let conf_path = config_path("ReadStdTEXTConfig");
 
@@ -232,9 +232,10 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
-    let parsed = parse_macro_input!(input as ReadFunArgs);
-    let fun_one_path = &parsed.fun_singular;
-    let fun_many_path = &parsed.fun_plural;
+    let parsed = parse_macro_input!(input as ReadPaths3);
+    let fun_one_path = &parsed.path0;
+    let fun_many_path = &parsed.path1;
+    let fun_smry_path = &parsed.path2;
 
     let conf_path = config_path("ReadFlatDatasetConfig");
 
@@ -277,25 +278,35 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
-    let pt_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
+    let pt_data_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
+    let pt_smry_ret = PyClass::new_py(["api"], "DatasetSummary");
 
     let one_doc = DocString::new_fun("Read one dataset from FCS file in flat mode.")
         .arg(path_arg.clone())
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
-        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+        .returns(DocReturn::new(pt_data_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun("Read multiple datasets from FCS file in flat mode.")
+        .arg(path_arg.clone())
+        .arg(skip_arg.clone())
+        .arg(limit_arg.clone())
+        .args(conf_args.clone())
+        .returns(DocReturn::new(PyList::new1(pt_data_ret)).exc(xs.clone()));
+
+    let smry_doc = DocString::new_fun("Summarize datasets in FCS file.")
         .arg(path_arg)
         .arg(skip_arg)
         .arg(limit_arg)
         .args(conf_args)
-        .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+        .returns(DocReturn::new(PyList::new1(pt_smry_ret)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
     let one_ret_path = one_doc.ret_path();
     let many_fun_args = many_doc.fun_args();
     let many_ret_path = many_doc.ret_path();
+    let smry_fun_args = smry_doc.fun_args();
+    let smry_ret_path = smry_doc.ret_path();
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
@@ -324,15 +335,24 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
             Ok(xs.fmap(Into::into))
         }
+
+        #[pyfunction]
+        #smry_doc
+        #[allow(clippy::too_many_arguments)]
+        pub fn fcs_summarize(#smry_fun_args) -> #smry_ret_path {
+            #conf_q
+            let xs = #fun_smry_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            Ok(xs.fmap(Into::into))
+        }
     }
     .into()
 }
 
 #[proc_macro]
 pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
-    let parsed = parse_macro_input!(input as ReadFunArgs);
-    let fun_one_path = &parsed.fun_singular;
-    let fun_many_path = &parsed.fun_plural;
+    let parsed = parse_macro_input!(input as ReadPaths2);
+    let fun_one_path = &parsed.path0;
+    let fun_many_path = &parsed.path1;
 
     let conf_path = config_path("ReadStdDatasetConfig");
 
@@ -864,6 +884,86 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let args = [segments, supp, nextdata, delim, non_ascii, byte_pairs];
 
     let doc = DocString::new_class("Miscellaneous data obtained when parsing *TEXT*.").args(args);
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let version = DocArgROIvar::new_version_ivar();
+
+    let text_len = DocArgROIvar::new_ivar_ro(
+        "text_len",
+        RsInt::U64,
+        "Length of *TEXT* (in bytes)",
+        |_, _| quote!(self.0.text_len),
+    );
+
+    let data_len = DocArgROIvar::new_ivar_ro(
+        "data_len",
+        RsInt::U64,
+        "Length of *DATA* (in bytes)",
+        |_, _| quote!(self.0.data_len),
+    );
+
+    let analysis_len = DocArgROIvar::new_ivar_ro(
+        "analysis_len",
+        RsInt::U64,
+        "Length of *ANALYSIS* (in bytes)",
+        |_, _| quote!(self.0.analysis_len),
+    );
+
+    let n_events = DocArgROIvar::new_ivar_ro(
+        "n_events",
+        RsInt::Usize,
+        "Number of events (*$TOT*)",
+        |_, _| quote!(self.0.n_events),
+    );
+
+    let n_measurements = DocArgROIvar::new_ivar_ro(
+        "n_measurements",
+        RsInt::Usize,
+        "Number of measurements (*$PAR*)",
+        |_, _| quote!(self.0.n_measurements),
+    );
+
+    let n_other = DocArgROIvar::new_ivar_ro(
+        "n_other",
+        RsInt::Usize,
+        "Number of *OTHER* segments",
+        |_, _| quote!(self.0.n_other),
+    );
+
+    let others_len = DocArgROIvar::new_ivar_ro(
+        "others_len",
+        RsInt::Usize,
+        "Total length of *OTHER* segments (in bytes)",
+        |_, _| quote!(self.0.others_len),
+    );
+
+    let args = [
+        version,
+        text_len,
+        data_len,
+        analysis_len,
+        n_events,
+        n_measurements,
+        n_other,
+        others_len,
+    ];
+
+    let doc = DocString::new_class("High-level data describing an FCS dataset").args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -3934,19 +4034,38 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
 }
 
 /// Macro args for implementing read functions for both position and multiple datasets
-struct ReadFunArgs {
-    fun_singular: Path,
-    fun_plural: Path,
+struct ReadPaths2 {
+    path0: Path,
+    path1: Path,
 }
 
-impl Parse for ReadFunArgs {
+impl Parse for ReadPaths2 {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let fun_at = input.parse::<Path>()?;
+        let path0 = input.parse::<Path>()?;
         let _: Comma = input.parse()?;
-        let fun_loop = input.parse::<Path>()?;
+        let path1 = input.parse::<Path>()?;
+        Ok(Self { path0, path1 })
+    }
+}
+
+/// Macro args to parse 3 paths
+struct ReadPaths3 {
+    path0: Path,
+    path1: Path,
+    path2: Path,
+}
+
+impl Parse for ReadPaths3 {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let path0 = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let path1 = input.parse::<Path>()?;
+        let _: Comma = input.parse()?;
+        let path2 = input.parse::<Path>()?;
         Ok(Self {
-            fun_singular: fun_at,
-            fun_plural: fun_loop,
+            path0,
+            path1,
+            path2,
         })
     }
 }

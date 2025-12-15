@@ -2430,6 +2430,8 @@ class TestReadWrite:
         assert core0 == nu_core0
         assert core1 == nu_core1
         assert core2 == nu_core2
+        smry = pf.api.fcs_summarize(p)
+        assert len(smry) == 3
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
     def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:

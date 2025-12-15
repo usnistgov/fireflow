@@ -116,6 +116,5 @@ __all__ = [
     "ReadStdDatasetOutput",
     "ReadFlatDatasetFromKwsOutput",
     "ReadStdDatasetFromKwsOutput",
-    "DatasetSummary",
     "api",
 ]

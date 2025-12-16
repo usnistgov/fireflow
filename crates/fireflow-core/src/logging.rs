@@ -3050,7 +3050,7 @@ mod python {
     where
         W: Display,
     {
-        Python::with_gil(|py| -> PyResult<()> {
+        Python::attach(|py| -> PyResult<()> {
             let wt = py.get_type::<PyreflowWarning>();
             for w in ws {
                 let s = CString::new(w.to_string())?;

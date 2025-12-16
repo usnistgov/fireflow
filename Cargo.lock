@@ -790,7 +790,6 @@ version = "0.1.0"
 dependencies = [
  "derive-new",
  "derive_more",
- "fireflow-core",
  "itertools 0.14.0",
  "nonempty",
  "proc-macro2",

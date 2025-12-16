@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from", "as_ref", "display"] }
-fireflow-core = { path = "../fireflow-core" }
 syn = { workspace = true, features = ["extra-traits"] }
 itertools = { workspace = true }
 nonempty = { workspace = true }

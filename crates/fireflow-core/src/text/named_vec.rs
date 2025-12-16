@@ -1150,10 +1150,11 @@ impl<K, U, V> NamedVec<K, U, V> {
         };
         match self {
             Self::Split(s) => {
-                let mut ns_left = ns;
-                let mut ns_right = ns_left.split_off(s.left.len());
-                // ASSUME this won't fail because we already checked length
-                let n_center = ns_right.pop().unwrap();
+                // // ASSUME this won't fail because we already checked length
+                let mut it = ns.into_iter();
+                let ns_left = it.by_ref().take(s.left.len()).collect();
+                let n_center = it.next().unwrap();
+                let ns_right = it.collect();
                 go(&mut s.left, ns_left);
                 go(&mut s.right, ns_right);
                 let old = mem::replace(&mut s.center.key, n_center.clone());

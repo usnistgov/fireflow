@@ -552,14 +552,14 @@ class TestCore:
     def test_par(self, core: AnyCore) -> None:
         assert core.par == 1
 
-    @all_core
+    @all_core2
     def test_shortnames(self, core: AnyCore) -> None:
-        assert core.all_shortnames == [LINK_NAME1]
-        new_name = "I can haz IP"
-        core.all_shortnames = [new_name]
-        assert core.all_shortnames == [new_name]
+        assert core.all_shortnames == [LINK_NAME1, LINK_NAME2]
+        new_names = ["I can haz IP", "=Coffee"]
+        core.all_shortnames = new_names
+        assert core.all_shortnames == new_names
         with pytest.raises(pf.ParseKeywordValueError):
-            core.all_shortnames = ["I,can,haz,IP"]
+            core.all_shortnames = ["I,can,haz,IP", "=,=,=,=Coffee"]
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
     @pytest.mark.parametrize("attr", ["all_peak_bins", "all_peak_sizes"])

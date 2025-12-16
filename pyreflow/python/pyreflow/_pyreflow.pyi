@@ -819,7 +819,7 @@ class _CoreCompensation:
     compensation: npt.NDArray[np.float32] | None
 
 class _CoreSpillover:
-    spillover: Spillover
+    spillover: Spillover | None
 
 class _CoreUnicode:
     unicode: Unicode | None

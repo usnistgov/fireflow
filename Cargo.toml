@@ -49,8 +49,8 @@ syn = "2.0.111"
 quote = "1.0.42"
 proc-macro2 = "1.0.103"
 
-# [profile.dev.build-override]
-# opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

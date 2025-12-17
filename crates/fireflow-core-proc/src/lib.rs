@@ -210,7 +210,7 @@ fn parse_bounds(parsed: &DeriveInput) -> Vec<WherePredicate> {
         .collect()
 }
 
-fn generic_idents(gs: &Generics) -> Vec<Ident> {
+fn generic_idents(gs: &Generics) -> Vec<&Ident> {
     gs.params
         .iter()
         .filter_map(|g| match g {
@@ -218,6 +218,5 @@ fn generic_idents(gs: &Generics) -> Vec<Ident> {
             GenericParam::Type(p) => Some(&p.ident),
             GenericParam::Lifetime(_) => None,
         })
-        .cloned()
         .collect()
 }

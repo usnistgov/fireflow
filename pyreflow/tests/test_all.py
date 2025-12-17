@@ -1,3 +1,4 @@
+import numpy as np
 from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
@@ -641,7 +642,23 @@ class TestCore:
             setattr(core, attr, 1.61)
 
     # TODO add comp
-    # TODO add spillover
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_spillover(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        assert core.spillover is None
+        new = (
+            [LINK_NAME1, LINK_NAME2],
+            np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+        )
+        core.spillover = new
+        ms, arr = core.spillover
+        assert ms == new[0]
+        assert np.array_equal(arr, new[1])
+        core.spillover = None
+        assert core.spillover is None
 
     @parameterize_versions("core", ["3_0"], ["text2", "dataset2"])
     def test_unicode(

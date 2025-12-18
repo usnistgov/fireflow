@@ -17,8 +17,7 @@ use crate::text::keywords::{
 use crate::text::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
 use crate::text::optional::{CheckMaybe as _, KeywordPairMaybe as _};
 use crate::text::relational::{
-    DependentKeyError, ExistingIndexedLinkError, MeasIndicesNoTime, RemovedGateLink, RemovedGating,
-    RemovedLink,
+    DependentKeyError, ExistingIndexedLinkError, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
@@ -34,6 +33,7 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::HashMap;
 use std::fmt;
+use std::iter::repeat;
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -44,7 +44,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
+use super::keywords::Par;
 use super::lookup::OptIndexedKeyStError;
+use super::relational::{IndexedKeyToIndexLinkError, IndicesToRemove, InvalidRegionLinkError};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 #[derive(Clone, PartialEq, Default, AsRef)]
@@ -418,18 +420,22 @@ impl AppliedGates3_0 {
     //     self.scheme.indices_difference(indices)
     // }
 
-    pub(crate) fn remove_invalid_links(
-        &mut self,
-        indices: &MeasIndicesNoTime,
-    ) -> impl Iterator<Item = RemovedLink> {
-        self.scheme.remove_invalid_links(indices)
+    pub(crate) fn remove_invalid_links(&mut self, par: &Par) -> impl Iterator<Item = RemovedLink> {
+        self.scheme.remove_invalid_links(par)
     }
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &MeasIndicesNoTime,
+        indices: &IndicesToRemove,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
         self.scheme.existing_link_errors(indices)
+    }
+
+    pub(crate) fn invalid_link_errors(
+        &self,
+        par: Par,
+    ) -> impl Iterator<Item = InvalidRegionLinkError> {
+        self.scheme.invalid_link_errors(par)
     }
 
     pub(crate) fn lookup<C>(
@@ -547,9 +553,16 @@ impl AppliedGates3_2 {
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &MeasIndicesNoTime,
+        indices: &IndicesToRemove,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
         self.0.existing_link_errors(indices)
+    }
+
+    pub(crate) fn invalid_link_errors(
+        &self,
+        par: Par,
+    ) -> impl Iterator<Item = InvalidRegionLinkError> {
+        self.0.invalid_link_errors(par)
     }
 
     pub(crate) fn lookup<C>(
@@ -708,20 +721,20 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    fn indices_difference(
-        &self,
-        indices: &MeasIndicesNoTime,
-    ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
-    where
-        I: LinkedMeasIndex,
-    {
-        self.meas_indices()
-            .filter(|(_, mi)| !indices.as_ref().contains(mi))
-    }
+    // fn indices_difference(
+    //     &self,
+    //     indices: &MeasIndicesNoTime,
+    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
+    // where
+    //     I: LinkedMeasIndex,
+    // {
+    //     self.meas_indices()
+    //         .filter(|(_, mi)| !indices.as_ref().contains(mi))
+    // }
 
     pub(crate) fn existing_link_errors(
         &self,
-        indices: &MeasIndicesNoTime,
+        indices: &IndicesToRemove,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
     where
         I: LinkedMeasIndex,
@@ -730,16 +743,31 @@ impl<I> GatingScheme<I> {
         // cases where one RnI keyword has a pair of indices. This isn't a huge
         // deal but it means we could have twice as many error messages as
         // otherwise.
-        self.indices_difference(indices).map(|(ri, mi)| {
-            let js = NonEmpty::new(mi.into());
-            ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
-        })
+        self.meas_indices()
+            .filter(|(_, mi)| indices.as_ref().contains(mi))
+            .map(|(ri, mi)| {
+                let js = NonEmpty::new(mi.into());
+                ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
+            })
     }
 
-    pub(crate) fn remove_invalid_links(
-        &mut self,
-        indices: &MeasIndicesNoTime,
-    ) -> impl Iterator<Item = RemovedLink>
+    pub(crate) fn invalid_link_errors(
+        &self,
+        par: Par,
+    ) -> impl Iterator<Item = InvalidRegionLinkError>
+    where
+        I: LinkedMeasIndex,
+    {
+        self.meas_indices()
+            .zip(repeat(usize::from(par)))
+            .filter(|((_, mi), p)| usize::from(*mi) < *p)
+            .map(|((ri, mi), _)| {
+                let js = NonEmpty::new(mi.into());
+                IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
+            })
+    }
+
+    pub(crate) fn remove_invalid_links(&mut self, par: &Par) -> impl Iterator<Item = RemovedLink>
     where
         I: LinkedMeasIndex,
         RemovedLink: From<RemovedGateLink<I>>,
@@ -750,10 +778,10 @@ impl<I> GatingScheme<I> {
         let gating = if let Some(g) = self.gating.as_ref() {
             let xs = g.region_indices();
             let ys = xs.iter().copied().filter(|&rni| {
-                self.regions
-                    .get(&rni)
-                    .into_iter()
-                    .any(|rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
+                self.regions.get(&rni).into_iter().any(|rnw| {
+                    rnw.meas_indices()
+                        .any(|x| usize::from(x) >= usize::from(*par))
+                })
             });
             NonEmpty::collect(ys).map(|zs| {
                 // ASSUME this won't fail because we are inside an if let Some
@@ -767,9 +795,14 @@ impl<I> GatingScheme<I> {
         // Then remove any $RnI/$RnW keywords which reference measurements that
         // don't exist.
         self.regions
-            .extract_if(|_, rnw| rnw.meas_indices().any(|x| !indices.as_ref().contains(&x)))
+            .extract_if(|_, rnw| {
+                rnw.meas_indices()
+                    .any(|x| usize::from(x) >= usize::from(*par))
+            })
             .map(|(rni, rnw)| {
-                let bad_indices = rnw.meas_indices().filter(|x| !indices.as_ref().contains(x));
+                let bad_indices = rnw
+                    .meas_indices()
+                    .filter(|x| usize::from(*x) >= usize::from(*par));
                 // ASSUME this won't fail because we pre-filtered above
                 let js = NonEmpty::collect(bad_indices).unwrap();
                 RemovedLink::from(RemovedGateLink::new(rni, rnw, js))

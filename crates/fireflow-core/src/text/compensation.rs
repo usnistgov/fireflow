@@ -99,6 +99,7 @@ impl Compensation2_0 {
     // to be greater than $PAR. This will fire whenever we assign an external
     // matrix to the Core data struct.
     pub(crate) fn remove_invalid_link(src: &mut Option<Self>, par: Par) -> Option<RemovedLink> {
+        // TODO throw error if temporal measurement is anything other than ID
         let c = src.as_mut()?;
         let n = c.0.matrix.nrows();
         // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero

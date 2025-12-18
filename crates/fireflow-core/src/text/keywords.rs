@@ -25,7 +25,7 @@ use crate::text::optional::{
 };
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
-    ExistingNamedLinkError, MeasNamesNoTime, RemovedIndexLink, RemovedNamedLink,
+    ExistingNamedLinkError, LinkableNames, RemovedIndexLink, RemovedNamedLink,
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
@@ -64,6 +64,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use super::lookup::{ReqIndexedStKeyError, impl_from_str_with_delim};
+use super::relational::OpticalNamesToRemove;
 
 #[cfg(feature = "python")]
 use {
@@ -304,10 +305,10 @@ impl Trigger {
 
     pub(crate) fn remove_invalid_links(
         src: &mut Option<Self>,
-        names: &MeasNamesNoTime,
+        names: &LinkableNames<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let tr = src.as_ref()?;
-        if names.as_ref().contains(&tr.measurement) {
+        if names.contains_optical_name(&tr.measurement) {
             None
         } else {
             // ASSUME this won't fail since we filter out None above with ?
@@ -2124,22 +2125,26 @@ impl UnstainedCenters {
 
     pub(crate) fn names_difference(
         &self,
-        names: &MeasNamesNoTime,
+        names: &LinkableNames<'_>,
     ) -> impl Iterator<Item = &Shortname> {
-        self.0.keys().filter(|n| !names.as_ref().contains(n))
+        self.0.keys().filter(|n| !names.contains_optical_name(n))
     }
 
     pub(crate) fn existing_link_error(
         &self,
-        names: &MeasNamesNoTime,
+        names: &OpticalNamesToRemove<'_>,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
-        NonEmpty::collect(self.names_difference(names).cloned())
-            .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+        let ns = self
+            .0
+            .keys()
+            .filter(|n| names.as_ref().contains(n))
+            .cloned();
+        NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
     pub(crate) fn remove_invalid_links(
         &mut self,
-        names: &MeasNamesNoTime,
+        names: &LinkableNames<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let ns = self.names_difference(names).cloned();
         NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))

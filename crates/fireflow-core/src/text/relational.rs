@@ -57,13 +57,44 @@ use {
     std::fmt::Display,
 };
 
-/// Indices from all measurements except time if present
-#[derive(AsRef, From)]
-pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
+// // TODO this actually should include everything
+// /// Indices from all measurements except time if present
+// #[derive(AsRef, From)]
+// pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
 
-/// $PnN ([`Shortname`]) from all measurements except time if present
+// /// $PnN ([`Shortname`]s) from all measurements except time if present
+// #[derive(AsRef, From)]
+// pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
+
+/// $PnN ([`Shortname`]s) from optical measurements that are pending removal
 #[derive(AsRef, From)]
-pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
+pub struct OpticalNamesToRemove<'a>(pub(crate) HashSet<&'a Shortname>);
+
+/// Indices from all measurements which are pending removal
+#[derive(AsRef, From)]
+pub struct IndicesToRemove(pub(crate) HashSet<MeasIndex>);
+
+#[derive(new)]
+#[new(visibility = "pub(crate)")]
+pub struct LinkableNames<'a> {
+    temporal: Option<&'a Shortname>,
+    optical: HashSet<&'a Shortname>,
+    // par: usize,
+}
+
+impl<'a> LinkableNames<'a> {
+    pub(crate) fn contains_optical_name(&self, name: &Shortname) -> bool {
+        self.optical.contains(name)
+    }
+
+    pub(crate) fn contains_any_name(&self, name: &Shortname) -> bool {
+        self.optical.contains(name) || self.temporal.as_ref().is_some_and(|n| n == &name)
+    }
+
+    // pub(crate) fn contains_any_index(&self, i: MeasIndex) -> bool {
+    //     usize::from(i) < self.par
+    // }
+}
 
 //
 // Existential relational errors (do any links exist?)
@@ -99,11 +130,13 @@ pub enum AnyExistingNamedLinkError {
 pub enum AnyExistingIndexLinkError {
     Comp2_0(ExistingIndexedLinkError<Dfc, BiIndex>),
     Comp3_0(ExistingIndexedLinkError<Compensation3_0, ()>),
-    GateRegion(ExistingGateRegionLinkError),
+    GateRegion(ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>),
 }
 
-pub(crate) type ExistingGateRegionLinkError =
-    ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
+pub(crate) type InvalidRegionLinkError = IndexedKeyToIndexLinkError<RegionGateIndex<()>>;
+
+// pub(crate) type ExistingGateRegionLinkError =
+//     ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
 
 /// Error when a named reference would be broken if a measurement is dropped
 #[derive(Debug, Error, new)]

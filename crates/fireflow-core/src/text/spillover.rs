@@ -6,7 +6,7 @@ use crate::validated::shortname::Shortname;
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
 use super::named_vec::NameMapping;
-use super::relational::{ExistingNamedLinkError, MeasNamesNoTime};
+use super::relational::{ExistingNamedLinkError, LinkableNames, OpticalNamesToRemove};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -63,17 +63,17 @@ impl Spillover {
 
     pub(crate) fn names_difference(
         &self,
-        names: &MeasNamesNoTime,
+        names: &LinkableNames<'_>,
     ) -> impl Iterator<Item = &Shortname> {
         self.measurements
             .iter()
-            .filter(|n| !names.as_ref().contains(n))
+            .filter(|n| !names.contains_optical_name(n))
     }
 
     /// Return error if any about-to-removed names are in spillover measurements
     pub(crate) fn existing_link_error(
         &self,
-        names: &MeasNamesNoTime,
+        names: &OpticalNamesToRemove<'_>,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         let ns = self
             .measurements
@@ -86,10 +86,10 @@ impl Spillover {
     /// Return error if any names in spillover are not in measurement vector
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
-        names: &MeasNamesNoTime,
+        cur_names: &LinkableNames<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let s = src.as_ref()?;
-        let ns = s.names_difference(names).cloned();
+        let ns = s.names_difference(cur_names).cloned();
         // ASSUME this won't fail since we filter out None above with ?
         NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(src).unwrap(), xs))
     }

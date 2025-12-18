@@ -70,14 +70,20 @@ impl Spillover {
             .filter(|n| !names.as_ref().contains(n))
     }
 
+    /// Return error if any about-to-removed names are in spillover measurements
     pub(crate) fn existing_link_error(
         &self,
         names: &MeasNamesNoTime,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
-        NonEmpty::collect(self.names_difference(names).cloned())
-            .map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+        let ns = self
+            .measurements
+            .iter()
+            .filter(|n| names.as_ref().contains(n))
+            .cloned();
+        NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
+    /// Return error if any names in spillover are not in measurement vector
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
         names: &MeasNamesNoTime,

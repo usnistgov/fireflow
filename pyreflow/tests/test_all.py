@@ -207,7 +207,8 @@ def blank_temporal_3_2() -> pf.Temporal3_2:
 
 
 LINK_NAME1 = "wubbalubbadubdub"
-LINK_NAME2 = "maple latte"
+LINK_NAME2 = "maple lattes"
+LINK_NAME3 = "silent man"
 
 
 @pytest.fixture
@@ -217,7 +218,12 @@ def series1() -> pl.Series:
 
 @pytest.fixture
 def series2() -> pl.Series:
-    return pl.Series("blubby", [1, 2, 3], dtype=pl.UInt32)
+    return pl.Series("C--", [1, 2, 3], dtype=pl.UInt32)
+
+
+@pytest.fixture
+def series3() -> pl.Series:
+    return pl.Series("arnoldC", [1, 2, 3], dtype=pl.UInt32)
 
 
 @pytest.fixture
@@ -362,6 +368,42 @@ def dataset2_3_2(
 ) -> pf.CoreDataset3_2:
     dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, series2, 9001)
     return dataset_3_2
+
+
+@pytest.fixture
+def text3_3_1(
+    text2_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
+) -> pf.CoreTEXT3_1:
+    text2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, 9001)
+    return text2_3_1
+
+
+@pytest.fixture
+def text3_3_2(
+    text2_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
+) -> pf.CoreTEXT3_2:
+    text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9001)
+    return text2_3_2
+
+
+@pytest.fixture
+def dataset3_3_1(
+    dataset2_3_1: pf.CoreDataset3_1,
+    blank_optical_3_1: pf.Optical3_1,
+    series3: pl.Series,
+) -> pf.CoreDataset3_1:
+    dataset2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, series3, 9001)
+    return dataset2_3_1
+
+
+@pytest.fixture
+def dataset3_3_2(
+    dataset2_3_2: pf.CoreDataset3_2,
+    blank_optical_3_2: pf.Optical3_2,
+    series3: pl.Series,
+) -> pf.CoreDataset3_2:
+    dataset2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, series3, 9001)
+    return dataset2_3_2
 
 
 def parameterize_versions(
@@ -587,7 +629,7 @@ class TestCore:
     ) -> None:
         assert core.all_shortnames_maybe == [LINK_NAME1, LINK_NAME2]
         core.all_shortnames_maybe = [None, LINK_NAME2]
-        assert core.all_shortnames_maybe == [None, "maple latte"]
+        assert core.all_shortnames_maybe == [None, LINK_NAME2]
         with pytest.raises(pf.PyreflowError):
             core.all_shortnames_maybe = [None, None]
 
@@ -1113,6 +1155,30 @@ class TestCore:
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
+    @all_core2
+    def test_remove_meas_by_name_with_link_tr(self, core: AnyCore) -> None:
+        core.tr = (LINK_NAME2, 1)
+        assert core.remove_measurement_by_name(LINK_NAME1) is not None
+        # choke if linked
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert core.remove_measurement_by_name(LINK_NAME2) is not None
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
+    def test_remove_meas_by_name_with_spillover(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        sp = (
+            [LINK_NAME1, LINK_NAME2],
+            np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+        )
+        core.spillover = sp
+        assert core.remove_measurement_by_name(LINK_NAME3) is not None
+        # choke if linked
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert core.remove_measurement_by_name(LINK_NAME1) is not None
+
+    # TODO make a linked version of this
     @all_core
     def test_remove_meas_by_index(self, core: AnyCore) -> None:
         assert len(core.measurements) == 1

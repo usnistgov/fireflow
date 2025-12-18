@@ -105,10 +105,10 @@ pub enum AnyExistingIndexLinkError {
 pub(crate) type ExistingGateRegionLinkError =
     ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
 
-/// Error when a keyword has named references to it which would be broken if dropped
+/// Error when a named reference would be broken if a measurement is dropped
 #[derive(Debug, Error, new)]
 #[error(
-    "{key} references existing $PnN: {xs}",
+    "{key} refers to existing $PnN which are about to be dropped: {xs}",
     xs = self.names.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -122,7 +122,7 @@ pub struct ExistingNamedLinkError<T, I> {
 /// Error when a keyword has indexed references to it which would be broken if dropped
 #[derive(Debug, Error, new)]
 #[error(
-    "{key} references existing $PnN: {xs}",
+    "{key} refers to existing indices which are about to be dropped: {xs}",
     xs = self.names.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

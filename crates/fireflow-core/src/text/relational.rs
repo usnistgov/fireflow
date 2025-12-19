@@ -28,7 +28,7 @@
 /// demoting optional keywords.
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::optional::DisplayMaybe as _;
 use crate::validated::keys::{
     BiIndex, BiIndexedKey as _, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
@@ -74,28 +74,6 @@ pub struct OpticalNamesToRemove<'a>(pub(crate) HashSet<&'a Shortname>);
 #[derive(AsRef, From)]
 pub struct IndicesToRemove(pub(crate) HashSet<MeasIndex>);
 
-#[derive(new)]
-#[new(visibility = "pub(crate)")]
-pub struct LinkableNames<'a> {
-    temporal: Option<&'a Shortname>,
-    optical: HashSet<&'a Shortname>,
-    // par: usize,
-}
-
-impl<'a> LinkableNames<'a> {
-    pub(crate) fn contains_optical_name(&self, name: &Shortname) -> bool {
-        self.optical.contains(name)
-    }
-
-    pub(crate) fn contains_any_name(&self, name: &Shortname) -> bool {
-        self.optical.contains(name) || self.temporal.as_ref().is_some_and(|n| n == &name)
-    }
-
-    // pub(crate) fn contains_any_index(&self, i: MeasIndex) -> bool {
-    //     usize::from(i) < self.par
-    // }
-}
-
 //
 // Existential relational errors (do any links exist?)
 //
@@ -113,6 +91,7 @@ pub type ExistingLinkErrors = ErrorGroup<ExistingLinkError, ExistingLinkFailure>
 pub enum ExistingLinkError {
     Named(AnyExistingNamedLinkError),
     Index(AnyExistingIndexLinkError),
+    Invalid(AnyLinkError),
 }
 
 /// Error when any keyword has named references to it which would be broken if dropped
@@ -130,13 +109,11 @@ pub enum AnyExistingNamedLinkError {
 pub enum AnyExistingIndexLinkError {
     Comp2_0(ExistingIndexedLinkError<Dfc, BiIndex>),
     Comp3_0(ExistingIndexedLinkError<Compensation3_0, ()>),
-    GateRegion(ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>),
+    Region3_0(ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, IndexFromOne>),
+    Region3_2(ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, IndexFromOne>),
 }
 
-pub(crate) type InvalidRegionLinkError = IndexedKeyToIndexLinkError<RegionGateIndex<()>>;
-
-// pub(crate) type ExistingGateRegionLinkError =
-//     ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>;
+pub(crate) type InvalidRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
 /// Error when a named reference would be broken if a measurement is dropped
 #[derive(Debug, Error, new)]
@@ -239,9 +216,9 @@ pub enum AnyLinkError {
     Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
     Comp3_0(KeyToIndexLinkError<Compensation3_0>),
     Gating(DependentKeyError<Gating>),
-    Region3_0(DependentIndexedKeyError<RegionGateIndex<MeasOrGateIndex>>),
-    Region3_2(DependentIndexedKeyError<RegionGateIndex<PrefixedMeasIndex>>),
-    Window(IndexedKeyToIndexLinkError<RegionWindow>),
+    Region3_0(InvalidRegionLinkError<MeasOrGateIndex>),
+    Region3_2(InvalidRegionLinkError<PrefixedMeasIndex>),
+    Window(DependentIndexedKeyError<RegionWindow>),
 }
 
 /// Error when key which references a non-existent measurement $PnN
@@ -367,9 +344,7 @@ impl RemovedLink {
                 let ks = x
                     .region_indices
                     .map(|ri| {
-                        // GateIndex is a dummy here, each index type should
-                        // produce the same std key
-                        let k0 = RegionGateIndex::<GateIndex>::std(ri);
+                        let k0 = RegionGateIndex::<()>::std(ri);
                         let k1 = RegionWindow::std(ri);
                         (k0, vec![k1])
                     })
@@ -427,13 +402,13 @@ impl<T: Key> RemovedIndexLink<T> {
 impl<I> RemovedGateLink<I> {
     fn into_errors(self) -> impl Iterator<Item = AnyLinkError>
     where
-        AnyLinkError: From<DependentIndexedKeyError<RegionGateIndex<I>>>,
+        AnyLinkError: From<InvalidRegionLinkError<I>>,
     {
-        let i = self.region_index;
-        let window_key = RegionWindow::std(i);
-        let k = SpecificKey::new_i1(i.into());
+        let ri = self.region_index;
+        let region_key = RegionGateIndex::<()>::std(ri);
+        let k = SpecificKey::new_i1(ri.into());
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
-        let e1 = DependentIndexedKeyError::new2(i.into(), NonEmpty::new(window_key));
+        let e1 = DependentIndexedKeyError::new2(ri.into(), NonEmpty::new(region_key));
         [e0.into(), e1.into()].into_iter()
     }
 }

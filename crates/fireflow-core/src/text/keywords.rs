@@ -24,9 +24,7 @@ use crate::text::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use crate::text::relational::{
-    ExistingNamedLinkError, LinkableNames, RemovedIndexLink, RemovedNamedLink,
-};
+use crate::text::relational::{ExistingNamedLinkError, RemovedIndexLink, RemovedNamedLink};
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 use crate::validated::ascii_range::AsciiRangeValue;
@@ -64,7 +62,10 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use super::lookup::{ReqIndexedStKeyError, impl_from_str_with_delim};
-use super::relational::OpticalNamesToRemove;
+use super::named_vec::NamedSet;
+use super::relational::{
+    IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError, OpticalNamesToRemove,
+};
 
 #[cfg(feature = "python")]
 use {
@@ -303,12 +304,31 @@ impl Trigger {
         }
     }
 
+    pub(crate) fn existing_link_error(
+        &self,
+        names: &OpticalNamesToRemove<'_>,
+    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+        let m = &self.measurement;
+        (names.as_ref().contains(m))
+            .then(|| ExistingNamedLinkError::new(Key0::default(), NonEmpty::new(m.clone())))
+    }
+
+    pub(crate) fn invalid_link_error(
+        &self,
+        names: &NamedSet<'_>,
+    ) -> Option<KeyToNameLinkError<Self>> {
+        let m = &self.measurement;
+        // TODO cannot reference time measurement
+        (!names.contains_non_center_name(m))
+            .then(|| KeyToNameLinkError::new_i0(NonEmpty::new(m.clone())))
+    }
+
     pub(crate) fn remove_invalid_links(
         src: &mut Option<Self>,
-        names: &LinkableNames<'_>,
+        names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let tr = src.as_ref()?;
-        if names.contains_optical_name(&tr.measurement) {
+        if names.contains_non_center_name(&tr.measurement) {
             None
         } else {
             // ASSUME this won't fail since we filter out None above with ?
@@ -1142,6 +1162,12 @@ impl FromStrDelim for Compensation3_0 {
 }
 
 impl Compensation3_0 {
+    pub(crate) fn invalid_link_errors(&self, par: &Par) -> Option<KeyToIndexLinkError<Self>> {
+        let m: &DMatrix<_> = self.as_ref();
+        let js = (par.0..m.nrows()).map(MeasIndex::from);
+        NonEmpty::collect(js).map(KeyToIndexLinkError::new_i0)
+    }
+
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
         par: Par,
@@ -2125,11 +2151,12 @@ impl UnstainedCenters {
 
     pub(crate) fn names_difference(
         &self,
-        names: &LinkableNames<'_>,
+        names: &NamedSet<'_>,
     ) -> impl Iterator<Item = &Shortname> {
-        self.0.keys().filter(|n| !names.contains_optical_name(n))
+        self.0.keys().filter(|n| !names.contains_non_center_name(n))
     }
 
+    /// Return error if any about-to-removed names are in unstained center names
     pub(crate) fn existing_link_error(
         &self,
         names: &OpticalNamesToRemove<'_>,
@@ -2142,9 +2169,24 @@ impl UnstainedCenters {
         NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
+    /// Return error if any names in matrix are not in measurement vector
+    pub(crate) fn invalid_link_error(
+        &self,
+        cur_names: &NamedSet<'_>,
+    ) -> Option<KeyToNameLinkError<Self>> {
+        // TODO return specific error if time channel is in matrix
+        let ns = self
+            .0
+            .keys()
+            .filter(|n| !cur_names.contains_non_center_name(n))
+            .cloned();
+        NonEmpty::collect(ns).map(|js| KeyToNameLinkError::new_i0(js))
+    }
+
+    /// Remove $UNSTAINEDCENTERS if any names in array are not in measurement vector
     pub(crate) fn remove_invalid_links(
         &mut self,
-        names: &LinkableNames<'_>,
+        names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let ns = self.names_difference(names).cloned();
         NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))

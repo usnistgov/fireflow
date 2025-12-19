@@ -5,8 +5,8 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
-use super::named_vec::NameMapping;
-use super::relational::{ExistingNamedLinkError, LinkableNames, OpticalNamesToRemove};
+use super::named_vec::{NameMapping, NamedSet};
+use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -63,11 +63,11 @@ impl Spillover {
 
     pub(crate) fn names_difference(
         &self,
-        names: &LinkableNames<'_>,
+        names: &NamedSet<'_>,
     ) -> impl Iterator<Item = &Shortname> {
         self.measurements
             .iter()
-            .filter(|n| !names.contains_optical_name(n))
+            .filter(|n| !names.contains_non_center_name(n))
     }
 
     /// Return error if any about-to-removed names are in spillover measurements
@@ -83,10 +83,24 @@ impl Spillover {
         NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
     }
 
-    /// Return error if any names in spillover are not in measurement vector
+    /// Return error if any names in matrix are not in measurement vector
+    pub(crate) fn invalid_link_error(
+        &self,
+        cur_names: &NamedSet<'_>,
+    ) -> Option<KeyToNameLinkError<Self>> {
+        // TODO return specific error if time channel is in matrix
+        let ns = self
+            .measurements
+            .iter()
+            .filter(|n| !cur_names.contains_non_center_name(n))
+            .cloned();
+        NonEmpty::collect(ns).map(|js| KeyToNameLinkError::new(Key0::default(), js))
+    }
+
+    /// Remove $SPILLOVER if any names in matrix are not in measurement vector
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
-        cur_names: &LinkableNames<'_>,
+        cur_names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let s = src.as_ref()?;
         let ns = s.names_difference(cur_names).cloned();

@@ -119,6 +119,14 @@ pub struct Pair<K, V> {
     pub value: V,
 }
 
+/// All names from [`NamedVec`] in a set-like structure.
+#[derive(new)]
+#[new(visibility = "pub(crate)")]
+pub struct NamedSet<'a> {
+    center: Option<&'a Shortname>,
+    non_center: HashSet<&'a Shortname>,
+}
+
 type Center<U> = Pair<Shortname, U>;
 
 type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
@@ -128,6 +136,16 @@ pub type EitherPair<K, U, V> = Element<Pair<Shortname, U>, Pair<K, V>>;
 pub type Eithers<K, U, V> = Vec<Either<K, U, V>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
+
+impl<'a> NamedSet<'a> {
+    pub(crate) fn contains_non_center_name(&self, name: &Shortname) -> bool {
+        self.non_center.contains(name)
+    }
+
+    pub(crate) fn contains_any_name(&self, name: &Shortname) -> bool {
+        self.contains_non_center_name(name) || self.center.as_ref().is_some_and(|n| n == &name)
+    }
+}
 
 impl<K, U, V> NamedVec<K, U, V> {
     /// Build new NamedVec using either center or non-center values.
@@ -172,6 +190,16 @@ impl<K, U, V> NamedVec<K, U, V> {
             Self::new_unsplit(left)
         };
         Ok(s)
+    }
+
+    /// Return all names as a [`NamedSet`]
+    pub(crate) fn named_set(&self) -> NamedSet<'_>
+    where
+        K: MightHave<Shortname>,
+    {
+        let c = self.as_center().map(|e| e.key);
+        let nc = self.indexed_non_center_names().map(|(_, n)| n).collect();
+        NamedSet::new(c, nc)
     }
 
     /// Return reference to center

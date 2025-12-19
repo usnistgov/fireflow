@@ -22,6 +22,7 @@ use serde::Serialize;
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
 use super::keywords::LookupDfcError;
+use super::relational::BiIndexedKeyToIndexLinkError;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq)]
@@ -92,6 +93,25 @@ impl Compensation2_0 {
     pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.non_zero_indices()
             .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
+    }
+
+    pub(crate) fn invalid_link_errors(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BiIndexedKeyToIndexLinkError<Dfc>> {
+        // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
+        // since the entire matrix must be removed.
+        self.non_zero_indices().filter_map(|(col, row, _)| {
+            // TODO throw error if temporal measurement is anything other than ID
+            let n = self.0.matrix.nrows();
+            let bad_matrix = n < par.0 || par.0 < 2;
+            let cutoff = if bad_matrix { 0 } else { par.0 };
+            let k = Key2::new_i2(col.into(), row.into());
+            let r = (usize::from(row) >= cutoff).then_some(row);
+            let c = (usize::from(col) >= cutoff).then_some(col);
+            NonEmpty::collect([r, c].into_iter().flatten())
+                .map(|js| BiIndexedKeyToIndexLinkError::new(js, k))
+        })
     }
 
     // NOTE this shouldn't do anything for a freshly made comp matrix since

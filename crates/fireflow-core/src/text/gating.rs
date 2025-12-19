@@ -11,18 +11,20 @@ use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
-    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, PrefixedMeasIndex,
-    RegionGateIndex, RegionWindow, UniGate, Vertex,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
+    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
 };
-use crate::text::lookup::{OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptMetarootKey};
+use crate::text::lookup::{
+    OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptMetarootKey,
+};
 use crate::text::optional::{CheckMaybe as _, KeywordPairMaybe as _};
 use crate::text::relational::{
-    DependentKeyError, ExistingIndexedLinkError, RemovedGateLink, RemovedGating, RemovedLink,
+    DependentKeyError, ExistingIndexedLinkError, IndexedKeyToIndexLinkError, IndicesToRemove,
+    RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
-
 use type_families::{
     ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1,
 };
@@ -43,10 +45,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
-
-use super::keywords::Par;
-use super::lookup::OptIndexedKeyStError;
-use super::relational::{IndexedKeyToIndexLinkError, IndicesToRemove, InvalidRegionLinkError};
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 #[derive(Clone, PartialEq, Default, AsRef)]
@@ -427,14 +425,15 @@ impl AppliedGates3_0 {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, IndexFromOne>>
+    {
         self.scheme.existing_link_errors(indices)
     }
 
     pub(crate) fn invalid_link_errors(
         &self,
-        par: Par,
-    ) -> impl Iterator<Item = InvalidRegionLinkError> {
+        par: &Par,
+    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<MeasOrGateIndex>>> {
         self.scheme.invalid_link_errors(par)
     }
 
@@ -554,14 +553,15 @@ impl AppliedGates3_2 {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>> {
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, IndexFromOne>>
+    {
         self.0.existing_link_errors(indices)
     }
 
     pub(crate) fn invalid_link_errors(
         &self,
-        par: Par,
-    ) -> impl Iterator<Item = InvalidRegionLinkError> {
+        par: &Par,
+    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<PrefixedMeasIndex>>> {
         self.0.invalid_link_errors(par)
     }
 
@@ -735,7 +735,7 @@ impl<I> GatingScheme<I> {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<()>, IndexFromOne>>
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<I>, IndexFromOne>>
     where
         I: LinkedMeasIndex,
     {
@@ -753,15 +753,14 @@ impl<I> GatingScheme<I> {
 
     pub(crate) fn invalid_link_errors(
         &self,
-        par: Par,
-    ) -> impl Iterator<Item = InvalidRegionLinkError>
+        par: &Par,
+    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<I>>>
     where
         I: LinkedMeasIndex,
     {
         self.meas_indices()
-            .zip(repeat(usize::from(par)))
-            .filter(|((_, mi), p)| usize::from(*mi) < *p)
-            .map(|((ri, mi), _)| {
+            .filter(|(_, mi)| usize::from(*mi) < usize::from(par.0))
+            .map(|(ri, mi)| {
                 let js = NonEmpty::new(mi.into());
                 IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
             })

@@ -759,7 +759,7 @@ impl<I> GatingScheme<I> {
         I: LinkedMeasIndex,
     {
         self.meas_indices()
-            .filter(|(_, mi)| usize::from(*mi) < par.0)
+            .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
                 let js = NonEmpty::new(mi);
                 IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
@@ -777,10 +777,10 @@ impl<I> GatingScheme<I> {
         let gating = if let Some(g) = self.gating.as_ref() {
             let xs = g.region_indices();
             let ys = xs.iter().copied().filter(|&rni| {
-                self.regions.get(&rni).into_iter().any(|rnw| {
-                    rnw.meas_indices()
-                        .any(|x| usize::from(x) >= usize::from(*par))
-                })
+                self.regions
+                    .get(&rni)
+                    .into_iter()
+                    .any(|rnw| rnw.meas_indices().any(|x| usize::from(x) >= par.0))
             });
             NonEmpty::collect(ys).map(|zs| {
                 // ASSUME this won't fail because we are inside an if let Some
@@ -794,14 +794,9 @@ impl<I> GatingScheme<I> {
         // Then remove any $RnI/$RnW keywords which reference measurements that
         // don't exist.
         self.regions
-            .extract_if(|_, rnw| {
-                rnw.meas_indices()
-                    .any(|x| usize::from(x) >= usize::from(*par))
-            })
+            .extract_if(|_, rnw| rnw.meas_indices().any(|x| usize::from(x) >= par.0))
             .map(|(rni, rnw)| {
-                let bad_indices = rnw
-                    .meas_indices()
-                    .filter(|x| usize::from(*x) >= usize::from(*par));
+                let bad_indices = rnw.meas_indices().filter(|x| usize::from(*x) >= par.0);
                 // ASSUME this won't fail because we pre-filtered above
                 let js = NonEmpty::collect(bad_indices).unwrap();
                 RemovedLink::from(RemovedGateLink::new(rni, rnw, js))

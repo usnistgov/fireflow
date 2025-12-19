@@ -685,14 +685,14 @@ class TestCore:
 
     # TODO add comp
 
-    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
     def test_spillover(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
         assert core.spillover is None
         new = (
-            [LINK_NAME1, LINK_NAME2],
+            [LINK_NAME1, LINK_NAME3],
             np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
         )
         core.spillover = new
@@ -1157,11 +1157,11 @@ class TestCore:
 
     @all_core2
     def test_remove_meas_by_name_with_link_tr(self, core: AnyCore) -> None:
-        core.tr = (LINK_NAME2, 1)
-        assert core.remove_measurement_by_name(LINK_NAME1) is not None
+        core.tr = (LINK_NAME1, 1)
+        assert core.remove_measurement_by_name(LINK_NAME2) is not None
         # choke if linked
         with pytest.RaisesGroup(pf.RelationalError):
-            assert core.remove_measurement_by_name(LINK_NAME2) is not None
+            assert core.remove_measurement_by_name(LINK_NAME1) is not None
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
     def test_remove_meas_by_name_with_spillover(
@@ -1169,11 +1169,11 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
         sp = (
-            [LINK_NAME1, LINK_NAME2],
+            [LINK_NAME1, LINK_NAME3],
             np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
         )
         core.spillover = sp
-        assert core.remove_measurement_by_name(LINK_NAME3) is not None
+        assert core.remove_measurement_by_name(LINK_NAME2) is not None
         # choke if linked
         with pytest.RaisesGroup(pf.RelationalError):
             assert core.remove_measurement_by_name(LINK_NAME1) is not None

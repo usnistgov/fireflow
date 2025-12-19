@@ -320,11 +320,11 @@ impl Trigger {
     ) -> Option<KeyToNameLinkError<Self>> {
         let m = &self.measurement;
         match names.membership(m) {
-            NamedSetMembership::NonCenter => {
+            NamedSetMembership::None => {
                 Some(OpticalNamedLinkError::new_i0(NonEmpty::new(m.clone())).into())
             }
             NamedSetMembership::Center => Some(TemporalNamedLinkError::new_i0(m.clone()).into()),
-            NamedSetMembership::None => None,
+            NamedSetMembership::NonCenter => None,
         }
     }
 
@@ -335,9 +335,9 @@ impl Trigger {
         let tr = src.as_ref()?;
         let m = &tr.measurement;
         let ln = match names.membership(m) {
-            NamedSetMembership::NonCenter => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
+            NamedSetMembership::None => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
             NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
-            NamedSetMembership::None => None,
+            NamedSetMembership::NonCenter => None,
         };
         // ASSUME this won't fail since we filter out None above with ?
         ln.map(|n| RemovedNamedLink::new(take(src).unwrap(), n))
@@ -2179,12 +2179,12 @@ impl UnstainedCenters {
             .0
             .keys()
             .filter(|&n| match cur_names.membership(n) {
-                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::None => true,
                 NamedSetMembership::Center => {
                     te = Some(TemporalNamedLinkError::new_i0(n.clone()));
                     false
                 }
-                NamedSetMembership::None => false,
+                NamedSetMembership::NonCenter => false,
             })
             .cloned();
         let oe = NonEmpty::collect(ns)
@@ -2206,12 +2206,12 @@ impl UnstainedCenters {
             .0
             .keys()
             .filter(|&n| match names.membership(n) {
-                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::None => true,
                 NamedSetMembership::Center => {
                     t = Some(n.clone());
                     false
                 }
-                NamedSetMembership::None => false,
+                NamedSetMembership::NonCenter => false,
             })
             .cloned();
         NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), LinkName::Both(xs, t)))

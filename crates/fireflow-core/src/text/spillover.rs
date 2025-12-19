@@ -87,12 +87,12 @@ impl Spillover {
             .measurements
             .iter()
             .filter(|&n| match names.membership(n) {
-                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::None => true,
                 NamedSetMembership::Center => {
                     te = Some(TemporalNamedLinkError::new_i0(n.clone()));
                     false
                 }
-                NamedSetMembership::None => false,
+                NamedSetMembership::NonCenter => false,
             })
             .cloned();
         let oe = NonEmpty::collect(ns)
@@ -114,12 +114,12 @@ impl Spillover {
             .measurements
             .iter()
             .filter(|&n| match names.membership(n) {
-                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::None => true,
                 NamedSetMembership::Center => {
                     t = Some(n.clone());
                     false
                 }
-                NamedSetMembership::None => false,
+                NamedSetMembership::NonCenter => false,
             })
             .cloned();
         // ASSUME this won't fail since we filter out None above with ?

@@ -730,7 +730,61 @@ class TestCore:
         with pytest.raises(TypeError):
             setattr(core, attr, 1.61)
 
-    # TODO add comp
+    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    def test_comp(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.comp is None
+        new = np.array(
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32
+        )
+        core.comp = new
+        assert core.comp is not None and np.array_equal(core.comp, new)
+        core.comp = None
+        assert core.comp is None
+
+    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    def test_comp_not_par_low(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.comp is None
+        with pytest.raises(pf.RelationalError):
+            core.comp = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+
+    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    def test_comp_not_par_low_high(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        assert core.comp is None
+        with pytest.raises(pf.RelationalError):
+            core.comp = np.array(
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                dtype=np.float32,
+            )
+
+    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    def test_comp_toosmall(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.comp = np.array([[1.0], [0.0]], dtype=np.float32)
+
+    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    def test_comp_nonsquare(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.comp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
     def test_spillover(
@@ -748,6 +802,28 @@ class TestCore:
         assert np.array_equal(arr, new[1])
         core.spillover = None
         assert core.spillover is None
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
+    def test_spillover_toosmall(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.spillover = (
+                [LINK_NAME1],
+                np.array([[1.0]], dtype=np.float32),
+            )
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
+    def test_spillover_nonsquare(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.spillover = (
+                [LINK_NAME1],
+                np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            )
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
     def test_spillover_temporal(
@@ -914,6 +990,8 @@ class TestCore:
         assert core.unstainedcenters == {}
         core.unstainedcenters = {LINK_NAME1: 42}
         assert core.unstainedcenters == {LINK_NAME1: 42}
+        core.unstainedcenters = {}
+        assert core.unstainedcenters == {}
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_unstained_centers_temporal(
@@ -938,8 +1016,32 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
-        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, None)
+        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         core.applied_gates = ag
+
+    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
+    def test_applied_gates_2_0_overrange(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        # index 1 does not exist
+        ur = pf.UnivariateRegion2_0(1, (0.0, 1.0))
+        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
+        with pytest.raises(pf.RelationalError):
+            core.applied_gates = ag
+
+    @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
+    def test_applied_gates_2_0_bad_gating(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
+        # R2 does not exist
+        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R2")
+        with pytest.raises(pf.RelationalError):
+            core.applied_gates = ag
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
     def test_applied_gates_3_0(
@@ -948,21 +1050,69 @@ class TestCore:
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        ag: AppliedGates3_0 = ([], {0: ur}, None)
+        ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
-        with pytest.RaisesGroup(pf.PyreflowError):
+
+    @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
+    def test_applied_gates_3_0_bad_meas_link(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        with pytest.RaisesGroup(pf.RelationalError):
+            # P3 does not point to anything
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
             ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
+            core.applied_gates = ag_bad
+
+    @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
+    def test_applied_gates_3_0_bad_gate_link(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        with pytest.raises(pf.RelationalError):
+            # there are no gating keywords to reference here
+            ur_bad = pf.UnivariateRegion3_0("G1", (0.0, 1.0))
+            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
+            core.applied_gates = ag_bad
+
+    @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
+    def test_applied_gates_3_0_bad_gating(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        with pytest.raises(pf.RelationalError):
+            # there are no gating keywords to reference here
+            ur_bad = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_applied_gates_3_2(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        ag: AppliedGates3_2 = ({0: ur}, None)
+        ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_applied_gates_3_2_bad_index(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
         with pytest.RaisesGroup(pf.PyreflowError):
+            # 2 does not point to anything
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
             ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, None))
+            core.applied_gates = ag_bad
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_applied_gates_3_2_bad_gating(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        with pytest.raises(pf.PyreflowError):
+            ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
+            # R2 doesn't point to anything
+            ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
@@ -1276,12 +1426,37 @@ class TestCore:
         with pytest.RaisesGroup(pf.RelationalError):
             assert core.remove_measurement_by_name(LINK_NAME1) is not None
 
-    # TODO make a linked version of this
     @all_core
     def test_remove_meas_by_index(self, core: AnyCore) -> None:
         assert len(core.measurements) == 1
         core.remove_measurement_by_index(0)
         with pytest.raises(IndexError):
+            core.remove_measurement_by_index(0)
+
+    @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
+    def test_remove_meas_by_index_ag3_0(
+        self,
+        core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
+        ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
+        core.applied_gates = ag
+        core.remove_measurement_by_index(1)
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.remove_measurement_by_index(0)
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_remove_meas_by_index_ag3_2(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+        blank_gated_meas: pf.GatedMeasurement,
+    ) -> None:
+        ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
+        ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
+        core.applied_gates = ag
+        core.remove_measurement_by_index(1)
+        with pytest.RaisesGroup(pf.RelationalError):
             core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(

@@ -371,6 +371,22 @@ def dataset2_3_2(
 
 
 @pytest.fixture
+def text3_2_0(
+    text2_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
+) -> pf.CoreTEXT2_0:
+    text2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, 9001)
+    return text2_2_0
+
+
+@pytest.fixture
+def text3_3_0(
+    text2_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
+) -> pf.CoreTEXT3_0:
+    text2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, 9001)
+    return text2_3_0
+
+
+@pytest.fixture
 def text3_3_1(
     text2_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
@@ -384,6 +400,26 @@ def text3_3_2(
 ) -> pf.CoreTEXT3_2:
     text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9001)
     return text2_3_2
+
+
+@pytest.fixture
+def dataset3_2_0(
+    dataset2_2_0: pf.CoreDataset2_0,
+    blank_optical_2_0: pf.Optical2_0,
+    series3: pl.Series,
+) -> pf.CoreDataset2_0:
+    dataset2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, series3, 9001)
+    return dataset2_2_0
+
+
+@pytest.fixture
+def dataset3_3_0(
+    dataset2_3_0: pf.CoreDataset3_0,
+    blank_optical_3_0: pf.Optical3_0,
+    series3: pl.Series,
+) -> pf.CoreDataset3_0:
+    dataset2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, series3, 9001)
+    return dataset2_3_0
 
 
 @pytest.fixture
@@ -432,6 +468,12 @@ all_core2 = parameterize_versions(
     "core",
     ["2_0", "3_0", "3_1", "3_2"],
     ["text2", "dataset2"],
+)
+
+all_core3 = parameterize_versions(
+    "core",
+    ["2_0", "3_0", "3_1", "3_2"],
+    ["text3", "dataset3"],
 )
 
 all_blank_optical = parameterize_versions(
@@ -588,8 +630,13 @@ class TestCore:
 
     @all_blank_core
     def test_trigger_nolink(self, core: AnyCore) -> None:
-        with pytest.raises(pf.PyreflowError):
+        with pytest.raises(pf.RelationalError):
             core.tr = ("harold", 0)
+
+    @all_blank_core
+    def test_trigger_temporal(self, core: AnyCore) -> None:
+        with pytest.raises(pf.RelationalError):
+            core.tr = (LINK_NAME2, 0)
 
     @all_core
     def test_par(self, core: AnyCore) -> None:
@@ -701,6 +748,28 @@ class TestCore:
         assert np.array_equal(arr, new[1])
         core.spillover = None
         assert core.spillover is None
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
+    def test_spillover_temporal(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.spillover = (
+                [LINK_NAME1, LINK_NAME2],
+                np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            )
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text3", "dataset3"])
+    def test_spillover_nolink(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.spillover = (
+                [LINK_NAME1, "010011110100110101000111-010101110101010001001000"],
+                np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            )
 
     @parameterize_versions("core", ["3_0"], ["text2", "dataset2"])
     def test_unicode(
@@ -845,6 +914,22 @@ class TestCore:
         assert core.unstainedcenters == {}
         core.unstainedcenters = {LINK_NAME1: 42}
         assert core.unstainedcenters == {LINK_NAME1: 42}
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_unstained_centers_temporal(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.unstainedcenters = {LINK_NAME2: 42}
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_unstained_centers_nolink(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.unstainedcenters = {"barking pimpernel": 420}
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_applied_gates_2_0(
@@ -1155,10 +1240,11 @@ class TestCore:
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
 
-    @all_core2
-    def test_remove_meas_by_name_with_link_tr(self, core: AnyCore) -> None:
+    @all_core3
+    def test_remove_meas_by_name_with_tr(self, core: AnyCore) -> None:
         core.tr = (LINK_NAME1, 1)
         assert core.remove_measurement_by_name(LINK_NAME2) is not None
+        assert core.remove_measurement_by_name(LINK_NAME3) is not None
         # choke if linked
         with pytest.RaisesGroup(pf.RelationalError):
             assert core.remove_measurement_by_name(LINK_NAME1) is not None
@@ -1174,6 +1260,18 @@ class TestCore:
         )
         core.spillover = sp
         assert core.remove_measurement_by_name(LINK_NAME2) is not None
+        # choke if linked
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert core.remove_measurement_by_name(LINK_NAME1) is not None
+
+    @parameterize_versions("core", ["3_2"], ["text3", "dataset3"])
+    def test_remove_meas_by_name_with_unstained(
+        self,
+        core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
+    ) -> None:
+        core.unstainedcenters = {LINK_NAME1: 42}
+        assert core.remove_measurement_by_name(LINK_NAME2) is not None
+        assert core.remove_measurement_by_name(LINK_NAME3) is not None
         # choke if linked
         with pytest.RaisesGroup(pf.RelationalError):
             assert core.remove_measurement_by_name(LINK_NAME1) is not None

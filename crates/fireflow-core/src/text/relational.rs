@@ -75,7 +75,7 @@ pub struct OpticalNamesToRemove<'a>(pub(crate) HashSet<&'a Shortname>);
 pub struct IndicesToRemove(pub(crate) HashSet<MeasIndex>);
 
 //
-// Existential relational errors (do any links exist?)
+// Existential relational errors (checking if existing links might be broken)
 //
 
 def_summary!(
@@ -91,7 +91,6 @@ pub type ExistingLinkErrors = ErrorGroup<ExistingLinkError, ExistingLinkFailure>
 pub enum ExistingLinkError {
     Named(AnyExistingNamedLinkError),
     Index(AnyExistingIndexLinkError),
-    Invalid(AnyLinkError),
 }
 
 /// Error when any keyword has named references to it which would be broken if dropped
@@ -112,8 +111,6 @@ pub enum AnyExistingIndexLinkError {
     Region3_0(ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, IndexFromOne>),
     Region3_2(ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, IndexFromOne>),
 }
-
-pub(crate) type InvalidRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
 /// Error when a named reference would be broken if a measurement is dropped
 #[derive(Debug, Error, new)]
@@ -144,7 +141,7 @@ pub struct ExistingIndexedLinkError<T, I> {
 }
 
 //
-// Comprehensive relational errors (are all links valid)
+// Broken relational errors (checking if new links are valid)
 //
 
 /// A relational keyword that has been removed due having a broken reference.
@@ -209,17 +206,31 @@ pub struct RemovedGating {
 /// All possible relational errors
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum AnyLinkError {
+pub enum BrokenOrDependentLinkError {
+    Indexed(BrokenIndexedLinkError),
+    Named(BrokenNamedLinkError),
+    Gating(DependentKeyError<Gating>),
+    Window(DependentIndexedKeyError<RegionWindow>),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum BrokenIndexedLinkError {
+    Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
+    Comp3_0(KeyToIndexLinkError<Compensation3_0>),
+    Region3_0(BrokenRegionLinkError<MeasOrGateIndex>),
+    Region3_2(BrokenRegionLinkError<PrefixedMeasIndex>),
+}
+
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum BrokenNamedLinkError {
     Spillover(KeyToNameLinkError<Spillover>),
     Trigger(KeyToNameLinkError<Trigger>),
     UnstainedCenters(KeyToNameLinkError<UnstainedCenters>),
-    Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
-    Comp3_0(KeyToIndexLinkError<Compensation3_0>),
-    Gating(DependentKeyError<Gating>),
-    Region3_0(InvalidRegionLinkError<MeasOrGateIndex>),
-    Region3_2(InvalidRegionLinkError<PrefixedMeasIndex>),
-    Window(DependentIndexedKeyError<RegionWindow>),
 }
+
+pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
 /// Error when key which references a non-existent measurement $PnN
 #[derive(Debug, Display, Error, new)]
@@ -329,7 +340,7 @@ impl RemovedLink {
         }
     }
 
-    pub(crate) fn push_errors(self, es: &mut Vec<AnyLinkError>) {
+    pub(crate) fn push_errors(self, es: &mut Vec<BrokenOrDependentLinkError>) {
         macro_rules! go_gate {
             ($es:expr, $x:expr) => {{
                 for e in $x.into_errors() {
@@ -354,13 +365,13 @@ impl RemovedLink {
             }
             Self::Comp2_0(xs) => {
                 for x in xs {
-                    es.push(x.as_error().into());
+                    es.push(BrokenIndexedLinkError::from(x.as_error()).into());
                 }
             }
-            Self::Comp3_0(x) => es.push(x.into_error().into()),
-            Self::Spillover(x) => es.push(x.into_error().into()),
-            Self::UnstainedCenters(x) => es.push(x.into_error().into()),
-            Self::Trigger(x) => es.push(x.into_error().into()),
+            Self::Comp3_0(x) => es.push(BrokenIndexedLinkError::from(x.into_error()).into()),
+            Self::Spillover(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
+            Self::UnstainedCenters(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
+            Self::Trigger(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
         }
     }
 }
@@ -400,15 +411,15 @@ impl<T: Key> RemovedIndexLink<T> {
 }
 
 impl<I> RemovedGateLink<I> {
-    fn into_errors(self) -> impl Iterator<Item = AnyLinkError>
+    fn into_errors(self) -> impl Iterator<Item = BrokenOrDependentLinkError>
     where
-        AnyLinkError: From<InvalidRegionLinkError<I>>,
+        BrokenIndexedLinkError: From<BrokenRegionLinkError<I>>,
     {
         let ri = self.region_index;
         let region_key = RegionGateIndex::<()>::std(ri);
         let k = SpecificKey::new_i1(ri.into());
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
         let e1 = DependentIndexedKeyError::new2(ri.into(), NonEmpty::new(region_key));
-        [e0.into(), e1.into()].into_iter()
+        [BrokenIndexedLinkError::from(e0).into(), e1.into()].into_iter()
     }
 }

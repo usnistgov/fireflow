@@ -73,9 +73,10 @@ use crate::text::named_vec::{
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
-    AnyExistingIndexLinkError, AnyExistingNamedLinkError, AnyLinkError, ExistingIndexedLinkError,
-    ExistingLinkError, ExistingLinkErrors, IndicesToRemove, InvalidRegionLinkError,
-    KeyToNameLinkError, OpticalNamesToRemove, RemovedLink,
+    AnyExistingIndexLinkError, AnyExistingNamedLinkError, BrokenIndexedLinkError,
+    BrokenNamedLinkError, BrokenOrDependentLinkError, ExistingIndexedLinkError, ExistingLinkError,
+    ExistingLinkErrors, IndicesToRemove, BrokenRegionLinkError, KeyToNameLinkError,
+    OpticalNamesToRemove, RemovedLink,
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{
@@ -1524,6 +1525,18 @@ pub trait VersionedMetaroot: Sized {
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave<Shortname>;
 
+    /// Return error if any named links are broken
+    fn meas_invalid_named_links_inner(
+        &self,
+        names: &NamedSet<'_>,
+    ) -> impl Iterator<Item = BrokenNamedLinkError>;
+
+    /// Return error if any indexed links are broken
+    fn meas_invalid_indexed_links_inner(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BrokenIndexedLinkError>;
+
     /// Check that all links point to a valid name or index.
     ///
     /// If this is not the case, either drop invalid keywords or return error.
@@ -1547,13 +1560,6 @@ pub trait VersionedMetaroot: Sized {
         par: Par,
         indices: &IndicesToRemove,
     ) -> impl Iterator<Item = AnyExistingIndexLinkError>;
-
-    /// Return error if any links are broken
-    fn meas_invalid_links_inner(
-        &self,
-        par: &Par,
-        names: &NamedSet<'_>,
-    ) -> impl Iterator<Item = AnyLinkError>;
 
     /// Rename any measurement references in keywords.
     fn rename_meas_links_inner(&mut self, mapping: &NameMapping);
@@ -2215,13 +2221,18 @@ where
             .chain(es)
     }
 
-    fn invalid_links(&self, par: &Par, names: &NamedSet<'_>) -> impl Iterator<Item = AnyLinkError> {
+    fn invalid_named_links(
+        &self,
+        names: &NamedSet<'_>,
+    ) -> impl Iterator<Item = BrokenNamedLinkError> {
         let tr = self
             .tr
             .as_ref()
             .and_then(|tr| tr.invalid_link_error(names))
-            .map(AnyLinkError::from);
-        self.specific.meas_invalid_links_inner(par, names).chain(tr)
+            .map(BrokenNamedLinkError::from);
+        self.specific
+            .meas_invalid_named_links_inner(names)
+            .chain(tr)
     }
 
     // Return a vector of errors here to let the caller decide how to package
@@ -2232,7 +2243,7 @@ where
         par: Par,
         names: &NamedSet<'_>,
         allow_dropping: bool,
-    ) -> Vec<AnyLinkError> {
+    ) -> Vec<BrokenOrDependentLinkError> {
         let tr = Trigger::remove_invalid_links(&mut self.tr, names);
         let mut es = vec![];
         for x in self
@@ -3145,7 +3156,7 @@ where
         M: HasSpillover,
     {
         if let Some(s) = spillover.as_ref() {
-            let ns = self.measurement_linkable_refs();
+            let ns = self.measurements.named_set();
             s.invalid_link_error(&ns).map_or(Ok(()), Err)?;
         }
         *self.metaroot.specific.spill_mut(private::NoTouchy) = spillover;
@@ -3163,7 +3174,7 @@ where
     where
         M: HasUnstainedCenters,
     {
-        let ns = self.measurement_linkable_refs();
+        let ns = self.measurements.named_set();
         us.invalid_link_error(&ns).map_or(Ok(()), Err)?;
         *self
             .metaroot
@@ -3336,7 +3347,7 @@ where
     pub fn set_applied_gates_3_0(
         &mut self,
         ag: AppliedGates3_0,
-    ) -> GroupResult<(), InvalidRegionLinkError<MeasOrGateIndex>, SetAppliedGatesSummary>
+    ) -> GroupResult<(), BrokenRegionLinkError<MeasOrGateIndex>, SetAppliedGatesSummary>
     where
         M: HasAppliedGates3_0,
     {
@@ -3354,7 +3365,7 @@ where
     pub fn set_applied_gates_3_2(
         &mut self,
         ag: AppliedGates3_2,
-    ) -> GroupResult<(), InvalidRegionLinkError<PrefixedMeasIndex>, SetAppliedGatesSummary>
+    ) -> GroupResult<(), BrokenRegionLinkError<PrefixedMeasIndex>, SetAppliedGatesSummary>
     where
         M: HasAppliedGates3_2,
     {
@@ -3687,7 +3698,7 @@ where
         M::Optical: AsScaleTransform,
     {
         let meas = layout.try_new_measurements::<M>(measurements)?;
-        self.new_meas_has_existing_links(&meas, allow_shared_names, skip_index_check)?;
+        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
         self.measurements = meas;
         self.layout = layout;
         Ok(())
@@ -3715,7 +3726,7 @@ where
         M::Optical: AsScaleTransform,
     {
         let meas = self.layout.try_new_measurements::<M>(measurements)?;
-        self.new_meas_has_existing_links(&meas, allow_shared_names, skip_index_check)?;
+        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
         self.measurements = meas;
         Ok(())
     }
@@ -4043,29 +4054,6 @@ where
         (js.into(), ns.into())
     }
 
-    fn measurement_linkable_refs(&self) -> NamedSet<'_> {
-        let ms = &self.measurements;
-        let tmp = ms.as_center().map(|e| e.key);
-        let ns = ms.indexed_non_center_names().map(|(_, n)| n).collect();
-        NamedSet::new(tmp, ns)
-    }
-
-    fn meas_has_any_existing_named_links(
-        &self,
-        names: &OpticalNamesToRemove<'_>,
-    ) -> impl Iterator<Item = AnyExistingNamedLinkError> {
-        self.metaroot.meas_has_existing_named_links_with(names)
-    }
-
-    fn meas_has_any_existing_index_links(
-        &self,
-        indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
-        self.metaroot
-            .specific
-            .meas_has_existing_index_links_with_inner(self.par(), indices)
-    }
-
     /// Check that links will not be broken when setting new measurement names.
     ///
     /// This is useful when setting the measurements in bulk and the names may
@@ -4080,51 +4068,55 @@ where
     ///
     /// For indexed links, assume by default that new measurement order does not
     /// correspond to new measurement order, in which case any existing links
-    /// will be broken. If `skip_index_check` is true, bypass this assumption.
-    /// This should only be true when the user knows that measurements that have
+    /// will be broken. If `skip_index_check` is true, bypass this assumption
+    /// and only check that the indices in the final result are valid. This
+    /// should only be true when the user knows that measurements that have
     /// links are in the same order b/t new and old.
     ///
     /// The number of measurements is assumed to be correct; this should be
     /// checked elsewhere.
-    fn new_meas_has_existing_links<X, Y>(
+    fn new_meas_link_errors<X, Y>(
         &self,
         measurements: &Measurements<M::Name, X, Y>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), ExistingLinkErrors> {
+    ) -> Result<(), SetMeasurementLinkErrors> {
         debug_assert!(
             self.measurements.len() == measurements.len(),
             "measurement vector are not same length"
         );
         let (js, ns) = self.all_indices_and_names_to_remove();
-        if allow_shared_names {
+        let m = &self.metaroot;
+        let s = &m.specific;
+        let named_errs: Vec<_> = if allow_shared_names {
             // If name sharing is allowed, treat this as if keywords that have
             // references ($SPILLOVER, etc) are being added to the new
             // measurement, in which case we only need to ensure that links in
             // the final configuration match
             let nset = measurements.named_set();
-            let par = self.par();
-            let es = self
-                .metaroot
-                .invalid_links(&par, &nset)
-                .map(ExistingLinkError::from);
-            ExistingLinkErrors::try_new(es)?;
+            m.invalid_named_links(&nset)
+                .map(SetMeasurementLinkError::from)
+                .collect()
         } else {
             // If name sharing is not allowed, act as if all measurement will be
             // unset and replaced in two discrete steps, and any existing links
             // will be broken after the unset step. This effectively means we
             // can't have any links.
-            let es = self
-                .meas_has_any_existing_named_links(&ns)
-                .map(ExistingLinkError::from);
-            ExistingLinkErrors::try_new(es)?;
-        }
-        let es = skip_index_check
-            .then(|| self.meas_has_any_existing_index_links(&js))
-            .into_iter()
-            .flatten()
-            .map(ExistingLinkError::from);
-        ExistingLinkErrors::try_new(es)
+            m.meas_has_existing_named_links_with(&ns)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        };
+        let par = self.par();
+        let index_errs: Vec<_> = if skip_index_check {
+            s.meas_invalid_indexed_links_inner(&par)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        } else {
+            s.meas_has_existing_index_links_with_inner(par, &js)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        };
+        SetMeasurementLinkErrors::try_new(named_errs.into_iter().chain(index_errs))
     }
 }
 
@@ -4544,7 +4536,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         metaroot: &mut Metaroot<M>,
         measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
         allow_drop: bool,
-    ) -> ErrorsResult<(), (), AnyLinkError>
+    ) -> ErrorsResult<(), (), BrokenOrDependentLinkError>
     where
         M::Optical: AsScaleTransform,
     {
@@ -8194,6 +8186,24 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
 
+    fn meas_invalid_named_links_inner(
+        &self,
+        _: &NamedSet<'_>,
+    ) -> impl Iterator<Item = BrokenNamedLinkError> {
+        empty()
+    }
+
+    fn meas_invalid_indexed_links_inner(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BrokenIndexedLinkError> {
+        self.comp
+            .as_ref()
+            .into_iter()
+            .flat_map(|comp| comp.invalid_link_errors(par))
+            .map(BrokenIndexedLinkError::from)
+    }
+
     fn remove_invalid_links(
         &mut self,
         par: &Par,
@@ -8224,18 +8234,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
             comp.existing_links()
                 .map(AnyExistingIndexLinkError::Comp2_0)
         })
-    }
-
-    fn meas_invalid_links_inner(
-        &self,
-        par: &Par,
-        _: &NamedSet<'_>,
-    ) -> impl Iterator<Item = AnyLinkError> {
-        self.comp
-            .as_ref()
-            .into_iter()
-            .flat_map(|comp| comp.invalid_link_errors(par))
-            .map(AnyLinkError::from)
     }
 
     fn rename_meas_links_inner(&mut self, _: &NameMapping) {}
@@ -8280,19 +8278,25 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
 
-    fn meas_invalid_links_inner(
+    fn meas_invalid_named_links_inner(
+        &self,
+        _: &NamedSet<'_>,
+    ) -> impl Iterator<Item = BrokenNamedLinkError> {
+        empty()
+    }
+
+    fn meas_invalid_indexed_links_inner(
         &self,
         par: &Par,
-        _: &NamedSet<'_>,
-    ) -> impl Iterator<Item = AnyLinkError> {
+    ) -> impl Iterator<Item = BrokenIndexedLinkError> {
         let comp = self
             .comp
             .as_ref()
             .and_then(|comp| comp.invalid_link_errors(par))
-            .map(AnyLinkError::from);
+            .map(BrokenIndexedLinkError::from);
         self.applied_gates
             .invalid_link_errors(par)
-            .map(AnyLinkError::from)
+            .map(BrokenIndexedLinkError::from)
             .chain(comp)
     }
 
@@ -8380,20 +8384,24 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
 
-    fn meas_invalid_links_inner(
+    fn meas_invalid_named_links_inner(
         &self,
-        par: &Par,
         names: &NamedSet<'_>,
-    ) -> impl Iterator<Item = AnyLinkError> {
-        let sp = self
-            .spillover
+    ) -> impl Iterator<Item = BrokenNamedLinkError> {
+        self.spillover
             .as_ref()
             .and_then(|sp| sp.invalid_link_error(names))
-            .map(AnyLinkError::from);
+            .map(BrokenNamedLinkError::from)
+            .into_iter()
+    }
+
+    fn meas_invalid_indexed_links_inner(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BrokenIndexedLinkError> {
         self.applied_gates
             .invalid_link_errors(par)
-            .map(AnyLinkError::from)
-            .chain(sp)
+            .map(BrokenIndexedLinkError::from)
     }
 
     fn remove_invalid_links(
@@ -8485,26 +8493,30 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
 
-    fn meas_invalid_links_inner(
+    fn meas_invalid_named_links_inner(
         &self,
-        par: &Par,
         names: &NamedSet<'_>,
-    ) -> impl Iterator<Item = AnyLinkError> {
+    ) -> impl Iterator<Item = BrokenNamedLinkError> {
         let sp = self
             .spillover
             .as_ref()
             .and_then(|sp| sp.invalid_link_error(names))
-            .map(AnyLinkError::from);
+            .map(BrokenNamedLinkError::from);
         let us = self
             .unstained
             .unstainedcenters
             .invalid_link_error(names)
-            .map(AnyLinkError::from);
+            .map(BrokenNamedLinkError::from);
+        [sp, us].into_iter().flatten()
+    }
+
+    fn meas_invalid_indexed_links_inner(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BrokenIndexedLinkError> {
         self.applied_gates
             .invalid_link_errors(par)
-            .map(AnyLinkError::from)
-            .chain(sp)
-            .chain(us)
+            .map(BrokenIndexedLinkError::from)
     }
 
     fn remove_invalid_links(
@@ -8928,12 +8940,25 @@ pub enum StdWriterError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsError {
     New(MeasurementsWithLayoutError),
-    Link(ExistingLinkErrors),
+    Link(SetMeasurementLinkErrors),
 }
 
-pub type SetMeasurementsErrors = ErrorGroup<SetMeasurementsError, SetMeasurementsSummary>;
+/// Link error when setting new measurements
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetMeasurementLinkError {
+    NamedBroken(BrokenNamedLinkError),
+    IndexedBroken(BrokenIndexedLinkError),
+    NamedExisting(AnyExistingNamedLinkError),
+    IndexedExisting(AnyExistingIndexLinkError),
+}
 
-def_summary!(SetMeasurementsSummary, "could not set measurements");
+pub type SetMeasurementLinkErrors = ErrorGroup<SetMeasurementLinkError, SetMeasurementLinkSummary>;
+
+def_summary!(
+    SetMeasurementLinkSummary,
+    "link errors when setting measurements"
+);
 
 /// Error when setting measurements vector without names
 #[derive(From, Display, Debug, Error)]
@@ -9515,7 +9540,7 @@ pub enum NewCoreWarning {
     /// Time channel is missing entirely
     Time(MissingTime),
     /// A keyword has invalid links (and is dropped in the case of a warning)
-    Link(AnyLinkError),
+    Link(BrokenOrDependentLinkError),
     /// A keyword is deprecated
     Deprecated(AnyDepKeyError),
 }

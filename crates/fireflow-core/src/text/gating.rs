@@ -6,8 +6,9 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
-use crate::text::deprecated::{DepGatedMeasRef, DeprecatedGatingSchemeRef};
-use crate::text::deprecated::{DeprecatedStrRef, IndexedDepRef};
+use crate::text::deprecated::{
+    DepGatedMeasRef, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
+};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
@@ -19,8 +20,8 @@ use crate::text::lookup::{
 };
 use crate::text::optional::{CheckMaybe as _, KeywordPairMaybe as _};
 use crate::text::relational::{
-    DependentKeyError, ExistingIndexedLinkError, IndexedKeyToIndexLinkError, IndicesToRemove,
-    RemovedGateLink, RemovedGating, RemovedLink,
+    BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndexedKeyToIndexLinkError,
+    IndicesToRemove, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
@@ -35,7 +36,6 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use std::collections::HashMap;
 use std::fmt;
-use std::iter::repeat;
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -433,7 +433,7 @@ impl AppliedGates3_0 {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<MeasOrGateIndex>>> {
+    ) -> impl Iterator<Item = BrokenRegionLinkError<MeasOrGateIndex>> {
         self.scheme.invalid_link_errors(par)
     }
 
@@ -561,7 +561,7 @@ impl AppliedGates3_2 {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<PrefixedMeasIndex>>> {
+    ) -> impl Iterator<Item = BrokenRegionLinkError<PrefixedMeasIndex>> {
         self.0.invalid_link_errors(par)
     }
 
@@ -754,14 +754,14 @@ impl<I> GatingScheme<I> {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = IndexedKeyToIndexLinkError<RegionGateIndex<I>>>
+    ) -> impl Iterator<Item = BrokenRegionLinkError<I>>
     where
         I: LinkedMeasIndex,
     {
         self.meas_indices()
-            .filter(|(_, mi)| usize::from(*mi) < usize::from(par.0))
+            .filter(|(_, mi)| usize::from(*mi) < par.0)
             .map(|(ri, mi)| {
-                let js = NonEmpty::new(mi.into());
+                let js = NonEmpty::new(mi);
                 IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
             })
     }

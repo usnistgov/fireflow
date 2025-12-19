@@ -2180,7 +2180,7 @@ impl UnstainedCenters {
             .keys()
             .filter(|n| !cur_names.contains_non_center_name(n))
             .cloned();
-        NonEmpty::collect(ns).map(|js| KeyToNameLinkError::new_i0(js))
+        NonEmpty::collect(ns).map(KeyToNameLinkError::new_i0)
     }
 
     /// Remove $UNSTAINEDCENTERS if any names in array are not in measurement vector

@@ -137,7 +137,7 @@ pub type Eithers<K, U, V> = Vec<Either<K, U, V>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
-impl<'a> NamedSet<'a> {
+impl NamedSet<'_> {
     pub(crate) fn contains_non_center_name(&self, name: &Shortname) -> bool {
         self.non_center.contains(name)
     }

@@ -6801,7 +6801,10 @@ impl ScaleTransform {
         i: MeasIndex,
     ) -> impl Iterator<Item = (MeasHeader, String, Option<String>)> {
         let (_, gain): (_, Option<Gain>) = (*self).into();
-        [gain.meas_opt_triple(i)].into_iter()
+        (!gain.is_some_and(|g| g.0.is_one()))
+            .then_some(gain)
+            .map(|g| g.meas_opt_triple(i))
+            .into_iter()
     }
 
     pub(crate) fn is_noop(&self) -> bool {

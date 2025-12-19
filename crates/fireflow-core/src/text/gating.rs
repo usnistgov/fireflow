@@ -329,13 +329,14 @@ impl AppliedGates2_0 {
     }
 
     pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
-        let gate = Gate(self.gated_measurements.0.len());
+        let g = self.gated_measurements.0.len();
+        let gate = if g == 0 { None } else { Some(Gate(g)) };
         self.gated_measurements
             .0
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords_std(i.into()))
-            .chain([gate.root_pair_std()])
+            .chain(gate.map(|x| OptMetarootKey::root_pair_std(&x)))
             .chain(self.scheme.opt_keywords_std())
     }
 

@@ -689,7 +689,85 @@ class TestCore:
         with pytest.raises(TypeError):
             core.all_longnames = [cast(str, 42)]
 
-    # TODO add raw_keywords test
+    @parameterize_versions("core", ["2_0"], ["text", "dataset"])
+    def test_standard_keywords_2_0(self, core: AnyCore) -> None:
+        # TODO make these default
+        kws = core.standard_keywords("both", "both")
+        expected = {
+            "$BYTEORD": "1,2,3,4",
+            "$DATATYPE": "I",
+            "$MODE": "L",
+            "$PAR": "1",
+            "$P1B": "32",
+            "$P1N": LINK_NAME1,
+            "$P1R": "9001",
+        }
+        for k, v in expected.items():
+            assert k in kws
+            assert kws[k] == v
+        for k, v in kws.items():
+            assert k in expected
+            assert expected[k] == v
+
+    @parameterize_versions("core", ["3_0"], ["text", "dataset"])
+    def test_standard_keywords_3_0(self, core: AnyCore) -> None:
+        kws = core.standard_keywords("both", "both")
+        expected = {
+            "$BYTEORD": "1,2,3,4",
+            "$DATATYPE": "I",
+            "$MODE": "L",
+            "$PAR": "1",
+            "$P1B": "32",
+            "$P1N": LINK_NAME1,
+            "$P1R": "9001",
+            "$P1E": "0,0",
+        }
+        for k, v in expected.items():
+            assert k in kws
+            assert kws[k] == v
+        for k, v in kws.items():
+            assert k in expected
+            assert expected[k] == v
+
+    @parameterize_versions("core", ["3_1"], ["text", "dataset"])
+    def test_standard_keywords_3_1(self, core: AnyCore) -> None:
+        kws = core.standard_keywords("both", "both")
+        expected = {
+            "$BYTEORD": "1,2,3,4",
+            "$DATATYPE": "I",
+            "$MODE": "L",
+            "$PAR": "1",
+            "$P1B": "16",
+            "$P1N": LINK_NAME1,
+            "$P1R": "9001",
+            "$P1E": "0,0",
+        }
+        for k, v in expected.items():
+            assert k in kws
+            assert kws[k] == v
+        for k, v in kws.items():
+            assert k in expected
+            assert expected[k] == v
+
+    @parameterize_versions("core", ["3_2"], ["text", "dataset"])
+    def test_standard_keywords_3_2(self, core: AnyCore) -> None:
+        kws = core.standard_keywords("both", "both")
+        expected = {
+            "$BYTEORD": "1,2,3,4",
+            "$DATATYPE": "I",
+            "$PAR": "1",
+            "$CYT": "Moca Emporium",
+            "$P1B": "16",
+            "$P1N": LINK_NAME1,
+            "$P1R": "9001",
+            "$P1E": "0,0",
+        }
+        for k, v in expected.items():
+            assert k in kws
+            assert kws[k] == v
+        for k, v in kws.items():
+            assert k in expected
+            assert expected[k] == v
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_timestep(

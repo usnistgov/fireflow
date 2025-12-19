@@ -2171,28 +2171,9 @@ impl UnstainedCenters {
     /// Return error if any names in matrix are not in measurement vector
     pub(crate) fn invalid_link_error(
         &self,
-        cur_names: &NamedSet<'_>,
+        names: &NamedSet<'_>,
     ) -> impl Iterator<Item = KeyToNameLinkError<Self>> {
-        // TODO not DRY, this is basically the same as $SPILLOVER
-        let mut te = None;
-        let ns = self
-            .0
-            .keys()
-            .filter(|&n| match cur_names.membership(n) {
-                NamedSetMembership::None => true,
-                NamedSetMembership::Center => {
-                    te = Some(TemporalNamedLinkError::new_i0(n.clone()));
-                    false
-                }
-                NamedSetMembership::NonCenter => false,
-            })
-            .cloned();
-        let oe = NonEmpty::collect(ns)
-            .map(OpticalNamedLinkError::new_i0)
-            .map(KeyToNameLinkError::Optical);
-        [te.map(KeyToNameLinkError::Temporal), oe]
-            .into_iter()
-            .flatten()
+        names.invalid_link_errors(self.0.keys())
     }
 
     /// Remove $UNSTAINEDCENTERS if any names in array are not in measurement vector
@@ -2200,21 +2181,8 @@ impl UnstainedCenters {
         &mut self,
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
-        let mut t = None;
-        // TODO not DRY
-        let ns = self
-            .0
-            .keys()
-            .filter(|&n| match names.membership(n) {
-                NamedSetMembership::None => true,
-                NamedSetMembership::Center => {
-                    t = Some(n.clone());
-                    false
-                }
-                NamedSetMembership::NonCenter => false,
-            })
-            .cloned();
-        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), LinkName::Both(xs, t)))
+        let ln = names.error_link_name(self.0.keys());
+        ln.map(|x| RemovedNamedLink::new(take(self), x))
     }
 }
 

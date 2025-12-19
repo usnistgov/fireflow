@@ -7,6 +7,7 @@ use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
 
+use nonempty::NonEmpty;
 use type_families::{
     BifunctorOnce, Functor, Monoid, Pointed, impl_functor_once, impl_kind1, impl_kind2,
 };
@@ -33,6 +34,10 @@ use pyo3::prelude::*;
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 use Ordering::{Equal, Greater, Less};
+
+use super::relational::{
+    KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
+};
 
 /// A list of potentially named values with an optional "center value".
 ///
@@ -151,6 +156,51 @@ impl NamedSet<'_> {
             NamedSetMembership::Center
         } else {
             NamedSetMembership::None
+        }
+    }
+
+    pub(crate) fn error_names<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> (Option<Shortname>, Option<NonEmpty<Shortname>>) {
+        let mut t = None;
+        let ns = names
+            .into_iter()
+            .filter(|&n| match self.membership(n) {
+                NamedSetMembership::None => true,
+                NamedSetMembership::Center => {
+                    t = Some(n.clone());
+                    false
+                }
+                NamedSetMembership::NonCenter => false,
+            })
+            .cloned();
+        let o = NonEmpty::collect(ns);
+        (t, o)
+    }
+
+    pub(crate) fn invalid_link_errors<'a, T>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> impl Iterator<Item = KeyToNameLinkError<T>> {
+        let (t, o) = self.error_names(names);
+        let te = t
+            .map(TemporalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Temporal);
+        let oe = o
+            .map(OpticalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Optical);
+        [te, oe].into_iter().flatten()
+    }
+
+    pub(crate) fn error_link_name<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> Option<LinkName> {
+        let (t, o) = self.error_names(names);
+        match o {
+            None => t.map(LinkName::Temporal),
+            Some(ns) => Some(LinkName::Both(ns, t)),
         }
     }
 

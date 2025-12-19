@@ -5,11 +5,8 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
-use super::named_vec::{NameMapping, NamedSet, NamedSetMembership};
-use super::relational::{
-    ExistingNamedLinkError, KeyToNameLinkError, LinkName, OpticalNamedLinkError,
-    OpticalNamesToRemove, TemporalNamedLinkError,
-};
+use super::named_vec::{NameMapping, NamedSet};
+use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -82,25 +79,7 @@ impl Spillover {
         &self,
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = KeyToNameLinkError<Self>> {
-        let mut te = None;
-        let ns = self
-            .measurements
-            .iter()
-            .filter(|&n| match names.membership(n) {
-                NamedSetMembership::None => true,
-                NamedSetMembership::Center => {
-                    te = Some(TemporalNamedLinkError::new_i0(n.clone()));
-                    false
-                }
-                NamedSetMembership::NonCenter => false,
-            })
-            .cloned();
-        let oe = NonEmpty::collect(ns)
-            .map(OpticalNamedLinkError::new_i0)
-            .map(KeyToNameLinkError::Optical);
-        [te.map(KeyToNameLinkError::Temporal), oe]
-            .into_iter()
-            .flatten()
+        names.invalid_link_errors(&self.measurements)
     }
 
     /// Remove $SPILLOVER if any names in matrix are not in measurement vector
@@ -109,22 +88,9 @@ impl Spillover {
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let s = src.as_ref()?;
-        let mut t = None;
-        let ns = s
-            .measurements
-            .iter()
-            .filter(|&n| match names.membership(n) {
-                NamedSetMembership::None => true,
-                NamedSetMembership::Center => {
-                    t = Some(n.clone());
-                    false
-                }
-                NamedSetMembership::NonCenter => false,
-            })
-            .cloned();
         // ASSUME this won't fail since we filter out None above with ?
-        NonEmpty::collect(ns)
-            .map(|xs| RemovedNamedLink::new(take(src).unwrap(), LinkName::Both(xs, t)))
+        let ln = names.error_link_name(&s.measurements);
+        ln.map(|x| RemovedNamedLink::new(take(src).unwrap(), x))
     }
 }
 

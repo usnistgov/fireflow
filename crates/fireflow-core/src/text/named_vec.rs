@@ -127,6 +127,12 @@ pub struct NamedSet<'a> {
     non_center: HashSet<&'a Shortname>,
 }
 
+pub(crate) enum NamedSetMembership {
+    Center,
+    NonCenter,
+    None,
+}
+
 type Center<U> = Pair<Shortname, U>;
 
 type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
@@ -138,12 +144,22 @@ pub type Eithers<K, U, V> = Vec<Either<K, U, V>>;
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
 impl NamedSet<'_> {
+    pub(crate) fn membership(&self, name: &Shortname) -> NamedSetMembership {
+        if self.contains_non_center_name(name) {
+            NamedSetMembership::NonCenter
+        } else if self.contains_center_name(name) {
+            NamedSetMembership::Center
+        } else {
+            NamedSetMembership::None
+        }
+    }
+
     pub(crate) fn contains_non_center_name(&self, name: &Shortname) -> bool {
         self.non_center.contains(name)
     }
 
-    pub(crate) fn contains_any_name(&self, name: &Shortname) -> bool {
-        self.contains_non_center_name(name) || self.center.as_ref().is_some_and(|n| n == &name)
+    fn contains_center_name(&self, name: &Shortname) -> bool {
+        self.center.as_ref().is_some_and(|n| n == &name)
     }
 }
 

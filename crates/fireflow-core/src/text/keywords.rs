@@ -62,9 +62,10 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use super::lookup::{ReqIndexedStKeyError, impl_from_str_with_delim};
-use super::named_vec::NamedSet;
+use super::named_vec::{NamedSet, NamedSetMembership};
 use super::relational::{
-    IndexedKeyToIndexLinkError, KeyToIndexLinkError, KeyToNameLinkError, OpticalNamesToRemove,
+    KeyToIndexLinkError, KeyToNameLinkError, LinkName, OpticalNamedLinkError, OpticalNamesToRemove,
+    TemporalNamedLinkError,
 };
 
 #[cfg(feature = "python")]
@@ -318,9 +319,13 @@ impl Trigger {
         names: &NamedSet<'_>,
     ) -> Option<KeyToNameLinkError<Self>> {
         let m = &self.measurement;
-        // TODO cannot reference time measurement
-        (!names.contains_non_center_name(m))
-            .then(|| KeyToNameLinkError::new_i0(NonEmpty::new(m.clone())))
+        match names.membership(m) {
+            NamedSetMembership::NonCenter => {
+                Some(OpticalNamedLinkError::new_i0(NonEmpty::new(m.clone())).into())
+            }
+            NamedSetMembership::Center => Some(TemporalNamedLinkError::new_i0(m.clone()).into()),
+            NamedSetMembership::None => None,
+        }
     }
 
     pub(crate) fn remove_invalid_links(
@@ -328,13 +333,14 @@ impl Trigger {
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let tr = src.as_ref()?;
-        if names.contains_non_center_name(&tr.measurement) {
-            None
-        } else {
-            // ASSUME this won't fail since we filter out None above with ?
-            let m = tr.measurement.clone();
-            Some(RemovedNamedLink::new(take(src).unwrap(), NonEmpty::new(m)))
-        }
+        let m = &tr.measurement;
+        let ln = match names.membership(m) {
+            NamedSetMembership::NonCenter => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
+            NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
+            NamedSetMembership::None => None,
+        };
+        // ASSUME this won't fail since we filter out None above with ?
+        ln.map(|n| RemovedNamedLink::new(take(src).unwrap(), n))
     }
 }
 
@@ -1162,7 +1168,7 @@ impl FromStrDelim for Compensation3_0 {
 }
 
 impl Compensation3_0 {
-    pub(crate) fn invalid_link_errors(&self, par: &Par) -> Option<KeyToIndexLinkError<Self>> {
+    pub(crate) fn invalid_link_errors(&self, par: Par) -> Option<KeyToIndexLinkError<Self>> {
         let m: &DMatrix<_> = self.as_ref();
         let js = (par.0..m.nrows()).map(MeasIndex::from);
         NonEmpty::collect(js).map(KeyToIndexLinkError::new_i0)
@@ -2149,13 +2155,6 @@ impl UnstainedCenters {
         self.0 = new;
     }
 
-    pub(crate) fn names_difference(
-        &self,
-        names: &NamedSet<'_>,
-    ) -> impl Iterator<Item = &Shortname> {
-        self.0.keys().filter(|n| !names.contains_non_center_name(n))
-    }
-
     /// Return error if any about-to-removed names are in unstained center names
     pub(crate) fn existing_link_error(
         &self,
@@ -2173,14 +2172,27 @@ impl UnstainedCenters {
     pub(crate) fn invalid_link_error(
         &self,
         cur_names: &NamedSet<'_>,
-    ) -> Option<KeyToNameLinkError<Self>> {
-        // TODO return specific error if time channel is in matrix
+    ) -> impl Iterator<Item = KeyToNameLinkError<Self>> {
+        // TODO not DRY, this is basically the same as $SPILLOVER
+        let mut te = None;
         let ns = self
             .0
             .keys()
-            .filter(|n| !cur_names.contains_non_center_name(n))
+            .filter(|&n| match cur_names.membership(n) {
+                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::Center => {
+                    te = Some(TemporalNamedLinkError::new_i0(n.clone()));
+                    false
+                }
+                NamedSetMembership::None => false,
+            })
             .cloned();
-        NonEmpty::collect(ns).map(KeyToNameLinkError::new_i0)
+        let oe = NonEmpty::collect(ns)
+            .map(OpticalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Optical);
+        [te.map(KeyToNameLinkError::Temporal), oe]
+            .into_iter()
+            .flatten()
     }
 
     /// Remove $UNSTAINEDCENTERS if any names in array are not in measurement vector
@@ -2188,8 +2200,21 @@ impl UnstainedCenters {
         &mut self,
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
-        let ns = self.names_difference(names).cloned();
-        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), xs))
+        let mut t = None;
+        // TODO not DRY
+        let ns = self
+            .0
+            .keys()
+            .filter(|&n| match names.membership(n) {
+                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::Center => {
+                    t = Some(n.clone());
+                    false
+                }
+                NamedSetMembership::None => false,
+            })
+            .cloned();
+        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(self), LinkName::Both(xs, t)))
     }
 }
 

@@ -177,7 +177,12 @@ pub(crate) enum Comp2_0Missing {
 #[derive(new)]
 pub struct RemovedNamedLink<T> {
     key: T,
-    names: NonEmpty<Shortname>,
+    names: LinkName,
+}
+
+pub(crate) enum LinkName {
+    Both(NonEmpty<Shortname>, Option<Shortname>),
+    Temporal(Shortname),
 }
 
 /// A keyword which links to a non-existent measurement index which was removed.
@@ -232,6 +237,15 @@ pub enum BrokenNamedLinkError {
 
 pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGateIndex<I>>;
 
+/// Error when key which references a non-existent optical $PnN or the temporal $PnN
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+pub enum NamedLinkError<T, I> {
+    Optical(OpticalNamedLinkError<T, I>),
+    Temporal(TemporalNamedLinkError<T, I>),
+}
+
 /// Error when key which references a non-existent measurement $PnN
 #[derive(Debug, Display, Error, new)]
 #[display(
@@ -244,9 +258,22 @@ pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGate
     pyerr(crate::python::RelationalError),
     bound(SpecificKey<T, I>: Display)
 )]
-pub struct NamedLinkError<T, I> {
+pub struct OpticalNamedLinkError<T, I> {
     key: SpecificKey<T, I>,
     names: NonEmpty<Shortname>,
+}
+
+#[derive(Debug, Display, Error, new)]
+#[display("{key} cannot reference temporal $PnN: {name}")]
+#[cfg_attr(
+    feature = "python",
+    derive(DisplayAsPyErr),
+    pyerr(crate::python::RelationalError),
+    bound(SpecificKey<T, I>: Display)
+)]
+pub struct TemporalNamedLinkError<T, I> {
+    key: SpecificKey<T, I>,
+    name: Shortname,
 }
 
 /// Error when key which references a non-existent measurement index
@@ -286,9 +313,15 @@ pub type BiIndexedKeyToIndexLinkError<T> = IndexLinkError<T, BiIndex>;
 pub type DependentKeyError<T> = DependentKeyErrorInner<T, ()>;
 pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
 
-impl<T> NamedLinkError<T, ()> {
+impl<T> OpticalNamedLinkError<T, ()> {
     pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
         Self::new(SpecificKey::default(), js)
+    }
+}
+
+impl<T> TemporalNamedLinkError<T, ()> {
+    pub(crate) fn new_i0(name: Shortname) -> Self {
+        Self::new(SpecificKey::default(), name)
     }
 }
 
@@ -348,6 +381,15 @@ impl RemovedLink {
                 }
             }};
         }
+        macro_rules! go_named {
+            ($es:expr, $x:expr) => {{
+                $es.extend(
+                    $x.into_errors()
+                        .map(BrokenNamedLinkError::from)
+                        .map(Into::into),
+                )
+            }};
+        }
         match self {
             Self::GatingRegion3_0(x) => go_gate!(es, x),
             Self::GatingRegion3_2(x) => go_gate!(es, x),
@@ -369,9 +411,9 @@ impl RemovedLink {
                 }
             }
             Self::Comp3_0(x) => es.push(BrokenIndexedLinkError::from(x.into_error()).into()),
-            Self::Spillover(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
-            Self::UnstainedCenters(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
-            Self::Trigger(x) => es.push(BrokenNamedLinkError::from(x.into_error()).into()),
+            Self::Spillover(x) => go_named!(es, x),
+            Self::UnstainedCenters(x) => go_named!(es, x),
+            Self::Trigger(x) => go_named!(es, x),
         }
     }
 }
@@ -399,8 +441,16 @@ impl RemovedComp2_0Cell {
 }
 
 impl<T: Key> RemovedNamedLink<T> {
-    fn into_error(self) -> KeyToNameLinkError<T> {
-        KeyToNameLinkError::new_i0(self.names)
+    fn into_errors(self) -> impl Iterator<Item = KeyToNameLinkError<T>> {
+        let ret = match self.names {
+            LinkName::Both(os, t) => {
+                let oe = Some(OpticalNamedLinkError::new_i0(os).into());
+                let te = t.map(TemporalNamedLinkError::new_i0).map(Into::into);
+                [oe, te]
+            }
+            LinkName::Temporal(t) => [None, Some(TemporalNamedLinkError::new_i0(t).into())],
+        };
+        ret.into_iter().flatten()
     }
 }
 

@@ -5,8 +5,11 @@ use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
 use super::lookup::FromStrWith;
-use super::named_vec::{NameMapping, NamedSet};
-use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
+use super::named_vec::{NameMapping, NamedSet, NamedSetMembership};
+use super::relational::{
+    ExistingNamedLinkError, KeyToNameLinkError, LinkName, OpticalNamedLinkError,
+    OpticalNamesToRemove, TemporalNamedLinkError,
+};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -61,15 +64,6 @@ impl Spillover {
         );
     }
 
-    pub(crate) fn names_difference(
-        &self,
-        names: &NamedSet<'_>,
-    ) -> impl Iterator<Item = &Shortname> {
-        self.measurements
-            .iter()
-            .filter(|n| !names.contains_non_center_name(n))
-    }
-
     /// Return error if any about-to-removed names are in spillover measurements
     pub(crate) fn existing_link_error(
         &self,
@@ -84,28 +78,53 @@ impl Spillover {
     }
 
     /// Return error if any names in matrix are not in measurement vector
-    pub(crate) fn invalid_link_error(
+    pub(crate) fn invalid_link_errors(
         &self,
-        cur_names: &NamedSet<'_>,
-    ) -> Option<KeyToNameLinkError<Self>> {
-        // TODO return specific error if time channel is in matrix
+        names: &NamedSet<'_>,
+    ) -> impl Iterator<Item = KeyToNameLinkError<Self>> {
+        let mut te = None;
         let ns = self
             .measurements
             .iter()
-            .filter(|n| !cur_names.contains_non_center_name(n))
+            .filter(|&n| match names.membership(n) {
+                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::Center => {
+                    te = Some(TemporalNamedLinkError::new_i0(n.clone()));
+                    false
+                }
+                NamedSetMembership::None => false,
+            })
             .cloned();
-        NonEmpty::collect(ns).map(|js| KeyToNameLinkError::new(Key0::default(), js))
+        let oe = NonEmpty::collect(ns)
+            .map(OpticalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Optical);
+        [te.map(KeyToNameLinkError::Temporal), oe]
+            .into_iter()
+            .flatten()
     }
 
     /// Remove $SPILLOVER if any names in matrix are not in measurement vector
     pub(crate) fn remove_invalid_link(
         src: &mut Option<Self>,
-        cur_names: &NamedSet<'_>,
+        names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
         let s = src.as_ref()?;
-        let ns = s.names_difference(cur_names).cloned();
+        let mut t = None;
+        let ns = s
+            .measurements
+            .iter()
+            .filter(|&n| match names.membership(n) {
+                NamedSetMembership::NonCenter => true,
+                NamedSetMembership::Center => {
+                    t = Some(n.clone());
+                    false
+                }
+                NamedSetMembership::None => false,
+            })
+            .cloned();
         // ASSUME this won't fail since we filter out None above with ?
-        NonEmpty::collect(ns).map(|xs| RemovedNamedLink::new(take(src).unwrap(), xs))
+        NonEmpty::collect(ns)
+            .map(|xs| RemovedNamedLink::new(take(src).unwrap(), LinkName::Both(xs, t)))
     }
 }
 

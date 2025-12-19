@@ -74,9 +74,9 @@ use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, Mi
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, BrokenIndexedLinkError,
-    BrokenNamedLinkError, BrokenOrDependentLinkError, ExistingIndexedLinkError, ExistingLinkError,
-    ExistingLinkErrors, IndicesToRemove, BrokenRegionLinkError, KeyToNameLinkError,
-    OpticalNamesToRemove, RemovedLink,
+    BrokenNamedLinkError, BrokenOrDependentLinkError, BrokenRegionLinkError,
+    ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors, IndicesToRemove,
+    KeyToNameLinkError, OpticalNamesToRemove, RemovedLink,
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{
@@ -3148,16 +3148,13 @@ where
     ///
     /// Return error if any measurements reference temporal measurement or
     /// if supplied matrix is invalid.
-    pub fn set_spillover(
-        &mut self,
-        spillover: Option<Spillover>,
-    ) -> Result<(), KeyToNameLinkError<Spillover>>
+    pub fn set_spillover(&mut self, spillover: Option<Spillover>) -> Result<(), SetSpilloverErrors>
     where
         M: HasSpillover,
     {
         if let Some(s) = spillover.as_ref() {
             let ns = self.measurements.named_set();
-            s.invalid_link_error(&ns).map_or(Ok(()), Err)?;
+            SetSpilloverErrors::try_new(s.invalid_link_errors(&ns))?;
         }
         *self.metaroot.specific.spill_mut(private::NoTouchy) = spillover;
         Ok(())
@@ -3170,12 +3167,12 @@ where
     pub fn set_unstained_centers(
         &mut self,
         us: UnstainedCenters,
-    ) -> Result<(), KeyToNameLinkError<UnstainedCenters>>
+    ) -> Result<(), SetUnstainedCentersErrors>
     where
         M: HasUnstainedCenters,
     {
         let ns = self.measurements.named_set();
-        us.invalid_link_error(&ns).map_or(Ok(()), Err)?;
+        SetUnstainedCentersErrors::try_new(us.invalid_link_error(&ns))?;
         *self
             .metaroot
             .specific
@@ -8292,7 +8289,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         let comp = self
             .comp
             .as_ref()
-            .and_then(|comp| comp.invalid_link_errors(par))
+            .and_then(|comp| comp.invalid_link_errors(*par))
             .map(BrokenIndexedLinkError::from);
         self.applied_gates
             .invalid_link_errors(par)
@@ -8390,9 +8387,9 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     ) -> impl Iterator<Item = BrokenNamedLinkError> {
         self.spillover
             .as_ref()
-            .and_then(|sp| sp.invalid_link_error(names))
-            .map(BrokenNamedLinkError::from)
             .into_iter()
+            .flat_map(|sp| sp.invalid_link_errors(names))
+            .map(BrokenNamedLinkError::from)
     }
 
     fn meas_invalid_indexed_links_inner(
@@ -8500,14 +8497,14 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         let sp = self
             .spillover
             .as_ref()
-            .and_then(|sp| sp.invalid_link_error(names))
+            .into_iter()
+            .flat_map(|sp| sp.invalid_link_errors(names))
             .map(BrokenNamedLinkError::from);
-        let us = self
-            .unstained
+        self.unstained
             .unstainedcenters
             .invalid_link_error(names)
-            .map(BrokenNamedLinkError::from);
-        [sp, us].into_iter().flatten()
+            .map(BrokenNamedLinkError::from)
+            .chain(sp)
     }
 
     fn meas_invalid_indexed_links_inner(
@@ -9790,6 +9787,18 @@ pub struct CompParMismatchError {
     par: usize,
     comp: usize,
 }
+
+type SetSpilloverErrors = ErrorGroup<KeyToNameLinkError<Spillover>, SetSpilloverSummary>;
+
+def_summary!(SetSpilloverSummary, "error when setting $SPILLOVER");
+
+type SetUnstainedCentersErrors =
+    ErrorGroup<KeyToNameLinkError<UnstainedCenters>, SetUnstainedCentersSummary>;
+
+def_summary!(
+    SetUnstainedCentersSummary,
+    "error when setting $UNSTAINEDCENTERS"
+);
 
 type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
 

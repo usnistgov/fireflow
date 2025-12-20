@@ -689,6 +689,7 @@ class TestCore:
         with pytest.raises(TypeError):
             core.all_longnames = [cast(str, 42)]
 
+    # TODO make more tests to ensure keywords are dumped properly
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_standard_keywords_2_0(self, core: AnyCore) -> None:
         # TODO make these default
@@ -2168,6 +2169,13 @@ class TestCore:
         d = pl.DataFrame([[1, None]], {LINK_NAME1: pl.UInt32})
         with pytest.raises(pf.EventDataError):
             core.to_dataset(d, b"", [])
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    @pytest.mark.parametrize(
+        "dtype", [pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64]
+    )
+    def test_u16(self, core: AnyCoreDataset, dtype: Any) -> None:
+        core.data = pl.DataFrame([[1, 2]], {LINK_NAME1: dtype})
 
 
 class TestGating:

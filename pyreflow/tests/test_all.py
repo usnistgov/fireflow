@@ -2829,6 +2829,33 @@ class TestReadWrite:
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_truncated(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_trunc.fcs"
+        core.data = pl.DataFrame([[0.5, 0.5]], {LINK_NAME1: pl.Float32})
+        assert not isinstance(core.layout, pf.MixedLayout)
+        assert core.layout.datatype == "I"
+        # this will attempt to write a float as an int
+        with pytest.RaisesGroup(pf.DataLossError):
+            core.write_dataset(p)
+        # this will force the float to int with a warning
+        with pytest.warns(pf.PyreflowWarning):
+            core.write_dataset(p, skip_conversion_check=True)
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_trunc.fcs"
+        core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
+        assert not isinstance(core.layout, pf.MixedLayout)
+        assert core.layout.datatype == "I"
+        # this should convert 1.0 to 1 losslessly despite the underlying type
+        # being U32
+        core.write_dataset(p)
+
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
         d = tmp_path

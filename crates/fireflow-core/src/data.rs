@@ -929,7 +929,7 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
         let mut buf = Self::BUF::default();
         h.read_exact(&mut tmp)?;
         for (i, j) in order.iter().enumerate() {
-            buf.as_mut()[usize::from(*j)] = tmp[i];
+            buf.as_mut()[i] = tmp[usize::from(*j)];
         }
         Ok(Self::from_little(buf))
     }
@@ -944,7 +944,7 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
         for (i, j) in order.iter().enumerate() {
             buf[usize::from(*j)] = tmp.as_ref()[i];
         }
-        h.write_all(tmp.as_ref())
+        h.write_all(buf.as_ref())
     }
 }
 

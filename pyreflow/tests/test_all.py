@@ -2174,7 +2174,7 @@ class TestCore:
     @pytest.mark.parametrize(
         "dtype", [pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64]
     )
-    def test_u16(self, core: AnyCoreDataset, dtype: Any) -> None:
+    def test_data_dtypes(self, core: AnyCoreDataset, dtype: Any) -> None:
         core.data = pl.DataFrame([[1, 2]], {LINK_NAME1: dtype})
 
 

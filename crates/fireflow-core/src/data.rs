@@ -1644,7 +1644,7 @@ impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
             // if string less than allocated chars, pad left side with zero before
             // writing number
             for _ in 0..(width - str_value.len()) {
-                h.write_all(&[30])?;
+                h.write_all(&[48])?;
             }
             h.write_all(str_value.as_bytes())?;
             None
@@ -2505,6 +2505,19 @@ fn h_read_delim_with_rows<R: Read>(
     let mut col = 0;
     // Delimiters are tab, newline, carriage return, space, or comma. Any
     // consecutive delimiter counts as one, and delimiters can be mixed.
+    macro_rules! go {
+        () => {
+            data[col][row] = ascii_to_uint(&buf)
+                .map_err(ReadDelimWithRowsAsciiError::Parse)
+                .map_err(ImpureError::Pure)?;
+            if col == ncols - 1 {
+                col = 0;
+                row += 1;
+            } else {
+                col += 1;
+            }
+        };
+    }
     for b in h.bytes().take(nbytes) {
         let byte = b?;
         // exit if we encounter more rows than expected.
@@ -2515,34 +2528,24 @@ fn h_read_delim_with_rows<R: Read>(
         if is_ascii_delim(byte) {
             if !last_was_delim {
                 last_was_delim = true;
-                data[col][row] = ascii_to_uint(&buf)
-                    .map_err(ReadDelimWithRowsAsciiError::Parse)
-                    .map_err(ImpureError::Pure)?;
+                go!();
                 buf.clear();
-                if col == ncols - 1 {
-                    col = 0;
-                    row += 1;
-                } else {
-                    col += 1;
-                }
             }
         } else {
             buf.push(byte);
             last_was_delim = false;
         }
     }
-    if !(col == 0 && row == nrows) {
-        let e = DelimIncompleteError { col, row, nrows };
-        let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        return Err(ee);
-    }
     // The spec isn't clear if the last value should be a delim or
     // not, so flush the buffer if it has anything in it since we
     // only try to parse if we hit a delim above.
     if !buf.is_empty() {
-        data[col][row] = ascii_to_uint(&buf)
-            .map_err(ReadDelimWithRowsAsciiError::Parse)
-            .map_err(ImpureError::Pure)?;
+        go!();
+    }
+    if !(col == 0 && row == nrows) {
+        let e = DelimIncompleteError { col, row, nrows };
+        let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
+        return Err(ee);
     }
     Ok(data)
 }
@@ -4762,8 +4765,11 @@ pub struct RowsExceededError(usize);
 /// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error)]
 #[error(
-    "Parsing ended in column {col} and row {row}, \
-     where expected number of rows is {nrows}"
+    "Parsing ended in column {c} and row {r}, \
+     where expected number of rows is {nrows}",
+    c = self.col + 1,
+    r = self.row + 1
+
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]

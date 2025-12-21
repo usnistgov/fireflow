@@ -20,6 +20,7 @@ from pyreflow.typing import (
     AppliedGates3_0,
     AppliedGates3_2,
     KeyPatterns,
+    ByteOrd,
 )
 import pyreflow as pf
 import polars as pl
@@ -2931,16 +2932,21 @@ class TestReadWrite:
         assert new_core1 == core
 
     @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
+    # make sure we can store and read a totally scrambled byteord (note the
+    # first byte is in the middle to make it extra weird)
+    @pytest.mark.parametrize("byteord", ["big", [2, 4, 1, 3]])
     def test_mixed_byteord(
-        self, tmp_path: Path, core: pf.CoreDataset2_0 | pf.CoreDataset3_0
+        self,
+        tmp_path: Path,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        byteord: ByteOrd,
     ) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p0 = d / "dataset_mixed_wrong.fcs"
         p1 = d / "dataset_mixed_right.fcs"
         core.write_dataset(p0)
-        # make sure we can store and read a totally scrambled byteord
-        core.layout = pf.OrderedUint32Layout([1023, 1023], byteord=[1, 4, 2, 3])
+        core.layout = pf.OrderedUint32Layout([1023, 1023], byteord=byteord)
         core.write_dataset(p1)
         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
         new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)

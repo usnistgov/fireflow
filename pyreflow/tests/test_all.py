@@ -2902,6 +2902,52 @@ class TestReadWrite:
         smry = pf.api.fcs_summarize(p)
         assert len(smry) == 3
 
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_fixed_ascii(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_fixed_ascii.fcs"
+        core.layout = pf.FixedAsciiLayout([1000, 1000])
+        core.write_dataset(p)
+        if core.version in ["FCS3.1", "FCS3.2"]:
+            with pytest.warns(pf.PyreflowWarning):
+                new_core, _ = pf.api.fcs_read_std_dataset(
+                    p, time_meas_pattern=LINK_NAME2
+                )
+        else:
+            new_core, _ = pf.api.fcs_read_std_dataset(p, time_meas_pattern=LINK_NAME2)
+        assert new_core == core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_delim_ascii(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_delim_ascii.fcs"
+        core.layout = pf.DelimAsciiLayout([1000, 1000])
+        core.write_dataset(p)
+        if core.version in ["FCS3.1", "FCS3.2"]:
+            with pytest.warns(pf.PyreflowWarning):
+                new_core, _ = pf.api.fcs_read_std_dataset(
+                    p, time_meas_pattern=LINK_NAME2
+                )
+        else:
+            new_core, _ = pf.api.fcs_read_std_dataset(p, time_meas_pattern=LINK_NAME2)
+        assert new_core == core
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_conversion.fcs"
+        ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
+        core.data = pl.DataFrame([ser])
+        # this should fail because we are trying to write a non-integer float
+        # as an integer
+        with pytest.RaisesGroup(pf.PyreflowError):
+            core.write_dataset(p)
+        with pytest.warns(pf.PyreflowWarning):
+            core.write_dataset(p, skip_conversion_check=True)
+
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
     def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
         d = tmp_path
@@ -2920,17 +2966,3 @@ class TestReadWrite:
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
-
-    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-    def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-        d = tmp_path
-        d.mkdir(exist_ok=True)
-        p = d / "dataset_conversion.fcs"
-        ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
-        core.data = pl.DataFrame([ser])
-        # this should fail because we are trying to write a non-integer float
-        # as an integer
-        with pytest.RaisesGroup(pf.PyreflowError):
-            core.write_dataset(p)
-        with pytest.warns(pf.PyreflowWarning):
-            core.write_dataset(p, skip_conversion_check=True)

@@ -4,6 +4,7 @@ use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use derive_more::Into;
 use derive_new::new;
+use num_traits::ToPrimitive as _;
 use std::any::type_name;
 use std::fmt;
 use std::marker::PhantomData;
@@ -26,6 +27,22 @@ impl TryFrom<f32> for FloatDecimal<f32> {
 
     fn try_from(value: f32) -> Result<Self, Self::Error> {
         value.try_into().map(Self::new)
+    }
+}
+
+impl From<FloatDecimal<Self>> for f32 {
+    fn from(value: FloatDecimal<Self>) -> Self {
+        // ASSUME this will not fail because we validated that FloatDecimal
+        // does not have out-of-range values
+        value.value.to_f32().unwrap()
+    }
+}
+
+impl From<FloatDecimal<Self>> for f64 {
+    fn from(value: FloatDecimal<Self>) -> Self {
+        // ASSUME this will not fail because we validated that FloatDecimal
+        // does not have out-of-range values
+        value.value.to_f64().unwrap()
     }
 }
 

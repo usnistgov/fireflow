@@ -71,6 +71,9 @@ pub type IOGroupResult<V, E, G> = Result<V, IOErrorGroup<E, G>>;
 
 pub type IOResult<T, E> = Result<T, ImpureError<E>>;
 
+pub type WarningAndIOResult<V, W, E> = WarningAndErrorResult<V, (), W, ImpureError<E>>;
+pub type WarningsAndIOResult<V, W, E> = WarningsAndErrorResult<V, (), W, ImpureError<E>>;
+
 //
 // Results with only warnings
 //

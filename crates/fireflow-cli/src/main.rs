@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{self, DatasetOffset};
+use fireflow_core::config::{self, DatasetOffset, TruncateEventValues};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
@@ -623,7 +623,31 @@ fn main() -> Result<(), ()> {
         ),
     );
 
-    let all_dataset_args = [allow_uneven_event_width, allow_tot_mismatch];
+    let truncate_event_values = Arg::new(TRUNCATE_EVENT_VALUES)
+        .long(TRUNCATE_EVENT_VALUES)
+        .value_name("WHICH")
+        .help(format!(
+            "Truncate values exceeding {}. \
+             Must be one of 'int_only' (default), 'all', or 'none'.",
+            kw_style.paint("$PnR"),
+        ));
+
+    let disallow_over_range = flag_arg(
+        DISALLOW_OVER_RANGE,
+        format!(
+            "Forbid values in DATA to exceed {}. Does nothing if column \
+             was truncated according to '{}'",
+            kw_style.paint("$PnR"),
+            TRUNCATE_EVENT_VALUES
+        ),
+    );
+
+    let all_dataset_args = [
+        allow_uneven_event_width,
+        allow_tot_mismatch,
+        truncate_event_values,
+        disallow_over_range,
+    ];
 
     // shared args
 
@@ -1075,9 +1099,15 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
+    let truncate_event_values = sargs
+        .get_one::<String>(TRUNCATE_EVENT_VALUES)
+        .map(|s| s.parse::<TruncateEventValues>().unwrap())
+        .unwrap_or_default();
     config::ReadEventsConfig {
         allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
         allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
+        truncate_event_values,
+        disallow_over_range: sargs.get_flag(DISALLOW_OVER_RANGE).into(),
     }
 }
 
@@ -1360,6 +1390,10 @@ const INT_BYTEORD_OVERRIDE: &str = "integer-byteord-override";
 const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 
 const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
+
+const TRUNCATE_EVENT_VALUES: &str = "truncate-event-values";
+
+const DISALLOW_OVER_RANGE: &str = "disallow-over-range";
 
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 

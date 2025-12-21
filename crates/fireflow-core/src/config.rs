@@ -17,7 +17,7 @@ use crate::segment::{
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::index::MeasIndex;
-use crate::text::keywords as kws;
+use crate::text::keywords::{self as kws, AlphaNumType};
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
@@ -854,6 +854,18 @@ pub struct ReadEventsConfig {
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If
     /// `false`, throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: AllowTotMismatch,
+
+    /// Control which measurements will be truncated via $PnR.
+    pub truncate_event_values: TruncateEventValues,
+
+    /// If `true`, forbid event values in DATA to exceed $PnR.
+    ///
+    /// Each column containing an overrange value will be reported, either as
+    /// an error (`true`) or warning (`false`).
+    ///
+    /// This flag only has an effect if the column is not truncated according to
+    /// [`Self::truncate_event_values`].
+    pub disallow_over_range: DisallowOverRange,
 }
 
 /// Configuration options for across all reading functions
@@ -864,6 +876,44 @@ pub struct ReadSharedConfig {
 
     /// If `true`, do not emit warnings.
     pub hide_warnings: bool,
+}
+
+/// Choose which event types are truncated.
+///
+/// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
+#[derive(Default, Clone, Copy)]
+pub enum TruncateEventValues {
+    #[default]
+    IntOnly,
+    All,
+    None,
+}
+
+impl FromStr for TruncateEventValues {
+    type Err = TruncateEventValuesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "int_only" => Ok(Self::IntOnly),
+            "all" => Ok(Self::All),
+            "none" => Ok(Self::None),
+            _ => Err(TruncateEventValuesError),
+        }
+    }
+}
+
+/// Error when parsing [`TruncateEventValues`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'int_only', 'all', or 'none'")]
+pub struct TruncateEventValuesError;
+
+impl TruncateEventValues {
+    pub(crate) fn matches_datatype(self, dt: AlphaNumType) -> bool {
+        matches!(
+            (self, dt),
+            (Self::IntOnly, AlphaNumType::Integer) | (Self::All, _)
+        )
+    }
 }
 
 pub trait ConfigFlag {
@@ -914,8 +964,9 @@ impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
 impl_config_flag!(TruncateOffsets);
 
-impl_error_flag!(true_is_error AllowUnevenEventWidth);
-impl_error_flag!(true_is_error AllowTotMismatch);
+impl_error_flag!(false_is_error AllowUnevenEventWidth);
+impl_error_flag!(false_is_error AllowTotMismatch);
+impl_error_flag!(false_is_error DisallowOverRange);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_error_flag!(false_is_error IgnoreSuppTEXT);
@@ -1145,11 +1196,21 @@ mod python {
     use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
 
-    use super::TimeMeasNamePattern;
+    use super::{TimeMeasNamePattern, TruncateEventValues};
 
     use pyo3::prelude::*;
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let s: String = ob.extract()?;
+            let n = s
+                .parse::<Self>()
+                .map_err(|e| ConfigError::new_err(e.to_string()))?;
+            Ok(n)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for TruncateEventValues {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             let n = s

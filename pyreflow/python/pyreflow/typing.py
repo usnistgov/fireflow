@@ -133,6 +133,8 @@ SubPattern: TypeAlias = tuple[str, str, bool]
 
 SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]
 
+TruncateEventValues: TypeAlias = Literal["int_only", "all", "none"]
+
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]

@@ -7278,8 +7278,15 @@ impl DocArgParam {
     fn new_read_events_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let allow_uneven_event_width = Self::new_allow_uneven_event_width_param();
         let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
+        let truncate_event_values = Self::new_truncate_event_values();
+        let disallow_over_range = Self::new_disallow_over_range();
         let conf = config_path("ReadEventsConfig");
-        let ps = vec![allow_uneven_event_width, allow_tot_mismatch];
+        let ps = vec![
+            allow_uneven_event_width,
+            allow_tot_mismatch,
+            truncate_event_values,
+            disallow_over_range,
+        ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -7868,6 +7875,22 @@ impl DocArgParam {
                  computed by the event width and length of *DATA*. \
                  Does not apply to delimited ASCII layouts.";
         Self::new_bool_param("allow_tot_mismatch", d)
+    }
+
+    fn new_truncate_event_values() -> Self {
+        let path = config_path("TruncateEventValues");
+        let d = "Control which measurements will be truncated via *$PnR*";
+        let pt = PyLiteral::new2(["int_only", "all", "none"], path);
+        Self::new_param("truncate_event_values", pt, d).def_auto()
+    }
+
+    fn new_disallow_over_range() -> Self {
+        let d = "If ``true``, forbid event values in *DATA* to exceed *$PnR*. \
+                 Each column containing an overrange value will be reported, \
+                 either as an error (``true``) or warning (``false``). This \
+                 flag only has an effect if the column is not truncated \
+                 according to `truncate_event_values`.";
+        Self::new_bool_param("disallow_over_range", d)
     }
 
     fn new_warnings_are_errors_param() -> Self {

@@ -50,6 +50,7 @@ from pyreflow.typing import (
     SubPatterns,
     ReqOrOpt,
     RootOrMeas,
+    TruncateEventValues,
 )
 
 _X = TypeVar("_X")
@@ -1330,6 +1331,8 @@ class CoreDataset2_0(
         disallow_range_truncation: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
+        truncate_event_values: TruncateEventValues = "int_only",
+        disallow_over_range: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1435,6 +1438,8 @@ class CoreDataset3_0(
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
+        truncate_event_values: TruncateEventValues = "int_only",
+        disallow_over_range: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1546,6 +1551,8 @@ class CoreDataset3_1(
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
+        truncate_event_values: TruncateEventValues = "int_only",
+        disallow_over_range: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1661,6 +1668,8 @@ class CoreDataset3_2(
         truncate_text_offsets: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
+        truncate_event_values: TruncateEventValues = "int_only",
+        disallow_over_range: bool = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -2084,6 +2093,8 @@ def fcs_read_flat_dataset(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2166,6 +2177,8 @@ def fcs_read_std_dataset(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2358,6 +2371,8 @@ def fcs_read_flat_datasets(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2441,6 +2456,8 @@ def fcs_read_std_datasets(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2471,6 +2488,8 @@ def fcs_read_flat_dataset_with_keywords(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2536,6 +2555,8 @@ def fcs_summarize(
     # data args
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
+    truncate_event_values: TruncateEventValues = "int_only",
+    disallow_over_range: bool = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,

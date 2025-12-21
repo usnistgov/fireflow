@@ -52,8 +52,8 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadEventsConfig,
-    ReadLayoutConfig,
+    AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _,
+    ReadEventsConfig, ReadLayoutConfig, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -62,7 +62,8 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
     ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult, WarningOrErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, WarningsAndIOResult,
+    WarningsResult,
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::nonempty::FCSNonEmpty;
@@ -766,6 +767,10 @@ trait FromRange: Sized {
     ) -> DeferredSwitchableError<Self, DisallowRangeTrunc, Self::Error>;
 }
 
+trait IntoRange: HasNativeType {
+    fn as_range(&self) -> (Self::Native, Range);
+}
+
 /// A type which has a known width
 pub trait IsFixed {
     fn nbytes(&self) -> NonZeroU8;
@@ -845,6 +850,12 @@ trait Readable<S> {
         byte_layout: S,
         buf: &mut Vec<u8>,
     ) -> IOResult<(), ReadDataframeError>;
+
+    fn check_range(
+        &mut self,
+        i: MeasIndex,
+        trunc: TruncateEventValues,
+    ) -> Option<EventOverRangeError>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -1296,7 +1307,7 @@ impl ToNativeReader for AsciiRange {}
 impl<T, const LEN: usize> NativeReadable<Endian> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1311,7 +1322,7 @@ where
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1327,6 +1338,7 @@ impl<T, const LEN: usize> NativeReadable<Endian> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
+    FloatDecimal<T>: Into<T> + Into<Range>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1342,6 +1354,7 @@ impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatRange<T, LE
 where
     Self: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
+    FloatDecimal<T>: Into<T> + Into<Range>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1373,7 +1386,8 @@ impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
 impl<C, S> IntoReader<S> for C
 where
     AnyFCSColumn: From<FCSColumn<C::Native>>,
-    C: NativeReadable<S> + ToNativeReader,
+    C: NativeReadable<S> + ToNativeReader + IntoRange + HasOneDatatype,
+    C::Native: PartialOrd,
 {
     type Target = ColumnReader<C, C::Native, S>;
 
@@ -1400,8 +1414,8 @@ impl IntoReader<Endian> for NullMixedType {
 
 impl<C, T, S> Readable<S> for ColumnReader<C, T, S>
 where
-    T: Copy + Default,
-    C: NativeReadable<S> + HasNativeType<Native = T> + ToNativeReader,
+    T: Copy + Default + PartialOrd,
+    C: NativeReadable<S> + HasNativeType<Native = T> + ToNativeReader + IntoRange + HasOneDatatype,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
     fn into_dataframe_column(self) -> AnyFCSColumn {
@@ -1418,6 +1432,33 @@ where
         let x = self.column_type.h_read_native(h, byte_layout, buf)?;
         self.data[row] = x;
         Ok(())
+    }
+
+    fn check_range(
+        &mut self,
+        i: MeasIndex,
+        trunc: TruncateEventValues,
+    ) -> Option<EventOverRangeError> {
+        let dt = self.column_type.datatype();
+        let (upper_limit, rng) = self.column_type.as_range();
+        if trunc.matches_datatype(dt) {
+            // If we wish to truncate this column, silently truncate without
+            // throwing any errors
+            for x in &mut self.data {
+                if *x > upper_limit {
+                    *x = upper_limit;
+                }
+            }
+        } else {
+            // Otherwise, scan through the values and return error on first
+            // encounter with overrange value
+            for (rowi, x) in self.data.iter().enumerate() {
+                if *x > upper_limit {
+                    return Some(EventOverRangeError::new(rowi, i, rng));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -1440,6 +1481,19 @@ impl Readable<Endian> for ReaderMixedType {
             Self::F64(c) => c.h_read(h, row, byte_layout, buf),
         }
     }
+
+    fn check_range(
+        &mut self,
+        i: MeasIndex,
+        trunc: TruncateEventValues,
+    ) -> Option<EventOverRangeError> {
+        match self {
+            Self::Ascii(c) => c.check_range(i, trunc),
+            Self::Uint(c) => c.check_range(i, trunc),
+            Self::F32(c) => c.check_range(i, trunc),
+            Self::F64(c) => c.check_range(i, trunc),
+        }
+    }
 }
 
 impl Readable<Endian> for AnyReaderBitmask {
@@ -1455,6 +1509,14 @@ impl Readable<Endian> for AnyReaderBitmask {
         buf: &mut Vec<u8>,
     ) -> IOResult<(), ReadDataframeError> {
         match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
+    }
+
+    fn check_range(
+        &mut self,
+        i: MeasIndex,
+        trunc: TruncateEventValues,
+    ) -> Option<EventOverRangeError> {
+        match_any_uint!(self, AnyBitmask, c, { c.check_range(i, trunc) })
     }
 }
 
@@ -2218,7 +2280,7 @@ where
         _: &mut Vec<u8>,
         tot: T,
         seg: AnyDataSegment,
-        _: &ReadEventsConfig,
+        conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
         macro_rules! go {
             ($x:expr) => {
@@ -2241,7 +2303,52 @@ where
             |h_, t| go!(h_read_delim_with_rows(rs, h_, t, nbytes)),
             |h_| go!(h_read_delim_without_rows(rs, h_, nbytes)),
         );
-        res.map_err(IOErrorGroup::from).into_log()
+
+        res.map_err(IOErrorGroup::from)
+            .into_log()
+            .and_then_commutative(|mut data| {
+                debug_assert!(
+                    data.iter().map(Vec::len).unique().count() < 2,
+                    "columns must all be same length"
+                );
+                let mut es = vec![];
+                let trunc = conf.truncate_event_values;
+                if trunc.matches_datatype(AlphaNumType::Ascii) {
+                    // truncate values if we configured this behavior
+                    for (col, r) in data.iter_mut().zip(rs) {
+                        for x in col.iter_mut() {
+                            if *x > r.0 {
+                                *x = r.0;
+                            }
+                        }
+                    }
+                } else {
+                    // otherwise warn/error if value is overrange
+                    for (i, (col, r)) in data.iter().zip(rs).enumerate() {
+                        for (rowi, x) in col.iter().enumerate() {
+                            if *x > r.0 {
+                                es.push(EventOverRangeError::new(rowi, i.into(), r.0.into()));
+                            }
+                        }
+                    }
+                }
+                let overrange_res = if conf.disallow_over_range.is_error() {
+                    ErrorGroup::try_new(es)
+                        .map_err(ReadDataframeError::from)
+                        .map_err(IOErrorGroup::new_pure_one)
+                        .into_log()
+                } else {
+                    let ws = es.fmap(ReadDataframeWarning::from);
+                    LogResult::new_ok(()).set_commutative_warnings(ws)
+                };
+                overrange_res.map_ok_value(|()| {
+                    let cs = data
+                        .into_iter()
+                        .map(FCSColumn::from)
+                        .map(AnyFCSColumn::from);
+                    FCSDataFrame::try_new(cs).unwrap()
+                })
+            })
     }
 
     fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
@@ -2386,7 +2493,7 @@ fn h_read_delim_with_rows<R: Read>(
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
-) -> Result<FCSDataFrame, ImpureError<ReadDelimWithRowsAsciiError>> {
+) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
     let mut buf = Vec::new();
     let mut last_was_delim = false;
     let nrows = tot.0;
@@ -2437,20 +2544,14 @@ fn h_read_delim_with_rows<R: Read>(
             .map_err(ReadDelimWithRowsAsciiError::Parse)
             .map_err(ImpureError::Pure)?;
     }
-    let cs = data
-        .into_iter()
-        .map(FCSColumn::from)
-        .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because we initialized all columns to be
-    // the same length
-    Ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(data)
 }
 
 fn h_read_delim_without_rows<R: Read>(
     ranges: &[AsciiRangeValue],
     h: &mut BufReader<R>,
     nbytes: usize,
-) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiWithoutRowsError>> {
+) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
     let mut buf = Vec::new();
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
@@ -2497,13 +2598,7 @@ fn h_read_delim_without_rows<R: Read>(
     if !buf.is_empty() {
         go(&mut data, col, &buf)?;
     }
-    let cs = data
-        .into_iter()
-        .map(FCSColumn::from)
-        .map(AnyFCSColumn::from);
-    // ASSUME this will never fail because we checked that all columns are the
-    // same length above
-    Ok(FCSDataFrame::try_new(cs).unwrap())
+    Ok(data)
 }
 
 impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
@@ -2600,9 +2695,10 @@ where
             })
             .and_then_commutative(|n| {
                 let nn = usize::try_from(n).expect("nrows exceeds usize");
-                self.h_read_unchecked_df(h, nn, buf)
-                    .map_err(IOErrorGroup::from)
-                    .into_log()
+                self.h_read_unchecked_df(h, nn, buf, conf)
+                    .map_error(IOErrorGroup::from)
+                    .map_commutative_warnings(ReadDataframeWarning::from)
+                    .repack_warnings()
             })
     }
 
@@ -2796,7 +2892,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         h: &mut BufReader<R>,
         nrows: usize,
         buf: &mut Vec<u8>,
-    ) -> IOResult<FCSDataFrame, ReadDataframeError>
+        conf: &ReadEventsConfig,
+    ) -> WarningsAndIOResult<FCSDataFrame, EventOverRangeError, ReadDataframeError>
     where
         R: Read,
         S: Copy,
@@ -2811,11 +2908,28 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
 
         for row in 0..nrows {
             for c in &mut col_readers {
-                c.h_read(h, row, self.byte_layout, buf)?;
+                if let Err(e) = c.h_read(h, row, self.byte_layout, buf) {
+                    return WarningsAndIOResult::new_err(e.fmap_into_once());
+                }
             }
         }
-        let data = col_readers.into_iter().map(Readable::into_dataframe_column);
-        Ok(FCSDataFrame::try_new(data).unwrap())
+        let es = col_readers
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values));
+        let overrange_res = if conf.disallow_over_range.is_error() {
+            ErrorGroup::try_new(es)
+                .map_err(ReadDataframeError::from)
+                .map_err(ImpureError::Pure)
+                .into_log()
+        } else {
+            let ws = es.collect();
+            LogResult::new_ok(()).set_commutative_warnings(ws)
+        };
+        overrange_res.map_ok_value(|()| {
+            let data = col_readers.into_iter().map(Readable::into_dataframe_column);
+            FCSDataFrame::try_new(data).unwrap()
+        })
     }
 
     fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
@@ -3029,6 +3143,36 @@ impl HasDatatype for NullMixedType {
             // NOTE this is a totally arbitrary default
             AlphaNumType::Integer
         }
+    }
+}
+
+impl<T, const LEN: usize> IntoRange for Bitmask<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy + Into<Range>,
+{
+    fn as_range(&self) -> (Self::Native, Range) {
+        let b = self.bitmask();
+        (b, b.into())
+    }
+}
+
+impl<T, const LEN: usize> IntoRange for FloatRange<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy,
+    FloatDecimal<T>: Into<Range> + Into<T>,
+{
+    fn as_range(&self) -> (Self::Native, Range) {
+        let r = &self.range;
+        (r.clone().into(), r.clone().into())
+    }
+}
+
+impl IntoRange for AsciiRange {
+    fn as_range(&self) -> (Self::Native, Range) {
+        let r = self.value();
+        (r.0, r.0.into())
     }
 }
 
@@ -4504,6 +4648,7 @@ pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
     TotMismatch(TotEventMismatchError),
+    Overrange(EventOverRangeErrors),
 }
 
 /// Warning when reading DATA segment
@@ -4512,7 +4657,23 @@ pub enum ReadDataframeError {
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidthError),
     Tot(TotEventMismatchError),
+    Overrange(EventOverRangeError),
 }
+
+/// Error when event value is above its $PnR
+#[derive(Debug, Display, new)]
+#[display("event value in column {column} and row {row}, exceeds $PnR ({range})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::EventDataError))]
+pub struct EventOverRangeError {
+    row: usize,
+    column: MeasIndex,
+    range: Range,
+}
+
+def_summary!(EventOverRangeSummary, "some events exceed $PnR");
+
+pub type EventOverRangeErrors = ErrorGroup<EventOverRangeError, EventOverRangeSummary>;
 
 /// Error when reading [`AnyAsciiLayout`]
 #[derive(From, Display, Debug, Error)]

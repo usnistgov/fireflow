@@ -2933,8 +2933,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
     # make sure we can store and read a totally scrambled byteord (note the
-    # first byte is in the middle to make it extra weird)
-    @pytest.mark.parametrize("byteord", ["big", [2, 4, 1, 3]])
+    # first byte in the middle to make it extra weird)
+    @pytest.mark.parametrize(
+        "byteord", ["little", "big", [1, 2, 3, 4], [4, 3, 2, 1], [2, 4, 1, 3]]
+    )
     def test_mixed_byteord(
         self,
         tmp_path: Path,

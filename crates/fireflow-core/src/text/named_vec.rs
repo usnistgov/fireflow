@@ -2144,7 +2144,7 @@ pub struct MissingCenterError;
 
 /// Error when final state of keys in [`NamedVec`] results in duplicates
 #[derive(Debug, Error)]
-#[error("not all supplied keys are unique")]
+#[error("some $PnN are duplicated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct NonUniqueKeysError;

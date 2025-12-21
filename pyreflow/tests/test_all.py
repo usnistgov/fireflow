@@ -2903,36 +2903,49 @@ class TestReadWrite:
         assert len(smry) == 3
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-    def test_fixed_ascii(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    @pytest.mark.parametrize(
+        "layout", [pf.FixedAsciiLayout([1000, 1000]), pf.DelimAsciiLayout([1000, 1000])]
+    )
+    def test_ascii(
+        self,
+        tmp_path: Path,
+        core: AnyCoreDataset,
+        layout: pf.FixedAsciiLayout | pf.DelimAsciiLayout,
+    ) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
-        p = d / "dataset_fixed_ascii.fcs"
-        core.layout = pf.FixedAsciiLayout([1000, 1000])
-        core.write_dataset(p)
+        p0 = d / "dataset_ascii_wrong.fcs"
+        p1 = d / "dataset_ascii_right.fcs"
+        core.write_dataset(p0)
+        core.layout = layout
+        core.write_dataset(p1)
+        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
         if core.version in ["FCS3.1", "FCS3.2"]:
             with pytest.warns(pf.PyreflowWarning):
-                new_core, _ = pf.api.fcs_read_std_dataset(
-                    p, time_meas_pattern=LINK_NAME2
+                new_core1, _ = pf.api.fcs_read_std_dataset(
+                    p1, time_meas_pattern=LINK_NAME2
                 )
         else:
-            new_core, _ = pf.api.fcs_read_std_dataset(p, time_meas_pattern=LINK_NAME2)
-        assert new_core == core
+            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        assert new_core0 != core
+        assert new_core1 == core
 
-    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-    def test_delim_ascii(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
+    def test_mixed_byteord(
+        self, tmp_path: Path, core: pf.CoreDataset2_0 | pf.CoreDataset3_0
+    ) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
-        p = d / "dataset_delim_ascii.fcs"
-        core.layout = pf.DelimAsciiLayout([1000, 1000])
-        core.write_dataset(p)
-        if core.version in ["FCS3.1", "FCS3.2"]:
-            with pytest.warns(pf.PyreflowWarning):
-                new_core, _ = pf.api.fcs_read_std_dataset(
-                    p, time_meas_pattern=LINK_NAME2
-                )
-        else:
-            new_core, _ = pf.api.fcs_read_std_dataset(p, time_meas_pattern=LINK_NAME2)
-        assert new_core == core
+        p0 = d / "dataset_mixed_wrong.fcs"
+        p1 = d / "dataset_mixed_right.fcs"
+        core.write_dataset(p0)
+        # make sure we can store and read a totally scrambled byteord
+        core.layout = pf.OrderedUint32Layout([1023, 1023], byteord=[1, 4, 2, 3])
+        core.write_dataset(p1)
+        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
+        new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        assert new_core0 != core
+        assert new_core1 == core
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
     def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:

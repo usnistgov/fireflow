@@ -68,7 +68,7 @@ use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedSet,
     NamedVec, NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError, SetValuesError,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError, uniquify_names,
 };
 use crate::text::optional::{CheckMaybe as _, Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -3506,7 +3506,7 @@ where
         index: MeasIndex,
     ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
-            // TODO (ditto previous function)
+            // NOTE (ditto previous function)
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
             let es = self
@@ -4219,7 +4219,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             // Lookup measurements/layout/metaroot with $PAR
             let meas_res = Self::lookup_measurements(std, par, nonstd, conf)
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                .map_errors(StdTEXTFromFlatTEXTError::from);
+                .map_errors(StdTEXTFromFlatTEXTError::from)
+                .map_ok_value(|mut ms| {
+                    let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+                    if sconf.dedup_measurement_names.is_set() {
+                        uniquify_names(&mut ms[..]);
+                    }
+                    ms
+                });
 
             let layout_res = <M::Ver as Versioned>::Layout::lookup(std, nonstd, par, conf.as_ref())
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)

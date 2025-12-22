@@ -26,6 +26,10 @@ impl Shortname {
     pub(crate) fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
         Self(s.as_ref().to_owned())
     }
+
+    pub(crate) fn increment(&self, i: usize) -> Self {
+        Self(format!("{}~{i}", self.0))
+    }
 }
 
 impl FromStr for Shortname {

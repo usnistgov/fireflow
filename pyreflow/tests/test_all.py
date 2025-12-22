@@ -73,6 +73,7 @@ FLAT_DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 STD_DEFAULT_CONFIG: dict[str, Any] = {
+    "dedup_measurement_names": False,
     "trim_intra_value_whitespace": False,
     "time_meas_pattern": _DEFAULT_TIME_MEAS_PATTERN,
     "allow_missing_time": False,

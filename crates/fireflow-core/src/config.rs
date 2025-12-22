@@ -591,6 +591,17 @@ pub struct ReadTEXTOffsetsConfig {
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone)]
 pub struct ReadStdKeywordsConfig {
+    /// If `true`, force all $PnN to be unique if they are not already.
+    ///
+    /// All versions of the standards requires that all $PnN be unique.
+    /// Furthermore, many data structures and operations and `fireflow` are
+    /// impossible without a guarantee that names are unique.
+    ///
+    /// Setting this option will append incrementing digits to non-unique names
+    /// until all names are unique. For instance, two keys names "X" will become
+    /// "X0" and "X1".
+    pub dedup_measurement_names: DedupMeasNames,
+
     /// If `true`, remove whitespace between commas where applicable.
     ///
     /// This will only affect keywords that are given as comma-separated lists,
@@ -739,6 +750,7 @@ pub struct ReadStdKeywordsConfig {
 impl Default for ReadStdKeywordsConfig {
     fn default() -> Self {
         Self {
+            dedup_measurement_names: DedupMeasNames::default(),
             trim_intra_value_whitespace: TrimIntraValueWhitespace::default(),
             time_meas_pattern: None,
             allow_missing_time: AllowMissingTime::default(),
@@ -990,6 +1002,7 @@ impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
+impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
 impl_error_flag!(false_is_error AllowMissingTime);
 impl_config_flag!(ForceTimeLinear);

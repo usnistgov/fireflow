@@ -346,6 +346,12 @@ fn main() -> Result<(), ()> {
 
     // std args
 
+    let dedup_meas_names = flag_arg(
+        DEDUP_MEAS_NAMES,
+        "Force all $PnN to be unique by appending '~X' to each duplicate \
+         and appending 'X' (starting at 0)",
+    );
+
     let trim_intra_value_whitespace = flag_arg(
         TRIM_INTRA_VALUE_WHITESPACE,
         "Remove spaces between comma-separated values.",
@@ -485,6 +491,7 @@ fn main() -> Result<(), ()> {
         );
 
     let all_std_args = [
+        dedup_meas_names,
         trim_intra_value_whitespace,
         time_meas_pattern,
         allow_missing_time,
@@ -1006,6 +1013,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     let datetime_pattern = sargs.get_one::<String>(DATETIME_PATTERN).cloned();
     let last_modified_pattern = sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned();
     config::ReadStdKeywordsConfig {
+        dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
         time_meas_pattern,
         force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR).into(),
@@ -1334,6 +1342,8 @@ const LAST_MODIFIED_PATTERN: &str = "last-modified-pattern";
 const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
 
 const HIDE_WARNINGS: &str = "hide-warnings";
+
+const DEDUP_MEAS_NAMES: &str = "dedup-measurement-names";
 
 const TRIM_INTRA_VALUE_WHITESPACE: &str = "trim-intra-value-whitespace";
 

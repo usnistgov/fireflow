@@ -17,7 +17,7 @@ use derive_new::new;
 use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::convert::Infallible;
 use std::fmt;
 use std::hash::Hash;
@@ -1896,6 +1896,13 @@ impl<U, V> Element<U, V> {
         }
     }
 
+    pub fn as_mut(&mut self) -> Element<&mut U, &mut V> {
+        match self {
+            Self::Center(u) => Element::Center(u),
+            Self::NonCenter(v) => Element::NonCenter(v),
+        }
+    }
+
     pub fn non_center(self) -> Option<V> {
         match self {
             Self::Center(_) => None,
@@ -1919,29 +1926,6 @@ impl<X> Element<X, X> {
     pub fn unwrap(self) -> X {
         self.both(|x| x, |y| y)
     }
-}
-
-fn to_opt_or_indexed(x: Option<&Shortname>, i: MeasIndex) -> Shortname {
-    x.cloned().unwrap_or(i.into())
-}
-
-fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> bool {
-    all_unique(
-        xs.into_iter()
-            .enumerate()
-            .map(|(i, x)| to_opt_or_indexed(x, i.into())),
-    )
-}
-
-fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
-    let mut unique = HashSet::new();
-    for x in xs {
-        if unique.contains(&x) {
-            return false;
-        }
-        unique.insert(x);
-    }
-    true
 }
 
 enum PartialSplit<K, U, V> {
@@ -1990,15 +1974,6 @@ struct PairedSplit<K, V> {
     right: PairedVec<K, V>,
 }
 
-fn split_paired_vec<K, V>(xs: PairedVec<K, V>, index: usize) -> PairedSplit<K, V> {
-    let mut it = xs.into_iter();
-    PairedSplit {
-        left: it.by_ref().take(index).collect(),
-        selected: it.next().unwrap(),
-        right: it.collect(),
-    }
-}
-
 impl<K, U, V> SplitVec<K, U, V> {
     fn split_at_index(self, index: usize) -> PartialSplit<K, U, V> {
         let nleft = self.left.len();
@@ -2032,6 +2007,106 @@ impl<K, U, V> SplitVec<K, U, V> {
             }
         }
     }
+}
+
+fn split_paired_vec<K, V>(xs: PairedVec<K, V>, index: usize) -> PairedSplit<K, V> {
+    let mut it = xs.into_iter();
+    PairedSplit {
+        left: it.by_ref().take(index).collect(),
+        selected: it.next().unwrap(),
+        right: it.collect(),
+    }
+}
+
+fn to_opt_or_indexed(x: Option<&Shortname>, i: MeasIndex) -> Shortname {
+    x.cloned().unwrap_or(i.into())
+}
+
+fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> bool {
+    all_unique(
+        xs.into_iter()
+            .enumerate()
+            .map(|(i, x)| to_opt_or_indexed(x, i.into())),
+    )
+}
+
+fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
+    let mut unique = HashSet::new();
+    for x in xs {
+        if unique.contains(&x) {
+            return false;
+        }
+        unique.insert(x);
+    }
+    true
+}
+
+/// Make all keys unique if they are not already.
+///
+/// Do this by appending "~X" to keys which are not unique and incrementing "X"
+/// starting at 0.
+pub(crate) fn uniquify_names<K, U, V>(xs: &mut [Either<K, U, V>])
+where
+    K: MightHave<Shortname>,
+{
+    // First get list of all duplicates by collecting all names and pairing with
+    // their indices. Any key with more than one index is duplicated and should
+    // be processed later.
+    let mut counts: HashMap<&Shortname, NonEmpty<usize>> = HashMap::new();
+    for (i, e) in xs.iter().enumerate() {
+        if let Some(k) = e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt()) {
+            match counts.entry(k) {
+                Entry::Occupied(mut z) => {
+                    z.get_mut().push(i);
+                }
+                Entry::Vacant(z) => {
+                    z.insert_entry(NonEmpty::new(i));
+                }
+            }
+        }
+    }
+
+    // Next make a list of replacement names corresponding to each index. For
+    // each duplicated name, init a counter at 0 and increment this counter
+    // until it results in a unique name. Once it is unique, save this with
+    // its index and repeat for remaining indices under the duplicated name.
+    // Finally, repeat this process for all duplicated names.
+    //
+    // ASSUME: we don't need to check "ghost names" (ie names that will be made
+    // in place of missing names) because they will have a different prefix.
+    // Ghost names will be like "P1", "P2", etc and deduped names (here) will be
+    // like "P~1", "P~2", etc.
+    let mut replacements: Vec<(usize, Shortname)> = vec![];
+    for (key, indices) in counts.iter().filter(|(_, v)| v.len() > 1) {
+        let mut n = 0;
+        for i in indices {
+            let mut new = key.increment(n);
+            while counts.contains_key(&new) {
+                n += 1;
+                new = key.increment(n);
+            }
+            replacements.push((*i, new));
+            n += 1;
+        }
+    }
+
+    // Finally, replace the names themselves
+    for (i, r) in replacements {
+        // ASSUME this will never fail because these indices were obtained from
+        // .enumerate and we are not changing the length of the slice
+        match xs[i].as_mut() {
+            Element::Center((k, _)) => *k = r,
+            Element::NonCenter((k, _)) => *k = K::wrap(r),
+        }
+    }
+
+    debug_assert!(
+        all_unique_names(
+            xs.iter()
+                .map(|e| e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt()))
+        ),
+        "names are still not unique"
+    );
 }
 
 /// Error when inserting new element into [`NamedVec`]
@@ -2218,6 +2293,56 @@ pub struct InputLengthError {
     this_len: usize,
     other_len: usize,
     include_center: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_all_unique<K, U, V>(xs: &Eithers<K, U, V>, flip: bool)
+    where
+        K: MightHave<Shortname>,
+    {
+        let res = all_unique_names(
+            xs.iter()
+                .map(|e| e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt())),
+        );
+        if flip {
+            assert!(!res, "names shouldn't be unique");
+        } else {
+            assert!(res, "names should be unique");
+        }
+    }
+
+    #[test]
+    fn uniquify_empty() {
+        let mut xs: Eithers<Option<Shortname>, (), ()> = vec![];
+        uniquify_names(&mut xs[..]);
+        assert_all_unique(&xs, false);
+    }
+
+    #[test]
+    fn uniquify_good() {
+        let mut xs = vec![
+            Element::NonCenter((Some(Shortname::new_unchecked("a")), ())),
+            Element::NonCenter((None, ())),
+            Element::Center((Shortname::new_unchecked("b"), ())),
+        ];
+        uniquify_names(&mut xs[..]);
+        assert_all_unique(&xs, false);
+    }
+
+    #[test]
+    fn uniquify_bad() {
+        let mut xs = vec![
+            Element::NonCenter((Some(Shortname::new_unchecked("a")), ())),
+            Element::NonCenter((None, ())),
+            Element::Center((Shortname::new_unchecked("a"), ())),
+        ];
+        assert_all_unique(&xs, true);
+        uniquify_names(&mut xs[..]);
+        assert_all_unique(&xs, false);
+    }
 }
 
 #[cfg(feature = "python")]

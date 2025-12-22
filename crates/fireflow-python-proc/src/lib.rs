@@ -7182,6 +7182,7 @@ impl DocArgParam {
         let disallow_localtime = Self::new_disallow_localtime_param();
 
         let std_common_args = [
+            Self::new_dedup_meas_names_param(),
             Self::new_trim_intra_value_whitespace_param(),
             Self::new_time_meas_pattern_param(),
             Self::new_allow_missing_time_param(),
@@ -7307,6 +7308,13 @@ impl DocArgParam {
         let ps = vec![warnings_are_errors, hide_warnings];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
+    }
+
+    fn new_dedup_meas_names_param() -> Self {
+        let d = "If ``True``, force all *$PnN* to be unique by appending \
+                 ``\"~X\"`` to each duplicate and incrementing ``X`` starting \
+                 at 0.";
+        Self::new_bool_param("dedup_measurement_names", d)
     }
 
     fn new_trim_intra_value_whitespace_param() -> Self {

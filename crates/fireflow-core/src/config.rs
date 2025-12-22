@@ -340,7 +340,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// According to the standard, these should be empty, which is why this is
     /// an error by default. If this flag is `true`, this becomes a warning.
     ///
-    /// The STEXT offsets will be regardless of this flag if they are
+    /// The STEXT offsets will be ignored regardless of this flag if they are
     /// duplicated.
     pub allow_overlapping_supp_text: AllowDuplicatedSuppTEXT,
 

@@ -3486,7 +3486,9 @@ where
         name: &Shortname,
     ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
         if let Some(&index) = self.measurement_named_indices().get(name) {
-            // TODO this only applies to optical measurements
+            // NOTE if the meas to be removed is temporal, this name shouldn't
+            // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
+            // $TR should never link to a temporal measurement
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
             let es = self
@@ -3504,7 +3506,7 @@ where
         index: MeasIndex,
     ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
-            // TODO this only applies to optical measurements
+            // TODO (ditto previous function)
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
             let es = self

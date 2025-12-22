@@ -1326,6 +1326,7 @@ fn split_flat_text_literal_delim(
     let final_delim_res = (!trim_trailing)
         .then(|| check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative());
 
+    // TODO this includes blanks keys and blank values (which are different failure types)
     let blank_res = LogResult::new_switchable_iter((), (), blank_errors, conf.allow_empty)
         .switchable_into_commutative();
 
@@ -1514,6 +1515,8 @@ where
     // will be removed during standardization so we don't need to worry about
     // triggering false positive pseudostandard errors later
     if conf.ignore_supp_text.is_set() {
+        // TODO this check is redundant, use debug_assert to ensure the flag
+        // is not set instead since this should be controlled at the caller level
         return LogResult::new_ok(None);
     }
     let res = match header.version {

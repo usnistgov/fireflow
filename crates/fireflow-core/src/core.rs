@@ -9525,6 +9525,8 @@ pub enum NewCoreError {
     /// Measurement vector has more than one time element
     Meas(NewNamedVecError),
     /// Measurement and layout are incompatible
+    // TODO this includes a length mismatch which should never happen if we
+    // are reading from disk because both are derived from $PAR
     Layout(MeasLayoutMismatchError),
     /// Any other warning which is configured to be a fatal error
     Warn(NewCoreWarning),
@@ -9596,8 +9598,8 @@ pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
     Optical(LookupOpticalError),
     Shortname(LookupShortnameError),
-    Warn(LookupMeasurementWarning),
     TimeName(DuplicateTimeNameError),
+    Warn(LookupMeasurementWarning),
 }
 
 /// Error when more than one $PnN matches the given time pattern

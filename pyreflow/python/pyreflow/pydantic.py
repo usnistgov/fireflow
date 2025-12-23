@@ -1,4 +1,5 @@
 import pyreflow.typing as pft
+import pyreflow._defaults as pfd
 import pyreflow.api as pfa
 from pathlib import Path
 from importlib.util import find_spec
@@ -13,23 +14,16 @@ else:
     )
 
 
-_DEFAULT_OTHER_WIDTH = 8
-_DEFAULT_CORRECTION = (0, 0)
-_DEFAULT_KEY_PATTERNS: pft.KeyPatterns = ([], [])
-_DEFAULT_TIME_MEAS_PATTERN = "^(TIME|Time)$"
-_DEFAULT_NS_MEAS_PATTERN = "^P%n"
-
-
 class BaseModel(BaseModel_):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class PyreflowHeaderConfig(BaseModel):
-    text_correction: tuple[int, int] = _DEFAULT_CORRECTION
-    data_correction: tuple[int, int] = _DEFAULT_CORRECTION
+    text_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
+    data_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
     other_corrections: list[pft.OffsetCorrection] = []
     max_other: int | None = None
-    other_width: int = _DEFAULT_OTHER_WIDTH
+    other_width: int = pfd._DEFAULT_OTHER_WIDTH
     squish_offsets: bool = False
     allow_negative: bool = False
     truncate_offsets: bool = False
@@ -42,7 +36,7 @@ class PyreflowHeaderConfig(BaseModel):
 
 class _ReadFlatTEXTConfig(BaseModel):
     version_override: pft.FCSVersion | None = None
-    supp_text_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
+    supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     allow_overlapping_supp_text: bool = False
     ignore_supp_text: bool = False
     use_literal_delims: bool = False
@@ -60,9 +54,9 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_missing_nextdata: bool = False
     trim_value_whitespace: bool = False
     trim_trailing_whitespace: bool = False
-    ignore_standard_keys: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    promote_to_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    demote_from_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
+    ignore_standard_keys: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
+    promote_to_standard: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
+    demote_from_standard: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
     rename_standard_keys: dict[str, str] = {}
     replace_standard_key_values: dict[str, str] = {}
     append_standard_keywords: dict[str, str] = {}
@@ -72,7 +66,7 @@ class _ReadFlatTEXTConfig(BaseModel):
 class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
-    time_meas_pattern: str | None = _DEFAULT_TIME_MEAS_PATTERN
+    time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN
     allow_missing_time: bool = False
     force_time_linear: bool = False
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
@@ -85,15 +79,15 @@ class _ReadStdKeywordsConfig(BaseModel):
     allow_unused_standard: bool = False
     disallow_deprecated: bool = False
     fix_log_scale_offsets: bool = False
-    nonstandard_measurement_pattern: str | None = _DEFAULT_NS_MEAS_PATTERN
+    nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
     ignore_time_gain: bool = False
     parse_indexed_spillover: bool = False
     disallow_localtime: bool = False
 
 
 class _ReadDataKeywordsConfig(BaseModel):
-    text_data_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
-    text_analysis_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
+    text_data_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
+    text_analysis_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False
     ignore_text_analysis_offsets: bool = False
     allow_header_text_offset_mismatch: bool = False

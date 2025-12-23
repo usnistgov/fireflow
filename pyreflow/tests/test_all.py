@@ -19,105 +19,13 @@ from pyreflow.typing import (
     AppliedGates2_0,
     AppliedGates3_0,
     AppliedGates3_2,
-    KeyPatterns,
     ByteOrd,
 )
 import pyreflow as pf
+import pyreflow.pydantic as pfp
 import polars as pl
 
 from .conftest import lazy_fixture
-
-
-_DEFAULT_CORRECTION = (0, 0)
-_DEFAULT_KEY_PATTERNS: KeyPatterns = ([], [])
-_DEFAULT_TIME_MEAS_PATTERN = "^(TIME|Time)$"
-
-HEADER_DEFAULT_CONFIG: dict[str, Any] = {
-    "text_correction": _DEFAULT_CORRECTION,
-    "data_correction": _DEFAULT_CORRECTION,
-    "analysis_correction": _DEFAULT_CORRECTION,
-    "other_corrections": [],
-    "max_other": None,
-    "other_width": 8,
-    "squish_offsets": False,
-    "allow_negative": False,
-    "truncate_offsets": False,
-}
-
-FLAT_DEFAULT_CONFIG: dict[str, Any] = {
-    "version_override": None,
-    "supp_text_correction": _DEFAULT_CORRECTION,
-    "allow_overlapping_supp_text": False,
-    "ignore_supp_text": False,
-    "use_literal_delims": False,
-    "allow_non_ascii_delim": False,
-    "allow_missing_final_delim": False,
-    "allow_nonunique": False,
-    "allow_odd": False,
-    "allow_empty": False,
-    "allow_delim_at_boundary": False,
-    "allow_non_utf8": False,
-    "use_latin1": False,
-    "allow_non_ascii_keywords": False,
-    "allow_missing_supp_text": False,
-    "allow_supp_text_own_delim": False,
-    "allow_missing_nextdata": False,
-    "trim_value_whitespace": False,
-    "ignore_standard_keys": _DEFAULT_KEY_PATTERNS,
-    "promote_to_standard": _DEFAULT_KEY_PATTERNS,
-    "demote_from_standard": _DEFAULT_KEY_PATTERNS,
-    "rename_standard_keys": {},
-    "replace_standard_key_values": {},
-    "append_standard_keywords": {},
-    "substitute_standard_key_values": ({}, {}),
-}
-
-STD_DEFAULT_CONFIG: dict[str, Any] = {
-    "dedup_measurement_names": False,
-    "trim_intra_value_whitespace": False,
-    "time_meas_pattern": _DEFAULT_TIME_MEAS_PATTERN,
-    "allow_missing_time": False,
-    "force_time_linear": False,
-    "ignore_time_optical_keys": [],
-    "date_pattern": None,
-    "time_pattern": None,
-    "datetime_pattern": None,
-    "last_modified_pattern": None,
-    "allow_other_feature": False,
-    "allow_pseudostandard": False,
-    "allow_unused_standard": False,
-    "disallow_deprecated": False,
-    "fix_log_scale_offsets": False,
-    "nonstandard_measurement_pattern": None,
-    "ignore_time_gain": False,
-    "parse_indexed_spillover": False,
-    "disallow_localtime": False,
-}
-
-LAYOUT_DEFAULT_CONFIG: dict[str, Any] = {
-    "text_data_correction": _DEFAULT_CORRECTION,
-    "text_analysis_correction": _DEFAULT_CORRECTION,
-    "ignore_text_data_offsets": False,
-    "ignore_text_analysis_offsets": False,
-    "allow_header_text_offset_mismatch": False,
-    "allow_missing_required_offsets": False,
-    "truncate_text_offsets": False,
-    "allow_optional_dropping": False,
-    "transfer_dropped_optional": False,
-    "integer_widths_from_byteord": False,
-    "integer_byteord_override": None,
-    "disallow_range_truncation": False,
-}
-
-DATA_DEFAULT_CONFIG: dict[str, Any] = {
-    "allow_uneven_event_width": False,
-    "allow_tot_mismatch": False,
-}
-
-SHARED_DEFAULT_CONFIG: dict[str, Any] = {
-    "warnings_are_errors": False,
-    "hide_warnings": False,
-}
 
 
 @pytest.fixture
@@ -2590,8 +2498,17 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = HEADER_DEFAULT_CONFIG
-        _ = pf.api.fcs_read_header(p, **conf, dataset_offset=0)
+        conf = pfp.PyreflowHeaderConfig()
+        _ = pf.api.fcs_read_header(p, **conf.model_dump(), dataset_offset=0)
+
+    def test_read_header_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pfp.PyreflowHeaderConfig().read_header(p)
 
     def test_read_flat_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2600,9 +2517,20 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = {**HEADER_DEFAULT_CONFIG, **FLAT_DEFAULT_CONFIG, **SHARED_DEFAULT_CONFIG}
-        _ = pf.api.fcs_read_flat_text(p, **conf, dataset_offset=0)
-        _ = pf.api.fcs_read_flat_texts(p, **conf)
+        conf = pfp.PyreflowReadFlatTEXTConfig()
+        _ = pf.api.fcs_read_flat_text(p, **conf.model_dump(), dataset_offset=0)
+        _ = pf.api.fcs_read_flat_texts(p, **conf.model_dump())
+
+    def test_read_flat_text_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadFlatTEXTConfig()
+        _ = conf.read_flat_text(p)
+        _ = conf.read_flat_texts(p)
 
     def test_read_std_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2611,16 +2539,22 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = {
-            **HEADER_DEFAULT_CONFIG,
-            **FLAT_DEFAULT_CONFIG,
-            **STD_DEFAULT_CONFIG,
-            **LAYOUT_DEFAULT_CONFIG,
-            **SHARED_DEFAULT_CONFIG,
-        }
+        conf = pfp.PyreflowReadStdTEXTConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
-            _ = pf.api.fcs_read_std_text(p, **conf, dataset_offset=0)
-            _ = pf.api.fcs_read_std_texts(p, **conf)
+            _ = pf.api.fcs_read_std_text(p, **conf.model_dump(), dataset_offset=0)
+            _ = pf.api.fcs_read_std_texts(p, **conf.model_dump())
+
+    def test_read_std_text_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadStdTEXTConfig()
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+            _ = conf.read_std_text(p)
+            _ = conf.read_std_texts(p)
 
     def test_read_flat_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2629,15 +2563,20 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = {
-            **HEADER_DEFAULT_CONFIG,
-            **FLAT_DEFAULT_CONFIG,
-            **LAYOUT_DEFAULT_CONFIG,
-            **DATA_DEFAULT_CONFIG,
-            **SHARED_DEFAULT_CONFIG,
-        }
-        _ = pf.api.fcs_read_flat_dataset(p, **conf, dataset_offset=0)
-        _ = pf.api.fcs_read_flat_datasets(p, **conf)
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        _ = pf.api.fcs_read_flat_dataset(p, **conf.model_dump(), dataset_offset=0)
+        _ = pf.api.fcs_read_flat_datasets(p, **conf.model_dump())
+
+    def test_read_flat_dataset_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        _ = conf.read_flat_dataset(p)
+        _ = conf.read_flat_datasets(p)
 
     def test_read_std_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2646,17 +2585,22 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = {
-            **HEADER_DEFAULT_CONFIG,
-            **FLAT_DEFAULT_CONFIG,
-            **STD_DEFAULT_CONFIG,
-            **LAYOUT_DEFAULT_CONFIG,
-            **DATA_DEFAULT_CONFIG,
-            **SHARED_DEFAULT_CONFIG,
-        }
+        conf = pfp.ReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
-            _ = pf.api.fcs_read_std_dataset(p, **conf, dataset_offset=0)
-            _ = pf.api.fcs_read_std_datasets(p, **conf)
+            _ = pf.api.fcs_read_std_dataset(p, **conf.model_dump(), dataset_offset=0)
+            _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump())
+
+    def test_read_std_dataset_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.ReadStdDatasetConfig()
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+            _ = conf.read_std_dataset(p)
+            _ = conf.read_std_datasets(p)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
         d = tmp_path
@@ -2975,6 +2919,20 @@ class TestReadWrite:
         smry = pf.api.fcs_summarize(p)
         assert len(smry) == 3
 
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        type(core0).write_datasets(p, [core0, core1, core2])  # type: ignore
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        smry = conf.summarize(p)
+        assert len(smry) == 3
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     @pytest.mark.parametrize(
         "layout", [pf.FixedAsciiLayout([1000, 1000]), pf.DelimAsciiLayout([1000, 1000])]
@@ -3059,3 +3017,5 @@ class TestReadWrite:
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
+        # supp text should have non-zero offsets in new file
+        assert un_core.parse.supp_text is not None

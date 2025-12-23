@@ -90,20 +90,23 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyDatasetSegments>()?;
     m.add_class::<ff::PyDatasetSummary>()?;
 
-    m.add_function(wrap_pyfunction!(ff::fcs_read_header, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_flat_text, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_std_text, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_flat_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_std_dataset, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_flat_texts, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_std_texts, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_flat_datasets, m)?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_read_std_datasets, m)?)?;
-    m.add_function(wrap_pyfunction!(
-        ff::fcs_read_flat_dataset_with_keywords,
-        m
-    )?)?;
-    m.add_function(wrap_pyfunction!(ff::fcs_summarize, m)?)?;
+    macro_rules! fun {
+        ($t:ident) => {
+            m.add_function(wrap_pyfunction!(ff::$t, m)?)?;
+        };
+    }
+
+    fun!(fcs_read_header);
+    fun!(fcs_read_flat_text);
+    fun!(fcs_read_std_text);
+    fun!(fcs_read_flat_dataset);
+    fun!(fcs_read_std_dataset);
+    fun!(fcs_read_flat_texts);
+    fun!(fcs_read_std_texts);
+    fun!(fcs_read_flat_datasets);
+    fun!(fcs_read_std_datasets);
+    fun!(fcs_read_flat_dataset_with_keywords);
+    fun!(fcs_summarize);
 
     Ok(())
 }

@@ -106,7 +106,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     fun!(fcs_read_flat_datasets);
     fun!(fcs_read_std_datasets);
     fun!(fcs_read_flat_dataset_with_keywords);
-    fun!(fcs_summarize, m);
+    fun!(fcs_summarize);
 
     Ok(())
 }

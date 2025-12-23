@@ -394,12 +394,13 @@ pub trait IsNumType: Sized {
 
     fn lookup_all(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupMeasLayoutResult<Self> {
-        (0..par.0)
-            .map(|i| Self::lookup_one(std, nonstd, i.into(), conf))
+        meas_nonstd
+            .iter_mut()
+            .enumerate()
+            .map(|(i, nkws)| Self::lookup_one(std, nkws, i.into(), conf))
             .mappend_commutative()
     }
 
@@ -624,8 +625,7 @@ where
 
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupLayoutResult<Self>;
 
@@ -3592,11 +3592,10 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupLayoutResult<Self> {
-        AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
+        AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
     fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
@@ -3624,11 +3623,10 @@ impl VersionedDataLayout for DataLayout3_0 {
 
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupLayoutResult<Self> {
-        AnyOrderedLayout::lookup(std, nonstd, conf, par).map_ok_value(Into::into)
+        AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Into::into)
     }
 
     fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
@@ -3656,11 +3654,10 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupLayoutResult<Self> {
-        NonMixedEndianLayout::lookup(std, nonstd, conf, par).map_ok_value(Self::from)
+        NonMixedEndianLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
     fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
@@ -3688,13 +3685,12 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        par: Par,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Option::lookup_all(std, nonstd, par, conf);
+        let columns = Option::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
@@ -4015,13 +4011,12 @@ impl<T> Default for AnyOrderedLayout<T> {
 impl<T> AnyOrderedLayout<T> {
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
-        par: Par,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
-        let columns = Nothing::lookup_all(std, nonstd, par, conf);
+        let columns = Nothing::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
@@ -4170,13 +4165,12 @@ impl<T> AnyOrderedLayout<T> {
 impl NonMixedEndianLayout<Nothing<NumType>> {
     fn lookup(
         std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadLayoutConfig,
-        par: Par,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Nothing::<NumType>::lookup_all(std, nonstd, par, conf);
+        let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 

@@ -2045,7 +2045,7 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 ///
 /// Do this by appending "~X" to keys which are not unique and incrementing "X"
 /// starting at 0.
-pub(crate) fn uniquify_names<K, U, V>(xs: &mut [Either<K, U, V>])
+pub(crate) fn uniquify_names<K>(xs: &mut [K])
 where
     K: MightHave<Shortname>,
 {
@@ -2053,9 +2053,9 @@ where
     // their indices. Any key with more than one index is duplicated and should
     // be processed later.
     let mut counts: HashMap<&Shortname, NonEmpty<usize>> = HashMap::new();
-    for (i, e) in xs.iter().enumerate() {
-        if let Some(k) = e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt()) {
-            match counts.entry(k) {
+    for (i, k) in xs.iter().enumerate() {
+        if let Some(n) = k.as_opt() {
+            match counts.entry(n) {
                 Entry::Occupied(mut z) => {
                     z.get_mut().push(i);
                 }
@@ -2094,17 +2094,11 @@ where
     for (i, r) in replacements {
         // ASSUME this will never fail because these indices were obtained from
         // .enumerate and we are not changing the length of the slice
-        match xs[i].as_mut() {
-            Element::Center((k, _)) => *k = r,
-            Element::NonCenter((k, _)) => *k = K::wrap(r),
-        }
+        xs[i] = K::wrap(r);
     }
 
     debug_assert!(
-        all_unique_names(
-            xs.iter()
-                .map(|e| e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt()))
-        ),
+        all_unique_names(xs.iter().map(|k| k.as_opt())),
         "names are still not unique"
     );
 }
@@ -2299,49 +2293,47 @@ pub struct InputLengthError {
 mod tests {
     use super::*;
 
-    fn assert_all_unique<K, U, V>(xs: &Eithers<K, U, V>, flip: bool)
-    where
-        K: MightHave<Shortname>,
-    {
-        let res = all_unique_names(
-            xs.iter()
-                .map(|e| e.as_ref().both(|(k, _)| Some(k), |(k, _)| k.as_opt())),
-        );
-        if flip {
-            assert!(!res, "names shouldn't be unique");
-        } else {
-            assert!(res, "names should be unique");
-        }
-    }
-
     #[test]
     fn uniquify_empty() {
-        let mut xs: Eithers<Option<Shortname>, (), ()> = vec![];
+        let mut xs: Vec<Option<Shortname>> = vec![];
         uniquify_names(&mut xs[..]);
-        assert_all_unique(&xs, false);
+        assert_eq!(xs, vec![]);
     }
 
     #[test]
     fn uniquify_good() {
         let mut xs = vec![
-            Element::NonCenter((Some(Shortname::new_unchecked("a")), ())),
-            Element::NonCenter((None, ())),
-            Element::Center((Shortname::new_unchecked("b"), ())),
+            Some(Shortname::new_unchecked("a")),
+            None,
+            Some(Shortname::new_unchecked("b")),
         ];
         uniquify_names(&mut xs[..]);
-        assert_all_unique(&xs, false);
+        assert_eq!(
+            xs,
+            vec![
+                Some(Shortname::new_unchecked("a")),
+                None,
+                Some(Shortname::new_unchecked("b")),
+            ]
+        );
     }
 
     #[test]
     fn uniquify_bad() {
         let mut xs = vec![
-            Element::NonCenter((Some(Shortname::new_unchecked("a")), ())),
-            Element::NonCenter((None, ())),
-            Element::Center((Shortname::new_unchecked("a"), ())),
+            Some(Shortname::new_unchecked("a")),
+            None,
+            Some(Shortname::new_unchecked("a")),
         ];
-        assert_all_unique(&xs, true);
         uniquify_names(&mut xs[..]);
-        assert_all_unique(&xs, false);
+        assert_eq!(
+            xs,
+            vec![
+                Some(Shortname::new_unchecked("a~0")),
+                None,
+                Some(Shortname::new_unchecked("a~1")),
+            ]
+        );
     }
 }
 

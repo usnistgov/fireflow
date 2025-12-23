@@ -455,9 +455,10 @@ impl AppliedGates3_0 {
         let rconf: &ReadLayoutConfig = conf.as_ref();
         s.zip_f2_once(ms)
             .and_then_deferred(|(scheme, gated_measurements)| {
-                Self::try_new(gated_measurements.0, scheme)
+                let succ = Self::try_new(gated_measurements.0, scheme)
                     .map_err(LookupAppliedGatesError::Link)
-                    .into_succ()
+                    .into_succ();
+                LogResult::Succ(succ)
             })
             .map_err_value(|ret| {
                 if rconf.transfer_dropped_optional.is_set() {

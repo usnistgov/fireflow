@@ -652,35 +652,29 @@ pub(crate) trait ResultExt: Sized {
         self.into_result().map(Some).into_deferred_switchable(flag)
     }
 
-    fn into_succ<P, LWC, RWC, E, EC>(self) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
+    fn into_succ<LWC>(self) -> Success<Self::Ok, (), LWC>
     where
         Self::Ok: Default,
         LWC: Default + Pointed<Self::Error>,
     {
-        let ret = self.into_result().map_or_else(
+        self.into_result().map_or_else(
             |e| Success::new(Self::Ok::default(), (), LWC::wrap(e)),
             Success::new_non_switchable,
-        );
-        Succ(ret)
+        )
     }
 
-    fn into_succ_opt<P, LWC, RWC, E, EC>(
-        self,
-    ) -> LogResult<Option<Self::Ok>, P, LWC, RWC, (), E, EC>
+    fn into_succ_opt<LWC>(self) -> Success<Option<Self::Ok>, (), LWC>
     where
         LWC: Default + Pointed<Self::Error>,
     {
         self.into_result().map(Some).into_succ()
     }
 
-    fn into_succ_or<P, LWC, RWC, E, EC>(
-        self,
-        default: Self::Ok,
-    ) -> LogResult<Self::Ok, P, LWC, RWC, (), E, EC>
+    fn into_succ_or<LWC>(self, default: Self::Ok) -> Success<Self::Ok, (), LWC>
     where
         LWC: Pointed<Self::Error> + Default,
     {
-        self.into_succ_opt().map_ok_value(|x| x.unwrap_or(default))
+        self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
     }
 
     // TODO versions of the above that go to errors?

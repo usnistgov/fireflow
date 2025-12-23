@@ -20,7 +20,7 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult, ErrorsResult,
-    GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _,
+    GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _, Success,
     SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult,
     WarningAndGroupResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
@@ -1470,7 +1470,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &NamedTemporalsAndOpticals<Self>,
+        ms: &[Self::Name],
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -2108,7 +2108,7 @@ where
 
     fn lookup_metaroot<C>(
         std: &mut StdKeywords,
-        ms: &NamedTemporalsAndOpticals<M>,
+        ms: &[M::Name],
         mut nonstd: NonStdKeywords,
         conf: &C,
     ) -> LookupMetarootResult<Self>
@@ -3925,30 +3925,19 @@ where
         }
     }
 
-    #[allow(clippy::type_complexity)]
-    fn lookup_measurements<C>(
-        std: &mut StdKeywords,
+    fn split_nonstandard(
         par: Par,
         nonstd: &mut NonStdKeywords,
-        conf: &C,
-    ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
-    where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
-        M: LookupMetaroot,
-        M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical,
-        M::Name: Pointed<Shortname>,
-        Version: From<M::Ver>,
-    {
+        conf: &ReadStdKeywordsConfig,
+    ) -> Success<Vec<NonStdKeywords>, (), Option<NonStdMeasRegexError>> {
         // Use nonstandard measurement pattern to assign keyvals to their
         // measurement if they match. Only capture one warning because if the
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
-        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let blank_meas_nonstd = || vec![HashMap::new(); par.0];
-        let ns_res = sconf.nonstandard_measurement_pattern.as_ref().map_or(
-            LogResult::new_ok(blank_meas_nonstd()),
-            |pat| {
+        conf.nonstandard_measurement_pattern
+            .as_ref()
+            .map_or(Ok(blank_meas_nonstd()), |pat| {
                 // match largest indices first to avoid matching incomplete
                 // prefix (ie "P1" will match "P11")
                 (0..par.0)
@@ -3961,14 +3950,64 @@ where
                     })
                     .collect::<Result<Vec<_>, _>>()
                     .map(|mut ns| {
+                        // reverse again to put in order
                         ns.reverse();
                         ns
                     })
-                    .map_err(LookupMeasurementWarning::from)
-                    .into_succ_or(blank_meas_nonstd())
-            },
-        );
+            })
+            .into_succ_or(blank_meas_nonstd())
+    }
 
+    #[allow(clippy::type_complexity)]
+    fn lookup_names<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut [NonStdKeywords],
+        conf: &C,
+    ) -> WarningsAndErrorsResult<
+        Vec<M::Name>,
+        (),
+        OptIndexedKeyError<Shortname>,
+        LookupShortnameError,
+    >
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        M: LookupMetaroot,
+        M::Name: Pointed<Shortname>,
+        Version: From<M::Ver>,
+    {
+        nonstd
+            .iter_mut()
+            .enumerate()
+            .map(|(n, meas_nonstd)| {
+                let i = n.into();
+                M::lookup_shortname(std, meas_nonstd, i, conf.as_ref()).into_semigroup()
+            })
+            .mappend_commutative()
+            .map_ok_value(|mut names| {
+                let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+                if sconf.dedup_measurement_names.is_set() {
+                    uniquify_names(&mut names[..]);
+                }
+                names
+            })
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn lookup_measurements<C>(
+        std: &mut StdKeywords,
+        names: Vec<M::Name>,
+        nonstd: Vec<NonStdKeywords>,
+        conf: &C,
+    ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
+    where
+        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        M: LookupMetaroot,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
+        M::Name: Pointed<Shortname>,
+        Version: From<M::Ver>,
+    {
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let mut found_time = false;
 
         let mut match_time_pattern = |i, wrapped| {
@@ -3993,47 +4032,36 @@ where
             res.into_log()
         };
 
-        // then iterate over each measurement and look for standardized keys
-        ns_res.and_then_commutative(|meas_nonstds| {
-            meas_nonstds
-                .into_iter()
-                .enumerate()
-                .map(|(n, mut meas_nonstd)| {
-                    let i = n.into();
-                    // Try to find $PnN first, for later versions this will
-                    // totally fail if not found since this is required.
-                    M::lookup_shortname(std, &mut meas_nonstd, i, conf.as_ref())
-                        .map_commutative_warnings(LookupMeasurementWarning::from)
-                        .map_errors(LookupMeasurementError::from)
-                        .into_semigroup()
-                        // If $PnN is found, check that it matches the time
-                        // pattern (if given). Also check that only zero or one
-                        // $PnN match the time pattern, and throw error
-                        // otherwise.
-                        .and_then_commutative(|wrapped| match_time_pattern(i, wrapped))
-                        // Once we checked $PnN, pull all the rest of the
-                        // standardized keywords from the hashtable and collect
-                        // errors. In general, required keywords will trigger an
-                        // error if they are missing and optional keywords will
-                        // trigger a warning. Either can generate an
-                        // error/warning if they fail to be parsed to their type
-                        .and_then_commutative(|key| match key {
-                            Element::Center(name) => {
-                                Temporal::lookup_temporal(std, meas_nonstd, i, conf)
-                                    .map_errors(LookupMeasurementError::from)
-                                    .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|t| Element::Center((name, t)))
-                            }
-                            Element::NonCenter(k) => {
-                                Optical::lookup_optical(std, i, meas_nonstd, conf)
-                                    .map_errors(LookupMeasurementError::from)
-                                    .map_commutative_warnings(LookupMeasurementWarning::from)
-                                    .map_ok_value(|m| Element::NonCenter((k, m)))
-                            }
-                        })
-                })
-                .mappend_commutative()
-        })
+        names
+            .into_iter()
+            .zip(nonstd)
+            .enumerate()
+            .map(|(i, (wrapped, meas_nonstd))| {
+                let j = i.into();
+                // If $PnN is found, check that it matches the time pattern (if
+                // given). Also check that only zero or one $PnN match the time
+                // pattern, and throw error otherwise.
+                match_time_pattern(j, wrapped)
+                    // Once we checked $PnN, pull all the rest of the
+                    // standardized keywords from the hashtable and collect
+                    // errors. In general, required keywords will trigger an
+                    // error if they are missing and optional keywords will
+                    // trigger a warning. Either can generate an error/warning
+                    // if they fail to be parsed to their type
+                    .and_then_commutative(|key| match key {
+                        Element::Center(name) => {
+                            Temporal::lookup_temporal(std, meas_nonstd, j, conf)
+                                .map_errors(LookupMeasurementError::from)
+                                .map_commutative_warnings(LookupMeasurementWarning::from)
+                                .map_ok_value(|t| Element::Center((name, t)))
+                        }
+                        Element::NonCenter(k) => Optical::lookup_optical(std, j, meas_nonstd, conf)
+                            .map_errors(LookupMeasurementError::from)
+                            .map_commutative_warnings(LookupMeasurementWarning::from)
+                            .map_ok_value(|m| Element::NonCenter((k, m))),
+                    })
+            })
+            .mappend_commutative()
     }
 
     fn measurement_indexed_names(&self) -> HashMap<MeasIndex, &Shortname> {
@@ -4212,45 +4240,50 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .into_log();
 
         let version = M::Ver::fcs_version();
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
         par_res.and_then_commutative(|par| {
             let std = &mut kws.std;
             let nonstd = &mut kws.nonstd;
-            // Lookup measurements/layout/metaroot with $PAR
-            let meas_res = Self::lookup_measurements(std, par, nonstd, conf)
+            // Split nonstandard measurements using pattern (if given); this
+            // implicitly will encode $PAR downstream via length
+            let nonstd_succ = Self::split_nonstandard(par, nonstd, conf.as_ref());
+            let core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                .map_errors(StdTEXTFromFlatTEXTError::from)
-                .map_ok_value(|mut ms| {
-                    let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-                    if sconf.dedup_measurement_names.is_set() {
-                        uniquify_names(&mut ms[..]);
-                    }
-                    ms
-                });
+                // Lookup $PnN and layout (which are independent of each other)
+                .and_then_commutative(|mut meas_nonstd| {
+                    let names_res = Self::lookup_names(std, &mut meas_nonstd[..], conf)
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTError::from);
 
-            let layout_res = <M::Ver as Versioned>::Layout::lookup(std, nonstd, par, conf.as_ref())
-                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                .map_errors(StdTEXTFromFlatTEXTError::from);
-
-            let root_res =
-                meas_res
-                    .zip_commutative(layout_res)
-                    .and_then_commutative(|(ms, layout)| {
-                        // TODO if anything before this fails, it will produce
-                        // a bunch of nonsense pseudostandard errors because
-                        // this lookup function won't run. Either kill the
-                        // ps error or differentiate between fatal and non-fatal
-                        // errors. It seems like the only thing we need the
-                        // meas vector for in this case is $PnN
-                        Metaroot::lookup_metaroot(std, &ms, kws.nonstd, conf)
+                    let mnsks = &mut meas_nonstd[..];
+                    let layout_res =
+                        <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                            .map_errors(StdTEXTFromFlatTEXTError::from)
-                            .and_then_commutative(|metaroot| {
-                                Self::try_new(metaroot, ms, layout, conf)
-                                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                                    .map_errors(StdTEXTFromFlatTEXTError::from)
-                            })
-                    });
+                            .map_errors(StdTEXTFromFlatTEXTError::from);
+                    names_res
+                        .zip_commutative(layout_res)
+                        .map_ok_value(|(n, l)| (n, l, meas_nonstd))
+                })
+                // Lookup root and measurement keywords which both depend on $PnN
+                .and_then_commutative(|(names, layout, meas_nonstd)| {
+                    let root_res = Metaroot::lookup_metaroot(std, &names[..], kws.nonstd, conf)
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTError::from);
+
+                    let meas_res = Self::lookup_measurements(std, names, meas_nonstd, conf)
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTError::from);
+
+                    root_res
+                        .zip_commutative(meas_res)
+                        .map_ok_value(|(r, m)| (r, m, layout))
+                })
+                .and_then_commutative(|(metaroot, meas, layout)| {
+                    Self::try_new(metaroot, meas, layout, conf)
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTError::from)
+                });
 
             // Push pseudostandard/unused warnings/errors
             let esks = match version {
@@ -4263,8 +4296,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
             let us = esks.unused.keys().cloned().map(UnusedStandardError);
 
-            let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-            root_res
+            core_res
                 .extend_warnings_or_errors(
                     ps,
                     |_v| (),
@@ -7647,13 +7679,14 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        Tot::remove_root_opt(kws)
+        let succ = Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
-            .map_ok_value(|tot| {
+            .fmap_once(|tot| {
                 let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
-            })
+            });
+        LogResult::Succ(succ)
     }
 
     fn lookup_ro<C>(
@@ -7664,13 +7697,14 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadTEXTOffsetsConfig>,
     {
-        Tot::get_root_opt(kws)
+        let succ = Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
-            .map_ok_value(|tot| {
+            .fmap_once(|tot| {
                 let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
                 TEXTOffsets::new(s, tot).into()
-            })
+            });
+        LogResult::Succ(succ)
     }
 
     fn tot(&self) -> Self::TotDef {
@@ -7953,7 +7987,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals2_0,
+        ms: &[Self::Name],
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -7995,7 +8029,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        _: &TemporalsAndOpticals3_0,
+        _: &[Self::Name],
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -8049,7 +8083,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals3_1,
+        ms: &[Self::Name],
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -8077,10 +8111,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 .map_errors(LookupMetarootError::from)
         };
 
-        let ordered_names: Vec<_> = ms
-            .iter()
-            .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
-            .collect();
+        let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
         let cyt = Cyt::remove_root_opt_nofail(std);
         let cytsn = Cytsn::remove_root_opt_nofail(std);
@@ -8132,7 +8163,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        ms: &TemporalsAndOpticals3_2,
+        ms: &[Self::Name],
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
@@ -8146,11 +8177,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             };
         }
 
-        // TODO not dry
-        let ordered_names: Vec<_> = ms
-            .iter()
-            .map(|e| e.as_ref().both(|t| &t.0, |o| &o.0.0))
-            .collect();
+        let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
         let flow = Flowrate::remove_root_opt_nofail(std);
         let cytsn = Cytsn::remove_root_opt_nofail(std);
@@ -9136,6 +9163,7 @@ pub enum StdTEXTFromFlatTEXTError {
     New(NewCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
+    Shortname(LookupShortnameError),
     Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
     Pseudostandard(PseudostandardError),
@@ -9147,8 +9175,10 @@ pub enum StdTEXTFromFlatTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
+    Pattern(NonStdMeasRegexError),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
+    Shortname(OptIndexedKeyError<Shortname>),
     Layout(LookupLayoutWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Pseudostandard(PseudostandardError),
@@ -9606,7 +9636,6 @@ type LookupMeasurementResult<V> =
 pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
     Optical(LookupOpticalError),
-    Shortname(LookupShortnameError),
     TimeName(DuplicateTimeNameError),
     Warn(LookupMeasurementWarning),
 }
@@ -9628,8 +9657,6 @@ pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupOpticalWarning),
-    Shortname(OptIndexedKeyError<Shortname>),
-    Pattern(NonStdMeasRegexError),
     MissingTime(MissingTime),
 }
 

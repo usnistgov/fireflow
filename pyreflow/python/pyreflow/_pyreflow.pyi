@@ -2145,7 +2145,7 @@ def fcs_read_flat_dataset(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> FlatTEXTOutput: ...
+) -> FlatDatasetOutput: ...
 
 #
 def fcs_read_std_dataset(
@@ -2421,7 +2421,7 @@ def fcs_read_flat_datasets(
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> list[FlatTEXTOutput]: ...
+) -> list[FlatDatasetOutput]: ...
 
 #
 def fcs_read_std_datasets(

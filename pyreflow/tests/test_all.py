@@ -23,6 +23,7 @@ from pyreflow.typing import (
     ByteOrd,
 )
 import pyreflow as pf
+import pyreflow.pydantic as pfp
 import polars as pl
 
 from .conftest import lazy_fixture
@@ -2593,6 +2594,15 @@ class TestApiFunctions:
         conf = HEADER_DEFAULT_CONFIG
         _ = pf.api.fcs_read_header(p, **conf, dataset_offset=0)
 
+    def test_read_header_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        _ = pfp.PyreflowHeaderConfig().read_header(p)
+
     def test_read_flat_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
@@ -2603,6 +2613,17 @@ class TestApiFunctions:
         conf = {**HEADER_DEFAULT_CONFIG, **FLAT_DEFAULT_CONFIG, **SHARED_DEFAULT_CONFIG}
         _ = pf.api.fcs_read_flat_text(p, **conf, dataset_offset=0)
         _ = pf.api.fcs_read_flat_texts(p, **conf)
+
+    def test_read_flat_text_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadFlatTEXTConfig()
+        _ = conf.read_flat_text(p)
+        _ = conf.read_flat_texts(p)
 
     def test_read_std_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2622,6 +2643,18 @@ class TestApiFunctions:
             _ = pf.api.fcs_read_std_text(p, **conf, dataset_offset=0)
             _ = pf.api.fcs_read_std_texts(p, **conf)
 
+    def test_read_std_text_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadStdTEXTConfig()
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+            _ = conf.read_std_text(p)
+            _ = conf.read_std_texts(p)
+
     def test_read_flat_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
@@ -2638,6 +2671,17 @@ class TestApiFunctions:
         }
         _ = pf.api.fcs_read_flat_dataset(p, **conf, dataset_offset=0)
         _ = pf.api.fcs_read_flat_datasets(p, **conf)
+
+    def test_read_flat_dataset_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        _ = conf.read_flat_dataset(p)
+        _ = conf.read_flat_datasets(p)
 
     def test_read_std_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2657,6 +2701,18 @@ class TestApiFunctions:
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_dataset(p, **conf, dataset_offset=0)
             _ = pf.api.fcs_read_std_datasets(p, **conf)
+
+    def test_read_std_dataset_pd(
+        self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "nonempty_dataset.fcs"
+        dataset2_3_2.write_text(p)
+        conf = pfp.ReadStdDatasetConfig()
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
+            _ = conf.read_std_dataset(p)
+            _ = conf.read_std_datasets(p)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
         d = tmp_path
@@ -2975,6 +3031,20 @@ class TestReadWrite:
         smry = pf.api.fcs_summarize(p)
         assert len(smry) == 3
 
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        type(core0).write_datasets(p, [core0, core1, core2])  # type: ignore
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        smry = conf.summarize(p)
+        assert len(smry) == 3
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     @pytest.mark.parametrize(
         "layout", [pf.FixedAsciiLayout([1000, 1000]), pf.DelimAsciiLayout([1000, 1000])]
@@ -3059,3 +3129,5 @@ class TestReadWrite:
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
+        # supp text should have non-zero offsets in new file
+        assert un_core.parse.supp_text is not None

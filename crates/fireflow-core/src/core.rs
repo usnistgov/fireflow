@@ -4880,10 +4880,10 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
-        let (i, x, r) = self.remove_measurement_by_name_inner(n)?;
-        self.data.drop_in_place(i.into()).unwrap();
-        Ok((i, x, r))
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyFCSColumn, Range), RemoveMeasByNameError> {
+        let (index, meas, rng) = self.remove_measurement_by_name_inner(n)?;
+        let col = self.data.drop_in_place(index.into()).unwrap();
+        Ok((index, meas, col, rng))
     }
 
     /// Remove a measurement at a given position
@@ -4892,10 +4892,10 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
-        let ret = self.remove_measurement_by_index_inner(index)?;
-        self.data.drop_in_place(index.into()).unwrap();
-        Ok(ret)
+    ) -> Result<(NamedTemporalOrOptical<M>, AnyFCSColumn, Range), RemoveMeasByIndexError> {
+        let (meas, rng) = self.remove_measurement_by_index_inner(index)?;
+        let col = self.data.drop_in_place(index.into()).unwrap();
+        Ok((meas, col, rng))
     }
 
     /// Add time measurement to the end of the measurement vector.

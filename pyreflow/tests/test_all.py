@@ -304,7 +304,7 @@ def dataset_3_2(
 def text2_2_0(
     text_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
-    text_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, 9001)
+    text_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, 9002)
     return text_2_0
 
 
@@ -312,7 +312,7 @@ def text2_2_0(
 def text2_3_0(
     text_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
-    text_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, 9001)
+    text_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, 9002)
     return text_3_0
 
 
@@ -320,7 +320,7 @@ def text2_3_0(
 def text2_3_1(
     text_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
-    text_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, 9001)
+    text_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, 9002)
     return text_3_1
 
 
@@ -328,7 +328,7 @@ def text2_3_1(
 def text2_3_2(
     text_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
-    text_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, 9001)
+    text_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, 9002)
     return text_3_2
 
 
@@ -338,7 +338,7 @@ def dataset2_2_0(
     blank_temporal_2_0: pf.Temporal2_0,
     series2: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, series2, 9001)
+    dataset_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, series2, 9002)
     return dataset_2_0
 
 
@@ -348,7 +348,7 @@ def dataset2_3_0(
     blank_temporal_3_0: pf.Temporal3_0,
     series2: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, series2, 9001)
+    dataset_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, series2, 9002)
     return dataset_3_0
 
 
@@ -358,7 +358,7 @@ def dataset2_3_1(
     blank_temporal_3_1: pf.Temporal3_1,
     series2: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, series2, 9001)
+    dataset_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, series2, 9002)
     return dataset_3_1
 
 
@@ -368,7 +368,7 @@ def dataset2_3_2(
     blank_temporal_3_2: pf.Temporal3_2,
     series2: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, series2, 9001)
+    dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, series2, 9002)
     return dataset_3_2
 
 
@@ -376,7 +376,7 @@ def dataset2_3_2(
 def text3_2_0(
     text2_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    text2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, 9001)
+    text2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, 9003)
     return text2_2_0
 
 
@@ -384,7 +384,7 @@ def text3_2_0(
 def text3_3_0(
     text2_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    text2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, 9001)
+    text2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, 9003)
     return text2_3_0
 
 
@@ -392,7 +392,7 @@ def text3_3_0(
 def text3_3_1(
     text2_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    text2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, 9001)
+    text2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, 9003)
     return text2_3_1
 
 
@@ -400,7 +400,7 @@ def text3_3_1(
 def text3_3_2(
     text2_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9001)
+    text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9003)
     return text2_3_2
 
 
@@ -410,7 +410,7 @@ def dataset3_2_0(
     blank_optical_2_0: pf.Optical2_0,
     series3: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, series3, 9001)
+    dataset2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, series3, 9003)
     return dataset2_2_0
 
 
@@ -420,7 +420,7 @@ def dataset3_3_0(
     blank_optical_3_0: pf.Optical3_0,
     series3: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, series3, 9001)
+    dataset2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, series3, 9003)
     return dataset2_3_0
 
 
@@ -430,7 +430,7 @@ def dataset3_3_1(
     blank_optical_3_1: pf.Optical3_1,
     series3: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, series3, 9001)
+    dataset2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, series3, 9003)
     return dataset2_3_1
 
 
@@ -440,7 +440,7 @@ def dataset3_3_2(
     blank_optical_3_2: pf.Optical3_2,
     series3: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, series3, 9001)
+    dataset2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, series3, 9003)
     return dataset2_3_2
 
 
@@ -1463,13 +1463,97 @@ class TestCore:
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
-    @all_core
-    def test_remove_meas_by_name(self, core: AnyCore) -> None:
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), o)
+            for c, o in [
+                ("text_2_0", pf.Optical2_0),
+                ("text_3_0", pf.Optical3_0),
+                ("text_3_1", pf.Optical3_1),
+                ("text_3_2", pf.Optical3_2),
+            ]
+        ],
+    )
+    def test_text_remove_meas_by_name(self, core: AnyCoreTEXT, optical: type) -> None:
         assert len(core.measurements) == 1
-        assert core.remove_measurement_by_name(LINK_NAME1) is not None
+        i, m, r = core.remove_measurement_by_name(LINK_NAME1)
+        assert i == 0
+        assert isinstance(m, optical)
+        assert r == 9001
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), o)
+            for c, o in [
+                ("dataset_2_0", pf.Optical2_0),
+                ("dataset_3_0", pf.Optical3_0),
+                ("dataset_3_1", pf.Optical3_1),
+                ("dataset_3_2", pf.Optical3_2),
+            ]
+        ],
+    )
+    def test_dataset_remove_meas_by_name(
+        self, core: AnyCoreDataset, optical: type
+    ) -> None:
+        assert len(core.measurements) == 1
+        i, m, c, r = core.remove_measurement_by_name(LINK_NAME1)
+        assert i == 0
+        assert isinstance(m, optical)
+        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert r == 9001
+        assert len(core.measurements) == 0
+        with pytest.raises(KeyError):
+            core.remove_measurement_by_name(LINK_NAME1)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), o)
+            for c, o in [
+                ("text_2_0", pf.Optical2_0),
+                ("text_3_0", pf.Optical3_0),
+                ("text_3_1", pf.Optical3_1),
+                ("text_3_2", pf.Optical3_2),
+            ]
+        ],
+    )
+    def test_text_remove_meas_by_index(self, core: AnyCoreTEXT, optical: type) -> None:
+        assert len(core.measurements) == 1
+        n, m, r = core.remove_measurement_by_index(0)
+        assert n == LINK_NAME1
+        assert isinstance(m, optical)
+        assert r == 9001
+        with pytest.raises(IndexError):
+            core.remove_measurement_by_index(0)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), o)
+            for c, o in [
+                ("dataset_2_0", pf.Optical2_0),
+                ("dataset_3_0", pf.Optical3_0),
+                ("dataset_3_1", pf.Optical3_1),
+                ("dataset_3_2", pf.Optical3_2),
+            ]
+        ],
+    )
+    def test_dataset_remove_meas_by_index(
+        self, core: AnyCoreDataset, optical: type
+    ) -> None:
+        assert len(core.measurements) == 1
+        n, m, c, r = core.remove_measurement_by_index(0)
+        assert n == LINK_NAME1
+        assert isinstance(m, optical)
+        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert r == 9001
+        with pytest.raises(IndexError):
+            core.remove_measurement_by_index(0)
 
     @all_core3
     def test_remove_meas_by_name_with_tr(self, core: AnyCore) -> None:
@@ -1506,13 +1590,6 @@ class TestCore:
         # choke if linked
         with pytest.RaisesGroup(pf.RelationalError):
             assert core.remove_measurement_by_name(LINK_NAME1) is not None
-
-    @all_core
-    def test_remove_meas_by_index(self, core: AnyCore) -> None:
-        assert len(core.measurements) == 1
-        core.remove_measurement_by_index(0)
-        with pytest.raises(IndexError):
-            core.remove_measurement_by_index(0)
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
     def test_remove_meas_by_index_ag3_0(

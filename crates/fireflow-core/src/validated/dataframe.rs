@@ -894,6 +894,17 @@ pub(crate) mod python {
         }
     }
 
+    impl<'py> IntoPyObject<'py> for AnyFCSColumn {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ser = Series::from_arrow(PlSmallStr::from("unnamed"), self.as_array()).unwrap();
+            PySeries(ser).into_pyobject(py)
+        }
+    }
+
     impl<'py> FromPyObject<'py> for FCSDataFrame {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let df: PyDataFrame = ob.extract()?;

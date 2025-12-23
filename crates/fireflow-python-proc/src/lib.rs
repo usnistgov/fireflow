@@ -1984,33 +1984,47 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    let version = split_ident_version_pycore(&i).1;
+    let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let name_pytype = PyType::new_versioned_shortname(version);
+    let make_ret = |is_index: bool| {
+        // NOTE this is not a typo, these are supposed to be flipped
+        let name_or_index = if is_index {
+            PyType::new_versioned_shortname(version)
+        } else {
+            PyInt::new_meas_index().into()
+        };
+        let ret = if is_dataset {
+            PyTuple::new1(name_or_index)
+                .add(PyUnion::new_measurement(version))
+                .add(PyClass::new_series())
+                .add(PyDecimal::new_range())
+        } else {
+            PyTuple::new1(name_or_index)
+                .add(PyUnion::new_measurement(version))
+                .add(PyDecimal::new_range())
+        };
+        let (which, exc) = if is_index {
+            let exc = PyException::new_index().desc("If ``index`` not found");
+            ("Index", exc)
+        } else {
+            let exc = PyException::new_key().desc("If ``name`` not found");
+            ("Name", exc)
+        };
+        let desc = if is_dataset {
+            format!("{which}, measurement object, data, and range.")
+        } else {
+            format!("{which}, measurement object, and range.")
+        };
+        DocReturn::new(ret).desc(desc).exc([exc])
+    };
 
     let by_name_doc = DocString::new_method("Remove a measurement with a given name.")
         .arg(DocArg::new_name_param("Name to remove."))
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(PyInt::new_meas_index())
-                    .add(PyUnion::new_measurement(version))
-                    .add(PyDecimal::new_range()),
-            )
-            .desc("Index and measurement object.")
-            .exc([PyException::new_key().desc("If ``name`` not found")]),
-        );
+        .returns(make_ret(false));
 
     let by_index_doc = DocString::new_method("Remove a measurement with a given index.")
         .arg(DocArg::new_index_param("Index to remove."))
-        .returns(
-            DocReturn::new(
-                PyTuple::new1(name_pytype)
-                    .add(PyUnion::new_measurement(version))
-                    .add(PyDecimal::new_range()),
-            )
-            .desc("Name and measurement object.")
-            .exc([PyException::new_index().desc("If ``index`` not found")]),
-        );
+        .returns(make_ret(true));
 
     let name_arg = by_name_doc.fun_args();
     let index_arg = by_index_doc.fun_args();
@@ -2020,6 +2034,26 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
+
+    let name_mapper = if is_dataset {
+        quote!(|(i, x, c, r)| (i, x.bimap_into_once(), c, r))
+    } else {
+        quote!(|(i, x, r)| (i, x.bimap_into_once(), r))
+    };
+
+    let index_body = if is_dataset {
+        quote! {
+            let (p, c, r) = self.0.remove_measurement_by_index(#index_ident)?;
+            let (n, v) = p.unzip();
+            Ok((n, v.bimap_into_once(), c, r))
+        }
+    } else {
+        quote! {
+            let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
+            let (n, v) = p.unzip();
+            Ok((n, v.bimap_into_once(), r))
+        }
+    };
 
     quote! {
         #[pymethods]
@@ -2032,7 +2066,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 Ok(self
                    .0
                    .remove_measurement_by_name(&#name_ident)
-                   .map(|(i, x, r)| (i, x.bimap_into_once(), r))?)
+                   .map(#name_mapper)?)
             }
 
             #by_index_doc
@@ -2040,9 +2074,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
-                let (n, v) = p.unzip();
-                Ok((n, v.bimap_into_once(), r))
+                #index_body
             }
         }
     }
@@ -6150,6 +6182,11 @@ impl<E: From<PyException>> PyClass<E> {
         Self::new1("polars.DataFrame").rstype(path)
     }
 
+    fn new_series() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
+        Self::new1("polars.Series").rstype(path)
+    }
+
     fn new_coretext(version: Version) -> Self {
         let v = version.short_underscore();
         Self::new_py([""; 0], format!("CoreTEXT{v}"))
@@ -7076,9 +7113,8 @@ impl DocArgParam {
     }
 
     fn new_col_param() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
         let d = "Data for measurement. Must be same length as existing columns.";
-        Self::new_param("col", PyClass::new1("polars.Series").rstype(path), d)
+        Self::new_param("col", PyClass::new_series(), d)
     }
 
     fn new_name_param(short_desc: &str) -> Self {

@@ -1172,7 +1172,7 @@ fn parse_sub_pattern(s: &str) -> SubPattern {
         .expect("sub pattern delimiter is not a valid UTF-8 byte");
     let parts: Vec<_> = r1.split(delim).collect();
     let (from, to, global) = match &parts[..] {
-        [x, y] => (*x, *y, false),
+        [x, y] | [x, y, ""] => (*x, *y, false),
         [x, y, "g"] => (*x, *y, true),
         _ => panic!(
             "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \

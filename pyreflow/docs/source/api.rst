@@ -10,3 +10,4 @@ API Reference
    gating
    layout
    exceptions
+   pydantic

@@ -29,6 +29,7 @@ class PyreflowHeaderConfig(BaseModel):
     truncate_offsets: bool = False
 
     def read_header(self, path: Path, dataset_offset: int = 0) -> pfa.Header:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_header`."""
         return pfa.fcs_read_header(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
@@ -120,6 +121,7 @@ class PyreflowReadFlatTEXTConfig(
         path: Path,
         dataset_offset: int = 0,
     ) -> pfa.FlatTEXTOutput:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_flat_text`."""
         return pfa.fcs_read_flat_text(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
@@ -130,6 +132,7 @@ class PyreflowReadFlatTEXTConfig(
         skip: int | None = None,
         limit: int | None = None,
     ) -> list[pfa.FlatTEXTOutput]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_flat_texts`."""
         return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
 
 
@@ -144,6 +147,7 @@ class PyreflowReadStdTEXTConfig(
         path: Path,
         dataset_offset: int = 0,
     ) -> tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_std_text`."""
         return pfa.fcs_read_std_text(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
@@ -154,6 +158,7 @@ class PyreflowReadStdTEXTConfig(
         skip: int | None = None,
         limit: int | None = None,
     ) -> list[tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_std_texts`."""
         return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
 
 
@@ -167,6 +172,7 @@ class PyreflowReadFlatDatasetConfig(
     def read_flat_dataset(
         self, path: Path, dataset_offset: int = 0
     ) -> pfa.FlatDatasetOutput:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_flat_dataset`."""
         return pfa.fcs_read_flat_dataset(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
@@ -177,6 +183,7 @@ class PyreflowReadFlatDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
     ) -> list[pfa.FlatDatasetOutput]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_flat_datasets`."""
         return pfa.fcs_read_flat_datasets(path, skip, limit, **self.model_dump())
 
     def summarize(
@@ -185,10 +192,11 @@ class PyreflowReadFlatDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
     ) -> list[pfa.DatasetSummary]:
+        """Wrapper for :func:`~pyreflow.api.fcs_summarize`."""
         return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
 
 
-class ReadStdDatasetConfig(
+class PyreflowReadStdDatasetConfig(
     PyreflowHeaderConfig,
     _ReadFlatTEXTConfig,
     _ReadStdKeywordsConfig,
@@ -201,6 +209,7 @@ class ReadStdDatasetConfig(
         path: Path,
         dataset_offset: int = 0,
     ) -> tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_std_dataset`."""
         return pfa.fcs_read_std_dataset(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
@@ -211,10 +220,11 @@ class ReadStdDatasetConfig(
         skip: int | None = None,
         limit: int | None = None,
     ) -> list[tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]]:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_std_datasets`."""
         return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
 
 
-class ReadFlatDatasetFromKeywordsConfig(
+class PyreflowReadFlatDatasetFromKeywordsConfig(
     _ReadDataKeywordsConfig,
     _ReadEventsConfig,
     _ReadSharedConfig,
@@ -224,6 +234,7 @@ class ReadFlatDatasetFromKeywordsConfig(
         path: Path,
         dataset_offset: int = 0,
     ) -> pfa.FlatDatasetWithKwsOutput:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`."""
         return pfa.fcs_read_flat_dataset_with_keywords(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )

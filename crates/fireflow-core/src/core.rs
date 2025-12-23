@@ -2,10 +2,10 @@
 
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadLayoutConfig,
-    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, ReadTEXTOffsetsConfig, TemporalOpticalKey,
-    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadDataKeywordsConfig,
+    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalOpticalKey, TimeMeasNamePattern,
+    TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -492,7 +492,7 @@ impl AnyCoreTEXT {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         macro_rules! go {
             ($t:ident) => {
@@ -532,10 +532,7 @@ impl AnyCoreDataset {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadLayoutConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
     {
         let segs = NonDataSegments::new(
             PrimaryTextSegment::default(),
@@ -1424,7 +1421,7 @@ pub(crate) trait PrivVersioned: Versioned {
     where
         R: Read + Seek,
         Self::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -1464,7 +1461,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self::Name>;
 
     fn lookup_specific<C>(
@@ -1474,7 +1471,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
 pub trait LookupOptical: Sized + VersionedOptical {
@@ -1485,7 +1482,7 @@ pub trait LookupOptical: Sized + VersionedOptical {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
 pub trait LookupTemporal: VersionedTemporal {
@@ -1496,7 +1493,7 @@ pub trait LookupTemporal: VersionedTemporal {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
 pub trait ConvertFromShortname<T>: Sized + MightHave<Shortname> {
@@ -1757,22 +1754,18 @@ pub trait VersionedTEXTOffsets: Sized {
     fn lookup<C>(
         kws: &mut StdKeywords,
         segs: &NonDataSegments,
-        // data: HeaderDataSegment,
-        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>;
+        C: AsRef<ReadDataKeywordsConfig>;
 
     fn lookup_ro<C>(
         kws: &StdKeywords,
         segs: &NonDataSegments,
-        // data: HeaderDataSegment,
-        // analysis: HeaderAnalysisSegment,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>;
+        C: AsRef<ReadDataKeywordsConfig>;
 
     fn tot(&self) -> Self::TotDef;
 
@@ -1817,7 +1810,7 @@ impl<T> Temporal<T> {
     ) -> LookupTemporalResult<Self>
     where
         T: LookupTemporal,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         T::lookup_specific(std, &mut nonstd, i, conf).map_ok_value(|specific| {
             let common = CommonMeasurement::lookup(std, nonstd, i);
@@ -1916,7 +1909,7 @@ impl<O> Optical<O> {
     where
         O: LookupOptical,
         Version: From<O::Ver>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2114,7 +2107,7 @@ where
     ) -> LookupMetarootResult<Self>
     where
         M: LookupMetaroot,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -3970,7 +3963,7 @@ where
         LookupShortnameError,
     >
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
         M::Name: Pointed<Shortname>,
         Version: From<M::Ver>,
@@ -4000,7 +3993,7 @@ where
         conf: &C,
     ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
@@ -4165,7 +4158,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -4202,7 +4195,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadSharedConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -4224,7 +4217,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been processed
         // when we read the TEXT; remove them so they don't trigger false
@@ -4490,9 +4483,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M::Optical: AsScaleTransform,
         Version: From<M::Ver>,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
         let go = |ms: &NamedVec<_, _, _>| {
@@ -4619,10 +4612,9 @@ where
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadLayoutConfig>
+            + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>
-            + AsRef<ReadSharedConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+            + AsRef<ReadSharedConfig>,
     {
         let segs = NonDataSegments::new(
             PrimaryTextSegment::default(),
@@ -4661,10 +4653,7 @@ where
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
-        C: AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadLayoutConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, segs, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -5485,7 +5474,7 @@ impl UnstainedData {
         conf: &C,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
         UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
@@ -5512,7 +5501,7 @@ impl SubsetData {
     fn lookup(
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
         let f = CSVFlags::lookup(kws, nonstd, conf)
             .map_switchable_errors(LookupSubsetError::from)
@@ -5549,7 +5538,7 @@ impl CSVFlags {
     fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
         let flag = conf.allow_optional_dropping;
         CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
@@ -5599,7 +5588,7 @@ impl ModificationData {
         conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
         let last_mod_date = LastModified::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
@@ -5608,7 +5597,7 @@ impl ModificationData {
         let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
+        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
             .nowarn_into_switchable(flag)
@@ -5693,7 +5682,7 @@ impl PeakData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
         let b = PeakBin::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .map_switchable_errors(LookupPeakError::from)
@@ -6815,7 +6804,7 @@ impl ScaleTransform {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -7130,7 +7119,7 @@ impl LookupOptical for InnerOptical2_0 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -7157,7 +7146,7 @@ impl LookupOptical for InnerOptical3_0 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -7181,7 +7170,7 @@ impl LookupOptical for InnerOptical3_1 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -7212,7 +7201,7 @@ impl LookupOptical for InnerOptical3_2 {
         conf: &C,
     ) -> LookupOpticalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -7249,7 +7238,7 @@ impl LookupTemporal for InnerTemporal2_0 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let scale = if sconf.force_time_linear.is_set() {
@@ -7279,7 +7268,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
@@ -7307,7 +7296,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
@@ -7339,7 +7328,7 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &C,
     ) -> LookupTemporalResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
@@ -7677,7 +7666,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let succ = Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
@@ -7695,7 +7684,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let succ = Tot::get_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
@@ -7726,7 +7715,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7748,7 +7737,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7783,7 +7772,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let tot_res = Tot::remove_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7805,7 +7794,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
-        C: AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>,
     {
         let tot_res = Tot::get_metaroot_req(kws)
             .map_err(LookupTEXTOffsetsError::from)
@@ -7976,7 +7965,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
@@ -7991,7 +7980,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
         let comp = Compensation2_0::lookup(std, par, conf.as_ref())
@@ -8018,7 +8007,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
             .set_err_value(())
@@ -8033,7 +8022,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -8072,7 +8061,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         std: &mut StdKeywords,
         _: &mut NonStdKeywords,
         i: MeasIndex,
-        _: &ReadLayoutConfig,
+        _: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::remove_meas_req(std, i)
             .map(Identity)
@@ -8087,7 +8076,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -8152,7 +8141,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         std: &mut StdKeywords,
         _: &mut NonStdKeywords,
         i: MeasIndex,
-        _: &ReadLayoutConfig,
+        _: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self::Name> {
         Shortname::remove_meas_req(std, i)
             .map(Identity)
@@ -8167,7 +8156,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         conf: &C,
     ) -> LookupMetarootResult<Self>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {

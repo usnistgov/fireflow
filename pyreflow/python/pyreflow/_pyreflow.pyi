@@ -1063,6 +1063,13 @@ class CoreTEXT3_0(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = _DEFAULT_NS_MEAS_PATTERN,
         ignore_time_gain: bool = False,
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
+        truncate_text_offsets: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         integer_widths_from_byteord: bool = False,
@@ -1160,6 +1167,13 @@ class CoreTEXT3_1(
         nonstandard_measurement_pattern: str | None = _DEFAULT_NS_MEAS_PATTERN,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
+        truncate_text_offsets: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1259,6 +1273,13 @@ class CoreTEXT3_2(
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
         disallow_localtime: bool = False,
+        text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
+        ignore_text_data_offsets: bool = False,
+        ignore_text_analysis_offsets: bool = False,
+        allow_header_text_offset_mismatch: bool = False,
+        allow_missing_required_offsets: bool = False,
+        truncate_text_offsets: bool = False,
         allow_optional_dropping: bool = False,
         transfer_dropped_optional: bool = False,
         disallow_range_truncation: bool = False,
@@ -1446,11 +1467,6 @@ class CoreDataset3_0(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = _DEFAULT_NS_MEAS_PATTERN,
         ignore_time_gain: bool = False,
-        allow_optional_dropping: bool = False,
-        transfer_dropped_optional: bool = False,
-        integer_widths_from_byteord: bool = False,
-        integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: bool = False,
         text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
@@ -1458,6 +1474,11 @@ class CoreDataset3_0(
         allow_header_text_offset_mismatch: bool = False,
         allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
+        integer_widths_from_byteord: bool = False,
+        integer_byteord_override: list[int] | None = None,
+        disallow_range_truncation: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
@@ -1563,9 +1584,6 @@ class CoreDataset3_1(
         nonstandard_measurement_pattern: str | None = _DEFAULT_NS_MEAS_PATTERN,
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
-        allow_optional_dropping: bool = False,
-        transfer_dropped_optional: bool = False,
-        disallow_range_truncation: bool = False,
         text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
@@ -1573,6 +1591,9 @@ class CoreDataset3_1(
         allow_header_text_offset_mismatch: bool = False,
         allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
+        disallow_range_truncation: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
@@ -1682,9 +1703,6 @@ class CoreDataset3_2(
         ignore_time_gain: bool = False,
         parse_indexed_spillover: bool = False,
         disallow_localtime: bool = False,
-        allow_optional_dropping: bool = False,
-        transfer_dropped_optional: bool = False,
-        disallow_range_truncation: bool = False,
         text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
@@ -1692,6 +1710,9 @@ class CoreDataset3_2(
         allow_header_text_offset_mismatch: bool = False,
         allow_missing_required_offsets: bool = False,
         truncate_text_offsets: bool = False,
+        allow_optional_dropping: bool = False,
+        transfer_dropped_optional: bool = False,
+        disallow_range_truncation: bool = False,
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
@@ -2043,7 +2064,7 @@ def fcs_read_std_text(
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
     disallow_localtime: bool = False,
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2051,7 +2072,6 @@ def fcs_read_std_text(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2103,7 +2123,7 @@ def fcs_read_flat_dataset(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: SubPatterns = ({}, {}),
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2111,7 +2131,6 @@ def fcs_read_flat_dataset(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2188,7 +2207,7 @@ def fcs_read_std_dataset(
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
     disallow_localtime: bool = False,
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2196,7 +2215,6 @@ def fcs_read_std_dataset(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2322,7 +2340,7 @@ def fcs_read_std_texts(
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
     disallow_localtime: bool = False,
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2330,7 +2348,6 @@ def fcs_read_std_texts(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2383,7 +2400,7 @@ def fcs_read_flat_datasets(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: SubPatterns = ({}, {}),
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2391,7 +2408,6 @@ def fcs_read_flat_datasets(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2469,7 +2485,7 @@ def fcs_read_std_datasets(
     ignore_time_gain: bool = False,
     parse_indexed_spillover: bool = False,
     disallow_localtime: bool = False,
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2477,7 +2493,6 @@ def fcs_read_std_datasets(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2501,7 +2516,7 @@ def fcs_read_flat_dataset_with_keywords(
     data_seg: Segment,
     analysis_seg: Segment = _DEFAULT_SEGMENT,
     other_segs: list[Segment] = [],
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2509,7 +2524,6 @@ def fcs_read_flat_dataset_with_keywords(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,
@@ -2568,7 +2582,7 @@ def fcs_summarize(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: SubPatterns = ({}, {}),
-    # offset args
+    # layout args
     text_data_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = _DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
@@ -2576,7 +2590,6 @@ def fcs_summarize(
     allow_header_text_offset_mismatch: bool = False,
     allow_missing_required_offsets: bool = False,
     truncate_text_offsets: bool = False,
-    # layout args
     allow_optional_dropping: bool = False,
     transfer_dropped_optional: bool = False,
     integer_widths_from_byteord: bool = False,

@@ -1,4 +1,4 @@
-use crate::config::{AllowLoss, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig};
+use crate::config::{AllowLoss, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::data::IndexedError;
 use crate::logging::{
@@ -305,7 +305,7 @@ impl AppliedGates2_0 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates2_0Error, LookupAppliedGates2_0Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let ag = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -313,7 +313,7 @@ impl AppliedGates2_0 {
         let gm = GatedMeasurements::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
         ag.zip_f2_once(gm)
             .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
@@ -444,7 +444,7 @@ impl AppliedGates3_0 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_0Error, LookupAppliedGates3_0Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let s = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -452,7 +452,7 @@ impl AppliedGates3_0 {
         let ms = GatedMeasurements::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         s.zip_f2_once(ms)
             .and_then_deferred(|(scheme, gated_measurements)| {
                 let succ = Self::try_new(gated_measurements.0, scheme)
@@ -573,9 +573,9 @@ impl AppliedGates3_2 {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         GatingScheme::lookup(std, nonstd, conf)
             .map_deferred_value(Self)
             .map_err_value(|ret| {
@@ -605,7 +605,7 @@ impl GatedMeasurement {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasError, LookupGatedMeasError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -826,9 +826,9 @@ impl<I> GatingScheme<I> {
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq + Copy,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
         Gating::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupGatingSchemeError::Gating)
@@ -961,7 +961,7 @@ impl<I> Region<I> {
     >
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Region)
@@ -971,7 +971,7 @@ impl<I> Region<I> {
             .map_switchable_errors(LookupRegionError::Window)
             .switchable_into_commutative()
             .into_semigroup();
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
         index_res
             .zip_f2_once(window_res)
@@ -1136,7 +1136,7 @@ impl GatedMeasurements {
         conf: &C,
     ) -> DeferredWarningsAndErrors<Self, LookupGatedMeasurementsError, LookupGatedMeasurementsError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Gate::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)

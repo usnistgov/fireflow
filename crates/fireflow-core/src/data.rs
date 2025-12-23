@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _,
-    ReadEventsConfig, ReadLayoutConfig, TruncateEventValues,
+    ReadEventsConfig, ReadDataKeywordsConfig, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -383,19 +383,19 @@ pub trait IsNumType: Sized {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
 
     fn lookup_all(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
         meas_nonstd
             .iter_mut()
@@ -408,7 +408,7 @@ pub trait IsNumType: Sized {
     fn lookup_ro_all(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
         (0..par.0)
             .map(|i| Self::lookup_one_ro(kws, i.into(), conf))
@@ -419,7 +419,7 @@ pub trait IsNumType: Sized {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::remove_meas_req(std, i);
         let range = Range::remove_meas_req(std, i);
@@ -431,7 +431,7 @@ pub trait IsNumType: Sized {
     fn lookup_one_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::get_meas_req(kws, i);
         let range = Range::get_meas_req(kws, i);
@@ -626,10 +626,10 @@ where
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self>;
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self>;
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
 
@@ -637,7 +637,7 @@ where
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: Vec<ColumnLayoutValues<Self::NumType>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError>;
 
     fn h_read_df<R: Read + Seek>(
@@ -1201,7 +1201,7 @@ impl IsNumType for Nothing<NumType> {
         _: &mut StdKeywords,
         _: &mut NonStdKeywords,
         _: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
     }
@@ -1209,7 +1209,7 @@ impl IsNumType for Nothing<NumType> {
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
     }
@@ -1220,7 +1220,7 @@ impl IsNumType for Option<NumType> {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         NumType::remove_or_drop_meas_opt(std, nonstd, i, conf)
     }
@@ -1228,7 +1228,7 @@ impl IsNumType for Option<NumType> {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
         NumType::get_or_ignore_meas_opt(kws, i, conf)
     }
@@ -3434,7 +3434,7 @@ impl<T> AnyOrderedUintLayout<T> {
     fn try_new(
         cs: Vec<ColumnLayoutValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), IndexedBitmaskError, NewFixedIntLayoutError> {
         let notrunc = conf.disallow_range_truncation;
         let real_bo = conf.integer_byteord_override.unwrap_or(bo);
@@ -3593,12 +3593,12 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3610,7 +3610,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: Vec<ColumnLayoutValues<Self::NumType>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf).map_ok_value(Self::from)
     }
@@ -3624,12 +3624,12 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Into::into)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3641,7 +3641,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: Vec<ColumnLayoutValues<Nothing<NumType>>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf).map_ok_value(Self::from)
     }
@@ -3655,12 +3655,12 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         NonMixedEndianLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         NonMixedEndianLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3672,7 +3672,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: Vec<ColumnLayoutValues<Nothing<NumType>>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, byteord, columns, conf).map_ok_value(Into::into)
     }
@@ -3686,7 +3686,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
@@ -3694,7 +3694,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
@@ -3709,7 +3709,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: Vec<ColumnLayoutValues<Option<NumType>>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
         let unique_dt: Vec<_> = columns
@@ -3983,7 +3983,7 @@ impl DataLayout3_2 {
         datatype: LookupDatatypeResult<AlphaNumType>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
@@ -4012,7 +4012,7 @@ impl<T> AnyOrderedLayout<T> {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
@@ -4020,7 +4020,7 @@ impl<T> AnyOrderedLayout<T> {
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -4031,7 +4031,7 @@ impl<T> AnyOrderedLayout<T> {
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         byteord: Result<ByteOrd2_0, ReqKeyError<ByteOrd2_0>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let byteord_ = byteord.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
@@ -4093,7 +4093,7 @@ impl<T> AnyOrderedLayout<T> {
         datatype: AlphaNumType,
         byteord: ByteOrd2_0,
         columns: Vec<ColumnLayoutValues2_0>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         macro_rules! from {
             ($i:expr) => {
@@ -4166,7 +4166,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::remove_req_check_ascii(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
@@ -4174,7 +4174,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadLayoutConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -4186,7 +4186,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         datatype: LookupDatatypeResult<AlphaNumType>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
@@ -4208,7 +4208,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         datatype: AlphaNumType,
         endian: Endian,
         columns: Vec<ColumnLayoutValues<Nothing<NumType>>>,
-        conf: &ReadLayoutConfig,
+        conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewDataLayoutError> {
         let notrunc = conf.disallow_range_truncation;
 

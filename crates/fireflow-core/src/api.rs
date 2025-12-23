@@ -3,8 +3,8 @@ use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
     DatasetOffsetError, ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
     ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
-    ReadLayoutConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig,
-    ReadStdTEXTConfig, ReadTEXTOffsetsConfig, TruncateOffsets,
+    ReadDataKeywordsConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig,
+    ReadStdTEXTConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -944,7 +944,7 @@ fn h_read_dataset_from_kws<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
 {
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -999,7 +999,7 @@ impl FlatTEXTOutput {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadLayoutConfig> + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
         // TODO not DRY, make this a method
         let hs = &self.parse.header_segments;
@@ -1030,10 +1030,7 @@ impl FlatTEXTOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadLayoutConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<ReadTEXTOffsetsConfig>,
+        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
     {
         let hs = &self.parse.header_segments;
         let d = hs.data;
@@ -1059,7 +1056,7 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadLayoutConfig> + AsRef<ReadEventsConfig> + AsRef<ReadTEXTOffsetsConfig>,
+    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, segs, st),

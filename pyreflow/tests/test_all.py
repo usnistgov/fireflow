@@ -94,7 +94,7 @@ STD_DEFAULT_CONFIG: dict[str, Any] = {
     "disallow_localtime": False,
 }
 
-OFFSET_DEFAULT_CONFIG: dict[str, Any] = {
+LAYOUT_DEFAULT_CONFIG: dict[str, Any] = {
     "text_data_correction": _DEFAULT_CORRECTION,
     "text_analysis_correction": _DEFAULT_CORRECTION,
     "ignore_text_data_offsets": False,
@@ -102,9 +102,6 @@ OFFSET_DEFAULT_CONFIG: dict[str, Any] = {
     "allow_header_text_offset_mismatch": False,
     "allow_missing_required_offsets": False,
     "truncate_text_offsets": False,
-}
-
-LAYOUT_DEFAULT_CONFIG: dict[str, Any] = {
     "allow_optional_dropping": False,
     "transfer_dropped_optional": False,
     "integer_widths_from_byteord": False,
@@ -2618,7 +2615,6 @@ class TestApiFunctions:
             **HEADER_DEFAULT_CONFIG,
             **FLAT_DEFAULT_CONFIG,
             **STD_DEFAULT_CONFIG,
-            **OFFSET_DEFAULT_CONFIG,
             **LAYOUT_DEFAULT_CONFIG,
             **SHARED_DEFAULT_CONFIG,
         }
@@ -2636,7 +2632,6 @@ class TestApiFunctions:
         conf = {
             **HEADER_DEFAULT_CONFIG,
             **FLAT_DEFAULT_CONFIG,
-            **OFFSET_DEFAULT_CONFIG,
             **LAYOUT_DEFAULT_CONFIG,
             **DATA_DEFAULT_CONFIG,
             **SHARED_DEFAULT_CONFIG,
@@ -2655,7 +2650,6 @@ class TestApiFunctions:
             **HEADER_DEFAULT_CONFIG,
             **FLAT_DEFAULT_CONFIG,
             **STD_DEFAULT_CONFIG,
-            **OFFSET_DEFAULT_CONFIG,
             **LAYOUT_DEFAULT_CONFIG,
             **DATA_DEFAULT_CONFIG,
             **SHARED_DEFAULT_CONFIG,

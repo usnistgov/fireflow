@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
     TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
@@ -221,10 +221,10 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGainError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
-        let drop_flag = AsRef::<ReadLayoutConfig>::as_ref(conf).allow_optional_dropping;
+        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
         if gain_flag.is_set() {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)

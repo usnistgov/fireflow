@@ -512,7 +512,7 @@ fn main() -> Result<(), ()> {
         ns_meas_pattern,
     ];
 
-    // offset args
+    // layout args
 
     let text_data_correction_begin = correction_arg(TEXT_DATA_COR_BEGIN, true, &data_seg);
     let text_data_correction_end = correction_arg(TEXT_DATA_COR_END, false, &data_seg);
@@ -551,20 +551,6 @@ fn main() -> Result<(), ()> {
         TRUNCATE_TEXT_OFFSETS,
         format!("Truncate offsets in {text_seg} if they exceed end of file."),
     );
-
-    let all_offset_args = [
-        text_data_correction_begin,
-        text_data_correction_end,
-        text_analysis_correction_begin,
-        text_analysis_correction_end,
-        ignore_text_data_offsets,
-        ignore_text_analysis_offsets,
-        allow_header_text_offset_mismatch,
-        allow_missing_required_offsets,
-        truncate_text_offsets,
-    ];
-
-    // layout args
 
     let allow_optional_dropping = flag_arg(
         ALLOW_OPTIONAL_DROPPING,
@@ -608,6 +594,15 @@ fn main() -> Result<(), ()> {
     );
 
     let all_layout_args = [
+        text_data_correction_begin,
+        text_data_correction_end,
+        text_analysis_correction_begin,
+        text_analysis_correction_end,
+        ignore_text_data_offsets,
+        ignore_text_analysis_offsets,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        truncate_text_offsets,
         allow_optional_dropping,
         transfer_dropped_optional,
         int_widths_from_byteord,
@@ -724,7 +719,6 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
-                .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
                 .after_long_help(&std_long_help),
@@ -737,7 +731,6 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
-                .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
                 .arg(&delim_arg)
@@ -751,7 +744,6 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
-                .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_shared_args)
                 .arg(&delim_arg)
@@ -765,7 +757,6 @@ fn main() -> Result<(), ()> {
                 .args(&all_header_args)
                 .args(&all_flat_args)
                 .args(&all_std_args)
-                .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_dataset_args)
                 .args(&all_shared_args)
@@ -778,7 +769,6 @@ fn main() -> Result<(), ()> {
                 .arg(&input_arg)
                 .args(&all_header_args)
                 .args(&all_flat_args)
-                .args(&all_offset_args)
                 .args(&all_layout_args)
                 .args(&all_dataset_args)
                 .args(&all_shared_args)
@@ -1046,7 +1036,6 @@ fn parse_std_config(sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     config::ReadStdTEXTConfig {
         flat: parse_header_and_text_config(sargs),
         standard: parse_std_inner_config(sargs),
-        offsets: parse_offsets_config(sargs),
         layout: parse_layout_config(sargs),
         shared: parse_shared_config(sargs),
     }
@@ -1055,7 +1044,6 @@ fn parse_std_config(sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
 fn parse_flat_dataset_config(sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
     config::ReadFlatDatasetConfig {
         flat: parse_header_and_text_config(sargs),
-        offsets: parse_offsets_config(sargs),
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
@@ -1066,14 +1054,13 @@ fn parse_std_dataset_config(sargs: &ArgMatches) -> config::ReadStdDatasetConfig 
     config::ReadStdDatasetConfig {
         flat: parse_header_and_text_config(sargs),
         standard: parse_std_inner_config(sargs),
-        offsets: parse_offsets_config(sargs),
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
     }
 }
 
-fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
+fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let data_corr0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
     let data_corr1 = sargs.get_one(TEXT_DATA_COR_END).copied();
     let text_data_correction = (data_corr0, data_corr1).into();
@@ -1082,7 +1069,10 @@ fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
-    config::ReadTEXTOffsetsConfig {
+    let integer_byteord_override = sargs
+        .get_one::<String>(INT_BYTEORD_OVERRIDE)
+        .map(|s| s.parse::<ByteOrd2_0>().unwrap());
+    config::ReadDataKeywordsConfig {
         text_data_correction,
         text_analysis_correction,
         ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
@@ -1090,14 +1080,6 @@ fn parse_offsets_config(sargs: &ArgMatches) -> config::ReadTEXTOffsetsConfig {
         allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
         allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
-    }
-}
-
-fn parse_layout_config(sargs: &ArgMatches) -> config::ReadLayoutConfig {
-    let integer_byteord_override = sargs
-        .get_one::<String>(INT_BYTEORD_OVERRIDE)
-        .map(|s| s.parse::<ByteOrd2_0>().unwrap());
-    config::ReadLayoutConfig {
         allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
         transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),

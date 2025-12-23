@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
@@ -103,7 +103,7 @@ impl Datetimes {
         conf: &C,
     ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError>
     where
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let b = BeginDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupDatetimesError::from)
@@ -111,7 +111,7 @@ impl Datetimes {
         let e = EndDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
         b.zip_f2_once(e)
             .and_then_deferred(|(begin, end)| {

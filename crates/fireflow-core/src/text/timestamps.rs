@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadLayoutConfig, ReadStdKeywordsConfig,
+    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
 };
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::deprecated::DeprecatedTimestampsRef;
@@ -175,7 +175,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
-        C: AsRef<ReadLayoutConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -186,7 +186,7 @@ impl<X> Timestamps<X> {
         let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let rconf: &ReadLayoutConfig = conf.as_ref();
+        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.allow_optional_dropping;
         go!(b)
             .zip_f3_once(go!(e), go!(d))

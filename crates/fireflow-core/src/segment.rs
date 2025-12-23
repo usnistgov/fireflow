@@ -3,8 +3,7 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative,
     AllowOptionalDropping, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ReadHeaderInnerConfig, ReadState, ReadTEXTOffsetsConfig,
-    TruncateOffsets,
+    IgnoreTEXTDataOffsets, ReadHeaderInnerConfig, ReadDataKeywordsConfig, ReadState, TruncateOffsets,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -350,15 +349,15 @@ where
     ) -> ReqSegResult<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig>,
+        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok(default.into_any())
         } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
         }
     }
@@ -370,8 +369,8 @@ where
     ) -> ReqSegResult<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig>,
+        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
         // if we want to totally ignore the TEXT offsets, just blindly remove
         // them so we don't trigger any pseudostandard false positives later and
@@ -382,7 +381,7 @@ where
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok(default.into_any())
         } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
         }
     }
@@ -503,15 +502,15 @@ where
     ) -> OptSegTentative<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig>,
+        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok(default.into_any())
         } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::get_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, &inner_st)
         }
@@ -524,8 +523,8 @@ where
     ) -> OptSegTentative<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadTEXTOffsetsConfig>,
-        ReadTEXTOffsetsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig>,
+        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
@@ -533,7 +532,7 @@ where
             let _ = Self::remove_opt_pair(kws);
             LogResult::new_ok(default.into_any())
         } else {
-            let inner_st = st.as_innner_ref::<ReadTEXTOffsetsConfig>();
+            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::remove_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, &inner_st)
         }

@@ -72,11 +72,8 @@ pub struct ReadStdTEXTConfig {
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
-    #[as_ref(ReadTEXTOffsetsConfig)]
-    pub offsets: ReadTEXTOffsetsConfig,
-
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -90,11 +87,8 @@ pub struct ReadFlatDatasetConfig {
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
-
-    #[as_ref(ReadTEXTOffsetsConfig)]
-    pub offsets: ReadTEXTOffsetsConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
@@ -114,11 +108,8 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
-
-    #[as_ref(ReadTEXTOffsetsConfig)]
-    pub offsets: ReadTEXTOffsetsConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
@@ -130,14 +121,11 @@ pub struct ReadStdDatasetConfig {
 /// Instructions for reading a dataset in flat mode with a given set of keywords.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetFromKeywordsConfig {
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
-
-    #[as_ref(ReadTEXTOffsetsConfig)]
-    pub offsets: ReadTEXTOffsetsConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -149,8 +137,8 @@ pub struct NewCoreTEXTConfig {
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -162,11 +150,8 @@ pub struct NewCoreDatasetConfig {
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
-    #[as_ref(ReadLayoutConfig)]
-    pub layout: ReadLayoutConfig,
-
-    #[as_ref(ReadTEXTOffsetsConfig)]
-    pub offsets: ReadTEXTOffsetsConfig,
+    #[as_ref(ReadDataKeywordsConfig)]
+    pub layout: ReadDataKeywordsConfig,
 
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
@@ -538,56 +523,6 @@ pub struct ReadHeaderAndTEXTConfig {
     pub substitute_standard_key_values: SubPatterns,
 }
 
-/// Specific instructions when reading offsets from TEXT
-// TODO combine this with layout config
-#[derive(Default, Clone, AsRef)]
-pub struct ReadTEXTOffsetsConfig {
-    /// Corrections for DATA offsets in TEXT segment
-    #[as_ref(TEXTCorrection<DataSegmentId>)]
-    pub text_data_correction: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
-    pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
-
-    /// If `true`, ignore DATA offsets in TEXT.
-    ///
-    /// This may be useful if DATA offsets are different from those in HEADER,
-    /// either inherently or after a correction. This obviously assumes the
-    /// offsets in HEADER are correct.
-    #[as_ref(IgnoreTEXTDataOffsets)]
-    pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
-
-    /// If `true`, ignore ANALYSIS offsets in TEXT.
-    ///
-    /// This may be useful if ANALYSIS offsets are different from those in
-    /// HEADER, either inherently or after a correction. This obviously assumes
-    /// the offsets in HEADER are correct.
-    #[as_ref(IgnoreTEXTAnalysisOffsets)]
-    pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
-
-    /// If `true`, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
-    pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
-
-    /// If `true`, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    #[as_ref(AllowMissingRequiredOffsets)]
-    pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
-
-    /// If `true`, truncate TEXT offsets that exceed the end of the file.
-    ///
-    /// In many cases, such offsets likely mean the file was incompletely
-    /// written, which is a larger problem itself. Setting this to true will at
-    /// least allow these files to be read.
-    #[as_ref(TruncateOffsets)]
-    pub truncate_text_offsets: TruncateOffsets,
-}
-
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone)]
 pub struct ReadStdKeywordsConfig {
@@ -781,8 +716,53 @@ impl Default for ReadStdKeywordsConfig {
 /// be read specifically when building [`crate::core::CoreTEXT`] or
 /// [`crate::core::CoreDataset`], these options are here since the layout is the
 /// thing they have in common.
-#[derive(Default, Clone)]
-pub struct ReadLayoutConfig {
+#[derive(Default, Clone, AsRef)]
+pub struct ReadDataKeywordsConfig {
+    /// Corrections for DATA offsets in TEXT segment
+    #[as_ref(TEXTCorrection<DataSegmentId>)]
+    pub text_data_correction: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
+    pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
+
+    /// If `true`, ignore DATA offsets in TEXT.
+    ///
+    /// This may be useful if DATA offsets are different from those in HEADER,
+    /// either inherently or after a correction. This obviously assumes the
+    /// offsets in HEADER are correct.
+    #[as_ref(IgnoreTEXTDataOffsets)]
+    pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
+
+    /// If `true`, ignore ANALYSIS offsets in TEXT.
+    ///
+    /// This may be useful if ANALYSIS offsets are different from those in
+    /// HEADER, either inherently or after a correction. This obviously assumes
+    /// the offsets in HEADER are correct.
+    #[as_ref(IgnoreTEXTAnalysisOffsets)]
+    pub ignore_text_analysis_offsets: IgnoreTEXTAnalysisOffsets,
+
+    /// If `true`, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    #[as_ref(AllowHeaderTEXTOffsetMismatch)]
+    pub allow_header_text_offset_mismatch: AllowHeaderTEXTOffsetMismatch,
+
+    /// If `true`, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    #[as_ref(AllowMissingRequiredOffsets)]
+    pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
+
+    /// If `true`, truncate TEXT offsets that exceed the end of the file.
+    ///
+    /// In many cases, such offsets likely mean the file was incompletely
+    /// written, which is a larger problem itself. Setting this to true will at
+    /// least allow these files to be read.
+    #[as_ref(TruncateOffsets)]
+    pub truncate_text_offsets: TruncateOffsets,
+
     /// If `true`, allow optional keys to be dropped on error with a warning.
     ///
     /// Also used when parsing any keyword in standard mode.

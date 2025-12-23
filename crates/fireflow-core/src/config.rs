@@ -978,7 +978,7 @@ impl_config_flag!(TruncateOffsets);
 
 impl_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_error_flag!(false_is_error AllowTotMismatch);
-impl_error_flag!(false_is_error DisallowOverRange);
+impl_error_flag!(true_is_error DisallowOverRange);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_error_flag!(false_is_error IgnoreSuppTEXT);

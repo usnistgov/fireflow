@@ -58,8 +58,9 @@ purpose:
 
 This refers to the method used to parse *TEXT*. "Flat" mode treats *TEXT* as a
 flat list of keywords and does not further processing. "Standard" mode attempts
-to collect this flat list into a well-defined data structure which in `pyreflow`
-is a version-specific python class (see :ref:`coretext` and :ref:`coredataset`).
+to collect this flat list into a well-defined data structure which in
+``pyreflow`` is a version-specific python class (see :ref:`coretext` and
+:ref:`coredataset`).
 
 "Standard" mode requires that *TEXT* first be parsed in "flat" mode, which
 implies the latter is more lenient with regard to deviations from the FCS

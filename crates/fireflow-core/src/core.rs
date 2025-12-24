@@ -2,17 +2,17 @@
 
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadEventsConfig, ReadDataKeywordsConfig,
-    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalOpticalKey, TimeMeasNamePattern,
-    TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadDataKeywordsConfig,
+    ReadEventsConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalOpticalKey,
+    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
     IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
     LayoutOps as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
     MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
-    VersionedDataLayout,
+    ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
     HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -3256,7 +3256,6 @@ where
     where
         M::Optical: HasScale,
     {
-        // TODO not dry, this functionality already exists in the named vec code
         let center_scale_not_linear = || {
             self.measurements
                 .center_index()
@@ -3750,7 +3749,6 @@ where
     where
         M::Optical: AsScaleTransform,
     {
-        // TODO not DRY
         let xforms: Vec<_> = measurements
             .iter()
             .map(|m| {
@@ -4474,17 +4472,24 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         LogResult::new_switchable_iter((), (), es, dep_flag)
     }
 
+    // only meant to be called during lookup when keywords are being read from
+    // a hashtable
     pub(crate) fn try_new<C>(
         mut metaroot: Metaroot<M>,
         measurements: NamedTemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
         conf: &C,
-    ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, NewCoreError>
+    ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
         M::Optical: AsScaleTransform,
         Version: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
+        // this should be true since the length of both is derived from $PAR
+        debug_assert!(
+            measurements.len() == layout.ncols(),
+            "measurements and layout should be same length"
+        );
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
@@ -4501,13 +4506,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let drop_flag = rconf.allow_optional_dropping;
         let missing_flag = sconf.allow_missing_time;
         Measurements::try_new(measurements)
-            .map_err(NewCoreError::from)
+            .map_err(LookupCoreError::from)
             .into_log()
             .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|ms| {
                 layout
-                    .check_measurement_vector(&ms)
-                    .map_err(NewCoreError::from)
+                    .check_measurement_vector_nolen(&ms)
+                    .map_err(LookupCoreError::from)
                     .into_log()
                     .set_ok_value(ms)
             })
@@ -4516,7 +4521,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(drop_flag)
                     .switchable_into_commutative()
-                    .map_errors(NewCoreError::from)
+                    .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
                     .and_then_commutative(|mut ret| {
@@ -4525,7 +4530,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         ret.deprecated(dep_flag, xfer_flag)
                             .map_switchable_errors(NewCoreWarning::from)
                             .switchable_into_commutative()
-                            .map_errors(NewCoreError::from)
+                            .map_errors(LookupCoreError::from)
                             .set_ok_value(ret)
                     })
             })
@@ -4860,8 +4865,6 @@ where
             .truncate_df(&self.data, skip_conv_check)
             .fmap_once(|data| self.data = data)
     }
-
-    // TODO add function to append event(s)?
 
     /// Remove a measurement matching the given name.
     ///
@@ -9149,7 +9152,7 @@ pub enum StdTEXTFromKeywordsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTError {
-    New(NewCoreError),
+    New(LookupCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
     Shortname(LookupShortnameError),
@@ -9546,16 +9549,26 @@ pub enum NewCoreTEXTError {
     Datetimes(ReversedDatetimesError),
 }
 
-/// Error when building new [`CoreTEXT`] or [`CoreDataset`]
+/// Error when making new [`CoreTEXT`] or [`CoreDataset`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
     /// Measurement vector has more than one time element
     Meas(NewNamedVecError),
     /// Measurement and layout are incompatible
-    // TODO this includes a length mismatch which should never happen if we
-    // are reading from disk because both are derived from $PAR
     Layout(MeasLayoutMismatchError),
+    /// Any other warning which is configured to be a fatal error
+    Warn(NewCoreWarning),
+}
+
+/// Error when looking up [`CoreTEXT`] or [`CoreDataset`] from keywords
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupCoreError {
+    /// Measurement vector has more than one time element
+    Meas(NewNamedVecError),
+    /// Measurement and layout are incompatible
+    Layout(ScaleDatatypeMismatchError),
     /// Any other warning which is configured to be a fatal error
     Warn(NewCoreWarning),
 }

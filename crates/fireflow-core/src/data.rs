@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _,
-    ReadEventsConfig, ReadDataKeywordsConfig, TruncateEventValues,
+    ReadDataKeywordsConfig, ReadEventsConfig, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -535,7 +535,7 @@ pub trait LayoutOps<'a, T>: Sized {
     where
         G: Default,
         S: CheckedScaleTransform,
-        MeasLayoutMismatchError: From<ErrorGroup<S::Err, G>>,
+        ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
     {
         let meas_n = xforms.len();
         let layout_n = self.ncols();
@@ -543,7 +543,8 @@ pub trait LayoutOps<'a, T>: Sized {
             let e = MeasLayoutLengthsError { meas_n, layout_n };
             return Err(e.into());
         }
-        self.check_transforms(xforms)?;
+        self.check_transforms(xforms)
+            .map_err(ScaleDatatypeMismatchError::from)?;
         Ok(())
     }
 
@@ -629,7 +630,11 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<Self>;
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self>;
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
 
@@ -684,6 +689,19 @@ where
             "dataframe columns ({ncols}) unequal to number of measurements ({par})"
         );
         self.h_write_df_inner(h, df, skip_conv_check)
+    }
+
+    fn check_measurement_vector_nolen<N, T, O: AsScaleTransform>(
+        &self,
+        meas: &Measurements<N, T, O>,
+    ) -> Result<(), ScaleDatatypeMismatchError> {
+        let xforms: Vec<_> = meas
+            .iter_with(&|_, _| ScaleTransform::default(), &|_, m| {
+                m.value.as_transform()
+            })
+            .collect();
+        self.check_transforms(&xforms[..])?;
+        Ok(())
     }
 
     fn check_measurement_vector<N, T, O: AsScaleTransform>(
@@ -3598,7 +3616,11 @@ impl VersionedDataLayout for DataLayout2_0 {
         AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3629,7 +3651,11 @@ impl VersionedDataLayout for DataLayout3_0 {
         AnyOrderedLayout::lookup(std, meas_nonstd, conf).map_ok_value(Into::into)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         AnyOrderedLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3660,7 +3686,11 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::lookup(std, meas_nonstd, conf).map_ok_value(Self::from)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         NonMixedEndianLayout::lookup_ro(kws, par, conf).map_ok_value(Self::from)
     }
 
@@ -3694,7 +3724,11 @@ impl VersionedDataLayout for DataLayout3_2 {
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
@@ -4020,7 +4054,11 @@ impl<T> AnyOrderedLayout<T> {
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -4174,7 +4212,11 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    fn lookup_ro(kws: &StdKeywords, par: Par, conf: &ReadDataKeywordsConfig) -> LookupLayoutResult<Self> {
+    fn lookup_ro(
+        kws: &StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupLayoutResult<Self> {
         let datatype = AlphaNumType::get_req_check_ascii(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -4930,6 +4972,13 @@ impl fmt::Display for RangeToNewBitmaskError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
     Lengths(MeasLayoutLengthsError),
+    Scale(ScaleDatatypeMismatchError),
+}
+
+/// Error when scales do not match datatypes in layout.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ScaleDatatypeMismatchError {
     Scale(ScaleMismatchErrors),
     ScaleTransform(ScaleTransformMismatchErrors),
 }

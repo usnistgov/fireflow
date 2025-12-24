@@ -1503,15 +1503,10 @@ where
         + AsRef<ReadHeaderAndTEXTConfig>,
 {
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-    // If this flag is set, pretend that supp TEXT does not exist at all. No
-    // parsing, no errors, no testing for overlaps. Note that these keywords
-    // will be removed during standardization so we don't need to worry about
-    // triggering false positive pseudostandard errors later
-    if conf.ignore_supp_text.is_set() {
-        // TODO this check is redundant, use debug_assert to ensure the flag
-        // is not set instead since this should be controlled at the caller level
-        return LogResult::new_ok(None);
-    }
+    debug_assert!(
+        !conf.ignore_supp_text.is_set(),
+        "tried to get supp TEXT offsets when supp TEXT is ignored"
+    );
     let res = match header.version {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {

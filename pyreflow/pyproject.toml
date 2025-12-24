@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pydantic = [
-    "pydantic"
+    "pydantic>=2"
 ]
 
 [build-system]

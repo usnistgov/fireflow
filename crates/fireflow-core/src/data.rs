@@ -548,7 +548,6 @@ pub trait LayoutOps<'a, T>: Sized {
         Ok(())
     }
 
-    // TODO this should be private
     fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
     where
         S: CheckedScaleTransform,
@@ -1733,6 +1732,8 @@ where
 {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
         let x = self.data.next().unwrap();
+        // TODO this might not be optimal since this loss storage logic will
+        // (probably) fire for every written value even if we don't use it
         let loss = self.column_type.h_write(h, x, byte_layout)?;
         self.loss = mem::take(&mut self.loss).or(loss);
         Ok(())
@@ -2771,12 +2772,6 @@ where
 
         let write_res = go().into_nowarn1();
 
-        // TODO perhaps a microoptization, if we don't need conversion warnings
-        // might as well not check for them when writing each value in the first
-        // place. This may be optimized away by the compiler in case this flag
-        // is false, and if not it maybe doesn't make a different anyways since
-        // its mostly just a conditional check which will be fast with branch
-        // prediction. On the other hand, this is a very tight loop.
         if skip_conv_check {
             write_res.nowarn_into_warn()
         } else {

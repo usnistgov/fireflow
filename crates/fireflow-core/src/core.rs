@@ -9345,7 +9345,7 @@ pub enum AnyMetarootKeyLossError {
     Plate(PlateLossError),
     Modification(ModificationLossError),
     Subset(SubsetLossError),
-    // TODO maybe explain why thes are dropped. The scheme keywords are present
+    // TODO maybe explain why these are dropped. The scheme keywords are present
     // in 3.2 but are incompabible with 2.0 since they reference measurements
     // rather than Gn* keywords.
     AppliedGates2_0To3_2(AppliedGates2_0To3_2LossError),

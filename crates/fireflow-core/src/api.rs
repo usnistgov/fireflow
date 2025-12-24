@@ -1,10 +1,10 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
     AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
-    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
-    ReadDataKeywordsConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig,
-    ReadStdTEXTConfig, TruncateOffsets,
+    DatasetOffsetError, ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
+    ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
+    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -141,14 +141,7 @@ pub fn fcs_read_flat_dataset(
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(flat, mut h, st)| {
-            let hs = &flat.parse.header_segments;
-            let segs = NonDataSegments::new(
-                hs.text,
-                hs.data,
-                hs.analysis,
-                &hs.other[..],
-                flat.parse.supp_text.as_ref().copied(),
-            );
+            let segs = flat.parse.non_data_segments();
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
                 .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
                 .map_commutative_warnings(FlatDatasetWarning::from)
@@ -366,7 +359,6 @@ where
     let mut dataset_offset = Some(DatasetOffset::default());
     let mut count = 0_usize;
     let mut results = vec![];
-    // TODO this shouldn't be necessary
     let rconf = ReadFlatTEXTConfig {
         flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
         shared: AsRef::<ReadSharedConfig>::as_ref(conf).clone(),
@@ -1001,15 +993,7 @@ impl FlatTEXTOutput {
     where
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
-        // TODO not DRY, make this a method
-        let hs = &self.parse.header_segments;
-        let segs = NonDataSegments::new(
-            hs.text,
-            hs.data,
-            hs.analysis,
-            &hs.other[..],
-            self.parse.supp_text.as_ref().copied(),
-        );
+        let segs = self.parse.non_data_segments();
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
             |(standardized, extra, offsets)| {
                 let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
@@ -1036,7 +1020,6 @@ impl FlatTEXTOutput {
         let d = hs.data;
         let a = hs.analysis;
         let o = &hs.other[..];
-        // TODO this should take all previous segments into account
         AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
             .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
     }
@@ -1154,6 +1137,7 @@ where
                 })
         })
         .and_then_commutative(|flat| {
+            // TODO these can be done earlier
             let p = &flat.parse;
             let na = p
                 .as_non_ascii_errors(conf)
@@ -1236,7 +1220,6 @@ fn split_flat_supp_text(
     }
 }
 
-// TODO this will fail early
 fn split_flat_text_inner(
     kws: &mut ParsedKeywords,
     delim: u8,
@@ -1251,7 +1234,6 @@ fn split_flat_text_inner(
     }
 }
 
-// TODO this will fail early
 fn split_flat_text_literal_delim(
     kws: &mut ParsedKeywords,
     delim: u8,
@@ -1560,12 +1542,6 @@ where
     })
 }
 
-// TODO the reason we use get instead of remove here is because we don't want to
-// mess up the keyword list for flat mode, but in standardized mode we are
-// consuming the hash table as a way to test for pseudostandard keywords (ie
-// those that are left over). In order to reconcile these, we either need to
-// make two flat text reader functions which either take immutable or mutable kws
-// or use a more clever hash table that marks keys when we see them.
 fn lookup_nextdata(
     kws: &StdKeywords,
     flag: AllowMissingNextdata,
@@ -1611,6 +1587,17 @@ impl FlatTEXTParseData {
                 .map(|(key, value)| NonUtf8KeywordError { key, value });
             LogResult::new_err_from_iter(es, ())
         }
+    }
+
+    fn non_data_segments(&self) -> NonDataSegments<'_> {
+        let hs = &self.header_segments;
+        NonDataSegments::new(
+            hs.text,
+            hs.data,
+            hs.analysis,
+            &hs.other[..],
+            self.supp_text.as_ref().copied(),
+        )
     }
 }
 

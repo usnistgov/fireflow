@@ -186,7 +186,15 @@ fn main() -> Result<(), ()> {
 
     let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of words.");
 
-    let allow_empty = flag_arg(ALLOW_EMPTY, "Allow keys to have blank values.");
+    let allow_empty_keys = flag_arg(
+        ALLOW_EMPTY_KEYS,
+        "Allow keys to be blank (relatively rare).",
+    );
+
+    let allow_empty_values = flag_arg(
+        ALLOW_EMPTY_VALUES,
+        "Allow values to be blank (relatively common).",
+    );
 
     let allow_delim_at_bound = flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
@@ -321,7 +329,8 @@ fn main() -> Result<(), ()> {
         missing_final_delim,
         allow_non_unique,
         allow_odd,
-        allow_empty,
+        allow_empty_keys,
+        allow_empty_values,
         allow_delim_at_bound,
         allow_non_utf8,
         use_latin1,
@@ -951,7 +960,8 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
         allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
         allow_odd: sargs.get_flag(ALLOW_ODD).into(),
-        allow_empty: sargs.get_flag(ALLOW_EMPTY).into(),
+        allow_empty_keys: sargs.get_flag(ALLOW_EMPTY_KEYS).into(),
+        allow_empty_values: sargs.get_flag(ALLOW_EMPTY_VALUES).into(),
         allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY).into(),
         allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8).into(),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
@@ -1271,7 +1281,9 @@ const ALLOW_NON_UNIQUE: &str = "allow-non-unique";
 
 const ALLOW_ODD: &str = "allow-odd";
 
-const ALLOW_EMPTY: &str = "allow-empty";
+const ALLOW_EMPTY_KEYS: &str = "allow-empty-keys";
+
+const ALLOW_EMPTY_VALUES: &str = "allow-empty-values";
 
 const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
 

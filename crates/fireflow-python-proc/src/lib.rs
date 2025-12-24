@@ -7165,7 +7165,8 @@ impl DocArgParam {
             Self::new_allow_missing_final_delim(),
             Self::new_allow_nonunique(),
             Self::new_allow_odd(),
-            Self::new_allow_empty(),
+            Self::new_allow_empty_keys(),
+            Self::new_allow_empty_values(),
             Self::new_allow_delim_at_boundary(),
             Self::new_allow_non_utf8(),
             Self::new_use_latin1(),
@@ -7685,10 +7686,18 @@ impl DocArgParam {
         Self::new_bool_param("allow_odd", d)
     }
 
-    fn new_allow_empty() -> Self {
-        let d = "If ``True`` allow keys with blank values. Only relevant if \
+    fn new_allow_empty_keys() -> Self {
+        let d = "If ``True`` allow keys to be blank. Only relevant if \
                  ``use_literal_delims`` is also ``True``.";
-        Self::new_bool_param("allow_empty", d)
+        Self::new_bool_param("allow_empty_keys", d)
+    }
+
+    fn new_allow_empty_values() -> Self {
+        let d = "If ``True`` allow values to be blank. Only relevant if \
+                 ``use_literal_delims`` is also ``True`` and value is blank \
+                 or if ``trim_value_whitespace`` is ``True`` and value is \
+                 entirely whitespace.";
+        Self::new_bool_param("allow_empty_values", d)
     }
 
     fn new_allow_delim_at_boundary() -> Self {

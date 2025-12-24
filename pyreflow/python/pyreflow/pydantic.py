@@ -45,7 +45,8 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_missing_final_delim: bool = False
     allow_nonunique: bool = False
     allow_odd: bool = False
-    allow_empty: bool = False
+    allow_empty_keys: bool = False
+    allow_empty_values: bool = False
     allow_delim_at_boundary: bool = False
     allow_non_utf8: bool = False
     use_latin1: bool = False

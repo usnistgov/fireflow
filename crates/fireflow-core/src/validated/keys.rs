@@ -755,7 +755,7 @@ impl ParsedKeywords {
         let check_trim = |trimmed| {
             if AsRef::<str>::as_ref(&trimmed).is_empty() {
                 let e = BlankValueError(k.to_vec());
-                SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty)
+                SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty_values)
                     .switchable_into_commutative()
             } else {
                 LogResult::new_ok(Some(trimmed))

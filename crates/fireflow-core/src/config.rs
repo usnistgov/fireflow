@@ -368,13 +368,31 @@ pub struct ReadHeaderAndTEXTConfig {
     /// will be dropped as it has no obvious interpretation.
     pub allow_odd: AllowOdd,
 
-    /// If `true`, allow keys with blank values.
+    /// If `true`, allow blank keys.
     ///
-    /// Only relevant if `use_literal_delims` is also `true` since blank values
+    /// Only relevant if `use_literal_delims` is also `true` since blank keys
     /// cannot exist when delimiters are escaped. Blank values will be dropped
     /// regardless of this flag; setting it to `false` will trigger an error,
     /// otherwise a warning.
-    pub allow_empty: AllowEmpty,
+    ///
+    /// In practice blank values happen much more often than blank keys, so
+    /// presence of blank keys probably indicates that word which is really
+    /// a value is somehow being parsed as a key.
+    pub allow_empty_keys: AllowEmptyKeys,
+
+    /// If `true`, allow blank values.
+    ///
+    /// These can arise if a) [`Self::use_literal_delims`] is `true` and some
+    /// values are literally zero bytes long or b)
+    /// [`Self::trim_value_whitespace`] is `true` and values which are entirely
+    /// whitespace are trimmed to zero bytes. Both are relatively common in
+    /// practice despite being non-standard. Given this and the fact that
+    /// whitespace generally has little meaning for keyword values, this flag
+    /// is almost always safe to set as `true`.
+    ///
+    /// Blank values will be dropped regardless of this flag; setting it to
+    /// `false` will trigger an error, otherwise a warning.
+    pub allow_empty_values: AllowEmptyValues,
 
     /// If `true`, allow delimiters at word boundaries.
     ///
@@ -439,8 +457,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// preceding any other repair steps. Furthermore, trimming values has a
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
-    /// are entirely whitespace will become empty and thus be dropped. Note
-    /// that these will result in errors if [`Self::allow_empty`] is `false`.
+    /// are entirely whitespace will become empty and thus be dropped. Note that
+    /// these will result in errors if [`Self::allow_empty_values`] is `false`.
     pub trim_value_whitespace: TrimValueWhitespace,
 
     /// If `true` remove whitespace after TEXT.
@@ -967,7 +985,8 @@ impl_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_error_flag!(false_is_error AllowNonunique);
 impl_error_flag!(false_is_error AllowOdd);
-impl_error_flag!(false_is_error AllowEmpty);
+impl_error_flag!(false_is_error AllowEmptyKeys);
+impl_error_flag!(false_is_error AllowEmptyValues);
 impl_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_error_flag!(false_is_error AllowNonUtf8);
 impl_config_flag!(UseLatin1);

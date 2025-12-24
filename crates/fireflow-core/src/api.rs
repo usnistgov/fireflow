@@ -1251,7 +1251,8 @@ fn split_flat_text_literal_delim(
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut blank_errors = vec![];
+    let mut blank_keys = vec![];
+    let mut blank_vals = vec![];
     let mut insert_results = vec![];
 
     let mut it = bytes.split(|x| *x == delim);
@@ -1265,7 +1266,7 @@ fn split_flat_text_literal_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_word = value;
-                blank_errors.push(BlankKeyError(tk).into());
+                blank_keys.push(BlankKeyError(tk));
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -1275,7 +1276,7 @@ fn split_flat_text_literal_delim(
             prev_was_key = false;
             prev_word = value;
             if value.is_empty() {
-                blank_errors.push(BlankValueError(key.to_vec()).into());
+                blank_vals.push(BlankValueError(key.to_vec()));
             } else {
                 let e = kws
                     .insert(key, value, conf)
@@ -1315,9 +1316,15 @@ fn split_flat_text_literal_delim(
     let final_delim_res = (!trim_trailing)
         .then(|| check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative());
 
-    // TODO this includes blanks keys and blank values (which are different failure types)
-    let blank_res = LogResult::new_switchable_iter((), (), blank_errors, conf.allow_empty)
-        .switchable_into_commutative();
+    let blank_key_res =
+        SwitchableErrorsResult::new_switchable_iter((), (), blank_keys, conf.allow_empty_keys)
+            .map_switchable_errors(ParseKeywordsIssue::from)
+            .switchable_into_commutative();
+
+    let blank_val_res =
+        SwitchableErrorsResult::new_switchable_iter((), (), blank_vals, conf.allow_empty_values)
+            .map_switchable_errors(ParseKeywordsIssue::from)
+            .switchable_into_commutative();
 
     // TODO this is one instance where it could be inefficient to chain together
     // lots of options, which are stack allocated but need to be converted to
@@ -1327,7 +1334,7 @@ fn split_flat_text_literal_delim(
     insert_results
         .into_iter()
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, blank_res])
+        .chain([uneven_res, blank_key_res, blank_val_res])
         .chain(final_delim_res)
         .mappend_def_void()
 }

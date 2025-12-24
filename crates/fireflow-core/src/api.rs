@@ -838,11 +838,29 @@ pub struct EvenFinalDelimError;
 /// Error when delimiter is found at word boundary.
 ///
 /// This can only happen in escaped TEXT
-#[derive(Debug, Error)]
-#[error("delimiter encountered at word boundary in Primary TEXT")]
+#[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct DelimBoundError;
+pub struct DelimBoundError {
+    bytes: Vec<u8>,
+    kind: TEXTKind,
+}
+
+impl fmt::Display for DelimBoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let seq = if let Ok(s) = str::from_utf8(&self.bytes) {
+            format!("string '{s}'")
+        } else {
+            format!("byte sequence {:?}", self.bytes)
+        };
+        write!(
+            f,
+            "escaped delimiter encountered before unescaped delimiter and \
+             after {seq} in {} TEXT",
+            self.kind
+        )
+    }
+}
 
 /// Error when delimiter of supplemental TEXT does not match primary TEXT
 #[derive(Debug, Clone, Error, new)]
@@ -1350,6 +1368,9 @@ fn split_flat_text_escaped_delim(
             consec_blanks += 1;
         } else {
             if consec_blanks & 1 == 0 {
+                if consec_blanks > 0 {
+                    boundary_errors.push(DelimBoundError::new(segment.to_vec(), tk).into());
+                }
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
@@ -1362,10 +1383,6 @@ fn split_flat_text_escaped_delim(
                 } else {
                     // this should only be reached on first iteration
                     keybuf.extend_from_slice(segment);
-                }
-                if consec_blanks > 0 {
-                    // TODO should probably say which boundary
-                    boundary_errors.push(DelimBoundError.into());
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -1411,7 +1428,12 @@ fn split_flat_text_escaped_delim(
     let mut even_delim_err = None;
 
     if consec_blanks > 1 {
-        boundary_errors.push(DelimBoundError.into());
+        let seg = if valuebuf.is_empty() {
+            keybuf.clone()
+        } else {
+            valuebuf.clone()
+        };
+        boundary_errors.push(DelimBoundError::new(seg, tk).into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
         if consec_blanks & 1 == 1 {

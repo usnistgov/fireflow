@@ -2585,7 +2585,7 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = pfp.ReadStdDatasetConfig()
+        conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_dataset(p, **conf.model_dump(), dataset_offset=0)
             _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump())
@@ -2597,7 +2597,7 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = pfp.ReadStdDatasetConfig()
+        conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = conf.read_std_dataset(p)
             _ = conf.read_std_datasets(p)

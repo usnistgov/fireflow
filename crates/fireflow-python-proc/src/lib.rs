@@ -7158,6 +7158,7 @@ impl DocArgParam {
         let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
+            Self::new_nextdata_correction(),
             Self::new_allow_overlapping_supp_text(),
             Self::new_ignore_supp_text(),
             Self::new_use_literal_delims(),
@@ -7634,6 +7635,11 @@ impl DocArgParam {
             false,
             "SupplementalTextSegmentId",
         )
+    }
+
+    fn new_nextdata_correction() -> Self {
+        let d = "Correction for *$NEXTDATA*.";
+        Self::new_param("nextdata_correction", PyInt::new_int(RsInt::I32), d).def_auto()
     }
 
     fn new_allow_overlapping_supp_text() -> Self {

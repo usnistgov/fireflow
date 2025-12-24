@@ -1968,6 +1968,7 @@ def fcs_read_flat_text(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2015,6 +2016,7 @@ def fcs_read_std_text(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2095,6 +2097,7 @@ def fcs_read_flat_dataset(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2160,6 +2163,7 @@ def fcs_read_std_dataset(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2247,6 +2251,7 @@ def fcs_read_flat_texts(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2295,6 +2300,7 @@ def fcs_read_std_texts(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2376,6 +2382,7 @@ def fcs_read_flat_datasets(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2442,6 +2449,7 @@ def fcs_read_std_datasets(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,
@@ -2560,6 +2568,7 @@ def fcs_summarize(
     # flat args
     version_override: FCSVersion | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
+    nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
     ignore_supp_text: bool = False,
     use_literal_delims: bool = False,

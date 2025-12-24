@@ -1,7 +1,7 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AllowMissingFinalDelim, AllowMissingNextdata, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
     ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets,
@@ -1124,7 +1124,7 @@ where
             }
         })
         .and_then_commutative(|(delim, mut kws, supp_text_seg)| {
-            let nextdata_res = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
+            let nextdata_res = lookup_nextdata(&kws.std, conf)
                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                 .map_errors(ParseFlatTEXTError::from)
                 .into_semigroup();
@@ -1560,9 +1560,9 @@ where
 
 fn lookup_nextdata(
     kws: &StdKeywords,
-    flag: AllowMissingNextdata,
+    conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
-    let ret = if flag.is_set() {
+    let ret = if conf.allow_missing_nextdata.is_set() {
         Nextdata::get_metaroot_req(kws)
             .map(Some)
             .into_log()
@@ -1570,7 +1570,17 @@ fn lookup_nextdata(
     } else {
         LogResult::Succ(Nextdata::get_root_opt(kws).into_succ())
     };
-    ret.map_deferred_value(|x| x.map(|y| u64::from(y.0)))
+    ret.map_deferred_value(|x| {
+        x.map(|y| {
+            let c = i128::from(conf.nextdata_correction);
+            let z = i128::from(y.0).saturating_add(c);
+            if z < 0 {
+                0_u64
+            } else {
+                u64::try_from(z).unwrap_or(u64::MAX)
+            }
+        })
+    })
 }
 
 fn non_ascii_errors(

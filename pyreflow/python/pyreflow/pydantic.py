@@ -38,6 +38,7 @@ class PyreflowHeaderConfig(BaseModel):
 class _ReadFlatTEXTConfig(BaseModel):
     version_override: pft.FCSVersion | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
+    nextdata_correction: int = 0
     allow_overlapping_supp_text: bool = False
     ignore_supp_text: bool = False
     use_literal_delims: bool = False

@@ -303,7 +303,6 @@ pub struct ReadHeaderInnerConfig {
 }
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
-// TODO add correction for $NEXTDATA
 #[derive(Default, Clone, AsRef)]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
@@ -317,6 +316,12 @@ pub struct ReadHeaderAndTEXTConfig {
     /// Corrections for supplemental TEXT segment
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
+
+    /// Correction to apply to $NEXTDATA.
+    ///
+    /// Will only be applied if $NEXTDATA is non-zero. If $NEXTDATA is negative
+    /// after applying this option, it will be truncated to zero.
+    pub nextdata_correction: i32,
 
     /// If `true`, allow STEXT to exactly match the HEADER offsets for TEXT.
     ///

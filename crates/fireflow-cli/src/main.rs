@@ -151,6 +151,11 @@ fn main() -> Result<(), ()> {
     let supp_text_correction_begin = correction_arg(SUPP_TEXT_COR_BEGIN, true, &supp_text_seg);
     let supp_text_correction_end = correction_arg(SUPP_TEXT_COR_END, false, &supp_text_seg);
 
+    let nextdata_correction = Arg::new(NEXTDATA_COR)
+        .long(NEXTDATA_COR)
+        .value_name("INT")
+        .help(format!("Correction for {}", kw_style.paint("$NEXTDATA")));
+
     let allow_overlapping_supp_text = flag_arg(
         ALLOW_OVERLAPPING_SUPP_TEXT,
         format!(
@@ -322,6 +327,7 @@ fn main() -> Result<(), ()> {
         version_override,
         supp_text_correction_begin,
         supp_text_correction_end,
+        nextdata_correction,
         allow_overlapping_supp_text,
         ignore_supp_text,
         lit_delims,
@@ -923,6 +929,8 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
 
+    let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
+
     let to_blank = |s: &str| (s.to_owned(), ());
 
     let ignore_standard_keys =
@@ -953,6 +961,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
+        nextdata_correction,
         allow_overlapping_supp_text: sargs.get_flag(ALLOW_OVERLAPPING_SUPP_TEXT).into(),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         use_literal_delims: sargs.get_flag(LIT_DELIMS).into(),
@@ -1266,6 +1275,8 @@ const VERSION_OVERRIDE: &str = "version-override";
 
 const SUPP_TEXT_COR_BEGIN: &str = "supp-text-correction-begin";
 const SUPP_TEXT_COR_END: &str = "supp-text-correction-end";
+
+const NEXTDATA_COR: &str = "nextdata-correction";
 
 const ALLOW_OVERLAPPING_SUPP_TEXT: &str = "allow-overlapping-supp-text";
 

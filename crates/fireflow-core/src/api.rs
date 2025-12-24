@@ -17,11 +17,11 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
-    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, io_to_log, split_log,
+    DeferredErrors, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors,
+    IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
+    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
@@ -1119,12 +1119,19 @@ where
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
+            let na_res = non_ascii_errors(&kws.non_ascii, conf)
+                .map_errors(ParseFlatTEXTError::from)
+                .nowarn_into_warn();
+            let be_res = byte_errors(&kws.byte_pairs, conf)
+                .map_errors(ParseFlatTEXTError::from)
+                .nowarn_into_warn();
+
             nextdata_res
-                .zip_f2_once(repair_res)
+                .zip_f4_once(repair_res, na_res, be_res)
                 .set_err_value(())
                 .group()
                 .map_error(IOErrorGroup::Pure)
-                .map_ok_value(|(nextdata, ())| {
+                .map_ok_value(|(nextdata, (), (), ())| {
                     let parse = FlatTEXTParseData::new(
                         header.segments,
                         supp_text_seg,
@@ -1135,21 +1142,6 @@ where
                     );
                     FlatTEXTOutput::new(header.version, vkws, parse)
                 })
-        })
-        .and_then_commutative(|flat| {
-            // TODO these can be done earlier
-            let p = &flat.parse;
-            let na = p
-                .as_non_ascii_errors(conf)
-                .map_errors(ParseFlatTEXTError::from);
-            let be = p.as_byte_errors(conf).map_errors(ParseFlatTEXTError::from);
-            [na, be]
-                .into_iter()
-                .mappend_commutative()
-                .group()
-                .map_errors(IOErrorGroup::Pure)
-                .nowarn_into_warn()
-                .map_ok_value(|_| flat)
         })
 }
 
@@ -1557,38 +1549,34 @@ fn lookup_nextdata(
     ret.map_deferred_value(|x| x.map(|y| u64::from(y.0)))
 }
 
+fn non_ascii_errors(
+    non_ascii: &NonAsciiPairs,
+    conf: &ReadHeaderAndTEXTConfig,
+) -> DeferredErrors<(), NonAsciiKeyError> {
+    if conf.allow_non_ascii_keywords.is_set() {
+        LogResult::new_ok(())
+    } else {
+        let es = non_ascii.iter().map(|(k, _)| NonAsciiKeyError(k.clone()));
+        LogResult::new_err_from_iter(es, ())
+    }
+}
+
+fn byte_errors(
+    byte_pairs: &BytesPairs,
+    conf: &ReadHeaderAndTEXTConfig,
+) -> DeferredErrors<(), NonUtf8KeywordError> {
+    if conf.allow_non_utf8.is_set() {
+        LogResult::new_ok(())
+    } else {
+        let es = byte_pairs
+            .iter()
+            .cloned()
+            .map(|(key, value)| NonUtf8KeywordError { key, value });
+        LogResult::new_err_from_iter(es, ())
+    }
+}
+
 impl FlatTEXTParseData {
-    fn as_non_ascii_errors(
-        &self,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredErrors<(), NonAsciiKeyError> {
-        if conf.allow_non_ascii_keywords.is_set() {
-            LogResult::new_ok(())
-        } else {
-            let es = self
-                .non_ascii
-                .iter()
-                .map(|(k, _)| NonAsciiKeyError(k.clone()));
-            LogResult::new_err_from_iter(es, ())
-        }
-    }
-
-    fn as_byte_errors(
-        &self,
-        conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredErrors<(), NonUtf8KeywordError> {
-        if conf.allow_non_utf8.is_set() {
-            LogResult::new_ok(())
-        } else {
-            let es = self
-                .byte_pairs
-                .iter()
-                .cloned()
-                .map(|(key, value)| NonUtf8KeywordError { key, value });
-            LogResult::new_err_from_iter(es, ())
-        }
-    }
-
     fn non_data_segments(&self) -> NonDataSegments<'_> {
         let hs = &self.header_segments;
         NonDataSegments::new(

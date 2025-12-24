@@ -680,7 +680,7 @@ requires-dist = [
     { name = "numpy", specifier = "==2.3.2" },
     { name = "polars", specifier = "==1.26.0" },
     { name = "pyarrow", specifier = ">7.0.0" },
-    { name = "pydantic", marker = "extra == 'pydantic'" },
+    { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2" },
 ]
 provides-extras = ["pydantic"]
 

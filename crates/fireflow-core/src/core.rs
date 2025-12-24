@@ -1543,7 +1543,7 @@ pub trait VersionedMetaroot: Sized {
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink>;
 
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>>;
+    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>>;
 
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
@@ -1635,6 +1635,8 @@ pub trait VersionedMetaroot: Sized {
         o: Self::Optical,
     ) -> (Self::Optical, Self::Temporal);
 }
+
+pub trait DeprecatedMetaroot: Sized {}
 
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
@@ -4450,7 +4452,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // keyval is not relevant (error = crash).
         let keep = xfer_flag.is_set();
         let do_demote = dep_flag.is_set() && xfer_flag.is_set();
-        for mut d in self.metaroot.specific.deprecated() {
+        for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {
                 d.demote(&mut self.metaroot.nonstandard_keywords, keep);
             }
@@ -8240,7 +8242,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         Compensation2_0::remove_invalid_link(&mut self.comp, *par).into_iter()
     }
 
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
         empty()
     }
 
@@ -8339,7 +8341,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         comp.into_iter().chain(ag)
     }
 
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
         empty()
     }
 
@@ -8443,8 +8445,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
             .chain(spill.map(RemovedLink::from))
     }
 
-    // TODO these traits should be private since they leak internal mutable state
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
         self.applied_gates.deprecated().map(DeprecatedRef::from)
     }
 
@@ -8561,7 +8562,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             .chain(uc.map(RemovedLink::from))
     }
 
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedRef<'_>> {
+    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
         let a = self.timestamps.deprecated().map(DeprecatedRef::from);
         let b = DeprecatedRef::from(&mut self.mode);
         let c = self.applied_gates.0.deprecated().map(DeprecatedRef::from);

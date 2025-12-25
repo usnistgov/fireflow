@@ -29,7 +29,7 @@ use crate::segment::{
     NonDataSegments, OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError,
     SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::keywords::{Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
+use crate::text::keywords::{AlphaNumType, Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
@@ -533,7 +533,9 @@ pub struct DatasetSummary {
 
     /// Total length of OTHER segments (in bytes)
     pub others_len: usize,
-    // TODO add data layout information
+
+    /// The value of $DATATYPE
+    pub datatype: Option<AlphaNumType>,
 }
 
 impl FlatDatasetOutput {
@@ -547,6 +549,7 @@ impl FlatDatasetOutput {
             n_measurements: self.dataset.data.ncols(),
             n_other: self.dataset.others.0.len(),
             others_len: self.dataset.others.0.iter().map(|x| x.0.len()).sum(),
+            datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
         }
     }
 }

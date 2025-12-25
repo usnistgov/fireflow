@@ -934,6 +934,13 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.others_len),
     );
 
+    let datatype = DocArgROIvar::new_ivar_ro(
+        "datatype",
+        PyOpt::new(PyLiteral::new_datatype()),
+        "The value of *$DATATYPE*",
+        |_, _| quote!(self.0.datatype),
+    );
+
     let args = [
         version,
         text_len,
@@ -943,6 +950,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         n_measurements,
         n_other,
         others_len,
+        datatype,
     ];
 
     let doc = DocString::new_class("High-level data describing an FCS dataset").args(args);

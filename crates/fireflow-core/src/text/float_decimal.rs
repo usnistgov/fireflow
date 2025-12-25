@@ -12,6 +12,9 @@ use std::marker::PhantomData;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::DisplayAsPyErr;
+
 /// A big decimal which has been validated to be within the range of a float.
 #[derive(Clone, Into, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -123,6 +126,8 @@ impl HasFloatBounds for f64 {
 /// The only reason this may fail is due to being over or under the max/min
 /// range of the target value.
 #[derive(Debug)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,

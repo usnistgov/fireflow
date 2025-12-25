@@ -3267,10 +3267,6 @@ impl FromRange for AnyNullBitmask {
 }
 
 impl FromRange for NullMixedType {
-    // TODO this error is a bit weird here because its message pertains to
-    // inserting new ranges into layouts, but this has nothing to do with this
-    // trait. It just so happens that the only use cases we have for this
-    // are inserting/pushing new ranges, so it works out.
     type Error = InsertRangeError;
 
     /// Create a mixed type based on the range.
@@ -3296,7 +3292,6 @@ impl FromRange for NullMixedType {
                 )
                 .map_or_else(
                     |e| {
-                        // TODO kinda not dry
                         let m = if e.over {
                             f64::max_decimal()
                         } else {
@@ -3993,16 +3988,6 @@ impl DataLayout3_2 {
         }
     }
 
-    // pub fn datatypes(&self) -> NonEmpty<AlphaNumType> {
-    //     match self {
-    //         // somewhat hacky way of getting a nonempty in a type-safe way
-    //         Self::NonMixed(x) => LayoutOps::ranges(x)
-    //             .as_ref()
-    //             .map(|_| LayoutOps::datatype(x)),
-    //         Self::Mixed(x) => x.columns.as_ref().map(|y| y.datatype()),
-    //     }
-    // }
-
     /// A dummy layout, used to make [`std::mem::replace`] work; not meaninful.
     fn mixed_dummy() -> Self {
         NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(vec![]))).into()
@@ -4218,7 +4203,6 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
-    // TODO this is almost like the 3.2 version
     fn lookup_inner(
         datatype: LookupDatatypeResult<AlphaNumType>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
@@ -4543,6 +4527,8 @@ pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
 /// Inner error for [`IndexedRangeToAsciiError`] without the index
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum RangeToAsciiError {
     #[error("its value {0} cannot be represented with 8 bytes")]
     Over(BigDecimal),
@@ -4726,7 +4712,6 @@ pub enum ReadFixedAsciiError {
     ToUint(AsciiToUintError),
 }
 
-// TODO this is probably redundant
 /// Error when reading event value in ASCII layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -4925,8 +4910,7 @@ pub struct MixedToNonMixedError {
 
 /// Error when attempting to insert new [`Range`] into a layout.
 #[derive(From, Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertRangeError {
     #[error("could not insert range into ASCII layout because {0}")]
     #[from(RangeToAsciiError)]
@@ -4944,6 +4928,8 @@ pub enum InsertRangeError {
 /// This is separate from RangeToBitmaskError since we need different error
 /// messages here given that $PnR and $PnB do not apply to newly supply ranges.
 #[derive(From, Debug)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub struct RangeToNewBitmaskError(RangeToBitmaskError);
 
 impl fmt::Display for RangeToNewBitmaskError {
@@ -5091,21 +5077,16 @@ mod python {
     use pyo3::conversion::FromPyObjectBound;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-    use std::fmt;
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
     where
         for<'a> T: FromPyObjectBound<'a, 'py> + HasFloatBounds,
         FloatDecimal<T>: TryFrom<BigDecimal>,
-        <FloatDecimal<T> as TryFrom<BigDecimal>>::Error: fmt::Display,
+        PyErr: From<<FloatDecimal<T> as TryFrom<BigDecimal>>::Error>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<BigDecimal>()?;
-            FloatDecimal::try_from(x)
-                .map(Self::new)
-                // TODO all this conversion shouldn't be necessary, we need
-                // to manually specify the same error for each rust->py conversion
-                .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))
+            Ok(FloatDecimal::try_from(x).map(Self::new)?)
         }
     }
 

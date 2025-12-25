@@ -6907,7 +6907,7 @@ impl DocArgParam {
     }
 
     fn new_dataset_offset_param() -> Self {
-        let desc = "Starting position in the file of the dataset to be read";
+        let desc = "Starting position in the file of the dataset to be read.";
         Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
     }
 

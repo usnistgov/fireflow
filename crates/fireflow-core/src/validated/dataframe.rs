@@ -373,7 +373,6 @@ where
     Self: Sized + Copy,
     [Self]: ToOwned,
 {
-    // TODO this feels very similar to the existing trait which encodes native types
     const NATIVE: FCSDatatype;
 
     /// Return iterator for column, converting to native type on the fly.
@@ -591,8 +590,6 @@ impl_cast_float_to_int_lossy!(f64, u16);
 impl_cast_float_to_int_lossy!(f64, u32);
 impl_cast_float_to_int_lossy!(f64, u64);
 
-// TODO there are plenty of cases where this isn't lossy, but it's not clear
-// where the line should be drawn
 impl NumCast<f64> for f32 {
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::float_cmp)]

@@ -4623,6 +4623,7 @@ where
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
     {
+        // TODO add dataset_offset to segments here
         let segs = NonDataSegments::new(
             PrimaryTextSegment::default(),
             data_seg,

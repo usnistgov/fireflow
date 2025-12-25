@@ -369,7 +369,6 @@ impl TryFrom<ByteOrd2_0> for Endian {
     }
 }
 
-// TODO add option to remove spaces around commas if they exist
 impl FromStr for Endian {
     type Err = NewEndianError;
 

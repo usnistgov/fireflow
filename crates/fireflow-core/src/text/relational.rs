@@ -57,15 +57,6 @@ use {
     std::fmt::Display,
 };
 
-// // TODO this actually should include everything
-// /// Indices from all measurements except time if present
-// #[derive(AsRef, From)]
-// pub struct MeasIndicesNoTime(pub(crate) HashSet<MeasIndex>);
-
-// /// $PnN ([`Shortname`]s) from all measurements except time if present
-// #[derive(AsRef, From)]
-// pub struct MeasNamesNoTime<'a>(pub(crate) HashSet<&'a Shortname>);
-
 /// $PnN ([`Shortname`]s) from optical measurements that are pending removal
 #[derive(AsRef, From)]
 pub struct OpticalNamesToRemove<'a>(pub(crate) HashSet<&'a Shortname>);

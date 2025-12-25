@@ -723,17 +723,6 @@ impl<I> GatingScheme<I> {
         }
     }
 
-    // fn indices_difference(
-    //     &self,
-    //     indices: &MeasIndicesNoTime,
-    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
-    // where
-    //     I: LinkedMeasIndex,
-    // {
-    //     self.meas_indices()
-    //         .filter(|(_, mi)| !indices.as_ref().contains(mi))
-    // }
-
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
@@ -741,10 +730,6 @@ impl<I> GatingScheme<I> {
     where
         I: LinkedMeasIndex,
     {
-        // TODO this will print one error for every measurement index even in
-        // cases where one RnI keyword has a pair of indices. This isn't a huge
-        // deal but it means we could have twice as many error messages as
-        // otherwise.
         self.meas_indices()
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
@@ -1404,7 +1389,6 @@ pub enum LookupAppliedGatesError<E> {
 }
 
 /// Error when $RnI keywords reference nonexistent $Gn* keywords
-// TODO this seems like it should be a general link error
 #[derive(Debug, Error)]
 #[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

@@ -1163,7 +1163,6 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let coredataset_new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                // TODO hide this in core.rs
                 let x = #fun(#coretext_inner_args)
                     .group_with(fireflow_core::core::NewCoreDatasetSummary)
                     .resolve_nowarn()?;
@@ -5745,8 +5744,6 @@ impl<E> PyList<E> {
     fn new1(inner: impl Into<PyType<E>>) -> Self {
         Self::new(inner, None, None)
     }
-
-    // TODO impl rstype?
 
     fn exc(self, exc: impl Into<E>) -> Self {
         Self::new(self.inner, self.rstype, Some(exc.into()))

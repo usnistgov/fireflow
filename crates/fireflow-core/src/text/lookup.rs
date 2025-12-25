@@ -326,8 +326,6 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        // TODO don't actually move any keys if we are simply going to return
-        // a fatal error
         Self::remove_or_transfer_opt(std, nonstd, k, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())

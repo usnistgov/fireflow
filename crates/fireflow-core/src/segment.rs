@@ -1518,16 +1518,13 @@ mod python {
         T: FromPyObject<'py> + Zero + Ord,
         u64: From<T>,
     {
-        // TODO probably not DRY
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (T, T) = ob.extract()?;
             let ret = if begin > end {
-                // TODO this choice of error seems weird. It isn't really a
-                // FileLayoutError since this conversion will be used for cases
-                // where segments are supplied as arguments, in which case they
-                // are not part of a file. But this also isn't really a "config"
-                // option, unless we think about this as "configuring" the
-                // reader function to tell it where to scan in the file
+                // Use ConfigError because these offsets will be supplied to
+                // functions which "configure" a reader to look in a certain
+                // location for something (a stretch, but that's the closest we
+                // have now)
                 Err(ConfigError::new_err("offset begin is greater than end"))
             } else if begin == T::zero() && end == T::zero() {
                 Ok(InnerSegment::Empty)

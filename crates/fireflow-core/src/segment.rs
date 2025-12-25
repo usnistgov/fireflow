@@ -956,7 +956,8 @@ impl<I: Copy> HeaderSegment<I> {
         let remaining = st.remaining_bytes(h)?;
 
         if remaining < 16 {
-            let e = OffsetsNoBytesError::new(remaining, 16, I::REGION, AnySrc::Header);
+            let pos = h.stream_position()?;
+            let e = OffsetsNoBytesError::new(pos, remaining, 16, I::REGION, AnySrc::Header);
             return Err(IOErrorGroup::new_pure_one(e.into()));
         }
 
@@ -1070,9 +1071,10 @@ impl OtherSegment20 {
 
             let remaining = st.remaining_bytes(h)?;
 
-            // TODO this won't say which OTHER offset has just failed
             if remaining < total_width {
+                let pos = h.stream_position()?;
                 let e = OffsetsNoBytesError::new(
+                    pos,
                     remaining,
                     total_width,
                     AnyRegion::Other,
@@ -1305,10 +1307,11 @@ pub enum HeaderSegmentError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 #[error(
-    "needed {required} bytes to parse {location} offset from {src}, \
-     only {remaining} bytes left in file"
+    "needed {required} bytes to parse {location} offset from {src} at byte \
+     {position}, only {remaining} bytes left in file"
 )]
 pub struct OffsetsNoBytesError {
+    position: u64,
     remaining: u64,
     required: u64,
     location: AnyRegion,

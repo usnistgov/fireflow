@@ -2391,8 +2391,6 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         self.map(Success::remove_flag)
             .map_err(Failure::nowarn_into_warn)
     }
-
-    // TODO add error eval
 }
 
 //
@@ -2796,7 +2794,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
             .repack_errors()
     }
 
-    // TODO switchable version
     pub(crate) fn into_semigroup<LWCf, RWCf>(self) -> LogResult<V, P, LWCf, RWCf, X, E, Vec<E>>
     where
         LWC: IntoNewCardinality<LWCf>,
@@ -2847,7 +2844,6 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
         self.group_with(G::default())
     }
 
-    // TODO pub only needed for python interface
     #[allow(clippy::type_complexity)]
     pub fn group_with<G>(self, s: G) -> GroupLogResult<V, P, LWC, RWC, X, E, G>
     where

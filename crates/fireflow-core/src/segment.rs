@@ -3,7 +3,8 @@
 use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative,
     AllowOptionalDropping, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ReadHeaderInnerConfig, ReadDataKeywordsConfig, ReadState, TruncateOffsets,
+    IgnoreTEXTDataOffsets, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadState,
+    TruncateOffsets,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -269,7 +270,6 @@ impl NonDataSegments<'_> {
 }
 
 /// Operations to obtain optional segment from TEXT keywords
-// TODO this doesn't need to be public
 pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;

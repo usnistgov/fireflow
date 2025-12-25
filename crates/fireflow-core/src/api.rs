@@ -1336,7 +1336,7 @@ fn split_flat_text_literal_delim(
         .map(LogResult::into_semigroup)
         .chain([uneven_res, blank_key_res, blank_val_res])
         .chain(final_delim_res)
-        .mappend_def_void()
+        .sequence_def_void()
 }
 
 fn split_flat_text_escaped_delim(
@@ -1481,7 +1481,7 @@ fn split_flat_text_escaped_delim(
         .map(LogResult::into_semigroup)
         .chain([uneven_res, even_delim_res, boundary_res])
         .chain(final_delim_res)
-        .mappend_def_void()
+        .sequence_def_void()
 }
 
 fn check_final_delimiter(

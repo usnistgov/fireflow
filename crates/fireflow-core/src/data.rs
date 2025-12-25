@@ -401,7 +401,7 @@ pub trait IsNumType: Sized {
             .iter_mut()
             .enumerate()
             .map(|(i, nkws)| Self::lookup_one(std, nkws, i.into(), conf))
-            .mappend_commutative()
+            .sequence_commutative()
     }
 
     #[must_use]
@@ -412,7 +412,7 @@ pub trait IsNumType: Sized {
     ) -> LookupMeasLayoutResult<Self> {
         (0..par.0)
             .map(|i| Self::lookup_one_ro(kws, i.into(), conf))
-            .mappend_commutative()
+            .sequence_commutative()
     }
 
     fn lookup_one(
@@ -1918,7 +1918,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                             .map_err(MixedToOrderedLayoutError::from)
                             .into_log()
                     })
-                    .mappend_commutative()
+                    .sequence_commutative()
             };
         }
 
@@ -1956,7 +1956,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                 ($iter:expr, $head:expr, $byte_layout:expr) => {
                     $iter
                         .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
-                        .mappend_commutative()
+                        .sequence_commutative()
                         .map_ok_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
                         .map_ok_value(NonMixedEndianLayout::from)
                 };
@@ -1968,7 +1968,7 @@ impl<D> EndianLayout<NullMixedType, D> {
             match c0 {
                 MixedType::Ascii(x) => it
                     .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log::<_, _, Vec<_>>())
-                    .mappend_commutative()
+                    .sequence_commutative()
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
                 MixedType::Uint(x) => from_iter!(it, x, byte_layout),
@@ -2379,7 +2379,7 @@ where
                     .map_err(IndexedLossError)
                     .into_log()
             })
-            .mappend_def_void()
+            .sequence_def_void()
     }
 
     fn h_write_df_inner<W: Write>(
@@ -2740,7 +2740,7 @@ where
                     .map_err(IndexedLossError)
                     .into_log()
             })
-            .mappend_def_void()
+            .sequence_def_void()
     }
 
     fn h_write_df_inner<W: Write>(
@@ -2899,7 +2899,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| new_col_f(i.into(), c).repack_errors())
-            .mappend_commutative()
+            .sequence_commutative()
             .map_ok_value(|columns| Self::new(columns, byte_layout))
     }
 
@@ -3464,7 +3464,7 @@ impl<T> AnyOrderedUintLayout<T> {
                         .map_err(SingleFixedWidthError::from)
                 })
                 .map(Result::into_log::<_, _, Vec<_>>)
-                .mappend_commutative()
+                .sequence_commutative()
                 .and_then_commutative(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n).unique();
                     if let Some(mismatches) = NonEmpty::collect(ws) {
@@ -3541,7 +3541,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                         .map_errors(AsciiRangeFromKeywordsError::from)
                         .repack()
                 })
-                .mappend_def()
+                .sequence_def()
                 .map_ok_value(|ranges| DelimAsciiLayout::new(ranges).into())
                 .map_err_value(|_| ())
         } else {

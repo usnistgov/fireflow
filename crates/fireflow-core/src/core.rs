@@ -3975,7 +3975,7 @@ where
                 let i = n.into();
                 M::lookup_shortname(std, meas_nonstd, i, conf.as_ref()).into_semigroup()
             })
-            .mappend_commutative()
+            .sequence_commutative()
             .map_ok_value(|mut names| {
                 let sconf: &ReadStdKeywordsConfig = conf.as_ref();
                 if sconf.dedup_measurement_names.is_set() {
@@ -4054,7 +4054,7 @@ where
                             .map_ok_value(|m| Element::NonCenter((k, m))),
                     })
             })
-            .mappend_commutative()
+            .sequence_commutative()
     }
 
     fn measurement_indexed_names(&self) -> HashMap<MeasIndex, &Shortname> {
@@ -5563,7 +5563,7 @@ impl CSVFlags {
                             .map_err(LookupCSVFlagsError::from)
                             .into_deferred_nowarn()
                     })
-                    .mappend_def()
+                    .sequence_def()
             })
             .map_deferred_value(Self)
             .nowarn_into_switchable(flag)

@@ -170,7 +170,7 @@ impl<T> HeaderSegments<T> {
         if let Some(q) = s.try_as_generic() {
             self.as_generics()
                 .map(|x| x.overlaps(&q).into_log())
-                .mappend_def()
+                .sequence_def()
                 .set_deferred_value(Some(q))
         } else {
             LogResult::new_ok(None)
@@ -206,7 +206,7 @@ impl<T> HeaderSegments<T> {
             .into_iter()
             .chain(os)
             .map(ResultExt::into_deferred_nowarn)
-            .mappend_def_void()
+            .sequence_def_void()
     }
 
     fn contains_header_segment<I, S, T0>(

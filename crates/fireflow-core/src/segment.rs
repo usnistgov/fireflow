@@ -1092,7 +1092,7 @@ impl OtherSegment20 {
 
         results
             .into_iter()
-            .mappend_commutative()
+            .sequence_commutative()
             .group()
             .resolve_nowarn()
             .map_err(IOErrorGroup::Pure)

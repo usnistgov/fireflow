@@ -186,7 +186,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
                     .into_nowarn1()
                     .repack()
             })
-            .mappend_commutative()
+            .sequence_commutative()
     }
 }
 

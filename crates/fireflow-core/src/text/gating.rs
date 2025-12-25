@@ -846,7 +846,7 @@ impl<I> GatingScheme<I> {
                                     .map_errors(LookupGatingSchemeError::Region)
                                     .map_commutative_warnings(LookupGatingSchemeError::Region)
                             })
-                            .mappend_def()
+                            .sequence_def()
                     })
                     .and_then_deferred_switchable_result(flag, |rs| {
                         let regions = rs.into_iter().flatten().collect();
@@ -1150,7 +1150,7 @@ impl GatedMeasurements {
                                 .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
                                 .map_errors(LookupGatedMeasurementsError::Meas)
                         })
-                        .mappend_def()
+                        .sequence_def()
                         .map_deferred_value(Self)
                 } else {
                     LogResult::new_ok_default()

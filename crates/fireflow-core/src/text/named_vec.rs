@@ -504,7 +504,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             ys.into_iter()
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
-                .mappend_commutative()
+                .sequence_commutative()
                 .map_errors(|i| f_error((i + offset).into(), false))
         };
 
@@ -662,7 +662,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                     let j = i + offset;
                     f(j.into(), p.value).map_ok_value(|value| Pair::new(p.key, value))
                 })
-                .mappend_commutative()
+                .sequence_commutative()
         };
         match self {
             Self::Split(s) => {
@@ -1603,7 +1603,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             xs.into_iter()
                 .enumerate()
                 .map(|(i, p)| try_go(i + offset, p).into_nowarn())
-                .mappend_commutative()
+                .sequence_commutative()
         };
         match self {
             Self::Split(s) => {

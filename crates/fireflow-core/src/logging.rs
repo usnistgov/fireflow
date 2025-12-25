@@ -91,12 +91,11 @@ pub type ErrorsResult<V, P, E> = NowarnResult<V, P, E, Vec<E>>;
 // Results with errors which can also be warnings
 //
 
-// TODO these don't need to be public
-pub type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
-pub type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
+pub(crate) type SwitchableErrorResult<V, P, X, E> = SwitchableResult<V, P, X, E, Nothing<E>>;
+pub(crate) type SwitchableErrorsResult<V, P, X, E> = SwitchableResult<V, P, X, E, Vec<E>>;
 
-pub type DeferredSwitchableError<V, X, E> = SwitchableErrorResult<V, V, X, E>;
-pub type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V, X, E>;
+pub(crate) type DeferredSwitchableError<V, X, E> = SwitchableErrorResult<V, V, X, E>;
+pub(crate) type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V, X, E>;
 
 //
 // Results with warnings and errors of differing types which are not commutable
@@ -677,8 +676,6 @@ pub(crate) trait ResultExt: Sized {
         self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
     }
 
-    // TODO versions of the above that go to errors?
-
     fn infallible_err_into<E>(self) -> Option<E>
     where
         Self: ResultExt<Ok = (), Error = Infallible>,
@@ -772,7 +769,7 @@ impl<I, V, WC> SuccessResultIter<V, WC> for I where I: Iterator<Item = Success<V
 pub(crate) trait CommutativeResultIter<T, P, WC, E, EC>:
     Iterator<Item = CommutativeResult<T, P, WC, E, EC>> + Sized
 {
-    fn mappend_commutative(mut self) -> CommutativeResult<Vec<T>, (), WC, E, EC>
+    fn sequence_commutative(mut self) -> CommutativeResult<Vec<T>, (), WC, E, EC>
     where
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
@@ -830,8 +827,7 @@ impl<I, V, P, WC, E, EC> CommutativeResultIter<V, P, WC, E, EC> for I where
 pub(crate) trait DeferredIter<T, WC, E, EC>:
     Iterator<Item = Deferred<T, WC, E, EC>> + Sized
 {
-    // TODO not DRY
-    fn mappend_def(mut self) -> Deferred<Vec<T>, WC, E, EC>
+    fn sequence_def(mut self) -> Deferred<Vec<T>, WC, E, EC>
     where
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
@@ -873,12 +869,12 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
         }
     }
 
-    fn mappend_def_void(self) -> Deferred<(), WC, E, EC>
+    fn sequence_def_void(self) -> Deferred<(), WC, E, EC>
     where
         WC: Monoid,
         EC: Extend<E> + IntoIterator<Item = E>,
     {
-        self.mappend_def().set_deferred_value(())
+        self.sequence_def().set_deferred_value(())
     }
 }
 

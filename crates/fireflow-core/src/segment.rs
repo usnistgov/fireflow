@@ -1598,6 +1598,8 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
+    // segments will be returned as tuples like (u32, u32) reflecting their
+    // exact representation in an FCS file
     impl<'py, I: HasRegion> FromPyObject<'py> for RelativeSegment<I> {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (u64, u64) = ob.extract()?;
@@ -1605,8 +1607,12 @@ mod python {
         }
     }
 
-    // segments will be returned as tuples like (u32, u32) reflecting their
-    // exact representation in an FCS file
+    // TODO this shouldn't be necessary. The only reason this is required for
+    // the python interface is because the output classes which have segments
+    // in them also have constructors for the sake of completion. These segments
+    // can't be used anywhere so there is no point in validating them, but this
+    // implies we should have yet another type just for "read-only output"
+    // segments
     impl<'py, I, S, T> FromPyObject<'py> for Segment<I, S, T>
     where
         T: FromPyObject<'py> + Zero + Ord,

@@ -17,16 +17,16 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    DeferredErrors, DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors,
-    IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
-    split_log,
+    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
+    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
+    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    HeaderAnalysisSegment, HeaderDataSegment, KeyedOptSegment as _, KeyedReqSegment as _,
-    NonDataSegments, OptSegmentError, OtherSegment20, PrimaryTextSegment, ReqSegmentError,
+    AnalysisSegmentId, DataSegmentId, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
+    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
     SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{AlphaNumType, Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
@@ -182,9 +182,9 @@ pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
     version: Version,
     std: &StdKeywords,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-    other_segs: &[OtherSegment20],
+    data_seg: RelativeSegment<DataSegmentId>,
+    analysis_seg: RelativeSegment<AnalysisSegmentId>,
+    other_segs: Vec<RelativeSegment<OtherSegmentId>>,
     dataset_offset: DatasetOffset,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
@@ -198,13 +198,26 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
-            let segs = NonDataSegments::new(
-                PrimaryTextSegment::default(),
-                data_seg,
-                analysis_seg,
-                other_segs,
-                None,
-            );
+            let data_res = data_seg
+                .relative_to_abs(dataset_offset, st.file_len)
+                .into_nowarn();
+            let anal_res = analysis_seg
+                .relative_to_abs(dataset_offset, st.file_len)
+                .into_nowarn();
+            let oss_res = other_segs
+                .into_iter()
+                .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
+                .sequence_commutative();
+            data_res
+                .zip3_commutative(anal_res, oss_res)
+                .map_errors(LookupAndReadDataAnalysisError::from)
+                .map_ok_value(|(d, a, o)| (d, a, o, st, file))
+                .nowarn_into_warn()
+                .group()
+                .map_error(IOErrorGroup::Pure)
+        })
+        .and_then_commutative(|(d, a, os, st, file)| {
+            let segs = NonDataSegments::new(PrimaryTextSegment::default(), d, a, &os[..], None);
             let mut h = BufReader::new(file);
             h_read_dataset_from_kws(&mut h, version, std, &segs, &st)
         })

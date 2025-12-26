@@ -29,8 +29,9 @@ use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, PrimaryTextSegment,
-    ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId,
+    PrimaryTextSegment, RelativeSegment, RelativeToAbsSegmentError, ReqSegmentWithDefaultError,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -4601,9 +4602,9 @@ where
     pub fn new_from_keywords<C>(
         p: &PathBuf,
         kws: ValidKeywords,
-        data_seg: HeaderDataSegment,
-        analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment20],
+        data_seg: RelativeSegment<DataSegmentId>,
+        analysis_seg: RelativeSegment<AnalysisSegmentId>,
+        other_segs: Vec<RelativeSegment<OtherSegmentId>>,
         dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
@@ -4623,19 +4624,31 @@ where
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
     {
-        // TODO add dataset_offset to segments here
-        let segs = NonDataSegments::new(
-            PrimaryTextSegment::default(),
-            data_seg,
-            analysis_seg,
-            other_segs,
-            None,
-        );
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
+                let data_res = data_seg
+                    .relative_to_abs(dataset_offset, st.file_len)
+                    .into_nowarn();
+                let anal_res = analysis_seg
+                    .relative_to_abs(dataset_offset, st.file_len)
+                    .into_nowarn();
+                let oss_res = other_segs
+                    .into_iter()
+                    .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
+                    .sequence_commutative();
+                data_res
+                    .zip3_commutative(anal_res, oss_res)
+                    .map_errors(StdDatasetFromFlatTextError::from)
+                    .map_ok_value(|(d, a, o)| (d, a, o, st, file))
+                    .nowarn_into_warn()
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+            })
+            .and_then_commutative(|(d, a, os, st, file)| {
+                let segs = NonDataSegments::new(PrimaryTextSegment::default(), d, a, &os[..], None);
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
@@ -9187,6 +9200,7 @@ pub enum StdDatasetFromFlatTextError {
     TEXT(StdTEXTFromFlatTEXTError),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
+    Segment(RelativeToAbsSegmentError),
     Warn(StdDatasetFromFlatTEXTWarning),
 }
 
@@ -9484,6 +9498,7 @@ pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),
     Dataframe(ReadDataframeError),
+    Segment(RelativeToAbsSegmentError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
 

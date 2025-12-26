@@ -29,6 +29,7 @@ use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
 use thiserror::Error;
 
+use std::any::type_name;
 use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::iter::repeat;
@@ -51,13 +52,16 @@ pub struct OffsetCorrection<I, S> {
     _src: PhantomData<S>,
 }
 
+pub type Segment<I, S, T> = OffsetSegment<I, S, T, DatasetOffset>;
+pub type RelativeSegment<I> = OffsetSegment<I, SegmentFromHeader, u64, ()>;
+
 /// A segment that is specific to a region in the FCS file.
 #[derive(Clone, Copy, new, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 #[new(visibility = "")]
-pub struct Segment<I, S, T> {
-    inner: InnerSegment<T>,
+pub struct OffsetSegment<I, S, T, O> {
+    inner: InnerSegment<T, O>,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
@@ -83,7 +87,7 @@ pub(crate) enum AnySrc {
     Text,
 }
 
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display)]
 pub(crate) enum AnyRegion {
     #[display("ANALYSIS")]
     Analysis,
@@ -194,8 +198,8 @@ pub type OptSegmentWithDefaultWarning<T> =
     OptSegmentWithDefaultWarningInner<T, <T as KeyedSegment>::B, <T as KeyedSegment>::E>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum InnerSegment<T> {
-    NonEmpty(NonEmptySegment<T>),
+enum InnerSegment<T, O> {
+    NonEmpty(NonEmptySegment<T, O>),
     #[default]
     Empty,
 }
@@ -203,7 +207,7 @@ enum InnerSegment<T> {
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-struct NonEmptySegment<T> {
+struct NonEmptySegment<T, O> {
     /// First coordinate (zero indexed)
     begin: T,
 
@@ -218,7 +222,7 @@ struct NonEmptySegment<T> {
     /// all $NEXTDATA values for all previous datasets relative to the dataset
     /// in which this segment belongs (which implies it will be zero for the
     /// first dataset)
-    dataset_offset: DatasetOffset,
+    dataset_offset: O,
 }
 
 /// Helper struct to bundle all but the DATA and ANALYSIS segments
@@ -686,6 +690,12 @@ impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetCorrection<I, S> {
     }
 }
 
+impl<I> Default for RelativeSegment<I> {
+    fn default() -> Self {
+        Self::new(InnerSegment::Empty)
+    }
+}
+
 impl<I, S, T> Default for Segment<I, S, T> {
     fn default() -> Self {
         Self::new(InnerSegment::Empty)
@@ -856,6 +866,50 @@ impl<I, S, T> Segment<I, S, T> {
         <T as TryFrom<u64>>::Error: Debug,
     {
         InnerSegment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
+    }
+}
+
+impl<I> RelativeSegment<I> {
+    fn try_new_relative(begin: u64, end: u64) -> Result<Self, RelativeSegmentError>
+    where
+        I: HasRegion,
+    {
+        let ret = if begin > end {
+            return Err(RelativeSegmentError(I::REGION));
+        } else if begin == 0 && end == 0 {
+            InnerSegment::Empty
+        } else {
+            InnerSegment::NonEmpty(NonEmptySegment::new(begin, end, ()))
+        };
+        Ok(Self::new(ret))
+    }
+
+    pub(crate) fn relative_to_abs<T>(
+        self,
+        dso: DatasetOffset,
+        fl: FileLen,
+    ) -> Result<Segment<I, SegmentFromHeader, T>, RelativeToAbsSegmentError>
+    where
+        I: HasRegion,
+        T: TryFrom<u64>,
+    {
+        let ret = match self.inner {
+            InnerSegment::Empty => InnerSegment::Empty,
+            InnerSegment::NonEmpty(s) => {
+                debug_assert!(s.begin <= s.end, "begin is not before end");
+                if s.end + u64::from(dso) >= u64::from(fl) {
+                    let b = s.begin;
+                    let e = s.end;
+                    return Err(RelativeFileLenError::new(I::REGION, b, e, dso, fl).into());
+                }
+                let err = RelativeToAbsSegmentError::Conversion(type_name::<T>());
+                let b = s.begin.try_into().map_err(|_| err)?;
+                let e = s.end.try_into().map_err(|_| err)?;
+                let seg = NonEmptySegment::new(b, e, dso);
+                InnerSegment::NonEmpty(seg)
+            }
+        };
+        Ok(Segment::new(ret))
     }
 }
 
@@ -1151,7 +1205,7 @@ impl<I> TEXTSegment<I> {
     }
 }
 
-impl<T> InnerSegment<T> {
+impl<T> InnerSegment<T, DatasetOffset> {
     fn try_new<I: HasRegion, S: HasSource>(
         begin: T,
         end: T,
@@ -1214,14 +1268,17 @@ impl<T> InnerSegment<T> {
             (_, _) => Err(err(SegmentErrorKind::Range)),
         }
     }
+}
 
+impl<T, O> InnerSegment<T, O> {
     fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    fn as_u64(&self) -> InnerSegment<u64>
+    fn as_u64(&self) -> InnerSegment<u64, O>
     where
         T: Into<u64> + Copy,
+        O: Copy,
     {
         match self {
             Self::Empty => InnerSegment::Empty,
@@ -1229,9 +1286,10 @@ impl<T> InnerSegment<T> {
         }
     }
 
-    fn try_as_nonempty(&self) -> Option<NonEmptySegment<T>>
+    fn try_as_nonempty(&self) -> Option<NonEmptySegment<T, O>>
     where
         T: Copy,
+        O: Copy,
     {
         match self {
             Self::Empty => None,
@@ -1240,7 +1298,7 @@ impl<T> InnerSegment<T> {
     }
 }
 
-impl<T> NonEmptySegment<T> {
+impl<T, O> NonEmptySegment<T, O> {
     /// Return the number of bytes in this segment
     fn nbytes(&self) -> NonZeroU64
     where
@@ -1265,9 +1323,10 @@ impl<T> NonEmptySegment<T> {
         NonZeroU64::MIN.checked_add(self.end.into()).unwrap()
     }
 
-    fn as_u64(&self) -> NonEmptySegment<u64>
+    fn as_u64(&self) -> NonEmptySegment<u64, O>
     where
         T: Into<u64> + Copy,
+        O: Copy,
     {
         NonEmptySegment::new(self.begin.into(), self.end.into(), self.dataset_offset)
     }
@@ -1317,6 +1376,34 @@ pub struct OffsetsNoBytesError {
     location: AnyRegion,
     src: AnySrc,
 }
+
+#[derive(From, Debug, Error, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub enum RelativeToAbsSegmentError {
+    #[error("{0}")]
+    Len(RelativeFileLenError),
+    #[error("Could not convert u64 to {0}")]
+    Conversion(&'static str),
+}
+
+/// Error when converting relative segment to absolute segment
+#[derive(Debug, Error, Clone, Copy, new)]
+#[error("{region} segment ({begin}, {end}) with offset {offset} exceeds length of file {len}")]
+pub struct RelativeFileLenError {
+    region: AnyRegion,
+    begin: u64,
+    end: u64,
+    offset: DatasetOffset,
+    len: FileLen,
+}
+
+/// Error when creating a new relative segment
+#[derive(Debug, Error)]
+#[error("Begin is after end for supplied {0} offset")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct RelativeSegmentError(AnyRegion);
 
 /// Error when creating a new segment
 #[derive(Debug, Error, new)]
@@ -1483,7 +1570,7 @@ mod serialize {
 
     use serde::ser::{Serialize, SerializeStruct as _, Serializer};
 
-    impl<T: Serialize> Serialize for InnerSegment<T> {
+    impl<T: Serialize, O: Serialize> Serialize for InnerSegment<T, O> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -1506,10 +1593,17 @@ mod python {
     use crate::config::DatasetOffset;
     use crate::python::ConfigError;
 
-    use super::{InnerSegment, NonEmptySegment, Segment, Zero};
+    use super::{HasRegion, InnerSegment, NonEmptySegment, RelativeSegment, Segment, Zero};
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+
+    impl<'py, I: HasRegion> FromPyObject<'py> for RelativeSegment<I> {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (u64, u64) = ob.extract()?;
+            Ok(Self::try_new_relative(begin, end)?)
+        }
+    }
 
     // segments will be returned as tuples like (u32, u32) reflecting their
     // exact representation in an FCS file

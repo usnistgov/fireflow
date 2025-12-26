@@ -446,9 +446,9 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let path_arg = DocArg::new_path_param(true);
     let version_arg = DocArg::new_version_param();
     let std_arg = DocArg::new_std_keywords_param();
-    let data_arg = DocArg::new_data_seg_param(SegmentSrc::Header);
-    let analysis_arg = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
-    let other_arg = DocArg::new_other_segs_param(true);
+    let data_arg = DocArg::new_rel_data_seg_param();
+    let analysis_arg = DocArg::new_rel_analysis_seg_param();
+    let other_arg = DocArg::new_rel_other_segs_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
@@ -494,7 +494,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { layout, data, shared };
             let ret = #fun_path(
-                &path, version, &std, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
+                &path, version, &std, data_seg, analysis_seg, other_segs, dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
         }
@@ -2416,9 +2416,9 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         "Non-Standard keywords.",
     );
 
-    let data_seg_param = DocArg::new_data_seg_param(SegmentSrc::Header);
-    let analysis_seg_param = DocArg::new_analysis_seg_param(SegmentSrc::Header, true);
-    let other_segs_param = DocArg::new_other_segs_param(true);
+    let data_seg_param = DocArg::new_rel_data_seg_param();
+    let analysis_seg_param = DocArg::new_rel_analysis_seg_param();
+    let other_segs_param = DocArg::new_rel_other_segs_param();
     let dataset_offset_param = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_deprecated();
@@ -2482,7 +2482,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let conf = #core_conf { standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
-                    &path, kws, data_seg, analysis_seg, &other_segs[..], dataset_offset, &conf
+                    &path, kws, data_seg, analysis_seg, other_segs, dataset_offset, &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
@@ -5940,6 +5940,16 @@ impl<E: From<PyException>> PyTuple<E> {
             .rstype(keyword_path("Display"))
     }
 
+    fn new_relative_segment(n: &str) -> Self {
+        let t = format_ident!("{n}");
+        let i = quote!(fireflow_core::segment::#t);
+        let p = parse_quote!(fireflow_core::segment::RelativeSegment<#i>);
+        let desc = "if %x has offsets which exceed the end of the file or \
+                    are inverted (begin after end)";
+        let exc = PyException::new_value().desc(desc);
+        Self::new2(vec![RsInt::U64; 2]).exc(exc).rstype(p)
+    }
+
     fn new_segment(n: &str) -> Self {
         let t = format_ident!("{n}");
         let p = parse_quote!(fireflow_core::segment::#t);
@@ -6975,13 +6985,35 @@ impl DocArgParam {
         Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
     }
 
+    fn new_rel_data_seg_param() -> Self {
+        let desc = "The *DATA* segment from *HEADER*.";
+        let seg = PyTuple::new_relative_segment("DataSegmentId");
+        Self::new_param("data_seg", seg, desc)
+    }
+
+    fn new_rel_analysis_seg_param() -> Self {
+        let desc = "The *ANALYSIS* segment from *HEADER*.";
+        let seg = PyTuple::new_relative_segment("AnalysisSegmentId");
+        Self::new_param("analysis_seg", seg, desc).def_auto()
+    }
+
+    fn new_rel_other_segs_param() -> Self {
+        let seg = PyTuple::new_relative_segment("OtherSegmentId");
+        Self::new_param(
+            "other_segs",
+            PyList::new1(seg),
+            "The *OTHER* segments from *HEADER*.",
+        )
+        .def_auto()
+    }
+
     fn new_data_seg_param(src: SegmentSrc) -> Self {
         let desc = format!("The *DATA* segment from {src}.");
         Self::new_param("data_seg", PyTuple::new_data_segment(src), desc)
     }
 
     fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
-        let desc = format!("The *DATA* segment from {src}.");
+        let desc = format!("The *ANALYSIS* segment from {src}.");
         Self::new_param("analysis_seg", PyTuple::new_analysis_segment(src), desc)
             .def_auto_if(default)
     }

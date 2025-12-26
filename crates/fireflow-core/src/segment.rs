@@ -870,6 +870,7 @@ impl<I, S, T> Segment<I, S, T> {
 }
 
 impl<I> RelativeSegment<I> {
+    #[cfg(feature = "python")]
     fn try_new_relative(begin: u64, end: u64) -> Result<Self, RelativeSegmentError>
     where
         I: HasRegion,

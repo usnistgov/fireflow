@@ -1919,6 +1919,7 @@ class DatasetSummary:
         n_measurements: int,
         n_other: int,
         others_len: int,
+        datatype: Datatype,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1937,6 +1938,8 @@ class DatasetSummary:
     def n_other(self) -> int: ...
     @property
     def others_len(self) -> int: ...
+    @property
+    def datatype(self) -> Datatype: ...
 
 def fcs_read_header(
     path: Path,

@@ -4246,21 +4246,20 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                 // Lookup $PnN and layout (which are independent of each other)
                 .and_then_commutative(|mut meas_nonstd| {
-                    let names_res = Self::lookup_names(std, &mut meas_nonstd[..], conf)
+                    Self::lookup_names(std, &mut meas_nonstd[..], conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTError::from);
-
+                        .map_errors(StdTEXTFromFlatTEXTError::from)
+                        .map_ok_value(|n| (n, meas_nonstd))
+                })
+                // Lookup root and measurement keywords (which depend on $PnN)
+                // and layout
+                .and_then_commutative(|(names, mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
                         <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                             .map_errors(StdTEXTFromFlatTEXTError::from);
-                    names_res
-                        .zip_commutative(layout_res)
-                        .map_ok_value(|(n, l)| (n, l, meas_nonstd))
-                })
-                // Lookup root and measurement keywords which both depend on $PnN
-                .and_then_commutative(|(names, layout, meas_nonstd)| {
+
                     let root_res = Metaroot::lookup_metaroot(std, &names[..], kws.nonstd, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTError::from);
@@ -4269,9 +4268,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTError::from);
 
-                    root_res
-                        .zip_commutative(meas_res)
-                        .map_ok_value(|(r, m)| (r, m, layout))
+                    root_res.zip3_commutative(meas_res, layout_res)
                 })
                 .and_then_commutative(|(metaroot, meas, layout)| {
                     Self::try_new(metaroot, meas, layout, conf)

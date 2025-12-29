@@ -19,7 +19,7 @@ rs-test:
 	cargo test -p fireflow-core
 
 .PHONY: rs-docs
-rs-test:
+rs-docs:
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
 
 .PHONY: py-lint
@@ -27,7 +27,6 @@ py-lint: pyreflow/.venv
 	$(uv_at) run ruff format --check
 	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow
 	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null python
-
 
 .PHONY: py-test
 py-test: pyreflow/.venv

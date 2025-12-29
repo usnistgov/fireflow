@@ -14,26 +14,32 @@ parameter, and exception.
 This may be useful in large pipelines where one has many files with different
 configurations that one wishes to process in a type-safe manner.
 
-.. autoclass:: pyreflow.pydantic.PyreflowHeaderConfig
+.. autoclass:: pyreflow.pydantic.PyreflowReadHeaderConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadFlatTEXTConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadStdTEXTConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadFlatDatasetConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadStdDatasetConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig
    :members:
+   :inherited-members: BaseModel
    :exclude-members: model_config

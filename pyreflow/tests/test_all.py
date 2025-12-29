@@ -2498,7 +2498,7 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        conf = pfp.PyreflowHeaderConfig()
+        conf = pfp.PyreflowReadHeaderConfig()
         _ = pf.api.fcs_read_header(p, **conf.model_dump(), dataset_offset=0)
 
     def test_read_header_pd(
@@ -2508,7 +2508,7 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pfp.PyreflowHeaderConfig().read_header(p)
+        _ = pfp.PyreflowReadHeaderConfig().read_header(p)
 
     def test_read_flat_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2

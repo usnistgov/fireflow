@@ -18,7 +18,7 @@ class BaseModel(BaseModel_):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class PyreflowHeaderConfig(BaseModel):
+class _HeaderConfig(BaseModel):
     text_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
     data_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
     other_corrections: list[pft.OffsetCorrection] = []
@@ -27,12 +27,6 @@ class PyreflowHeaderConfig(BaseModel):
     squish_offsets: bool = False
     allow_negative: bool = False
     truncate_offsets: bool = False
-
-    def read_header(self, path: Path, dataset_offset: int = 0) -> pfa.Header:
-        """Wrapper for :func:`~pyreflow.api.fcs_read_header`."""
-        return pfa.fcs_read_header(
-            path, dataset_offset=dataset_offset, **self.model_dump()
-        )
 
 
 class _ReadFlatTEXTConfig(BaseModel):
@@ -115,9 +109,15 @@ class _ReadSharedConfig(BaseModel):
     hide_warnings: bool = False
 
 
-class PyreflowReadFlatTEXTConfig(
-    PyreflowHeaderConfig, _ReadFlatTEXTConfig, _ReadSharedConfig
-):
+class _HeaderMethods(BaseModel):
+    def read_header(self, path: Path, dataset_offset: int = 0) -> pfa.Header:
+        """Wrapper for :func:`~pyreflow.api.fcs_read_header`."""
+        return pfa.fcs_read_header(
+            path, dataset_offset=dataset_offset, **self.model_dump()
+        )
+
+
+class _FlatTEXTMethods(BaseModel):
     def read_flat_text(
         self,
         path: Path,
@@ -138,12 +138,7 @@ class PyreflowReadFlatTEXTConfig(
         return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
 
 
-class PyreflowReadStdTEXTConfig(
-    PyreflowHeaderConfig,
-    _ReadFlatTEXTConfig,
-    _ReadDataKeywordsConfig,
-    _ReadSharedConfig,
-):
+class _StdTEXTMethods(BaseModel):
     def read_std_text(
         self,
         path: Path,
@@ -164,13 +159,7 @@ class PyreflowReadStdTEXTConfig(
         return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
 
 
-class PyreflowReadFlatDatasetConfig(
-    PyreflowHeaderConfig,
-    _ReadFlatTEXTConfig,
-    _ReadDataKeywordsConfig,
-    _ReadEventsConfig,
-    _ReadSharedConfig,
-):
+class _FlatDatasetMethods(BaseModel):
     def read_flat_dataset(
         self, path: Path, dataset_offset: int = 0
     ) -> pfa.FlatDatasetOutput:
@@ -198,14 +187,7 @@ class PyreflowReadFlatDatasetConfig(
         return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
 
 
-class PyreflowReadStdDatasetConfig(
-    PyreflowHeaderConfig,
-    _ReadFlatTEXTConfig,
-    _ReadStdKeywordsConfig,
-    _ReadDataKeywordsConfig,
-    _ReadEventsConfig,
-    _ReadSharedConfig,
-):
+class _StdDatasetMethods(BaseModel):
     def read_std_dataset(
         self,
         path: Path,
@@ -226,10 +208,67 @@ class PyreflowReadStdDatasetConfig(
         return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
 
 
-class PyreflowReadFlatDatasetFromKeywordsConfig(
-    _ReadDataKeywordsConfig,
-    _ReadEventsConfig,
+# NOTE order of _*Config classes is important to preserve order of parameters
+# in docs (for some reason its in reverse order)
+class PyreflowReadHeaderConfig(_HeaderConfig, _HeaderMethods):
+    pass
+
+
+class PyreflowReadFlatTEXTConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
     _ReadSharedConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
+    pass
+
+
+class PyreflowReadStdTEXTConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _StdTEXTMethods,
+    _ReadSharedConfig,
+    _ReadDataKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
+    pass
+
+
+class PyreflowReadFlatDatasetConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _FlatDatasetMethods,
+    _ReadSharedConfig,
+    _ReadEventsConfig,
+    _ReadDataKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
+    pass
+
+
+class PyreflowReadStdDatasetConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _StdTEXTMethods,
+    _FlatDatasetMethods,
+    _StdDatasetMethods,
+    _ReadSharedConfig,
+    _ReadEventsConfig,
+    _ReadDataKeywordsConfig,
+    _ReadStdKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
+    pass
+
+
+class PyreflowReadFlatDatasetFromKeywordsConfig(
+    _ReadSharedConfig,
+    _ReadEventsConfig,
+    _ReadDataKeywordsConfig,
 ):
     def read_flat_dataset_with_keywords(
         self,

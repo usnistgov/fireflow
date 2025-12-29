@@ -944,7 +944,10 @@ pub(crate) mod python {
                     Err(SeriesToColumnError::HasNull(ser.name().clone()))
                 } else {
                     let chunks = ser.into_chunks();
-                    debug_assert!(chunks.len() == 1, "Dataframe has more than one chunk");
+                    // ASSUME this will never fail because
+                    // FromPyObject<PySeries> will call rechunk. See
+                    // https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
+                    debug_assert!(chunks.len() == 1, "Series has more than one chunk");
                     let buf = chunks[0]
                         .as_any()
                         .downcast_ref::<PrimitiveArray<T>>()

@@ -2127,7 +2127,10 @@ class TestCore:
     def test_text_to_dataset_chunked(
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
-        # TODO this should fail because it has multiple chunks, but it doesn't
+        # Despite having multiple chunks, this should never fail because the
+        # python->rust conversion for PySeries will call .rechunk. It also calls
+        # .to_arrow which is why pyarrow is necessary. See
+        # https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
         d0 = pl.DataFrame([[1, 2]], {LINK_NAME1: pl.UInt32})
         d1 = pl.DataFrame([[3, 4]], {LINK_NAME1: pl.UInt32})
         d2 = d0.vstack(d1)

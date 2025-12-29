@@ -10,6 +10,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    name: test with ${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version:
+          - "3.11"
+          - "3.12"
+          - "3.13"
+          - "3.14"
 
     steps:
       - uses: actions/checkout@v4
@@ -18,5 +27,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
 
       - run: make all-dev

@@ -2,6 +2,8 @@
 name = "pyreflow"
 description = "Fully-compliant Flow Cytometry Standard (FCS) read/write library"
 readme = "README.md"
+# TODO 3.11 is the lower bound for now since this is the first version to
+# support exception groups
 requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -17,15 +19,19 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-    "polars==1.26.0",
-    # this is needed for pyo3-polars to work
-    "pyarrow>7.0.0",
-    "numpy==2.3.2",
+    "polars>=1.26.0,<2",
+    # This is needed for pyo3-polars to work. 18.x is the first version which
+    # does not require setuptools which would add extra complexity here and
+    # (hopefully) is not necessary
+    "pyarrow>=18.0.0",
+    # Include 1.x series since flowkit does not yet work with 2.x. This specific
+    # lower bound is the first version which supports python 3.11.
+    "numpy>=1.23.2,<3",
 ]
 
 [project.optional-dependencies]
 pydantic = [
-    "pydantic>=2"
+    "pydantic>=2,<3"
 ]
 
 [build-system]
@@ -39,18 +45,18 @@ all = [
     { include-group = "testing" },
     { include-group = "docs" },
 ]
-dev = ["maturin[patchelf]"]
+dev = ["maturin[patchelf]>=1,<2"]
 lint = [
     { include-group = "dev" },
-    "mypy[faster-cache]",
-    "ruff",
+    "mypy[faster-cache]>=1.19,<2",
+    "ruff>=0.14,<1",
 ]
 testing = [
     { include-group = "dev" },
-    "pytest==8.4.1",
+    "pytest>=8.4,<9",
 ]
 docs = [
-    "sphinx"
+    "sphinx>=8.2,<9"
 ]
 
 [tool.maturin]

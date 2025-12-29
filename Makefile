@@ -28,9 +28,19 @@ py-lint: pyreflow/.venv
 	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow
 	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null python
 
+.PHONY: py-lint-lower
+py-lint-lower: pyreflow/.venv
+	$(uv_at) run --resolution lowest-direct ruff format --check
+	$(uv_at) run --resolution lowest-direct python -m mypy.stubtest pyreflow._pyreflow
+	$(uv_at) run --resolution lowest-direct mypy --no-incremental --cache-dir=/dev/null python
+
 .PHONY: py-test
 py-test: pyreflow/.venv
 	$(uv_at) run pytest
+
+.PHONY: py-test-lower
+py-test-lower: pyreflow/.venv
+	$(uv_at) run --resolution lowest-direct pytest
 
 .PHONY: build-dev
 build-dev: pyreflow/.venv
@@ -41,7 +51,7 @@ build-prod: pyreflow/.venv
 	$(uv_at) run maturin develop --uv --release
 
 .PHONY: all-dev
-all-dev: rs-lint rs-test rs-docs build-dev py-lint py-test
+all-dev: rs-lint rs-test rs-docs build-dev py-lint-lower py-lint py-test-lower py-test
 
 .PHONY: docs
 docs: build-dev

@@ -7,7 +7,7 @@ uv_at = uv --directory pyreflow
 	@uv -V || echo 'uv must be installed'
 
 pyreflow/.venv: .uv
-	$(uv_at) sync --frozen --group all --all-extras
+	$(uv_at) sync --locked --group all --all-extras
 
 # TODO add cargo fmt --all -- --check
 .PHONY: rs-lint

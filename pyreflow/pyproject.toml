@@ -25,8 +25,8 @@ dependencies = [
     # (hopefully) is not necessary
     "pyarrow>=18.0.0",
     # Include 1.x series since flowkit does not yet work with 2.x. This specific
-    # lower bound is the first version which supports python 3.11.
-    "numpy>=1.23.2,<3",
+    # version should have wheels that don't require distutils
+    "numpy>=1.26,<3",
 ]
 
 [project.optional-dependencies]

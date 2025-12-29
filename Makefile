@@ -9,10 +9,13 @@ uv_at = uv --directory pyreflow
 pyreflow/.venv: .uv
 	$(uv_at) sync --locked --group all --all-extras
 
-# TODO add cargo fmt --all -- --check
 .PHONY: rs-lint
 rs-lint:
 	cargo clippy --all-targets --locked -- -D warnings -D clippy::dbg_macro
+
+.PHONY: rs-fmt
+rs-fmt:
+	cargo fmt --all -- --check
 
 .PHONY: rs-test
 rs-test:
@@ -41,7 +44,7 @@ build-prod: pyreflow/.venv
 	$(uv_at) run maturin develop --uv --release
 
 .PHONY: all-dev
-all-dev: rs-lint rs-test rs-docs build-dev py-lint py-test
+all-dev: rs-lint rs-fmt rs-test rs-docs build-dev py-lint py-test
 
 .PHONY: docs
 docs: build-dev

@@ -8,9 +8,9 @@ on:
 
 
 jobs:
-  test:
+  test-python:
     runs-on: ubuntu-latest
-    name: test with ${{ matrix.python-version }}
+    name: test with Python impl = ${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,5 +29,23 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
+
+      - run: make all-dev
+
+  test-os:
+    runs-on: ${{ matrix.os }}-latest
+    name: test on OS = ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, macos, windows]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.91
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
 
       - run: make all-dev

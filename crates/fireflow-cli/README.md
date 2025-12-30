@@ -7,7 +7,7 @@ Supported features:
 
 * reading *HEADER* and *TEXT* as JSON blobs
 * exporting *DATA* as a TSV stream
-* raw and standard mode
+* flat and standard mode
 * most repair flags
 * dumping the spillover or compensation matrices
 * dumping the measurement keywords as a table
@@ -33,7 +33,7 @@ Now `fireflow` can be invoked from any shell.
 perfectly.
 
 However, flags may be provided which can repair most deviations. Pass `--help`
-for any subcommand (`header`, `raw`, `std`, etc) depicted below to see available
+for any subcommand (`header`, `flat`, `std`, etc) depicted below to see available
 flags.
 
 ## Show the header
@@ -52,19 +52,19 @@ error):
 fireflow header -i <path/to/file> --data-correction-end=-1
 ```
 
-## Show the *TEXT* segment in raw mode
+## Show the *TEXT* segment in flat mode
 
 For a pristine file:
 
 ``` bash
-fireflow raw -i <path/to/file>
+fireflow flat -i <path/to/file>
 ```
 
 For a file which doesn't use escaped delimiters (which also likely means some
 keyword values are empty):
 
 ``` bash
-fireflow raw -i <path/to/file> --use-literal-delims --allow-empty
+fireflow flat -i <path/to/file> --use-literal-delims --allow-empty
 ```
 
 If successful, this will output the keywords (split by standard and
@@ -94,7 +94,7 @@ version-specific.
 
 ## Show the *DATA* segment
 
-For now, this requires reading *TEXT* in standardized mode (in theory raw is
+For now, this requires reading *TEXT* in standardized mode (in theory flat is
 also possible but not supported yet).
 
 For a pristine file:

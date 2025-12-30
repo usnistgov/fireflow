@@ -51,7 +51,7 @@ all = [
     { include-group = "testing" },
     { include-group = "docs" },
 ]
-dev = ["maturin[patchelf]>=1,<2"]
+dev = ["maturin>=1,<2"]
 lint = [
     { include-group = "dev" },
     "mypy[faster-cache]>=1.19,<2",

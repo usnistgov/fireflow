@@ -725,7 +725,6 @@ dependencies = [
  "clap",
  "fireflow-core",
  "itertools 0.14.0",
- "nonempty",
  "regex",
  "serde",
  "serde_json",
@@ -763,7 +762,6 @@ dependencies = [
 name = "fireflow-core-proc"
 version = "0.1.0"
 dependencies = [
- "proc-macro2",
  "quote",
  "syn 2.0.111",
 ]
@@ -776,9 +774,6 @@ dependencies = [
  "derive_more",
  "fireflow-core",
  "fireflow-python-proc",
- "nonempty",
- "numpy",
- "polars",
  "pyo3",
  "pyo3-polars",
  "type_families",

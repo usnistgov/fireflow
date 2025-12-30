@@ -11,11 +11,8 @@ fireflow-core = { path = "../fireflow-core", features = ["python"] }
 fireflow-python-proc = { path = "../fireflow-python-proc" }
 chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into"] }
-nonempty = { workspace = true }
 pyo3 = { workspace = true }
 pyo3-polars = { workspace = true }
-polars = { workspace = true }
-numpy = { workspace = true, features = ["nalgebra"] }
 type_families = { path = "../type_families" }
 
 [lints]

@@ -36,3 +36,24 @@ jobs:
           activate-environment: true
 
       - run: make all-dev
+
+  test-msrv:
+    name: test MSRV
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: resolve MSRV
+        id: resolve-msrv
+        run: echo MSRV=`uv run python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["rust-version"])'` >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: clippy,rustfmt
+          toolchain: ${{ steps.resolve-msrv.outputs.MSRV }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: 3.11
+
+      - run: make all-dev

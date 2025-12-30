@@ -58,7 +58,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           components: clippy,rustfmt
-          toolchain: ${{ steps.test-msrv.outputs.MSRV }}
+          toolchain: ${{ steps.resolve-msrv.outputs.MSRV }}
 
       - uses: Swatinem/rust-cache@v2
 

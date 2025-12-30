@@ -10,7 +10,7 @@ on:
 jobs:
   test-python-and-os:
     runs-on: ${{ matrix.os }}-latest
-    name: test with Python impl = ${{ matrix.py-version }} and OS = ${{ matrix.os }}
+    name: test with Python = ${{ matrix.py-ver }} and OS = ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -18,7 +18,7 @@ jobs:
           - ubuntu
           - macos
           - windows
-        py-version:
+        py-ver:
           - "3.11"
           - "3.12"
           - "3.13"
@@ -32,6 +32,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
         with:
-          py-version: ${{ matrix.py-version }}
+          python-version: ${{ matrix.py-ver }}
 
       - run: make all-dev

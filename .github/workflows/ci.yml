@@ -26,10 +26,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@1.91
         with:
           components: clippy,rustfmt
+
       - uses: Swatinem/rust-cache@v2
+
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.py-ver }}
@@ -42,18 +45,21 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: 3.11
+
       - name: resolve MSRV
         id: resolve-msrv
         run: echo MSRV=`uv run python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["rust-version"])'` >> $GITHUB_OUTPUT
 
-      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           components: clippy,rustfmt
           toolchain: ${{ steps.test-msrv.outputs.MSRV }}
+
       - uses: Swatinem/rust-cache@v2
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: 3.11
 
       - run: make all-dev

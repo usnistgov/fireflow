@@ -8,13 +8,17 @@ on:
 
 
 jobs:
-  test-python:
-    runs-on: ubuntu-latest
-    name: test with Python impl = ${{ matrix.python-version }}
+  test-python-and-os:
+    runs-on: ${{ matrix.os }}-latest
+    name: test with Python impl = ${{ matrix.py-version }} and OS = ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version:
+        os:
+          - ubuntu
+          - macos
+          - windows
+        py-version:
           - "3.11"
           - "3.12"
           - "3.13"
@@ -28,24 +32,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - run: make all-dev
-
-  test-os:
-    runs-on: ${{ matrix.os }}-latest
-    name: test on OS = ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu, macos, windows]
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.91
-        with:
-          components: clippy,rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - uses: astral-sh/setup-uv@v6
+          py-version: ${{ matrix.py-version }}
 
       - run: make all-dev

@@ -41,7 +41,7 @@ html_theme_options = {
     "github_user": "usnistgov",
     "github_repo": "fireflow",
 }
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
 html_show_sourcelink = False
 
 autodoc_typehints = "description"

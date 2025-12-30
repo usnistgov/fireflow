@@ -4459,11 +4459,11 @@ pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
 impl fmt::Display for IndexedBitmaskError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.0.index;
-        let pnr = Range::std(i);
-        let pnb = Width::std(i);
+        let rng = Range::std(i);
+        let width = Width::std(i);
         let e = match &self.0.error {
             RangeToBitmaskError::Over(v, b) => {
-                format!("{v} cannot fit into {b} bytes set by {pnb}")
+                format!("{v} cannot fit into {b} bytes set by {width}")
             }
             RangeToBitmaskError::Under(v) => {
                 format!("{v} is less than zero")
@@ -4472,7 +4472,7 @@ impl fmt::Display for IndexedBitmaskError {
                 format!("{v} would has decimal precision which would be lost")
             }
         };
-        write!(f, "could not make bitmask from {pnr} because {e}")
+        write!(f, "could not make bitmask from {rng} because {e}")
     }
 }
 

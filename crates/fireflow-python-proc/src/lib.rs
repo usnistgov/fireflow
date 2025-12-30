@@ -4367,12 +4367,12 @@ enum PyAtom<R> {
     Date,
     Time,
     None,
-    Dict(Box<PyAtom<R>>, Box<PyAtom<R>>),
-    Tuple(Vec<PyAtom<R>>),
-    List(Box<PyAtom<R>>),
+    Dict(Box<Self>, Box<Self>),
+    Tuple(Vec<Self>),
+    List(Box<Self>),
     Literal(PyLiteral),
     PyClass(PyClass<R>),
-    Union(Box<PyAtom<R>>, Box<PyAtom<R>>, Vec<PyAtom<R>>),
+    Union(Box<Self>, Box<Self>, Vec<Self>),
 }
 
 /// A Python 'int'

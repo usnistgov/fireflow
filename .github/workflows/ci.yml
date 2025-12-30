@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.91
+      - uses: dtolnay/rust-toolchain@1.92
         with:
           components: clippy,rustfmt
 
@@ -75,7 +75,7 @@ jobs:
         with:
           python-version: 3.11
 
-      - uses: dtolnay/rust-toolchain@1.91
+      - uses: dtolnay/rust-toolchain@1.92
 
       - uses: Swatinem/rust-cache@v2
 

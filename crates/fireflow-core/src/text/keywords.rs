@@ -1665,11 +1665,11 @@ pub enum Gating {
     #[display("R{_0}")]
     Region(RegionIndex),
     #[display("(NOT {_0})")]
-    Not(Box<Gating>),
+    Not(Box<Self>),
     #[display("({_0} AND {_1})")]
-    And(Box<Gating>, Box<Gating>),
+    And(Box<Self>, Box<Self>),
     #[display("({_0} OR {_1})")]
-    Or(Box<Gating>, Box<Gating>),
+    Or(Box<Self>, Box<Self>),
 }
 
 impl Gating {

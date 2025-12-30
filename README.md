@@ -6,24 +6,32 @@
 FCS (flow cytometry standard) files are the canonical format for storing data
 produced by flow cytometers.
 
-Supported FCS versions:
+`fireflow` aims to losslessly read and write FCS files produced from *any*
+machine with the following versions:
 
-* 2.0
-* 3.0
-* 3.1
-* 3.2
+* FCS2.0
+* FCS3.0
+* FCS3.1
+* FCS3.2
 
 Key features:
 
 * Is written in Rust (reliable and fast)
-* Implements/enforces the FCS standard (see [implementation details](STANDARD.md))
+* Fully implements/validates the FCS standards (see [implementation
+  details](STANDARD.md))
 * Can convert between FCS versions
-* Can repair non-compliant FCS files (see [common issues](COMMON_ISSUES.md))
+* Can repair non-compliant FCS files while minimizing unreadable data (see
+  [common issues](COMMON_ISSUES.md))
 * Has API for command line, Python, R (planned)
 
 ## Status
 
 Pre-release
+
+## Requirements
+
+* Rust version: 1.89+
+* Operating systems: Windows, MacOS, Linux
 
 ## API support
 
@@ -31,9 +39,16 @@ In addition to the core Rust library, `fireflow` has several wrappers.
 
 ### Python
 
+Tested Python versions:
+
+* CPython 3.11
+* CPython 3.12
+* CPython 3.13
+* CPython 3.14
+
 The python API is documented [here](https://pages.nist.gov/fireflow/).
 
-The Python wrapper for `fireflow` is `pyreflow`.
+The Python package/module for `fireflow` is `pyreflow`.
 
 `pyreflow` is not yet available via PyPI or other package respositories so it
 must be built from source:

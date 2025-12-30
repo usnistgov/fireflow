@@ -102,6 +102,21 @@ match a *$PnN*.
 No other processing will be done with these despite FCS 3.0 and FCS 3.1 (see
 §3.4 in both) outlining their use in parsing the *ANALYSIS* segment.
 
+### *$PnN*
+
+Starting with FCS 3.1, *$PnN* keywords are supposed to be unique and cannot
+contain commas so as not to conflict with other keywords such as *TR* and
+*$SPILLOVER* which reference one or more *$PnN* values.
+
+Previous versions did not explicitly state these restrictions and also did not
+explicitly mandate that *$TR* needs to refer to a *$PnN*. However, the examples
+provided imply the restrictions imposed in FCS 3.1, and in practice most pre-3.1
+files follow these anyways.
+
+`fireflow` enforces unique *$PnN* without commas for all versions, and further
+requires that *$TR* refers to a valid *$PnN* for all versions (along with
+*$SPILLOVER* and *$UNSTAINEDCENTERS*).
+
 ### *$PnB*
 
 As of FCS 3.2, this keyword is "recommended" to be multiples of 8 (§3.3.38) and

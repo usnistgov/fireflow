@@ -33,5 +33,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.py-ver }}
+          activate-environment: true
 
       - run: make all-dev

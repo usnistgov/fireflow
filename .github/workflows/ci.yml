@@ -50,7 +50,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           components: clippy,rustfmt
-          toolchain: ${{ steps.resolve-msrv.outputs.MSRV }}
+          toolchain: ${{ steps.test-msrv.outputs.MSRV }}
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v6
         with:

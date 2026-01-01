@@ -187,6 +187,7 @@ class PyreflowReadStdTEXTConfig(
     _FlatTEXTMethods,
     _ReadSharedConfig,
     _ReadDataKeywordsConfig,
+    _ReadStdKeywordsConfig,
     _ReadFlatTEXTConfig,
     _HeaderConfig,
 ):

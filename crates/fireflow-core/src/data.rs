@@ -2089,6 +2089,7 @@ impl NullMixedType {
         width: Width,
         range: Range,
         datatype: Option<NumType>,
+        global_datatype: AlphaNumType,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<Self, (), NewMixedTypeWarning, NewMixedTypeError> {
@@ -2102,14 +2103,11 @@ impl NullMixedType {
             };
         }
 
-        if let Some(dt) = datatype {
-            match dt {
-                NumType::Integer => from!(AnyBitmask, width, range, i, flag),
-                NumType::Float => from!(F32Range, width, range, i, flag),
-                NumType::Double => from!(F64Range, width, range, i, flag),
-            }
-        } else {
-            from!(AsciiRange, width, range, i, flag)
+        match datatype.map_or(global_datatype, AlphaNumType::from) {
+            AlphaNumType::Ascii => from!(AsciiRange, width, range, i, flag),
+            AlphaNumType::Integer => from!(AnyBitmask, width, range, i, flag),
+            AlphaNumType::Float => from!(F32Range, width, range, i, flag),
+            AlphaNumType::Double => from!(F64Range, width, range, i, flag),
         }
     }
 
@@ -3755,7 +3753,9 @@ impl VersionedDataLayout for DataLayout3_2 {
             // has columns with 1+ datatypes, use mixed layout
             _ => {
                 let go = |i: MeasIndex, c: ColumnLayoutValues3_2| {
-                    MixedType::from_width_and_range(c.width, c.range, c.datatype, i, notrunc)
+                    MixedType::from_width_and_range(
+                        c.width, c.range, c.datatype, datatype, i, notrunc,
+                    )
                 };
                 FixedLayout::try_new(columns, byteord.0, go)
                     .map_errors(NewDataLayoutError::from)

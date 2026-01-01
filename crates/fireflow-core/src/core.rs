@@ -8629,6 +8629,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
+            self.mode.metaroot_opt_pair(),
             self.spillover.metaroot_opt_pair(),
             self.cytsn.metaroot_opt_pair(),
             self.vol.metaroot_opt_pair(),

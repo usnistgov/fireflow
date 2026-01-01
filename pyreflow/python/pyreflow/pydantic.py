@@ -1,8 +1,10 @@
+from __future__ import annotations
 import pyreflow.typing as pft
 import pyreflow._defaults as pfd
 import pyreflow.api as pfa
 from pathlib import Path
 from importlib.util import find_spec
+from typing import TypeVar, Type
 
 if find_spec("pydantic") is not None:
     from pydantic import BaseModel as BaseModel_
@@ -13,9 +15,20 @@ else:
         "Install it with: pip install pyreflow[pydantic]"
     )
 
+M = TypeVar("M", bound="BaseModel")
+
 
 class BaseModel(BaseModel_):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    def to_parent(self, parent: Type[M]) -> M:
+        return parent.model_validate(
+            {
+                k: v
+                for k, v in self.model_dump().items()
+                if k in parent.model_fields.keys()
+            }
+        )
 
 
 class _HeaderConfig(BaseModel):
@@ -110,6 +123,32 @@ class _ReadSharedConfig(BaseModel):
 
 
 class _HeaderMethods(BaseModel):
+    def to_header_config(self) -> PyreflowReadHeaderConfig:
+        """Project this model to :py:class:`~PyreflowReadHeaderConfig`."""
+        return self.to_parent(PyreflowReadHeaderConfig)
+
+
+class _FlatTEXTMethods(BaseModel):
+    def to_flat_text_config(self) -> PyreflowReadFlatTEXTConfig:
+        """Project this model to :py:class:`~PyreflowReadFlatTEXTConfig`."""
+        return self.to_parent(PyreflowReadFlatTEXTConfig)
+
+
+class _StdTEXTMethods(BaseModel):
+    def to_std_text_config(self) -> PyreflowReadStdTEXTConfig:
+        """Project this model to :py:class:`~PyreflowReadStdTEXTConfig`."""
+        return self.to_parent(PyreflowReadStdTEXTConfig)
+
+
+class _FlatDatasetMethods(BaseModel):
+    def to_flat_dataset_config(self) -> PyreflowReadFlatDatasetConfig:
+        """Project this model to :py:class:`~PyreflowReadFlatDatasetConfig`."""
+        return self.to_parent(PyreflowReadFlatDatasetConfig)
+
+
+# NOTE order of _*Config classes is important to preserve order of parameters
+# in docs (for some reason its in reverse order)
+class PyreflowReadHeaderConfig(_HeaderConfig):
     def read_header(self, path: Path, dataset_offset: int = 0) -> pfa.Header:
         """Wrapper for :func:`~pyreflow.api.fcs_read_header`."""
         return pfa.fcs_read_header(
@@ -117,7 +156,12 @@ class _HeaderMethods(BaseModel):
         )
 
 
-class _FlatTEXTMethods(BaseModel):
+class PyreflowReadFlatTEXTConfig(
+    _HeaderMethods,
+    _ReadSharedConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
     def read_flat_text(
         self,
         path: Path,
@@ -138,7 +182,14 @@ class _FlatTEXTMethods(BaseModel):
         return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
 
 
-class _StdTEXTMethods(BaseModel):
+class PyreflowReadStdTEXTConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _ReadSharedConfig,
+    _ReadDataKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
     def read_std_text(
         self,
         path: Path,
@@ -159,7 +210,15 @@ class _StdTEXTMethods(BaseModel):
         return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
 
 
-class _FlatDatasetMethods(BaseModel):
+class PyreflowReadFlatDatasetConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _ReadSharedConfig,
+    _ReadEventsConfig,
+    _ReadDataKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
     def read_flat_dataset(
         self, path: Path, dataset_offset: int = 0
     ) -> pfa.FlatDatasetOutput:
@@ -187,7 +246,18 @@ class _FlatDatasetMethods(BaseModel):
         return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
 
 
-class _StdDatasetMethods(BaseModel):
+class PyreflowReadStdDatasetConfig(
+    _HeaderMethods,
+    _FlatTEXTMethods,
+    _StdTEXTMethods,
+    _FlatDatasetMethods,
+    _ReadSharedConfig,
+    _ReadEventsConfig,
+    _ReadDataKeywordsConfig,
+    _ReadStdKeywordsConfig,
+    _ReadFlatTEXTConfig,
+    _HeaderConfig,
+):
     def read_std_dataset(
         self,
         path: Path,
@@ -206,63 +276,6 @@ class _StdDatasetMethods(BaseModel):
     ) -> list[tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_datasets`."""
         return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
-
-
-# NOTE order of _*Config classes is important to preserve order of parameters
-# in docs (for some reason its in reverse order)
-class PyreflowReadHeaderConfig(_HeaderConfig, _HeaderMethods):
-    pass
-
-
-class PyreflowReadFlatTEXTConfig(
-    _HeaderMethods,
-    _FlatTEXTMethods,
-    _ReadSharedConfig,
-    _ReadFlatTEXTConfig,
-    _HeaderConfig,
-):
-    pass
-
-
-class PyreflowReadStdTEXTConfig(
-    _HeaderMethods,
-    _FlatTEXTMethods,
-    _StdTEXTMethods,
-    _ReadSharedConfig,
-    _ReadDataKeywordsConfig,
-    _ReadFlatTEXTConfig,
-    _HeaderConfig,
-):
-    pass
-
-
-class PyreflowReadFlatDatasetConfig(
-    _HeaderMethods,
-    _FlatTEXTMethods,
-    _FlatDatasetMethods,
-    _ReadSharedConfig,
-    _ReadEventsConfig,
-    _ReadDataKeywordsConfig,
-    _ReadFlatTEXTConfig,
-    _HeaderConfig,
-):
-    pass
-
-
-class PyreflowReadStdDatasetConfig(
-    _HeaderMethods,
-    _FlatTEXTMethods,
-    _StdTEXTMethods,
-    _FlatDatasetMethods,
-    _StdDatasetMethods,
-    _ReadSharedConfig,
-    _ReadEventsConfig,
-    _ReadDataKeywordsConfig,
-    _ReadStdKeywordsConfig,
-    _ReadFlatTEXTConfig,
-    _HeaderConfig,
-):
-    pass
 
 
 class PyreflowReadFlatDatasetFromKeywordsConfig(

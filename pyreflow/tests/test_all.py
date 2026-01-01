@@ -2496,6 +2496,28 @@ class TestLayouts:
 
 
 class TestApiFunctions:
+    def test_flat_text_to_parent(self) -> None:
+        conf = pfp.PyreflowReadFlatTEXTConfig().to_header_config()
+        assert isinstance(conf, pfp.PyreflowReadHeaderConfig)
+
+    def test_std_text_to_parent(self) -> None:
+        conf = pfp.PyreflowReadStdTEXTConfig()
+        conf0 = conf.to_header_config()
+        assert isinstance(conf0, pfp.PyreflowReadHeaderConfig)
+        conf1 = conf.to_flat_text_config()
+        assert isinstance(conf1, pfp.PyreflowReadFlatTEXTConfig)
+
+    def test_flat_dataset_to_parent(self) -> None:
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        assert isinstance(conf.to_header_config(), pfp.PyreflowReadHeaderConfig)
+        assert isinstance(conf.to_flat_text_config(), pfp.PyreflowReadFlatTEXTConfig)
+
+    def test_std_dataset_to_parent(self) -> None:
+        conf = pfp.PyreflowReadStdDatasetConfig()
+        assert isinstance(conf.to_header_config(), pfp.PyreflowReadHeaderConfig)
+        assert isinstance(conf.to_flat_text_config(), pfp.PyreflowReadFlatTEXTConfig)
+        assert isinstance(conf.to_std_text_config(), pfp.PyreflowReadStdTEXTConfig)
+
     def test_read_header(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)

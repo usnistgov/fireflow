@@ -928,6 +928,7 @@ impl GenericSegment {
         }
     }
 
+    // TODO add tests for this
     pub(crate) fn find_overlaps(mut xs: Vec<Self>) -> DeferredErrors<(), SegmentOverlapError> {
         xs.sort_by_key(|x| x.begin);
         if let Some(ys) = NonEmpty::from_vec(xs) {
@@ -938,7 +939,7 @@ impl GenericSegment {
             // but at least an error will be throw for all that are 1 away which
             // should be good enough to let the user fix the problem
             for z in ys.tail {
-                if z.begin <= prev.begin {
+                if z.begin <= prev.end {
                     errors.push(SegmentOverlapError {
                         seg0: prev,
                         seg1: z.clone(),

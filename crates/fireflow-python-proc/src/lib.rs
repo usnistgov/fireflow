@@ -7198,7 +7198,7 @@ impl DocArgParam {
             Self::new_nextdata_correction(),
             Self::new_allow_overlapping_supp_text(),
             Self::new_ignore_supp_text(),
-            Self::new_use_literal_delims(),
+            Self::new_delim_escape_mode(),
             Self::new_allow_non_ascii_delim(),
             Self::new_allow_missing_final_delim(),
             Self::new_allow_nonunique(),
@@ -7697,12 +7697,16 @@ impl DocArgParam {
         )
     }
 
-    fn new_use_literal_delims() -> Self {
-        let d = "If ``True``, treat every delimiter as literal (turn off escaping). \
-                 Without escaping, delimiters cannot be included in keys or values, \
-                 but empty values become possible. Use this option for files where \
-                 unescaped delimiters results in the 'correct' interpretation of *TEXT*.";
-        Self::new_bool_param("use_literal_delims", d)
+    fn new_delim_escape_mode() -> Self {
+        let path = config_path("DelimEscapeMode");
+        let d = "Determine how to escape delims in *TEXT*. If ``\"escaped\"`` \
+             or ``\"unescaped\"``, escape or do not escape delimiters \
+             respectively. If ``\"guess_escaped\"`` or  ``\"guess_unescaped\"``, \
+             attempt to guess how delimiters should be treated, falling back \
+             to escaped or unescaped mode respectively if the choice is ambiguous.";
+        let choices = ["escaped", "unescaped", "guess_escaped", "guess_unescaped"];
+        let pt = PyLiteral::new2(choices, path);
+        Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
     fn new_allow_non_ascii_delim() -> Self {
@@ -7724,37 +7728,37 @@ impl DocArgParam {
     }
 
     fn new_allow_odd() -> Self {
-        let d = "If ``True``, allow *TEXT* to contain odd number of words. \
-                 The last 'dangling' word will be dropped independent of this flag.";
+        let d = "If ``True``, allow *TEXT* to contain odd number of tokens. \
+                 The last 'dangling' token will be dropped independent of this flag.";
         Self::new_bool_param("allow_odd", d)
     }
 
     fn new_allow_empty_keys() -> Self {
         let d = "If ``True`` allow keys to be blank. Only relevant if \
-                 ``use_literal_delims`` is also ``True``.";
+                 if delimiters are unescaped.";
         Self::new_bool_param("allow_empty_keys", d)
     }
 
     fn new_allow_empty_values() -> Self {
         let d = "If ``True`` allow values to be blank. Only relevant if \
-                 ``use_literal_delims`` is also ``True`` and value is blank \
+                 delimiters are unescaped and value is blank \
                  or if ``trim_value_whitespace`` is ``True`` and value is \
                  entirely whitespace.";
         Self::new_bool_param("allow_empty_values", d)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
-        let d = "If ``True`` allow delimiters at word boundaries. The FCS standard \
+        let d = "If ``True`` allow delimiters at token boundaries. The FCS standard \
                  forbids this because it is impossible to tell if such delimiters \
-                 belong to the previous or the next word. Consequently, delimiters \
+                 belong to the previous or the next token. Consequently, delimiters \
                  at boundaries will be dropped regardless of this flag. Setting \
                  this to ``True`` will turn this into a warning not an error. Only \
-                 relevant if ``use_literal_delims`` is ``False``.";
+                 relevant if delimiters are escaped.";
         Self::new_bool_param("allow_delim_at_boundary", d)
     }
 
     fn new_allow_non_utf8() -> Self {
-        let d = "If ``True`` allow non-UTF8 characters in *TEXT*. Words with such \
+        let d = "If ``True`` allow non-UTF8 characters in *TEXT*. Tokens with such \
              characters will be dropped regardless; setting this to ``True`` \
              will turn these cases into warnings not errors.";
         Self::new_bool_param("allow_non_utf8", d)

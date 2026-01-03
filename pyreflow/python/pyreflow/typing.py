@@ -133,6 +133,13 @@ SubPattern: TypeAlias = tuple[str, str, bool]
 
 SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]
 
+DelimEscapeMode: TypeAlias = Literal[
+    "escaped",
+    "unescaped",
+    "guess_escaped",
+    "guess_unescaped",
+]
+
 TruncateEventValues: TypeAlias = Literal["int_only", "all", "none"]
 
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]

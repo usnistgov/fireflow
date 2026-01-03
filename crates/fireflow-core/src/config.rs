@@ -340,19 +340,46 @@ pub struct ReadHeaderAndTEXTConfig {
     /// primary TEXT.
     pub ignore_supp_text: IgnoreSuppTEXT,
 
-    /// If `true`, treat every delimiter as literal.
+    /// Determine how to escape delims in TEXT.
     ///
-    /// The standard allows delimiters to be included in keys or values (words)
+    /// The standard allows delimiters to be included in keys or values (tokens)
     /// if they are "escaped" with another delimiter. This also implies that
-    /// delimiters can never start or end a word since it is impossible to
+    /// delimiters can never start or end a tokens since it is impossible to
     /// unambiguously assign such escaped delimiters to either side of the real
-    /// delimiter. This also means empty words are not allowed.
+    /// delimiter. This also means empty tokens are not allowed.
     ///
-    /// Setting this to `true` will disable delimiter escaping; all delimiters will
-    /// be literal delimiters that split words. This allows words to be empty
-    /// and also disallows delimiters to be included in words at all. For some
-    /// files, this is the correct interpretation, albeit not compliant.
-    pub use_literal_delims: UseLiteralDelims,
+    /// In reality, many files use delimiters as if they are not supposed to
+    /// be escaped.
+    ///
+    /// If [`DelimEscapeMode::Escaped`] or [`DelimEscapeMode::Unescaped`],
+    /// escape or do not escape delimiters respectively.
+    ///
+    /// If [`DelimEscapeMode::GuessEscaped`] or
+    /// [`DelimEscapeMode::GuessUnescaped`], attempt to guess how delimiters
+    /// should be treated, falling back to escaped or unescaped mode
+    /// respectively if the choice is ambiguous. The determination will be made
+    /// by first scanning TEXT to find all delimiter positions and choosing the
+    /// mode which results in an even number of tokens with no delimiters in
+    /// keys (escaped mode) and no blank keys (unescaped mode).
+    ///
+    /// Using the guessing algorithm has a significant performance penalty since
+    /// TEXT needs to be parsed twice. Furthermore, this algorithm is heuristic
+    /// and not guaranteed to succeed. An uneven number of tokens implies that
+    /// TEXT is malformed which will likely be the case assuming that the ending
+    /// offset for TEXT will be too high (if at all) therefore all delimiters
+    /// should be in the TEXT segment and can be counted. Keys likely will not
+    /// have escaped delimiters in them. Keys should almost never be blank in
+    /// unescaped mode since `""` is almost never a sensible key value.
+    ///
+    /// The guessing algorithm is independent of
+    /// [`Self::trim_trailing_whitespace`] since it will ignore everything after
+    /// the last delimiter. It is also independent of [`Self::allow_odd`] and
+    /// [`Self::allow_missing_final_delim`] which will trigger as normal if
+    /// their respective violations are found.
+    ///
+    /// If unescaped mode ends up be used, then [`Self::allow_empty_values`] is
+    /// implied to be `true`.
+    pub delim_escape_mode: DelimEscapeMode,
 
     /// If `true`, allow delimiter to be character outside 1-126.
     pub allow_non_ascii_delim: AllowNonAsciiDelim,
@@ -367,53 +394,53 @@ pub struct ReadHeaderAndTEXTConfig {
     /// an error.
     pub allow_nonunique: AllowNonunique,
 
-    /// If `true`, allow TEXT to contain an odd number of words.
+    /// If `true`, allow TEXT to contain an odd number of tokens.
     ///
-    /// Regardless, the final "dangling" word in the case of an odd number
+    /// Regardless, the final "dangling" token in the case of an odd number
     /// will be dropped as it has no obvious interpretation.
     pub allow_odd: AllowOdd,
 
     /// If `true`, allow blank keys.
     ///
-    /// Only relevant if `use_literal_delims` is also `true` since blank keys
-    /// cannot exist when delimiters are escaped. Blank values will be dropped
-    /// regardless of this flag; setting it to `false` will trigger an error,
-    /// otherwise a warning.
+    /// Only relevant if delimiters are unescaped since blank keys cannot exist
+    /// when delimiters are escaped. Blank values will be dropped regardless of
+    /// this flag; setting it to `false` will trigger an error, otherwise a
+    /// warning.
     ///
     /// In practice blank values happen much more often than blank keys, so
-    /// presence of blank keys probably indicates that word which is really
+    /// presence of blank keys probably indicates that token which is really
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
 
     /// If `true`, allow blank values.
     ///
-    /// These can arise if a) [`Self::use_literal_delims`] is `true` and some
-    /// values are literally zero bytes long or b)
-    /// [`Self::trim_value_whitespace`] is `true` and values which are entirely
-    /// whitespace are trimmed to zero bytes. Both are relatively common in
-    /// practice despite being non-standard. Given this and the fact that
-    /// whitespace generally has little meaning for keyword values, this flag
-    /// is almost always safe to set as `true`.
+    /// These can arise if a) delimiters are unescaped and some values are
+    /// literally zero bytes long or b) [`Self::trim_value_whitespace`] is
+    /// `true` and values which are entirely whitespace are trimmed to zero
+    /// bytes. Both are relatively common in practice despite being
+    /// non-standard. Given this and the fact that whitespace generally has
+    /// little meaning for keyword values, this flag is almost always safe to
+    /// set as `true`.
     ///
     /// Blank values will be dropped regardless of this flag; setting it to
     /// `false` will trigger an error, otherwise a warning.
     pub allow_empty_values: AllowEmptyValues,
 
-    /// If `true`, allow delimiters at word boundaries.
+    /// If `true`, allow delimiters at token boundaries.
     ///
     /// Only relevant if `literal_delims` is `false`. While delimiters
     /// may be escaped and included in keys or values, it is impossible to tell
-    /// within which word they are belong when the are next to a real delimiter,
+    /// within which token they are belong when the are next to a real delimiter,
     /// which is why they are "not allowed."
     ///
-    /// Regardless of this value, delimiters at word boundaries will not be
+    /// Regardless of this value, delimiters at token boundaries will not be
     /// included due to their ambiguity. Setting this to `true` will emit an
     /// error rather than a warning if this is encountered.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
     /// If `true`, allow non-utf8 byte sequences in TEXT.
     ///
-    /// Words with such bytes will be dropped regardless of this keyword.
+    /// Tokens with such bytes will be dropped regardless of this keyword.
     /// Setting this to `true` will emit an error rather than a warning in such
     /// cases.
     pub allow_non_utf8: AllowNonUtf8,
@@ -893,10 +920,43 @@ pub struct ReadSharedConfig {
     pub hide_warnings: bool,
 }
 
+/// Choose how to escape delims in TEXT segment.
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum DelimEscapeMode {
+    #[default]
+    Escaped,
+    Unescaped,
+    GuessEscaped,
+    GuessUnescaped,
+}
+
+impl FromStr for DelimEscapeMode {
+    type Err = DelimEscapeModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "escaped" => Ok(Self::Escaped),
+            "unescaped" => Ok(Self::Unescaped),
+            "guess_escaped" => Ok(Self::GuessEscaped),
+            "guess_unescaped" => Ok(Self::GuessUnescaped),
+            _ => Err(DelimEscapeModeError),
+        }
+    }
+}
+
+/// Error when parsing [`DelimEscapeMode`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'escaped', 'unescaped', 'guess_escaped', or 'guess_unescaped'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct DelimEscapeModeError;
+
 /// Choose which event types are truncated.
 ///
 /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TruncateEventValues {
     #[default]
     IntOnly,
@@ -920,6 +980,8 @@ impl FromStr for TruncateEventValues {
 /// Error when parsing [`TruncateEventValues`] from [`String`]
 #[derive(Error, Debug)]
 #[error("must be one of 'int_only', 'all', or 'none'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TruncateEventValuesError;
 
 impl TruncateEventValues {
@@ -1213,21 +1275,11 @@ mod python {
     use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
 
-    use super::{TimeMeasNamePattern, TruncateEventValues};
+    use super::TimeMeasNamePattern;
 
     use pyo3::prelude::*;
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let s: String = ob.extract()?;
-            let n = s
-                .parse::<Self>()
-                .map_err(|e| ConfigError::new_err(e.to_string()))?;
-            Ok(n)
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for TruncateEventValues {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             let n = s

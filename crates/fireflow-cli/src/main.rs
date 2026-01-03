@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{self, DatasetOffset, TruncateEventValues};
+use fireflow_core::config::{self, DatasetOffset, DelimEscapeMode, TruncateEventValues};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
@@ -37,6 +37,56 @@ fn main() -> Result<(), ()> {
     let data_seg = seg_style.paint("DATA");
     let analysis_seg = seg_style.paint("ANALYSIS");
     let other_seg = seg_style.paint("OTHER");
+
+    let (delim_header, delim_help) = format_section(
+        "DELIMITER ESCAPING",
+        [
+            "The standard allows delimiters to be included in keys or values \
+             (tokens) if they are \"escaped\" with another delimiter. This also \
+             implies that delimiters can never start or end a token since it is \
+             impossible to unambiguously assign such escaped delimiters to \
+             either side of the real delimiter. This also means empty tokens are \
+             not allowed."
+                .into(),
+            "In reality, many files use delimiters as if they are not supposed \
+             to be escaped."
+                .into(),
+            "If \"escaped\" or \"unescaped\", escape or do not escape \
+             delimiters respectively."
+                .into(),
+            format!(
+                "If \"guess_escaped\" or \"guess_unescaped\" attempt to guess how \
+                 delimiters should be treated, falling back to escaped or unescaped \
+                 mode respectively if the choice is ambiguous. The determination \
+                 will be made by first scanning {text_seg} to find all delimiter \
+                 positions and choosing the mode which results in an even number of \
+                 tokens with no delimiters in keys (escaped mode) and no blank keys \
+                 (unescaped mode)."
+            ),
+            format!(
+                "Using the guessing algorithm has a significant performance penalty \
+                 since {text_seg} needs to be parsed twice. Furthermore, this \
+                 algorithm is heuristic and not guaranteed to succeed. An uneven \
+                 number of tokens implies that {text_seg} is malformed which will \
+                 likely be the case assuming that the ending offset for {text_seg} \
+                 will be too high (if at all) therefore all delimiters should be in \
+                 the {text_seg} segment and can be counted. Keys likely will not have \
+                 escaped delimiters in them. Keys should almost never be blank in \
+                 unescaped mode since `\"\"` is almost never a sensible key value."
+            ),
+            format!(
+                "The guessing algorithm is independent of \
+                 --{TRIM_TRAILING_WHITESPACE} since it will ignore everything \
+                 after the last delimiter. It is also independent of --{ALLOW_ODD} \
+                 and --{ALLOW_MISSING_FINAL_DELIM} which will trigger as normal if \
+                 their respective violations are found."
+            ),
+            format!(
+                "If unescaped mode ends up be used, then --{ALLOW_EMPTY_VALUES} is \
+                 implied to be set."
+            ),
+        ],
+    );
 
     let (sub_header, sub_help) = format_section(
         "SUBSTITUTION",
@@ -79,8 +129,10 @@ fn main() -> Result<(), ()> {
         )],
     );
 
-    let flat_long_help = &sub_help;
-    let std_long_help = [&sub_help, &date_help, &time_help].iter().join("\n\n");
+    let flat_long_help = [&delim_help, &sub_help].iter().join("\n\n");
+    let std_long_help = [&delim_help, &sub_help, &date_help, &time_help]
+        .iter()
+        .join("\n\n");
 
     let correction_arg = |long: &'static str, is_begin: bool, seg: &ANSIString| {
         let loc = if is_begin { "begin" } else { "end" };
@@ -169,10 +221,13 @@ fn main() -> Result<(), ()> {
         format!("Ignore {supp_text_seg} entirely."),
     );
 
-    let lit_delims = flag_arg(
-        LIT_DELIMS,
-        format!("Treat every {text_seg} delimiter as literal (no escaping)."),
-    );
+    let lit_delims = Arg::new(DELIM_ESCAPE_MODE)
+        .long(DELIM_ESCAPE_MODE)
+        .value_name("MODE")
+        .help(format!(
+            "Choose how to escape delimiters in {text_seg}. \
+             See {delim_header} for details."
+        ));
 
     let non_ascii_delim = flag_arg(
         ALLOW_NON_ASCII_DELIM,
@@ -189,7 +244,7 @@ fn main() -> Result<(), ()> {
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of words.");
+    let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of tokens.");
 
     let allow_empty_keys = flag_arg(
         ALLOW_EMPTY_KEYS,
@@ -203,7 +258,7 @@ fn main() -> Result<(), ()> {
 
     let allow_delim_at_bound = flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
-        format!("Allow {text_seg} delimiter(s) to be at word boundaries."),
+        format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
     let allow_non_utf8 = flag_arg(
@@ -929,6 +984,11 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
 
+    let delim_escape_mode = sargs
+        .get_one::<String>(DELIM_ESCAPE_MODE)
+        .map(|s| s.parse::<DelimEscapeMode>().unwrap())
+        .unwrap_or_default();
+
     let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
 
     let to_blank = |s: &str| (s.to_owned(), ());
@@ -964,7 +1024,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         nextdata_correction,
         allow_overlapping_supp_text: sargs.get_flag(ALLOW_OVERLAPPING_SUPP_TEXT).into(),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
-        use_literal_delims: sargs.get_flag(LIT_DELIMS).into(),
+        delim_escape_mode,
         allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
         allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
         allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
@@ -1282,7 +1342,7 @@ const ALLOW_OVERLAPPING_SUPP_TEXT: &str = "allow-overlapping-supp-text";
 
 const IGNORE_SUPP_TEXT: &str = "ignore-supp-text";
 
-const LIT_DELIMS: &str = "use-literal-delims";
+const DELIM_ESCAPE_MODE: &str = "delim-escape-mode";
 
 const ALLOW_NON_ASCII_DELIM: &str = "allow-non-ascii-delim";
 

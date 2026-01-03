@@ -1,6 +1,6 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
+    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode,
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
@@ -748,7 +748,7 @@ pub enum ParseSupplementalTEXTError {
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
     BlankValue(BlankValueError),
-    Uneven(UnevenWordsError),
+    Uneven(UnevenTokensError),
     Final(FinalDelimError),
     EvenFinal(EvenFinalDelimError),
     Insert(KeywordInsertError),
@@ -779,7 +779,7 @@ pub struct EmptyTEXTError;
 
 /// Error when primary TEXT segment only has a delimiter
 #[derive(Debug, Error)]
-#[error("Primary TEXT has a delimiter and no words")]
+#[error("Primary TEXT has a delimiter and no tokens")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NoTEXTWordsError;
@@ -791,12 +791,12 @@ pub struct NoTEXTWordsError;
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct BlankKeyError(TEXTKind);
 
-/// Error when number of words in TEXT is not even
+/// Error when number of tokens in TEXT is not even
 #[derive(Debug, Error)]
-#[error("{0} TEXT segment has uneven number of words")]
+#[error("{0} TEXT segment has uneven number of tokens")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct UnevenWordsError(TEXTKind);
+pub struct UnevenTokensError(TEXTKind);
 
 /// Error when final character in TEXT is not a delimiter
 #[derive(Debug, Error, new)]
@@ -851,7 +851,7 @@ impl fmt::Display for FinalDelimError {
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct EvenFinalDelimError;
 
-/// Error when delimiter is found at word boundary.
+/// Error when delimiter is found at token boundary.
 ///
 /// This can only happen in escaped TEXT
 #[derive(Debug, Error, new)]
@@ -1253,14 +1253,158 @@ fn split_flat_text_inner(
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    if conf.use_literal_delims.is_set() {
-        split_flat_text_literal_delim(kws, delim, bytes, tk, conf)
-    } else {
+    let res = match conf.delim_escape_mode {
+        DelimEscapeMode::Unescaped => Ok(false),
+        DelimEscapeMode::Escaped => Ok(true),
+        DelimEscapeMode::GuessEscaped => Err(true),
+        DelimEscapeMode::GuessUnescaped => Err(false),
+    };
+    let escape = res.unwrap_or_else(
+        |default_escape| match guess_delim_escape_mode(delim, bytes) {
+            GuessedEscapeMode::Escaped => true,
+            GuessedEscapeMode::Unescaped => false,
+            GuessedEscapeMode::Ambiguous => default_escape,
+        },
+    );
+    if escape {
         split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
+    } else {
+        split_flat_text_unescaped_delim(kws, delim, bytes, tk, conf)
     }
 }
 
-fn split_flat_text_literal_delim(
+#[derive(Debug, PartialEq)]
+enum GuessedEscapeMode {
+    Escaped,
+    Unescaped,
+    Ambiguous,
+}
+
+fn guess_delim_escape_mode(delim: u8, bytes: &[u8]) -> GuessedEscapeMode {
+    let mut n_unescaped_tokens = 0_u32;
+    let mut n_escaped_tokens = 0_u32;
+
+    // Init to 1 to include leading delim
+    let mut consecutive_delims = 1_u32;
+
+    // If any consecutive delims found. If this is false then it doesn't matter
+    // what mode we pick since the result will be the same in any case.
+    let mut any_consec_delims = false;
+
+    // True if we have seen a non-delim character. Necessary since we only know
+    // if we have a new escaped token after we see a non-delim, but we can only
+    // increase the token count if we know that the characters before the delim
+    // sequence were non-delims. This is the case for all delim sequences except
+    // the very first one
+    let mut non_delim_seen = false;
+
+    // init these to true since the first token is a key by definition
+    let mut in_unescaped_key = true;
+    let mut in_escaped_key = true;
+
+    // Count of keys with escaped delimiters in them. These are not allowed
+    // so if this is non-zero then we cannot use escaped mode.
+    let mut n_keys_with_escaped_delims = 0_u32;
+
+    // Count of keys which are blank. This can only happen in unescaped mode
+    // by definition, and we can assume that blank keys are invalid. If this
+    // is non-zero then we cannot use unescaped mode.
+    let mut n_unescaped_blank_keys = 0_u32;
+
+    // Number of consecutive non-delim sequences in the current token in escaped
+    // mode. This is used to determine if a key has escaped delims in it.
+    let mut n_escaped_token_fragments = 0_u32;
+
+    for b in bytes {
+        if *b == delim {
+            if consecutive_delims > 0 {
+                any_consec_delims = true;
+                if in_unescaped_key {
+                    n_unescaped_blank_keys += 1;
+                }
+            }
+            in_unescaped_key = !in_unescaped_key;
+            n_unescaped_tokens += 1;
+            consecutive_delims += 1;
+        } else {
+            if non_delim_seen {
+                if consecutive_delims & 1 == 1 {
+                    // if previous number of delims is odd, treat this as a
+                    // token boundary and thus everything prior is a new token
+                    if n_escaped_token_fragments > 0 && in_escaped_key {
+                        n_keys_with_escaped_delims += 1;
+                    }
+                    n_escaped_tokens += 1;
+                    in_escaped_key = !in_escaped_key;
+                    n_escaped_token_fragments = 0;
+                } else if consecutive_delims > 0 {
+                    // if previous number of delims is even, treat this as an
+                    // escaped delim sequence and increase fragment count
+                    n_escaped_token_fragments += 1;
+                }
+            }
+            non_delim_seen = true;
+            consecutive_delims = 0;
+        }
+    }
+
+    // Unprime the loop since we can only check for escaped tokens after we
+    // encounter a non-delim character, which won't happen for the final token
+    // if TEXT ends with a delim (which it should if perfectly valid)
+    if non_delim_seen && consecutive_delims & 1 == 1 {
+        // if previous number of delims is odd, treat this as a
+        // token boundary and thus everything prior is a new token
+        if n_escaped_token_fragments > 0 && in_escaped_key {
+            println!("poop");
+            n_keys_with_escaped_delims += 1;
+        }
+        n_escaped_tokens += 1;
+    }
+
+    // If there are no consecutive delims, it doesn't matter mode we choose
+    // (from a parsing perspective) since they are both equivalent. Choose
+    // unescaped since this should be slightly faster.
+    if !any_consec_delims {
+        return GuessedEscapeMode::Unescaped;
+    }
+
+    let unescaped_even_tokens = n_unescaped_tokens & 1 == 0;
+    let unescaped_nw_blank = n_unescaped_blank_keys == 0;
+    let escaped_even_tokens = n_escaped_tokens & 1 == 0;
+    let escaped_no_delim = n_keys_with_escaped_delims == 0;
+
+    match (
+        unescaped_even_tokens,
+        unescaped_nw_blank,
+        escaped_even_tokens,
+        escaped_no_delim,
+    ) {
+        // unescaped mode results in even token could with no blank keys
+        (true, true, false, _) | (true, true, _, false) => GuessedEscapeMode::Unescaped,
+        // escaped mode results in even token could with no delims in keys
+        (false, _, true, true) | (_, false, true, true) => GuessedEscapeMode::Escaped,
+        // All other cases we can't make a determination based on any number of
+        // issues (outlined for each combination below). Rather than error here
+        // return control to the default escape mode parser and let that throw
+        // errors when encountered. This has the advantage of letting the user
+        // control how fallback happens, and if they want to accept dangling
+        // tokens, missing final delims, etc after failing to guess.
+        //
+        // Both modes result in even token count with no other issues, not sure
+        // which to pick
+        (true, true, true, true)
+        // Both modes result in odd token count
+        | (false, _, false, _)
+        // Escaped has even token count but delims in keys
+        | (false, _, true, false)
+        // Enescaped has even token count but blank keys
+        | (true, false, false, _)
+        // Both have even tokens but keys have issues
+        | (true, false, true, false) => GuessedEscapeMode::Ambiguous,
+    }
+}
+
+fn split_flat_text_unescaped_delim(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -1273,24 +1417,24 @@ fn split_flat_text_literal_delim(
 
     let mut it = bytes.split(|x| *x == delim);
     let mut prev_was_key = false;
-    let mut prev_word: &[u8] = &[];
+    let mut prev_token: &[u8] = &[];
 
     while let Some(key) = it.next() {
         prev_was_key = true;
-        prev_word = key;
+        prev_token = key;
         if key.is_empty() {
             if let Some(value) = it.next() {
                 prev_was_key = false;
-                prev_word = value;
+                prev_token = value;
                 blank_keys.push(BlankKeyError(tk));
             } else {
                 // if everything is correct, we should exit here since the
-                // last word will be the blank slice after the final delim
+                // last token will be the blank slice after the final delim
                 break;
             }
         } else if let Some(value) = it.next() {
             prev_was_key = false;
-            prev_word = value;
+            prev_token = value;
             if value.is_empty() {
                 blank_vals.push(BlankValueError(key.to_vec()));
             } else {
@@ -1307,30 +1451,30 @@ fn split_flat_text_literal_delim(
         }
     }
 
-    // If last word is all spaces and we want to "trim" them, this will allow us
-    // to bypass some errors below since these can be ignored
-    let trim_trailing = prev_word
+    // If last token is all spaces and we want to "trim" them, this will allow
+    // us to bypass some errors below since these can be ignored
+    let trim_trailing = prev_token
         .iter()
         .all(|c| char::is_ascii_whitespace(&char::from(*c)))
         && conf.trim_trailing_whitespace.is_set();
 
     // We should end on a blank, which corresponds to a (not valid) key. If this
-    // is not the case, the number of words was not even.
+    // is not the case, the number of tokens was not even.
     let uneven_ok = prev_was_key || trim_trailing;
     // Don't emit this error if we are trimming whitespace off the end, because
-    // the "odd word" in that case is entirely whitespace and therefore can be
+    // the "odd token" in that case is entirely whitespace and therefore can be
     // ignored
-    let uneven_err = UnevenWordsError(tk).into();
+    let uneven_err = UnevenTokensError(tk).into();
     let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
         .switchable_into_commutative();
 
-    // If the last word was not a blank, we did not end on a delimiter.
+    // If the last token was not a blank, we did not end on a delimiter.
 
     let delim_flag = conf.allow_missing_final_delim;
     // Don't emit this error if we are trimming whitespace off the end because
     // the thing immediately before the whitespace is a delimiter in this case
     let final_delim_res = (!trim_trailing)
-        .then(|| check_final_delimiter(prev_word, tk, delim_flag).switchable_into_commutative());
+        .then(|| check_final_delimiter(prev_token, tk, delim_flag).switchable_into_commutative());
 
     let blank_key_res =
         SwitchableErrorsResult::new_switchable_iter((), (), blank_keys, conf.allow_empty_keys)
@@ -1394,7 +1538,7 @@ fn split_flat_text_escaped_delim(
                 if consec_blanks > 0 {
                     boundary_errors.push(DelimBoundError::new(segment.to_vec(), tk).into());
                 }
-                // Previous number of delimiters is odd, treat this as a word
+                // Previous number of delimiters is odd, treat this as a token
                 // boundary
                 if !valuebuf.is_empty() {
                     push_pair(&keybuf, &valuebuf);
@@ -1409,7 +1553,7 @@ fn split_flat_text_escaped_delim(
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
-                // delimiters to whatever the current word is. Then push to
+                // delimiters to whatever the current token is. Then push to
                 // key or value
                 push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
                 if valuebuf.is_empty() {
@@ -1423,7 +1567,7 @@ fn split_flat_text_escaped_delim(
         lastbuf = segment;
     }
 
-    // If last word is all spaces and we want to "trim" them, this will allow us
+    // If last token is all spaces and we want to "trim" them, this will allow us
     // to bypass some errors below since these can be ignored
     let trim_trailing = lastbuf
         .iter()
@@ -1438,13 +1582,13 @@ fn split_flat_text_escaped_delim(
     // which is an error. In this case the last buffer should be a non-empty
     // slice.
     //
-    // If number of blanks is even and not 0, then the last word ended with one
+    // If number of blanks is even and not 0, then the last token ended with one
     // or more escaped delimiters, but the TEXT didn't (2 errors, delim at
     // boundary and no delim ending TEXT). Note that here, blanks = number of
     // literal delimiters, whereas in the loop, this corresponded to blanks + 1
     // delimiters.
     //
-    // If number of blanks is odd but not 1, the last word ended with one or
+    // If number of blanks is odd but not 1, the last token ended with one or
     // more escaped delimiters (error: on a boundary) and the TEXT ended with a
     // delimiter (not an error).
 
@@ -1466,9 +1610,9 @@ fn split_flat_text_escaped_delim(
 
     let uneven_err = if valuebuf.is_empty() {
         // Don't emit this error if we are trimming whitespace off the end,
-        // because the "odd word" in that case is entirely whitespace and
+        // because the "odd token" in that case is entirely whitespace and
         // therefore can be ignored
-        (!trim_trailing).then_some(UnevenWordsError(tk).into())
+        (!trim_trailing).then_some(UnevenTokensError(tk).into())
     } else {
         push_pair(&keybuf, &valuebuf);
         None
@@ -1679,5 +1823,50 @@ mod tests {
         assert_eq!(("$P4F".into(), "700/75 BP".into()), v);
         assert!(es.is_empty(), "errors: {es:?}");
         assert!(ws.is_empty(), "warnings: {ws:?}");
+    }
+
+    #[test]
+    fn guess_no_escaped() {
+        let txt = "aaa/bbb/ccc/ddd/";
+        assert_eq!(
+            guess_delim_escape_mode(b'/', txt.as_bytes()),
+            GuessedEscapeMode::Unescaped
+        );
+    }
+
+    #[test]
+    fn guess_odd_tokens() {
+        let txt = "aaa//bbb//ccc//ddd/";
+        assert_eq!(
+            guess_delim_escape_mode(b'/', txt.as_bytes()),
+            GuessedEscapeMode::Ambiguous
+        );
+    }
+
+    #[test]
+    fn guess_escaped() {
+        let txt = "aaa/bbb//bbb/ccc/ddd/";
+        assert_eq!(
+            guess_delim_escape_mode(b'/', txt.as_bytes()),
+            GuessedEscapeMode::Escaped
+        );
+    }
+
+    #[test]
+    fn guess_unescaped() {
+        let txt = "aaa//bbb/bbb/ccc/ddd/";
+        assert_eq!(
+            guess_delim_escape_mode(b'/', txt.as_bytes()),
+            GuessedEscapeMode::Unescaped
+        );
+    }
+
+    #[test]
+    fn guess_blank_key_and_key_delim() {
+        let txt = "aaa//bbb/bbb//ccc/ddd/eee/";
+        assert_eq!(
+            guess_delim_escape_mode(b'/', txt.as_bytes()),
+            GuessedEscapeMode::Ambiguous
+        );
     }
 }

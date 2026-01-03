@@ -48,7 +48,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     nextdata_correction: int = 0
     allow_overlapping_supp_text: bool = False
     ignore_supp_text: bool = False
-    use_literal_delims: bool = False
+    delim_escape_mode: pft.DelimEscapeMode = "escaped"
     allow_non_ascii_delim: bool = False
     allow_missing_final_delim: bool = False
     allow_nonunique: bool = False

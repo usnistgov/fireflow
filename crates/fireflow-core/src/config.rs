@@ -414,16 +414,18 @@ pub struct ReadHeaderAndTEXTConfig {
 
     /// If `true`, allow blank values.
     ///
-    /// These can arise if a) delimiters are unescaped and some values are
-    /// literally zero bytes long or b) [`Self::trim_value_whitespace`] is
-    /// `true` and values which are entirely whitespace are trimmed to zero
-    /// bytes. Both are relatively common in practice despite being
-    /// non-standard. Given this and the fact that whitespace generally has
-    /// little meaning for keyword values, this flag is almost always safe to
-    /// set as `true`.
+    /// These can arise if delimiters are escaped,
+    /// [`Self::trim_value_whitespace`] is `true`, and values which are entirely
+    /// whitespace are trimmed to zero bytes. This is relatively common in
+    /// practice despite being non-standard. Given this and the fact that
+    /// whitespace generally has little meaning for keyword values, this flag is
+    /// almost always safe to set as `true`.
     ///
     /// Blank values will be dropped regardless of this flag; setting it to
     /// `false` will trigger an error, otherwise a warning.
+    ///
+    /// If delimiters are unescaped, empty values are implied and this flag does
+    /// nothing.
     pub allow_empty_values: AllowEmptyValues,
 
     /// If `true`, allow delimiters at token boundaries.
@@ -1047,7 +1049,6 @@ impl_error_flag!(true_is_error DisallowOverRange);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_error_flag!(false_is_error IgnoreSuppTEXT);
-impl_config_flag!(UseLiteralDelims);
 impl_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_error_flag!(false_is_error AllowNonunique);

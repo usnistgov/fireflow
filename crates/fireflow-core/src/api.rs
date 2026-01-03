@@ -19,7 +19,7 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
     DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
-    ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
+    ResultExt as _, Success, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
     WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
@@ -1481,10 +1481,10 @@ fn split_flat_text_unescaped_delim(
             .map_switchable_errors(ParseKeywordsIssue::from)
             .switchable_into_commutative();
 
-    let blank_val_res =
-        SwitchableErrorsResult::new_switchable_iter((), (), blank_vals, conf.allow_empty_values)
-            .map_switchable_errors(ParseKeywordsIssue::from)
-            .switchable_into_commutative();
+    let blank_val_succ = Success::new_non_switchable(())
+        .set_warnings(blank_vals)
+        .map_warnings(ParseKeywordsIssue::from);
+    let blank_val_res = LogResult::Succ(blank_val_succ);
 
     // TODO this is one instance where it could be inefficient to chain together
     // lots of options, which are stack allocated but need to be converted to

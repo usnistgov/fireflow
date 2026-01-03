@@ -7741,8 +7741,7 @@ impl DocArgParam {
 
     fn new_allow_empty_values() -> Self {
         let d = "If ``True`` allow values to be blank. Only relevant if \
-                 delimiters are unescaped and value is blank \
-                 or if ``trim_value_whitespace`` is ``True`` and value is \
+                 ``trim_value_whitespace`` is ``True`` and value is \
                  entirely whitespace.";
         Self::new_bool_param("allow_empty_values", d)
     }

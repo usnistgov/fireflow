@@ -253,7 +253,10 @@ fn main() -> Result<(), ()> {
 
     let allow_empty_values = flag_arg(
         ALLOW_EMPTY_VALUES,
-        "Allow values to be blank (relatively common).",
+        format!(
+            "Allow values to be blank if --{TRIM_VALUE_WHITESPACE} is set \
+             and values are entirely whitespace (relatively common)."
+        ),
     );
 
     let allow_delim_at_bound = flag_arg(

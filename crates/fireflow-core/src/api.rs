@@ -482,6 +482,7 @@ pub struct FlatDatasetWithKwsOutput {
 }
 
 /// Data pertaining to parsing the TEXT segment.
+#[allow(clippy::too_many_arguments)]
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTParseData {
@@ -516,6 +517,12 @@ pub struct FlatTEXTParseData {
     /// These have either a key or value or both that is not a UTF-8 string.
     /// Included here for debugging
     pub byte_pairs: BytesPairs,
+
+    /// `true` if primary TEXT delimiters were escaped
+    pub primary_escaped: bool,
+
+    /// `true` if supplemental TEXT delimiters were escaped
+    pub supp_escaped: Option<bool>,
 }
 
 /// Summary of an FCS dataset
@@ -1114,15 +1121,15 @@ where
                 .map_errors(ParseFlatTEXTError::from)
                 .group()
                 .map_error(IOErrorGroup::Pure)
-                .map_ok_value(|()| (kws, delim))
+                .map_ok_value(|escaped| (kws, delim, escaped))
         })
-        .and_then_commutative(|(mut kws, delim)| {
+        .and_then_commutative(|(mut kws, delim, prim_esc)| {
             if conf.ignore_supp_text.is_set() {
                 // NOTE rip out the STEXT keywords so they don't trigger a false
                 // positive pseudostandard keyword error later
                 let _ = kws.std.remove(&Beginstext::std());
                 let _ = kws.std.remove(&Endstext::std());
-                LogResult::new_ok((delim, kws, None))
+                LogResult::new_ok((delim, kws, None, prim_esc, None))
             } else {
                 lookup_stext_offsets(&kws.std, &header, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
@@ -1135,11 +1142,11 @@ where
                         h_read_flat_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
-                            .map_ok_value(|()| (delim, kws, seg))
+                            .map_ok_value(|supp_esc| (delim, kws, seg, prim_esc, supp_esc))
                     })
             }
         })
-        .and_then_commutative(|(delim, mut kws, supp_text_seg)| {
+        .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_esc, supp_esc)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf)
                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                 .map_errors(ParseFlatTEXTError::from)
@@ -1173,6 +1180,8 @@ where
                         delim,
                         kws.non_ascii,
                         kws.byte_pairs,
+                        prim_esc,
+                        supp_esc,
                     );
                     FlatTEXTOutput::new(header.version, vkws, parse)
                 })
@@ -1186,14 +1195,19 @@ fn h_read_flat_supp_text<R: Read + Seek>(
     buf: &mut Vec<u8>,
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndIOGroupResult<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError, ()> {
+) -> WarningsAndIOGroupResult<
+    Option<bool>,
+    ParseSupplementalTEXTError,
+    ParseSupplementalTEXTError,
+    (),
+> {
     if let Some(seg) = maybe_seg {
         io_to_log!(seg.h_read_contents(h, buf));
         split_flat_supp_text(kws, delim, buf, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     } else {
-        LogResult::new_ok(())
+        LogResult::new_ok(None)
     }
 }
 
@@ -1218,7 +1232,7 @@ fn split_flat_primary_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningsAndErrors<(), ParseKeywordsIssue, ParsePrimaryTEXTError> {
+) -> WarningsAndErrorsResult<bool, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
         LogResult::new_err(NoTEXTWordsError.into())
     } else {
@@ -1232,17 +1246,22 @@ fn split_flat_supp_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningsAndErrors<(), ParseSupplementalTEXTError, ParseSupplementalTEXTError> {
+) -> WarningsAndErrorsResult<Option<bool>, (), ParseSupplementalTEXTError, ParseSupplementalTEXTError>
+{
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_flat_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
-            .eval_deferred_warning_or_error(flag, |()| {
-                (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0))
-            })
+            .eval_warning_or_error(
+                flag,
+                |_| (),
+                |()| (),
+                |_| (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0)),
+            )
+            .map_ok_value(Some)
     } else {
         // if empty do nothing, this is expected for most files
-        LogResult::new_ok(())
+        LogResult::new_ok(None)
     }
 }
 
@@ -1252,25 +1271,27 @@ fn split_flat_text_inner(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    let res = match conf.delim_escape_mode {
+) -> WarningsAndErrorsResult<bool, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    let escape_res = match conf.delim_escape_mode {
         DelimEscapeMode::Unescaped => Ok(false),
         DelimEscapeMode::Escaped => Ok(true),
         DelimEscapeMode::GuessEscaped => Err(true),
         DelimEscapeMode::GuessUnescaped => Err(false),
     };
-    let escape = res.unwrap_or_else(
-        |default_escape| match guess_delim_escape_mode(delim, bytes) {
-            GuessedEscapeMode::Escaped => true,
-            GuessedEscapeMode::Unescaped => false,
-            GuessedEscapeMode::Ambiguous => default_escape,
-        },
-    );
-    if escape {
+    let escape =
+        escape_res.unwrap_or_else(
+            |default_escape| match guess_delim_escape_mode(delim, bytes) {
+                GuessedEscapeMode::Escaped => true,
+                GuessedEscapeMode::Unescaped => false,
+                GuessedEscapeMode::Ambiguous => default_escape,
+            },
+        );
+    let res = if escape {
         split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
     } else {
         split_flat_text_unescaped_delim(kws, delim, bytes, tk, conf)
-    }
+    };
+    res.set_ok_value(escape)
 }
 
 #[derive(Debug, PartialEq)]

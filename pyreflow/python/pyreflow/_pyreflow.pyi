@@ -1800,6 +1800,8 @@ class FlatTEXTParseData:
         delimiter: int,
         non_ascii: list[tuple[str, str]],
         byte_pairs: list[tuple[bytes, bytes]],
+        primary_escaped: bool,
+        supp_escaped: bool | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1814,6 +1816,10 @@ class FlatTEXTParseData:
     def non_ascii(self) -> list[tuple[str, str]]: ...
     @property
     def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
+    @property
+    def primary_escaped(self) -> bool: ...
+    @property
+    def supp_escaped(self) -> bool | None: ...
 
 @final
 class FlatTEXTOutput:

@@ -863,7 +863,30 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
 
-    let args = [segments, supp, nextdata, delim, non_ascii, byte_pairs];
+    let primary_escaped = DocArgROIvar::new_ivar_ro(
+        "primary_escaped",
+        PyBool::default(),
+        "``True`` if primary *TEXT* delimiters were escaped.",
+        |_, _| quote!(self.0.primary_escaped),
+    );
+
+    let supp_escaped = DocArgROIvar::new_ivar_ro(
+        "supp_escaped",
+        PyOpt::new(PyBool::default()),
+        "``True`` if supp *TEXT* delimiters were escaped.",
+        |_, _| quote!(self.0.supp_escaped),
+    );
+
+    let args = [
+        segments,
+        supp,
+        nextdata,
+        delim,
+        non_ascii,
+        byte_pairs,
+        primary_escaped,
+        supp_escaped,
+    ];
 
     let doc = DocString::new_class("Miscellaneous data obtained when parsing *TEXT*.").args(args);
     let inner_args = doc.idents_into();

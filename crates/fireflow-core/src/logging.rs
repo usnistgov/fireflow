@@ -1996,23 +1996,23 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
-    /// Push switchable error to a deferred Result based on its value.
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn eval_deferred_warning_or_error<X, M, W, F>(self, flag: X, f: F) -> Self
-    where
-        F: FnOnce(&V) -> Option<M>,
-        M: Into<E> + Into<W>,
-        EC: Extend<E> + Default + SwitchableErrorContainer,
-        WC: Extend<W>,
-        X: ErrorFlag,
-    {
-        self.eval_warning_or_error(flag, |v| v, |v| v, f)
-    }
+    // /// Push switchable error to a deferred Result based on its value.
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // #[allow(clippy::needless_pass_by_value)]
+    // pub(crate) fn eval_deferred_warning_or_error<X, M, W, F>(self, flag: X, f: F) -> Self
+    // where
+    //     F: FnOnce(&V) -> Option<M>,
+    //     M: Into<E> + Into<W>,
+    //     EC: Extend<E> + Default + SwitchableErrorContainer,
+    //     WC: Extend<W>,
+    //     X: ErrorFlag,
+    // {
+    //     self.eval_warning_or_error(flag, |v| v, |v| v, f)
+    // }
 
     /// Monad-ically apply commutative result operation to deferred result.
     ///

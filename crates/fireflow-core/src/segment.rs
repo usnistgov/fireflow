@@ -1138,9 +1138,9 @@ impl OtherSegment20 {
             let seg_conf =
                 NewSegmentConfig::new(corr, st.file_len, st.dataset_offset, conf.truncate_offsets);
             let uw = usize::from(w);
-            let i0 = i * uw;
-            let i1 = (i + 1) * uw;
-            let i2 = (i + 2) * uw;
+            let i0 = 2 * i * uw;
+            let i1 = ((2 * i) + 1) * uw;
+            let i2 = ((2 * i) + 2) * uw;
             let buf0 = &buf[i0..i1];
             let buf1 = &buf[i1..i2];
 

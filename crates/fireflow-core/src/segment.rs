@@ -1104,10 +1104,25 @@ impl OtherSegment20 {
         let n = u64::from(text_begin)
             .checked_sub(u64::from(HEADER_LEN))
             .expect("TEXT begin is less than 58");
+
+        let remaining = st.remaining_bytes(h)?;
+
+        if remaining < n {
+            // ASSUME this will always be at byte 58 (that's what the error says)
+            let e = OtherOffsetsNoBytesError::new(remaining, n);
+            return Err(IOErrorGroup::new_pure_one(e.into()));
+        }
+
+        let mut buf = vec![];
+        h.take(n).read_to_end(&mut buf)?;
+
+        // assume that there are no OTHER segments if the entire region where
+        // there should be segments is either all 0, \0, or " "
+        if buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
+            return Ok(vec![]);
+        }
+
         let w = u8::from(conf.other_width);
-        let total_width = u64::from(w) * 2;
-        let mut buf0 = vec![];
-        let mut buf1 = vec![];
         let n_segs = usize::try_from(n / (u64::from(w) * 2)).expect("usize overflow");
 
         let mut results = vec![];
@@ -1119,31 +1134,19 @@ impl OtherSegment20 {
             .chain(repeat(OffsetCorrection::default()))
             .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
 
-        for corr in corrs {
+        for (i, corr) in corrs.enumerate() {
             let seg_conf =
                 NewSegmentConfig::new(corr, st.file_len, st.dataset_offset, conf.truncate_offsets);
-            buf0.clear();
-            buf1.clear();
+            let uw = usize::from(w);
+            let i0 = i * uw;
+            let i1 = (i + 1) * uw;
+            let i2 = (i + 2) * uw;
+            let buf0 = &buf[i0..i1];
+            let buf1 = &buf[i1..i2];
 
-            let remaining = st.remaining_bytes(h)?;
-
-            if remaining < total_width {
-                let pos = h.stream_position()?;
-                let e = OffsetsNoBytesError::new(
-                    pos,
-                    remaining,
-                    total_width,
-                    AnyRegion::Other,
-                    AnySrc::Header,
-                );
-                return Err(IOErrorGroup::new_pure_one(e.into()));
-            }
-
-            h.take(u64::from(w)).read_to_end(&mut buf0)?;
-            h.take(u64::from(w)).read_to_end(&mut buf1)?;
-            // If any regions are entirely blank, just ignore them
-            if !buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
-                let r = Self::parse_other(&buf0, &buf1, conf.allow_negative, &seg_conf);
+            // If any regions are entirely blank or zero, just ignore them
+            if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
+                let r = Self::parse_other(buf0, buf1, conf.allow_negative, &seg_conf);
                 results.push(r);
             }
         }
@@ -1360,7 +1363,8 @@ pub enum OptSegmentError<B, E> {
 pub enum HeaderSegmentError {
     New(SegmentError),
     Parse(ParseOffsetError),
-    Bytes(OffsetsNoBytesError),
+    SegmentBytes(OffsetsNoBytesError),
+    OtherBytes(OtherOffsetsNoBytesError),
 }
 
 /// Error when there are not enough bytes in file to read offsets
@@ -1377,6 +1381,19 @@ pub struct OffsetsNoBytesError {
     required: u64,
     location: AnyRegion,
     src: AnySrc,
+}
+
+/// Error when there are not enough bytes in file to read OTHER segments
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[error(
+    "needed {required} bytes to parse OTHER offsets at byte 58
+     only {remaining} bytes left in file"
+)]
+pub struct OtherOffsetsNoBytesError {
+    remaining: u64,
+    required: u64,
 }
 
 #[derive(From, Debug, Error, Clone, Copy)]

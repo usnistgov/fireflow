@@ -828,7 +828,8 @@ impl fmt::Display for FinalDelimError {
         let n = self.bytes.len();
         let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
         let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
-            ("string", format!("'{s}'"))
+            let ss = format!("'{s}'");
+            ("string", replace_whitespace_chars(ss.as_str()))
         } else {
             ("bytestring", xs.iter().join(","))
         };
@@ -847,6 +848,13 @@ impl fmt::Display for FinalDelimError {
             self.kind
         )
     }
+}
+
+fn replace_whitespace_chars(s: &str) -> String {
+    s.replace('\n', "\\n")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
+        .replace('\0', "\\0")
 }
 
 /// Error when TEXT ends with even number of delimiters

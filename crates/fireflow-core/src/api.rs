@@ -1737,12 +1737,12 @@ where
             header
                 .segments
                 .validate_text(&seg, conf.header.other_width)
+                .set_ok_value(Some(seg))
+                .set_err_value(None)
                 .nowarn_into_switchable(flag)
                 .map_switchable_errors(STextSegmentError::from)
                 .switchable_into_commutative()
                 .map_commutative_warnings(STextSegmentWarning::from)
-                .set_ok_value(Some(seg))
-                .set_err_value(None)
         })
     })
 }

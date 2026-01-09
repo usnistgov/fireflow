@@ -249,7 +249,7 @@ pub trait IndexedKey {
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);
-        s.push_str("[0-9]+");
+        s.push_str("[1-9][0-9]*");
         s.push_str(Self::SUFFIX);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()
@@ -313,9 +313,9 @@ pub trait BiIndexedKey {
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);
-        s.push_str("[0-9]+");
+        s.push_str("[1-9][0-9]*");
         s.push_str(Self::MIDDLE);
-        s.push_str("[0-9]+");
+        s.push_str("[1-9][0-9]*");
         s.push_str(Self::SUFFIX);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()

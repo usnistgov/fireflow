@@ -3,6 +3,7 @@ use crate::config::{
     TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
+use crate::header::{Version, Version3_0};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -75,6 +76,26 @@ use {
     },
     pyo3::prelude::*,
 };
+
+pub const MEAS_KW_PREFIX: &str = "P";
+pub const GATE_KW_PREFIX: &str = "G";
+pub const REGION_KW_PREFIX: &str = "R";
+
+pub const SCALE_KW_SUFFIX: &str = "E";
+pub const FILTER_KW_SUFFIX: &str = "F";
+pub const PERCENT_EMITTED_KW_SUFFIX: &str = "P";
+pub const RANGE_KW_SUFFIX: &str = "R";
+pub const SHORTNAME_KW_SUFFIX: &str = "N";
+pub const LONGNAME_KW_SUFFIX: &str = "S";
+pub const DET_TYPE_KW_SUFFIX: &str = "T";
+pub const DET_VOLTAGE_KW_SUFFIX: &str = "V";
+pub const WAVELENGTH_KW_SUFFIX: &str = "L";
+pub const TYPE_KW_SUFFIX: &str = "TYPE";
+pub const CALIBRATION_KW_SUFFIX: &str = "CALIBRATION";
+
+pub const MODE_KW: &str = "MODE";
+pub const CYT_KW: &str = "CYT";
+pub const BYTEORD_KW: &str = "BYTEORD";
 
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display, Debug, Clone, Copy)]
@@ -2256,7 +2277,232 @@ pub struct ExtraStdKeywords {
     pub unused: StdKeywords,
 }
 
+pub(crate) enum KeywordClass {
+    VersionEQ(Version),
+    VersionLE(Version),
+    VersionGE(Version),
+    Version3_0or3_1,
+    HyperPar(usize, Par),
+    Pseudostandard,
+}
+
 impl ExtraStdKeywords {
+    const ANY_VERSION_KW: [&str; 23] = [
+        AlphaNumType::C,
+        Abrt::C,
+        BYTEORD_KW,
+        CYT_KW,
+        Cytsn::C,
+        Com::C,
+        Cells::C,
+        FCSDate::C,
+        BTIM_KW,
+        ETIM_KW,
+        Exp::C,
+        Fil::C,
+        Inst::C,
+        Lost::C,
+        MODE_KW,
+        Op::C,
+        Proj::C,
+        Smno::C,
+        Src::C,
+        Sys::C,
+        Tot::C,
+        Trigger::C,
+        Gating::C,
+    ];
+
+    const ANY_VERSION_SUFFIXES: [&str; 11] = [
+        Width::SUFFIX,
+        Filter::SUFFIX,
+        Power::SUFFIX,
+        PercentEmitted::SUFFIX,
+        Range::SUFFIX,
+        Longname::SUFFIX,
+        DetectorType::SUFFIX,
+        DetectorVoltage::SUFFIX,
+        Shortname::SUFFIX,
+        SCALE_KW_SUFFIX,
+        WAVELENGTH_KW_SUFFIX,
+    ];
+
+    const MIN_3_0_KW: [&str; 4] = [Beginanalysis::C, Begindata::C, Endanalysis::C, Enddata::C];
+
+    const MIN_3_1_KW: [&str; 8] = [
+        LastModifier::C,
+        Originality::C,
+        LastModified::C,
+        Plateid::C,
+        Platename::C,
+        Wellid::C,
+        Spillover::C,
+        Vol::C,
+    ];
+
+    const MIN_3_2_KW: [&str; 8] = [
+        Carrierid::C,
+        Carriertype::C,
+        Locationid::C,
+        BeginDateTime::C,
+        EndDateTime::C,
+        UnstainedCenters::C,
+        UnstainedInfo::C,
+        Flowrate::C,
+    ];
+
+    const MIN_3_2_SUFFIXES: [&str; 6] = [
+        Feature::SUFFIX,
+        TYPE_KW_SUFFIX,
+        NumType::SUFFIX,
+        Analyte::SUFFIX,
+        Tag::SUFFIX,
+        DetectorName::SUFFIX,
+    ];
+
+    const GATE_SUFFIXES: [&str; 8] = [
+        GateScale::SUFFIX,
+        GateFilter::SUFFIX,
+        GatePercentEmitted::SUFFIX,
+        GateRange::SUFFIX,
+        GateShortname::SUFFIX,
+        GateLongname::SUFFIX,
+        GateDetectorType::SUFFIX,
+        GateDetectorVoltage::SUFFIX,
+    ];
+
+    /// Classify unused keyword based on all known FCS versions
+    ///
+    /// Will not try to match $PAR since we can assume this function will never
+    /// get called if $PAR is not parsed properly. Will also not match
+    /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
+    /// been processed when parsing TEXT itself.
+    fn classify_kws(k: &StdKey, current_version: Version, par: Par) -> Option<KeywordClass> {
+        let s: &str = k.as_ref();
+        let match_ascii =
+            |ss: &str, xs: &[&str]| -> bool { xs.iter().all(|x| ss.eq_ignore_ascii_case(x)) };
+        let minimal_version = |v| (v < current_version).then_some(KeywordClass::VersionGE(v));
+        let maximal_version = |v| (current_version < v).then_some(KeywordClass::VersionLE(v));
+        let eq_version = |v| (current_version != v).then_some(KeywordClass::VersionEQ(v));
+
+        if match_ascii(s, &Self::ANY_VERSION_KW) {
+            // Each of these could be present in all versions, so if they end up
+            // here it means that the parser encountered some error that
+            // prevented them from being collected from the hash table. This
+            // means they can be ignored here, which will generate no error.
+            None
+        } else if match_ascii(s, &Self::MIN_3_0_KW) {
+            // Keywords introduced in 3.0
+            minimal_version(Version::FCS3_0)
+        } else if match_ascii(s, &Self::MIN_3_1_KW) {
+            // Keywords introduced in 3.1
+            minimal_version(Version::FCS3_1)
+        } else if match_ascii(s, &Self::MIN_3_2_KW) {
+            // Keywords introduced in 3.2
+            minimal_version(Version::FCS3_2)
+        } else if Dfc::matches(k) {
+            // Keywords only in 2.0
+            eq_version(Version::FCS2_0)
+        } else if match_ascii(s, &[Unicode::C, Compensation3_0::C]) {
+            // Keywords only in 3.0
+            eq_version(Version::FCS3_0)
+        } else if PeakBin::matches(k) || PeakIndex::matches(k) || s.eq_ignore_ascii_case(Gate::C) {
+            // Keywords removed in 3.1 but in earlier versions
+            maximal_version(Version::FCS3_1)
+        } else if match_ascii(s, &[CSMode::C, CSTot::C, CSVBits::C]) || CSVFlag::matches(k) {
+            if Version::FCS2_0 < current_version && current_version < Version::FCS3_2 {
+                None
+            } else {
+                Some(KeywordClass::Version3_0or3_1)
+            }
+        } else if s.eq_ignore_ascii_case(Timestep::C) {
+            // TODO there might be a more specific error we can generate since
+            // this might imply we missed a time channel
+            minimal_version(Version::FCS3_0)
+        } else {
+            // At this point, the keyword is either $Pn*, $Gn*, $Rn*, or
+            // something outside the standard.
+            if let Some((p, i0, rest)) = s
+                .as_bytes()
+                .split_first()
+                .and_then(|(x, xs)| xs.split_first().map(|(y, ys)| (x, y, ys)))
+                && *i0 > 48
+                && *i0 <= 57
+            {
+                let last_digit = rest
+                    .iter()
+                    .position(|&x| 48 <= x && x < 58)
+                    .unwrap_or_default();
+                let index = rest[0..last_digit]
+                    .iter()
+                    .rev()
+                    .chain([i0])
+                    .enumerate()
+                    .map(|(i, &x)| (usize::from(x) - 48) * (10 ^ i))
+                    .sum();
+                let prefix = str::from_utf8_unchecked(&[*p]);
+                let suffix = str::from_utf8_unchecked(&rest[last_digit..]);
+                match prefix {
+                    MEAS_KW_PREFIX => {
+                        if match_ascii(suffix, &Self::ANY_VERSION_SUFFIXES) {
+                            (par.0 <= index).then_some(KeywordClass::HyperPar(index, par))
+                        } else if suffix.eq_ignore_ascii_case(Gain::SUFFIX) {
+                            if par.0 <= index {
+                                Some(KeywordClass::HyperPar(index, par))
+                            } else if current_version < Version::FCS3_0 {
+                                Some(KeywordClass::VersionGE(Version::FCS3_0))
+                            } else {
+                                None
+                            }
+                        } else if suffix.eq_ignore_ascii_case(Display::SUFFIX) {
+                            if par.0 <= index {
+                                Some(KeywordClass::HyperPar(index, par))
+                            } else if current_version < Version::FCS3_1 {
+                                Some(KeywordClass::VersionGE(Version::FCS3_1))
+                            } else {
+                                None
+                            }
+                        } else if match_ascii(suffix, &Self::MIN_3_2_SUFFIXES) {
+                            if par.0 <= index {
+                                Some(KeywordClass::HyperPar(index, par))
+                            } else if current_version < Version::FCS3_2 {
+                                Some(KeywordClass::VersionGE(Version::FCS3_2))
+                            } else {
+                                None
+                            }
+                        } else {
+                            Some(KeywordClass::Pseudostandard)
+                        }
+                    }
+                    GATE_KW_PREFIX => {
+                        if match_ascii(suffix, &Self::GATE_SUFFIXES) {
+                            if par.0 <= index {
+                                Some(KeywordClass::HyperPar(index, par))
+                            } else if Version::FCS3_1 < current_version {
+                                Some(KeywordClass::VersionLE(Version::FCS3_1))
+                            } else {
+                                None
+                            }
+                        } else {
+                            Some(KeywordClass::Pseudostandard)
+                        }
+                    }
+                    REGION_KW_PREFIX => {
+                        let rs = [RegionGateIndex::<()>::SUFFIX, RegionWindow::SUFFIX];
+                        if match_ascii(suffix, &rs) {
+                            (par.0 <= index).then_some(KeywordClass::HyperPar(index, par))
+                        } else {
+                            Some(KeywordClass::Pseudostandard)
+                        }
+                    }
+                    _ => Some(KeywordClass::Pseudostandard),
+                }
+            } else {
+                Some(KeywordClass::Pseudostandard)
+            }
+        }
+    }
+
     pub(crate) fn split_2_0(kws: StdKeywords) -> Self {
         Self::split_inner(kws, Self::matches_kw_2_0)
     }
@@ -2444,7 +2690,7 @@ macro_rules! kw_meta {
 macro_rules! kw_meas {
     ($t:ident, $sfx:expr) => {
         impl IndexedKey for $t {
-            const PREFIX: &'static str = "P";
+            const PREFIX: &'static str = MEAS_KW_PREFIX;
             const SUFFIX: &'static str = $sfx;
         }
     };
@@ -2582,7 +2828,7 @@ macro_rules! kw_time {
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
         impl IndexedKey for $t {
-            const PREFIX: &'static str = "G";
+            const PREFIX: &'static str = GATE_KW_PREFIX;
             const SUFFIX: &'static str = $sfx;
         }
         opt_meas!($t, $outer);
@@ -2605,7 +2851,7 @@ macro_rules! kw_opt_gate_string {
 macro_rules! kw_opt_region {
     ($t:ident, $sfx:expr) => {
         impl IndexedKey for $t {
-            const PREFIX: &'static str = "R";
+            const PREFIX: &'static str = REGION_KW_PREFIX;
             const SUFFIX: &'static str = $sfx;
         }
         opt_meas!($t, Option<Self>);
@@ -2645,17 +2891,20 @@ kw_opt_meta_string!(Src, "SRC");
 kw_opt_meta_string!(Sys, "SYS");
 kw_opt_meta!(Trigger, "TR", Option<Self>);
 
+pub const BTIM_KW: &str = "BTIM";
+pub const ETIM_KW: &str = "ETIM";
+
 // time for 2.0
-kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
-kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, "ETIM");
+kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, BTIM_KW);
+kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, ETIM_KW);
 
 // time for 3.0
-kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, "BTIM");
-kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, "ETIM");
+kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, BTIM_KW);
+kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, ETIM_KW);
 
 // time for 3.1-3.2
-kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
-kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
+kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, BTIM_KW);
+kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, ETIM_KW);
 
 // 3.0 only
 kw_opt_meta!(Compensation3_0, "COMP", Option<Self>);
@@ -2694,24 +2943,24 @@ kw_opt_meta_string!(Flowrate, "FLOWRATE");
 kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
-kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, "MODE", Option<Self>); // for 3.2+
+kw_req_meta!(Mode, MODE_KW); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, MODE_KW, Option<Self>); // for 3.2+
 
-kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
-kw_req_meta!(Cyt3_2, "CYT"); // required for 3.2+
+kw_opt_meta_string!(Cyt, CYT_KW); // optional for 2.0-3.1
+kw_req_meta!(Cyt3_2, CYT_KW); // required for 3.2+
 
-kw_req_meta!(ByteOrd2_0, "BYTEORD"); // 2.0/3.0
-kw_req_meta!(ByteOrd3_1, "BYTEORD"); // 3.1+
+kw_req_meta!(ByteOrd2_0, BYTEORD_KW); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, BYTEORD_KW); // 3.1+
 
 // all versions
 kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
 kw_opt_meas!(Power, "O", Option<Self>);
-kw_opt_meas!(PercentEmitted, "P", Option<Self>);
-kw_req_meas!(Range, "R");
-kw_opt_meas_string!(Longname, "S");
-kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas!(DetectorVoltage, "V", Option<Self>);
+kw_opt_meas!(PercentEmitted, PERCENT_EMITTED_KW_SUFFIX, Option<Self>);
+kw_req_meas!(Range, RANGE_KW_SUFFIX);
+kw_opt_meas_string!(Longname, LONGNAME_KW_SUFFIX);
+kw_opt_meas_string!(DetectorType, DET_TYPE_KW_SUFFIX);
+kw_opt_meas!(DetectorVoltage, DET_VOLTAGE_KW_SUFFIX, Option<Self>);
 
 // 3.0+
 kw_opt_meas!(Gain, "G", Option<Self>);
@@ -2721,7 +2970,7 @@ kw_opt_meas!(Display, "D", Option<Self>);
 
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE", Option<Self>);
-meas_opt_zst!(TemporalType, "TYPE", TemporalTypeInner);
+meas_opt_zst!(TemporalType, TYPE_KW_SUFFIX, TemporalTypeInner);
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -2739,16 +2988,16 @@ kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
 
 impl_display_maybe_self!(OpticalType);
-kw_opt_meas!(OpticalType, "TYPE", Self);
+kw_opt_meas!(OpticalType, TYPE_KW_SUFFIX, Self);
 
 // version specific
-kw_opt_meas!(Shortname, "N", Option<Self>); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, SHORTNAME_KW_SUFFIX, Option<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, "E", Option<Self>); // optional for 2.0
+kw_opt_meas!(Scale, SCALE_KW_SUFFIX, Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, "E", TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, SCALE_KW_SUFFIX, TemporalScaleInner); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -2762,13 +3011,13 @@ impl FromStrWith for TemporalScale2_0 {
     }
 }
 
-kw_req_meas!(TemporalScale3_0, "E"); // required for 3.0+
+kw_req_meas!(TemporalScale3_0, SCALE_KW_SUFFIX); // required for 3.0+
 
-kw_opt_meas!(Wavelength, "L", Option<Self>); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, "L", Self); // vector in 3.1+
+kw_opt_meas!(Wavelength, WAVELENGTH_KW_SUFFIX, Option<Self>); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelengths, WAVELENGTH_KW_SUFFIX, Self); // vector in 3.1+
 
-kw_opt_meas!(Calibration3_1, "CALIBRATION", Option<Self>); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, "CALIBRATION", Option<Self>); // 3.2+ includes offset
+kw_opt_meas!(Calibration3_1, CALIBRATION_KW_SUFFIX, Option<Self>); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
 #[derive(Debug)]
@@ -2831,14 +3080,14 @@ impl IndexedKey for PeakIndex {
 // 2.0-3.1 gating parameters
 kw_opt_meta_int!(Gate, usize, "GATE");
 
-kw_opt_gate_other!(GateScale, "E");
-kw_opt_gate_string!(GateFilter, "F");
-kw_opt_gate_other!(GatePercentEmitted, "P");
-kw_opt_gate_other!(GateRange, "R");
-kw_opt_gate_other!(GateShortname, "N");
-kw_opt_gate_string!(GateLongname, "S");
-kw_opt_gate_string!(GateDetectorType, "T");
-kw_opt_gate_other!(GateDetectorVoltage, "V");
+kw_opt_gate_other!(GateScale, SCALE_KW_SUFFIX);
+kw_opt_gate_string!(GateFilter, FILTER_KW_SUFFIX);
+kw_opt_gate_other!(GatePercentEmitted, PERCENT_EMITTED_KW_SUFFIX);
+kw_opt_gate_other!(GateRange, RANGE_KW_SUFFIX);
+kw_opt_gate_other!(GateShortname, SHORTNAME_KW_SUFFIX);
+kw_opt_gate_string!(GateLongname, LONGNAME_KW_SUFFIX);
+kw_opt_gate_string!(GateDetectorType, DET_TYPE_KW_SUFFIX);
+kw_opt_gate_other!(GateDetectorVoltage, DET_VOLTAGE_KW_SUFFIX);
 kw_opt_meta!(Gating, "GATING", Option<Self>);
 
 kw_opt_region!(RegionWindow, "W");

@@ -9705,15 +9705,12 @@ pub enum LookupOpticalError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
     Scale(OptIndexedKeyStError<Scale>),
-    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
     Gain(OptIndexedKeyError<Gain>),
-    TemporalGain(LookupTemporalGainError),
     Feature(OptIndexedKeyStError<Feature>),
     Wavelengths(OptIndexedKeyStError<Wavelengths>),
     Wavelength(OptIndexedKeyError<Wavelength>),
     Calibration3_1(OptIndexedKeyStError<Calibration3_1>),
     Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
-    TemporalType(OptIndexedKeyError<TemporalType>),
     OpticalType(OptIndexedKeyError<OpticalType>),
     Display(OptIndexedKeyStError<Display>),
     Power(OptIndexedKeyError<Power>),

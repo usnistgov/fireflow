@@ -1116,30 +1116,41 @@ pub struct TimeMeasNamePattern(pub Regex);
 /// Measurement keywords which are not allowed for temporal measurements.
 ///
 /// These can optionally be ignored via config.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Display, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TemporalOpticalKey {
     /// PnF
+    #[display("F")]
     Filter,
     /// PnL
+    #[display("W")]
     Wavelength,
     /// PnO
+    #[display("O")]
     Power,
     /// PnT
+    #[display("T")]
     DetectorType,
     /// PnV
+    #[display("V")]
     DetectorVoltage,
     /// PnP
+    #[display("P")]
     PercentEmitted,
     /// PnCALIBRATION
+    #[display("CALIBRATION")]
     Calibration,
     /// PnDET
+    #[display("DET")]
     DetectorName,
     /// PnTAG
+    #[display("TAG")]
     Tag,
     /// PnFEATURE
+    #[display("FEATURE")]
     Feature,
     /// PnANALYTE
+    #[display("ANALYTE")]
     Analyte,
 }
 
@@ -1192,17 +1203,103 @@ impl TemporalOpticalKey {
         }
     }
 
-    pub(crate) fn remove_keys(
-        xs: &HashSet<Self>,
+    fn remove_keys_inner(
+        targets: &[Self],
+        ignore: &HashSet<Self>,
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) {
-        for x in xs {
-            let k = x.std_key(i);
-            nonstd.transfer_demoted(kws, k);
+    ) -> Vec<TemporalHasOpticalKeyError> {
+        let mut es = vec![];
+        for t in targets {
+            let k = t.std_key(i);
+            if ignore.contains(t) {
+                nonstd.transfer_demoted(kws, k);
+            } else if kws.remove(&k).is_some() {
+                es.push(TemporalHasOpticalKeyError::new(i, *t));
+            }
         }
+        es
     }
+
+    pub(crate) fn remove_keys_2_0(
+        ignore: &HashSet<Self>,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+    ) -> Vec<TemporalHasOpticalKeyError> {
+        let targets = [
+            Self::DetectorType,
+            Self::DetectorVoltage,
+            Self::Filter,
+            Self::PercentEmitted,
+            Self::Power,
+            Self::Wavelength,
+        ];
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+    }
+
+    pub(crate) fn remove_keys_3_1(
+        ignore: &HashSet<Self>,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+    ) -> Vec<TemporalHasOpticalKeyError> {
+        let targets = [
+            Self::Calibration,
+            Self::DetectorType,
+            Self::DetectorVoltage,
+            Self::Filter,
+            Self::PercentEmitted,
+            Self::Power,
+            Self::Wavelength,
+        ];
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+    }
+
+    pub(crate) fn remove_keys_3_2(
+        ignore: &HashSet<Self>,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+    ) -> Vec<TemporalHasOpticalKeyError> {
+        let targets = [
+            Self::Analyte,
+            Self::Calibration,
+            Self::DetectorName,
+            Self::DetectorType,
+            Self::DetectorVoltage,
+            Self::Feature,
+            Self::Filter,
+            Self::PercentEmitted,
+            Self::Power,
+            Self::Tag,
+            Self::Wavelength,
+        ];
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+    }
+
+    // pub(crate) fn remove_keys(
+    //     xs: &HashSet<Self>,
+    //     kws: &mut StdKeywords,
+    //     nonstd: &mut NonStdKeywords,
+    //     i: MeasIndex,
+    // ) {
+    //     for x in xs {
+    //         let k = x.std_key(i);
+    //         nonstd.transfer_demoted(kws, k);
+    //     }
+    // }
+}
+
+/// Error when optical keyword is present in temporal measurement.
+#[derive(Debug, Error, new)]
+#[error("optical key $P{index}{key} found in temporal measurement")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+pub struct TemporalHasOpticalKeyError {
+    index: MeasIndex,
+    key: TemporalOpticalKey,
 }
 
 impl Default for TimeMeasNamePattern {

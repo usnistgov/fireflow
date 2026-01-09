@@ -3,9 +3,10 @@
 use crate::config::{
     AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
     DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalOpticalKey,
-    TimeMeasNamePattern, TransferDroppedOptional, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    ReadEventsConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
+    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -7268,10 +7269,16 @@ impl LookupTemporal for InnerTemporal2_0 {
         };
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        TemporalOpticalKey::remove_keys(&sconf.ignore_time_optical_keys, std, nonstd, i);
+        let es =
+            TemporalOpticalKey::remove_keys_2_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
         scale
             .zip_commutative(peak)
             .map_errors(LookupTemporalError::from)
+            .extend_errors(
+                es.into_iter().map(LookupTemporalError::from),
+                |_| (),
+                |()| (),
+            )
             .map_ok_value(|(s, p)| Self::new(s, p))
     }
 }
@@ -7292,7 +7299,8 @@ impl LookupTemporal for InnerTemporal3_0 {
             .switchable_into_commutative();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        TemporalOpticalKey::remove_keys(&sconf.ignore_time_optical_keys, std, nonstd, i);
+        let es =
+            TemporalOpticalKey::remove_keys_2_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
         let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
@@ -7300,6 +7308,11 @@ impl LookupTemporal for InnerTemporal3_0 {
         gain.zip_commutative(peak)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
+            .extend_errors(
+                es.into_iter().map(LookupTemporalError::from),
+                |_| (),
+                |()| (),
+            )
             .map_ok_value(|((_, p), ((), t))| Self::new(t, p))
     }
 }
@@ -7324,7 +7337,8 @@ impl LookupTemporal for InnerTemporal3_1 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        TemporalOpticalKey::remove_keys(&sconf.ignore_time_optical_keys, std, nonstd, i);
+        let es =
+            TemporalOpticalKey::remove_keys_3_1(&sconf.ignore_time_optical_keys, std, nonstd, i);
         let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
@@ -7332,6 +7346,11 @@ impl LookupTemporal for InnerTemporal3_1 {
         gain.zip3_commutative(dpy, peak)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
+            .extend_errors(
+                es.into_iter().map(LookupTemporalError::from),
+                |_| (),
+                |()| (),
+            )
             .map_ok_value(|((_, d, p), ((), t))| Self::new(t, d, p))
     }
 }
@@ -7358,7 +7377,8 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        TemporalOpticalKey::remove_keys(&sconf.ignore_time_optical_keys, std, nonstd, i);
+        let es =
+            TemporalOpticalKey::remove_keys_3_2(&sconf.ignore_time_optical_keys, std, nonstd, i);
         let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
@@ -7366,6 +7386,11 @@ impl LookupTemporal for InnerTemporal3_2 {
         gain.zip3_commutative(dpy, meas)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
+            .extend_errors(
+                es.into_iter().map(LookupTemporalError::from),
+                |_| (),
+                |()| (),
+            )
             .map_ok_value(|((_, d, m), ((), t))| Self::new(t, d, m))
     }
 }
@@ -9728,6 +9753,7 @@ type LookupTemporalResult<V> =
 pub enum LookupTemporalError {
     TemporalScale(ReqIndexedStKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
+    Optical(TemporalHasOpticalKeyError),
     Warn(LookupTemporalWarning),
 }
 

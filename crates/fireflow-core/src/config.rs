@@ -703,6 +703,14 @@ pub struct ReadStdKeywordsConfig {
     /// version.
     pub allow_other_version: AllowOtherVersion,
 
+    /// If `true`, allow $TIMESTEP to be unused.
+    ///
+    /// In reality this probably means there was a time measurement given in
+    /// the dataset but was its $PnN was not properly matched. Setting this
+    /// to `true` will suppress the resulting error, but one should make sure
+    /// that time is indeed really missing.
+    pub allow_extra_timestep: AllowExtraTimestep,
+
     /// If `true`, throw an error if TEXT includes any deprecated features.
     ///
     /// If `false`, merely throw a warning.
@@ -761,6 +769,7 @@ impl Default for ReadStdKeywordsConfig {
             allow_pseudostandard: AllowPseudostandard::default(),
             allow_hyper_par: AllowHyperPar::default(),
             allow_other_version: AllowOtherVersion::default(),
+            allow_extra_timestep: AllowExtraTimestep::default(),
             disallow_deprecated: DisallowDeprecated::default(),
             fix_log_scale_offsets: FixLogScaleOffsets::default(),
             disallow_localtime: DisallowLocaltime::default(),
@@ -1088,6 +1097,7 @@ impl_error_flag!(false_is_error AllowOtherFeature);
 impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowHyperPar);
 impl_error_flag!(false_is_error AllowOtherVersion);
+impl_error_flag!(false_is_error AllowExtraTimestep);
 impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);

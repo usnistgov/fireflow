@@ -7281,6 +7281,7 @@ impl DocArgParam {
             Self::new_allow_pseudostandard_param(),
             Self::new_allow_hyper_par_param(),
             Self::new_allow_other_version_param(),
+            Self::new_allow_extra_timestep_param(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -7545,6 +7546,12 @@ impl DocArgParam {
     fn new_allow_other_version_param() -> Self {
         let d = "If ``True`` allow standard keywords from different FCS versions.";
         Self::new_bool_param("allow_other_version", d)
+    }
+
+    fn new_allow_extra_timestep_param() -> Self {
+        let d = "If ``True`` allow *$TIMESTEP* to be present which may indicate \
+                 a time measurement is present but not identified.";
+        Self::new_bool_param("allow_extra_timestep", d)
     }
 
     fn new_allow_optional_dropping() -> Self {

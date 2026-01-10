@@ -88,6 +88,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     allow_pseudostandard: bool = False
     allow_hyper_par: bool = False
     allow_other_version: bool = False
+    allow_extra_timestep: bool = False
     disallow_deprecated: bool = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN

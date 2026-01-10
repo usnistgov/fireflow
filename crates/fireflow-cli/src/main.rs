@@ -492,6 +492,15 @@ fn main() -> Result<(), ()> {
         "Allow standard keywords from different FCS version",
     );
 
+    let allow_extra_timestep = flag_arg(
+        ALLOW_EXTRA_TIMESTEP,
+        format!(
+            "Allow {} to be unused, which may indicate that a time measurement \
+             is present but not identified",
+            kw_style.paint("TIMESTEP")
+        ),
+    );
+
     let disallow_deprecated = flag_arg(
         DISALLOW_DEPRECATED,
         "Throw error if any deprecated keywords are present.",
@@ -581,6 +590,7 @@ fn main() -> Result<(), ()> {
         allow_pseudostandard,
         allow_hyper_par,
         allow_other_version,
+        allow_extra_timestep,
         disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
@@ -1103,6 +1113,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
         allow_hyper_par: sargs.get_flag(ALLOW_HYPER_PAR).into(),
         allow_other_version: sargs.get_flag(ALLOW_OTHER_VERSION).into(),
+        allow_extra_timestep: sargs.get_flag(ALLOW_EXTRA_TIMESTEP).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
@@ -1437,6 +1448,8 @@ const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 const ALLOW_HYPER_PAR: &str = "allow-hyper-par";
 
 const ALLOW_OTHER_VERSION: &str = "allow-other-version";
+
+const ALLOW_EXTRA_TIMESTEP: &str = "allow-extra-timestep";
 
 const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
 

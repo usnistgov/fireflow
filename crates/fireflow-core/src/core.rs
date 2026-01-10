@@ -58,9 +58,9 @@ use crate::text::keywords::{
     LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
     NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
     PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
-    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot,
-    Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
+    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
+    Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -4279,12 +4279,19 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 });
 
             // Push pseudostandard/unused warnings/errors
-            let (extra, other_version, hyper_par, pseudo) =
-                ExtraStdKeywords::split_keywords(kws.std, version, par);
+            let (extra, errors) = ExtraStdKeywords::split_keywords(kws.std, version, par);
 
             core_res
                 .extend_warnings_or_errors(
-                    other_version,
+                    errors.timestep_found.then_some(TimestepFoundError),
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
+                    sconf.allow_extra_timestep,
+                )
+                .extend_warnings_or_errors(
+                    errors.other_version,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
@@ -4292,7 +4299,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     sconf.allow_other_version,
                 )
                 .extend_warnings_or_errors(
-                    hyper_par,
+                    errors.hyper_par,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
@@ -4300,7 +4307,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     sconf.allow_hyper_par,
                 )
                 .extend_warnings_or_errors(
-                    pseudo,
+                    errors.pseudo,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
@@ -9201,6 +9208,7 @@ pub enum StdTEXTFromFlatTEXTError {
     Pseudostandard(PseudostandardError),
     HyperPar(HyperParError),
     OtherVersion(KeywordOtherVersionError),
+    Timestep(TimestepFoundError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -9217,6 +9225,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Pseudostandard(PseudostandardError),
     HyperPar(HyperParError),
     OtherVersion(KeywordOtherVersionError),
+    Timestep(TimestepFoundError),
 }
 
 /// Error when reading standardized DATA from keyword pairs

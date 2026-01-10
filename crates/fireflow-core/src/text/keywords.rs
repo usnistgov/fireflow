@@ -2285,6 +2285,15 @@ pub(crate) enum KeywordClass {
     Version3_0or3_1,
     HyperPar,
     Pseudostandard,
+    UnusedTimestep,
+}
+
+#[derive(new)]
+pub(crate) struct ExtraKeywordOutput {
+    pub(crate) other_version: Vec<KeywordOtherVersionError>,
+    pub(crate) hyper_par: Vec<HyperParError>,
+    pub(crate) pseudo: Vec<PseudostandardError>,
+    pub(crate) timestep_found: bool,
 }
 
 impl ExtraStdKeywords {
@@ -2432,9 +2441,11 @@ impl ExtraStdKeywords {
             (current_version != Version::FCS3_0 && Version::FCS3_1 != current_version)
                 .then_some(KeywordClass::Version3_0or3_1)
         } else if s.eq_ignore_ascii_case(Timestep::C) {
-            // TODO there might be a more specific error we can generate since
-            // this might imply we missed a time channel
-            minimal_version(Version::FCS3_0)
+            if current_version < Version::FCS3_0 {
+                Some(KeywordClass::VersionGE(Version::FCS3_0))
+            } else {
+                Some(KeywordClass::UnusedTimestep)
+            }
         } else if let Some((m, n)) = Dfc::matches(k) {
             // DFC is unique because it can either not be part of the current
             // version (everything above 2.0) or it can refer to a cell in the
@@ -2510,12 +2521,7 @@ impl ExtraStdKeywords {
         kws: StdKeywords,
         current_version: Version,
         par: Par,
-    ) -> (
-        Self,
-        Vec<KeywordOtherVersionError>,
-        Vec<HyperParError>,
-        Vec<PseudostandardError>,
-    ) {
+    ) -> (Self, ExtraKeywordOutput) {
         let all_versions = [
             Version::FCS2_0,
             Version::FCS3_0,
@@ -2528,6 +2534,7 @@ impl ExtraStdKeywords {
         let mut pseudo_errors = vec![];
         let mut hyper_par_errors = vec![];
         let mut other_version_errors = vec![];
+        let mut timestamp_found = false;
         for (k, v) in kws {
             macro_rules! go_version {
                 ($vs:expr) => {
@@ -2564,11 +2571,20 @@ impl ExtraStdKeywords {
                         pseudo_errors.push(PseudostandardError(k.clone()));
                         pseudo.insert(k, v);
                     }
+                    KeywordClass::UnusedTimestep => {
+                        timestamp_found = true;
+                    }
                 }
             }
         }
         let ret = Self::new(pseudo, hyper_par, other_version);
-        (ret, other_version_errors, hyper_par_errors, pseudo_errors)
+        let errors = ExtraKeywordOutput::new(
+            other_version_errors,
+            hyper_par_errors,
+            pseudo_errors,
+            timestamp_found,
+        );
+        (ret, errors)
     }
 }
 
@@ -2602,6 +2618,13 @@ pub struct KeywordOtherVersionError {
     pub current: Version,
     pub others: NonEmpty<Version>,
 }
+
+/// Error denoting that $TIMESTEP was unused and possibly should have been
+#[derive(Debug, Error)]
+#[error("$TIMESTEP found, this may indicate a time measurement exists but was not identified")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+pub struct TimestepFoundError;
 
 macro_rules! newtype_string {
     ($t:ident) => {

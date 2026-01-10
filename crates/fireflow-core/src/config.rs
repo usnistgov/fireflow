@@ -689,11 +689,19 @@ pub struct ReadStdKeywordsConfig {
     /// keywords are standard.
     pub allow_pseudostandard: AllowPseudostandard,
 
-    /// If `true`, allow unused standard keywords.
+    /// If `true`, allow keywords that have indices greater than $PAR.
     ///
-    /// These may arise if some $Pn* keywords are present which exceed $PAR or
-    /// if $TIMESTEP is present but no time measurement is present.
-    pub allow_unused_standard: AllowUnusedStandard,
+    /// For instance, if $PAR, is 10 then $P11V would be considered a
+    /// non-standard keyword since it is not part of a relevant measurement.
+    /// Setting this to `true` turns the existence of these into a warning
+    /// rather than an error.
+    pub allow_hyper_par: AllowHyperPar,
+
+    /// If `true`, allow standard keywords from a different version.
+    ///
+    /// Such errors (warnings if `true`) can likely be solved by overriding the
+    /// version.
+    pub allow_other_version: AllowOtherVersion,
 
     /// If `true`, throw an error if TEXT includes any deprecated features.
     ///
@@ -751,7 +759,8 @@ impl Default for ReadStdKeywordsConfig {
             last_modified_pattern: None,
             allow_other_feature: AllowOtherFeature::default(),
             allow_pseudostandard: AllowPseudostandard::default(),
-            allow_unused_standard: AllowUnusedStandard::default(),
+            allow_hyper_par: AllowHyperPar::default(),
+            allow_other_version: AllowOtherVersion::default(),
             disallow_deprecated: DisallowDeprecated::default(),
             fix_log_scale_offsets: FixLogScaleOffsets::default(),
             disallow_localtime: DisallowLocaltime::default(),
@@ -1077,7 +1086,8 @@ impl_config_flag!(IgnoreTimeGain);
 impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
 impl_error_flag!(false_is_error AllowPseudostandard);
-impl_error_flag!(false_is_error AllowUnusedStandard);
+impl_error_flag!(false_is_error AllowHyperPar);
+impl_error_flag!(false_is_error AllowOtherVersion);
 impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
@@ -1185,7 +1195,7 @@ impl FromStr for TemporalOpticalKey {
 pub struct ParseTemporalOpticalKeyError;
 
 impl TemporalOpticalKey {
-    pub(crate) fn std_key(&self, i: MeasIndex) -> StdKey {
+    pub(crate) fn std_key(self, i: MeasIndex) -> StdKey {
         match self {
             Self::Filter => kws::Filter::std(i),
             // NOTE this is $PnL for all versions

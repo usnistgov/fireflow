@@ -679,20 +679,30 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.pseudostandard.clone()),
     );
 
-    let unused = DocArgROIvar::new_ivar_ro(
-        "unused",
+    let hyper_par = DocArgROIvar::new_ivar_ro(
+        "hyper_par",
         PyDict::new_std_keywords(),
-        "Keywords which are part of the standard but were not used.",
-        |_, _| quote!(self.0.unused.clone()),
+        "Keywords which are part of the standard but have an index outside *$PAR*.",
+        |_, _| quote!(self.0.hyper_par.clone()),
     );
 
-    let doc = DocString::new_class("Extra keywords from *TEXT* standardization.")
-        .args([pseudostandard, unused]);
+    let other_version = DocArgROIvar::new_ivar_ro(
+        "other_version",
+        PyDict::new_std_keywords(),
+        "Keywords which are from a different FCS version.",
+        |_, _| quote!(self.0.other_version.clone()),
+    );
+
+    let doc = DocString::new_class("Extra keywords from *TEXT* standardization.").args([
+        pseudostandard,
+        hyper_par,
+        other_version,
+    ]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(pseudostandard, unused).into()
+                #path::new(pseudostandard, hyper_par, other_version).into()
             }
         }
     };
@@ -7269,7 +7279,8 @@ impl DocArgParam {
             Self::new_last_modified_pattern_param(),
             Self::new_allow_other_feature_param(),
             Self::new_allow_pseudostandard_param(),
-            Self::new_allow_unused_standard_param(),
+            Self::new_allow_hyper_par_param(),
+            Self::new_allow_other_version_param(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -7526,9 +7537,14 @@ impl DocArgParam {
         Self::new_bool_param("allow_pseudostandard", d)
     }
 
-    fn new_allow_unused_standard_param() -> Self {
-        let d = "If ``True`` allow unused standard keywords to be present.";
-        Self::new_bool_param("allow_unused_standard", d)
+    fn new_allow_hyper_par_param() -> Self {
+        let d = "If ``True`` allow measurement keywords whose index is greater than *$PAR*.";
+        Self::new_bool_param("allow_hyper_par", d)
+    }
+
+    fn new_allow_other_version_param() -> Self {
+        let d = "If ``True`` allow standard keywords from different FCS versions.";
+        Self::new_bool_param("allow_other_version", d)
     }
 
     fn new_allow_optional_dropping() -> Self {

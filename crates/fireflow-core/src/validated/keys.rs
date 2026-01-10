@@ -313,17 +313,23 @@ pub trait BiIndexedKey {
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
         s.push_str(Self::PREFIX);
-        s.push_str("[1-9][0-9]*");
+        s.push_str("([1-9][0-9]*)");
         s.push_str(Self::MIDDLE);
-        s.push_str("[1-9][0-9]*");
+        s.push_str("([1-9][0-9]*)");
         s.push_str(Self::SUFFIX);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()
     }
 
-    fn matches(other: &StdKey) -> bool {
+    fn matches(other: &StdKey) -> Option<(usize, usize)> {
         static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-        RE.get_or_init(|| Self::regexp()).0.is_match(other.as_ref())
+        let c = RE
+            .get_or_init(|| Self::regexp())
+            .0
+            .captures(other.as_ref())?;
+        let (_, [m, n]) = c.extract();
+        // ASSUME these won't fail because we match only digits
+        Some((m.parse::<usize>().unwrap(), n.parse::<usize>().unwrap()))
     }
 
     // fn std_blank() -> String {

@@ -53,13 +53,14 @@ use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
     DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
-    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified, LastModifier,
-    Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par,
-    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
-    PseudostandardError, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
-    TemporalType, Timestep, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo,
-    UnusedStandardError, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperParError, Inst,
+    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
+    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
+    NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
+    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
+    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep, Tot,
+    Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -4278,34 +4279,35 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 });
 
             // Push pseudostandard/unused warnings/errors
-            let esks = match version {
-                Version::FCS2_0 => ExtraStdKeywords::split_2_0(kws.std),
-                Version::FCS3_0 => ExtraStdKeywords::split_3_0(kws.std),
-                Version::FCS3_1 => ExtraStdKeywords::split_3_1(kws.std),
-                Version::FCS3_2 => ExtraStdKeywords::split_3_2(kws.std),
-            };
-
-            let ps = esks.pseudostandard.keys().cloned().map(PseudostandardError);
-            let us = esks.unused.keys().cloned().map(UnusedStandardError);
+            let (extra, other_version, hyper_par, pseudo) =
+                ExtraStdKeywords::split_keywords(kws.std, version, par);
 
             core_res
                 .extend_warnings_or_errors(
-                    ps,
+                    other_version,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
+                    sconf.allow_other_version,
+                )
+                .extend_warnings_or_errors(
+                    hyper_par,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTError::from,
+                    sconf.allow_hyper_par,
+                )
+                .extend_warnings_or_errors(
+                    pseudo,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
                     StdTEXTFromFlatTEXTError::from,
                     sconf.allow_pseudostandard,
                 )
-                .extend_warnings_or_errors(
-                    us,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_unused_standard,
-                )
-                .map_ok_value(|x| (x, esks))
+                .map_ok_value(|x| (x, extra))
         })
     }
 
@@ -9197,7 +9199,8 @@ pub enum StdTEXTFromFlatTEXTError {
     Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
     Pseudostandard(PseudostandardError),
-    Unused(UnusedStandardError),
+    HyperPar(HyperParError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -9212,7 +9215,8 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Layout(LookupLayoutWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Pseudostandard(PseudostandardError),
-    Unused(UnusedStandardError),
+    HyperPar(HyperParError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Error when reading standardized DATA from keyword pairs

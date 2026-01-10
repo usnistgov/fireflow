@@ -965,7 +965,8 @@ class CoreTEXT2_0(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1053,7 +1054,8 @@ class CoreTEXT3_0(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1156,7 +1158,8 @@ class CoreTEXT3_1(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1261,7 +1264,8 @@ class CoreTEXT3_2(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1356,7 +1360,8 @@ class CoreDataset2_0(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1457,7 +1462,8 @@ class CoreDataset3_0(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1573,7 +1579,8 @@ class CoreDataset3_1(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1691,7 +1698,8 @@ class CoreDataset3_2(
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
         allow_pseudostandard: bool = False,
-        allow_unused_standard: bool = False,
+        allow_hyper_par: bool = False,
+        allow_other_version: bool = False,
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -1770,12 +1778,19 @@ class ValidKeywords:
 
 @final
 class ExtraStdKeywords:
-    def __new__(cls, pseudostandard: StdKeywords, unused: StdKeywords) -> Self: ...
+    def __new__(
+        cls,
+        pseudostandard: StdKeywords,
+        hyper_par: StdKeywords,
+        other_version: StdKeywords,
+    ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def pseudostandard(self) -> StdKeywords: ...
     @property
-    def unused(self) -> StdKeywords: ...
+    def hyper_par(self) -> StdKeywords: ...
+    @property
+    def other_version(self) -> StdKeywords: ...
 
 @final
 class DatasetSegments:
@@ -2065,7 +2080,8 @@ def fcs_read_std_text(
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
-    allow_unused_standard: bool = False,
+    allow_hyper_par: bool = False,
+    allow_other_version: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -2212,7 +2228,8 @@ def fcs_read_std_dataset(
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
-    allow_unused_standard: bool = False,
+    allow_hyper_par: bool = False,
+    allow_other_version: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -2349,7 +2366,8 @@ def fcs_read_std_texts(
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
-    allow_unused_standard: bool = False,
+    allow_hyper_par: bool = False,
+    allow_other_version: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
@@ -2498,7 +2516,8 @@ def fcs_read_std_datasets(
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
     allow_pseudostandard: bool = False,
-    allow_unused_standard: bool = False,
+    allow_hyper_par: bool = False,
+    allow_other_version: bool = False,
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,

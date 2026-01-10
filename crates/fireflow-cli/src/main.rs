@@ -482,13 +482,14 @@ fn main() -> Result<(), ()> {
         "Allow non-standard keywords that start with a '$'.",
     );
 
-    let allow_unused_standard = flag_arg(
-        ALLOW_UNUSED_STANDARD,
-        format!(
-            "Allow unused standard keywords. For example, \
-             {} may be unused if no time measurement is wanted.",
-            kw_style.paint("$TIMESTAMP"),
-        ),
+    let allow_hyper_par = flag_arg(
+        ALLOW_HYPER_PAR,
+        "Allow measurement keywords whose index is greater than $PAR.",
+    );
+
+    let allow_other_version = flag_arg(
+        ALLOW_OTHER_VERSION,
+        "Allow standard keywords from different FCS version",
     );
 
     let disallow_deprecated = flag_arg(
@@ -578,7 +579,8 @@ fn main() -> Result<(), ()> {
         last_modified_pattern,
         allow_other_feature,
         allow_pseudostandard,
-        allow_unused_standard,
+        allow_hyper_par,
+        allow_other_version,
         disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
@@ -1099,7 +1101,8 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         last_modified_pattern,
         allow_other_feature: sargs.get_flag(ALLOW_OTHER_FEATURE).into(),
         allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
-        allow_unused_standard: sargs.get_flag(ALLOW_UNUSED_STANDARD).into(),
+        allow_hyper_par: sargs.get_flag(ALLOW_HYPER_PAR).into(),
+        allow_other_version: sargs.get_flag(ALLOW_OTHER_VERSION).into(),
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
@@ -1431,7 +1434,9 @@ const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
 
 const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
 
-const ALLOW_UNUSED_STANDARD: &str = "allow-unused-standard";
+const ALLOW_HYPER_PAR: &str = "allow-hyper-par";
+
+const ALLOW_OTHER_VERSION: &str = "allow-other-version";
 
 const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
 

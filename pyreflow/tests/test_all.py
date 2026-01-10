@@ -2793,7 +2793,8 @@ class TestReadWrite:
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
         assert len(uncore.extra.pseudostandard) == 0
-        assert len(uncore.extra.unused) == 0
+        assert len(uncore.extra.hyper_par) == 0
+        assert len(uncore.extra.other_version) == 0
 
     @staticmethod
     def _assert_uncore_dataset_empty(
@@ -2803,7 +2804,8 @@ class TestReadWrite:
         assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
         assert len(uncore.dataset.extra.pseudostandard) == 0
-        assert len(uncore.dataset.extra.unused) == 0
+        assert len(uncore.dataset.extra.hyper_par) == 0
+        assert len(uncore.dataset.extra.other_version) == 0
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:

@@ -3,7 +3,7 @@ use crate::config::{
     TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
-use crate::header::{Version, Version3_0};
+use crate::header::Version;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -2274,7 +2274,8 @@ impl CheckMaybe for UnstainedCenters {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ExtraStdKeywords {
     pub pseudostandard: StdKeywords,
-    pub unused: StdKeywords,
+    pub hyper_par: StdKeywords,
+    pub other_version: StdKeywords,
 }
 
 pub(crate) enum KeywordClass {
@@ -2282,7 +2283,7 @@ pub(crate) enum KeywordClass {
     VersionLE(Version),
     VersionGE(Version),
     Version3_0or3_1,
-    HyperPar(usize, Par),
+    HyperPar,
     Pseudostandard,
 }
 
@@ -2377,12 +2378,33 @@ impl ExtraStdKeywords {
     /// get called if $PAR is not parsed properly. Will also not match
     /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
     /// been processed when parsing TEXT itself.
+    #[allow(clippy::too_many_lines)]
     fn classify_kws(k: &StdKey, current_version: Version, par: Par) -> Option<KeywordClass> {
+        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
+            let mut index = 0_usize;
+            let mut it = xs.as_bytes().iter();
+            // read first character, only continue if a digit 1-9 (no leading
+            // zeros)
+            if let Some(x) = it.by_ref().next()
+                && (49..58).contains(x)
+            {
+                index += usize::from(*x) - 48;
+                let mut k = 1;
+                for y in it.take_while(|&&z| (48..58).contains(&z)) {
+                    index = 10 * index + (usize::from(*y) - 48);
+                    k += 1;
+                }
+                Some((index, xs.split_at(k).1))
+            } else {
+                None
+            }
+        }
+
         let s: &str = k.as_ref();
         let match_ascii =
-            |ss: &str, xs: &[&str]| -> bool { xs.iter().all(|x| ss.eq_ignore_ascii_case(x)) };
-        let minimal_version = |v| (v < current_version).then_some(KeywordClass::VersionGE(v));
-        let maximal_version = |v| (current_version < v).then_some(KeywordClass::VersionLE(v));
+            |ss: &str, xs: &[&str]| -> bool { xs.iter().any(|x| ss.eq_ignore_ascii_case(x)) };
+        let minimal_version = |v| (current_version < v).then_some(KeywordClass::VersionGE(v));
+        let maximal_version = |v| (v < current_version).then_some(KeywordClass::VersionLE(v));
         let eq_version = |v| (current_version != v).then_some(KeywordClass::VersionEQ(v));
 
         if match_ascii(s, &Self::ANY_VERSION_KW) {
@@ -2400,9 +2422,6 @@ impl ExtraStdKeywords {
         } else if match_ascii(s, &Self::MIN_3_2_KW) {
             // Keywords introduced in 3.2
             minimal_version(Version::FCS3_2)
-        } else if Dfc::matches(k) {
-            // Keywords only in 2.0
-            eq_version(Version::FCS2_0)
         } else if match_ascii(s, &[Unicode::C, Compensation3_0::C]) {
             // Keywords only in 3.0
             eq_version(Version::FCS3_0)
@@ -2410,183 +2429,146 @@ impl ExtraStdKeywords {
             // Keywords removed in 3.1 but in earlier versions
             maximal_version(Version::FCS3_1)
         } else if match_ascii(s, &[CSMode::C, CSTot::C, CSVBits::C]) || CSVFlag::matches(k) {
-            if Version::FCS2_0 < current_version && current_version < Version::FCS3_2 {
-                None
-            } else {
-                Some(KeywordClass::Version3_0or3_1)
-            }
+            (current_version != Version::FCS3_0 && Version::FCS3_1 != current_version)
+                .then_some(KeywordClass::Version3_0or3_1)
         } else if s.eq_ignore_ascii_case(Timestep::C) {
             // TODO there might be a more specific error we can generate since
             // this might imply we missed a time channel
             minimal_version(Version::FCS3_0)
+        } else if let Some((m, n)) = Dfc::matches(k) {
+            // DFC is unique because it can either not be part of the current
+            // version (everything above 2.0) or it can refer to a cell in the
+            // compensation matrix that is impossible according to $PAR
+            if current_version == Version::FCS2_0 {
+                (par.0 <= m || par.0 <= n).then_some(KeywordClass::HyperPar)
+            } else {
+                Some(KeywordClass::VersionEQ(Version::FCS2_0))
+            }
         } else {
             // At this point, the keyword is either $Pn*, $Gn*, $Rn*, or
             // something outside the standard.
-            if let Some((p, i0, rest)) = s
-                .as_bytes()
-                .split_first()
-                .and_then(|(x, xs)| xs.split_first().map(|(y, ys)| (x, y, ys)))
-                && *i0 > 48
-                && *i0 <= 57
-            {
-                let last_digit = rest
-                    .iter()
-                    .position(|&x| 48 <= x && x < 58)
-                    .unwrap_or_default();
-                let index = rest[0..last_digit]
-                    .iter()
-                    .rev()
-                    .chain([i0])
-                    .enumerate()
-                    .map(|(i, &x)| (usize::from(x) - 48) * (10 ^ i))
-                    .sum();
-                let prefix = str::from_utf8_unchecked(&[*p]);
-                let suffix = str::from_utf8_unchecked(&rest[last_digit..]);
-                match prefix {
-                    MEAS_KW_PREFIX => {
+            debug_assert!(s.is_ascii(), "key is not ASCII");
+            let (prefix, rest) = s.split_at(1);
+            match prefix {
+                MEAS_KW_PREFIX => {
+                    if let Some((index, suffix)) = split_index_and_suffix(rest) {
+                        let minimal_version_index = |v| {
+                            if par.0 <= index {
+                                Some(KeywordClass::HyperPar)
+                            } else if current_version < v {
+                                Some(KeywordClass::VersionGE(v))
+                            } else {
+                                None
+                            }
+                        };
                         if match_ascii(suffix, &Self::ANY_VERSION_SUFFIXES) {
-                            (par.0 <= index).then_some(KeywordClass::HyperPar(index, par))
+                            (par.0 <= index).then_some(KeywordClass::HyperPar)
                         } else if suffix.eq_ignore_ascii_case(Gain::SUFFIX) {
-                            if par.0 <= index {
-                                Some(KeywordClass::HyperPar(index, par))
-                            } else if current_version < Version::FCS3_0 {
-                                Some(KeywordClass::VersionGE(Version::FCS3_0))
-                            } else {
-                                None
-                            }
+                            minimal_version_index(Version::FCS3_0)
                         } else if suffix.eq_ignore_ascii_case(Display::SUFFIX) {
-                            if par.0 <= index {
-                                Some(KeywordClass::HyperPar(index, par))
-                            } else if current_version < Version::FCS3_1 {
-                                Some(KeywordClass::VersionGE(Version::FCS3_1))
-                            } else {
-                                None
-                            }
+                            minimal_version_index(Version::FCS3_1)
                         } else if match_ascii(suffix, &Self::MIN_3_2_SUFFIXES) {
-                            if par.0 <= index {
-                                Some(KeywordClass::HyperPar(index, par))
-                            } else if current_version < Version::FCS3_2 {
-                                Some(KeywordClass::VersionGE(Version::FCS3_2))
-                            } else {
-                                None
-                            }
+                            minimal_version_index(Version::FCS3_2)
                         } else {
                             Some(KeywordClass::Pseudostandard)
                         }
+                    } else {
+                        Some(KeywordClass::Pseudostandard)
                     }
-                    GATE_KW_PREFIX => {
-                        if match_ascii(suffix, &Self::GATE_SUFFIXES) {
-                            if par.0 <= index {
-                                Some(KeywordClass::HyperPar(index, par))
-                            } else if Version::FCS3_1 < current_version {
-                                Some(KeywordClass::VersionLE(Version::FCS3_1))
-                            } else {
-                                None
-                            }
-                        } else {
-                            Some(KeywordClass::Pseudostandard)
-                        }
-                    }
-                    REGION_KW_PREFIX => {
-                        let rs = [RegionGateIndex::<()>::SUFFIX, RegionWindow::SUFFIX];
-                        if match_ascii(suffix, &rs) {
-                            (par.0 <= index).then_some(KeywordClass::HyperPar(index, par))
-                        } else {
-                            Some(KeywordClass::Pseudostandard)
-                        }
-                    }
-                    _ => Some(KeywordClass::Pseudostandard),
                 }
-            } else {
-                Some(KeywordClass::Pseudostandard)
+                GATE_KW_PREFIX => {
+                    if let Some((index, suffix)) = split_index_and_suffix(rest)
+                        && match_ascii(suffix, &Self::GATE_SUFFIXES)
+                    {
+                        if par.0 <= index {
+                            Some(KeywordClass::HyperPar)
+                        } else if current_version > Version::FCS3_1 {
+                            Some(KeywordClass::VersionLE(Version::FCS3_1))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(KeywordClass::Pseudostandard)
+                    }
+                }
+                REGION_KW_PREFIX => {
+                    let rs = [RegionGateIndex::<()>::SUFFIX, RegionWindow::SUFFIX];
+                    if let Some((index, suffix)) = split_index_and_suffix(rest)
+                        && match_ascii(suffix, &rs)
+                    {
+                        (par.0 <= index).then_some(KeywordClass::HyperPar)
+                    } else {
+                        Some(KeywordClass::Pseudostandard)
+                    }
+                }
+                _ => Some(KeywordClass::Pseudostandard),
             }
         }
     }
 
-    pub(crate) fn split_2_0(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_2_0)
-    }
-
-    pub(crate) fn split_3_0(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_0)
-    }
-
-    pub(crate) fn split_3_1(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_1)
-    }
-
-    pub(crate) fn split_3_2(kws: StdKeywords) -> Self {
-        Self::split_inner(kws, Self::matches_kw_3_2)
-    }
-
-    fn split_inner<F>(mut kws: StdKeywords, mut f: F) -> Self
-    where
-        F: FnMut(&StdKey) -> bool,
-    {
-        let unused: HashMap<_, _> = kws.extract_if(|k, _| f(k)).collect();
-        Self::new(kws, unused)
-    }
-
-    fn matches_kw_2_0(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        s.eq_ignore_ascii_case(Tot::C) || Dfc::matches(k) || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_0(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_1(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Display::matches(k)
-            || Calibration3_1::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_kw_3_2(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        Self::matches_offsets(k)
-            || s.eq_ignore_ascii_case(Tot::C)
-            || s.eq_ignore_ascii_case(Timestep::C)
-            || Gain::matches(k)
-            || Display::matches(k)
-            || Calibration3_2::matches(k)
-            || NumType::matches(k)
-            || DetectorName::matches(k)
-            || Tag::matches(k)
-            || Analyte::matches(k)
-            || Feature::matches(k)
-            || OpticalType::matches(k)
-            || Self::matches_meas_kw_common(k)
-    }
-
-    fn matches_offsets(k: &StdKey) -> bool {
-        let s: &str = k.as_ref();
-        s.eq_ignore_ascii_case(Beginanalysis::C)
-            || s.eq_ignore_ascii_case(Endanalysis::C)
-            || s.eq_ignore_ascii_case(Begindata::C)
-            || s.eq_ignore_ascii_case(Enddata::C)
-    }
-
-    fn matches_meas_kw_common(k: &StdKey) -> bool {
-        Width::matches(k)
-            || Range::matches(k)
-            || Scale::matches(k)
-            || Shortname::matches(k)
-            || Longname::matches(k)
-            || Power::matches(k)
-            || DetectorType::matches(k)
-            || PercentEmitted::matches(k)
-            || DetectorVoltage::matches(k)
+    pub(crate) fn split_keywords(
+        kws: StdKeywords,
+        current_version: Version,
+        par: Par,
+    ) -> (
+        Self,
+        Vec<KeywordOtherVersionError>,
+        Vec<HyperParError>,
+        Vec<PseudostandardError>,
+    ) {
+        let all_versions = [
+            Version::FCS2_0,
+            Version::FCS3_0,
+            Version::FCS3_1,
+            Version::FCS3_2,
+        ];
+        let mut pseudo = HashMap::new();
+        let mut hyper_par = HashMap::new();
+        let mut other_version = HashMap::new();
+        let mut pseudo_errors = vec![];
+        let mut hyper_par_errors = vec![];
+        let mut other_version_errors = vec![];
+        for (k, v) in kws {
+            macro_rules! go_version {
+                ($vs:expr) => {
+                    let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
+                    other_version_errors.push(e.into());
+                    other_version.insert(k, v);
+                };
+            }
+            if let Some(m) = Self::classify_kws(&k, current_version, par) {
+                match m {
+                    KeywordClass::HyperPar => {
+                        hyper_par_errors.push(HyperParError::new(par, k.clone()));
+                        hyper_par.insert(k, v);
+                    }
+                    KeywordClass::VersionEQ(ver) => {
+                        let vs = NonEmpty::new(ver);
+                        go_version!(vs);
+                    }
+                    KeywordClass::VersionLE(ver) => {
+                        let mut vs = NonEmpty::new(ver);
+                        vs.extend(all_versions.iter().filter(|&&x| x < ver).copied());
+                        go_version!(vs);
+                    }
+                    KeywordClass::VersionGE(ver) => {
+                        let mut vs = NonEmpty::new(ver);
+                        vs.extend(all_versions.iter().filter(|&&x| x > ver).copied());
+                        go_version!(vs);
+                    }
+                    KeywordClass::Version3_0or3_1 => {
+                        let vs = NonEmpty::from((Version::FCS3_0, vec![Version::FCS3_1]));
+                        go_version!(vs);
+                    }
+                    KeywordClass::Pseudostandard => {
+                        pseudo_errors.push(PseudostandardError(k.clone()));
+                        pseudo.insert(k, v);
+                    }
+                }
+            }
+        }
+        let ret = Self::new(pseudo, hyper_par, other_version);
+        (ret, other_version_errors, hyper_par_errors, pseudo_errors)
     }
 }
 
@@ -2597,12 +2579,29 @@ impl ExtraStdKeywords {
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
-/// Error denoting that unused standard keyword was found.
-#[derive(Debug, Error)]
-#[error("unused standard keyword found: {0}")]
+/// Error denoting that keyword within standard but above $PAR was found
+#[derive(Debug, Error, new)]
+#[error("keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
-pub struct UnusedStandardError(pub StdKey);
+pub struct HyperParError {
+    pub par: Par,
+    pub key: StdKey,
+}
+
+/// Error denoting that keyword from different version was found
+#[derive(Debug, Error, new)]
+#[error(
+    "keyword is not compatible with {current} but is compatible with {os}: {key}",
+    os = self.others.iter().join(", ")
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+pub struct KeywordOtherVersionError {
+    pub key: StdKey,
+    pub current: Version,
+    pub others: NonEmpty<Version>,
+}
 
 macro_rules! newtype_string {
     ($t:ident) => {

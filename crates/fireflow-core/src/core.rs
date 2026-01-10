@@ -9818,7 +9818,7 @@ pub enum LookupModifiedDataError {
 
 /// Error triggered when time measurement is missing but required.
 #[derive(Debug, Error)]
-#[error("Could not find time measurement matching {0}")]
+#[error("Could not find time measurement matching '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
 pub struct MissingTime(pub TimeMeasNamePattern);

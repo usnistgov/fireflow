@@ -27,6 +27,7 @@ clap = "4.5.53"
 ambassador = "0.4.2"
 unicase = "2.8.1"
 thiserror = "2.0.17"
+phf = "0.13.1"
 
 # serde
 serde = "1.0.228"

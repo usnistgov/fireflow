@@ -50,6 +50,7 @@ use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
 use thiserror::Error;
+use unicase::UniCase;
 
 use derive_new::new;
 use nalgebra::DMatrix;
@@ -77,25 +78,12 @@ use {
     pyo3::prelude::*,
 };
 
-pub const MEAS_KW_PREFIX: &str = "P";
-pub const GATE_KW_PREFIX: &str = "G";
-pub const REGION_KW_PREFIX: &str = "R";
+pub(crate) const MEAS_KW_PREFIX: &str = "P";
+pub(crate) const GATE_KW_PREFIX: &str = "G";
+pub(crate) const REGION_KW_PREFIX: &str = "R";
 
-pub const SCALE_KW_SUFFIX: &str = "E";
-pub const FILTER_KW_SUFFIX: &str = "F";
-pub const PERCENT_EMITTED_KW_SUFFIX: &str = "P";
-pub const RANGE_KW_SUFFIX: &str = "R";
-pub const SHORTNAME_KW_SUFFIX: &str = "N";
-pub const LONGNAME_KW_SUFFIX: &str = "S";
-pub const DET_TYPE_KW_SUFFIX: &str = "T";
-pub const DET_VOLTAGE_KW_SUFFIX: &str = "V";
-pub const WAVELENGTH_KW_SUFFIX: &str = "L";
-pub const TYPE_KW_SUFFIX: &str = "TYPE";
-pub const CALIBRATION_KW_SUFFIX: &str = "CALIBRATION";
-
-pub const MODE_KW: &str = "MODE";
-pub const CYT_KW: &str = "CYT";
-pub const BYTEORD_KW: &str = "BYTEORD";
+pub(crate) const REGION_INDEX_KW_SUFFIX: &str = "I";
+pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
 
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Display, Debug, Clone, Copy)]
@@ -2278,6 +2266,16 @@ pub struct ExtraStdKeywords {
     pub other_version: StdKeywords,
 }
 
+pub(crate) enum VersionClass {
+    EQ(Version),
+    LE(Version),
+    GE(Version),
+    Is3_0or3_1,
+    Any,
+}
+
+include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
+
 pub(crate) enum KeywordClass {
     VersionEQ(Version),
     VersionLE(Version),
@@ -2297,90 +2295,6 @@ pub(crate) struct ExtraKeywordOutput {
 }
 
 impl ExtraStdKeywords {
-    const ANY_VERSION_KW: [&str; 23] = [
-        AlphaNumType::C,
-        Abrt::C,
-        BYTEORD_KW,
-        CYT_KW,
-        Cytsn::C,
-        Com::C,
-        Cells::C,
-        FCSDate::C,
-        BTIM_KW,
-        ETIM_KW,
-        Exp::C,
-        Fil::C,
-        Inst::C,
-        Lost::C,
-        MODE_KW,
-        Op::C,
-        Proj::C,
-        Smno::C,
-        Src::C,
-        Sys::C,
-        Tot::C,
-        Trigger::C,
-        Gating::C,
-    ];
-
-    const ANY_VERSION_SUFFIXES: [&str; 11] = [
-        Width::SUFFIX,
-        Filter::SUFFIX,
-        Power::SUFFIX,
-        PercentEmitted::SUFFIX,
-        Range::SUFFIX,
-        Longname::SUFFIX,
-        DetectorType::SUFFIX,
-        DetectorVoltage::SUFFIX,
-        Shortname::SUFFIX,
-        SCALE_KW_SUFFIX,
-        WAVELENGTH_KW_SUFFIX,
-    ];
-
-    const MIN_3_0_KW: [&str; 4] = [Beginanalysis::C, Begindata::C, Endanalysis::C, Enddata::C];
-
-    const MIN_3_1_KW: [&str; 8] = [
-        LastModifier::C,
-        Originality::C,
-        LastModified::C,
-        Plateid::C,
-        Platename::C,
-        Wellid::C,
-        Spillover::C,
-        Vol::C,
-    ];
-
-    const MIN_3_2_KW: [&str; 8] = [
-        Carrierid::C,
-        Carriertype::C,
-        Locationid::C,
-        BeginDateTime::C,
-        EndDateTime::C,
-        UnstainedCenters::C,
-        UnstainedInfo::C,
-        Flowrate::C,
-    ];
-
-    const MIN_3_2_SUFFIXES: [&str; 6] = [
-        Feature::SUFFIX,
-        TYPE_KW_SUFFIX,
-        NumType::SUFFIX,
-        Analyte::SUFFIX,
-        Tag::SUFFIX,
-        DetectorName::SUFFIX,
-    ];
-
-    const GATE_SUFFIXES: [&str; 8] = [
-        GateScale::SUFFIX,
-        GateFilter::SUFFIX,
-        GatePercentEmitted::SUFFIX,
-        GateRange::SUFFIX,
-        GateShortname::SUFFIX,
-        GateLongname::SUFFIX,
-        GateDetectorType::SUFFIX,
-        GateDetectorVoltage::SUFFIX,
-    ];
-
     /// Classify unused keyword based on all known FCS versions
     ///
     /// Will not try to match $PAR since we can assume this function will never
@@ -2409,43 +2323,35 @@ impl ExtraStdKeywords {
             }
         }
 
-        let s: &str = k.as_ref();
+        let s: UniCase<&str> = UniCase::ascii(k.as_ref());
         let match_ascii =
             |ss: &str, xs: &[&str]| -> bool { xs.iter().any(|x| ss.eq_ignore_ascii_case(x)) };
         let minimal_version = |v| (current_version < v).then_some(KeywordClass::VersionGE(v));
         let maximal_version = |v| (v < current_version).then_some(KeywordClass::VersionLE(v));
         let eq_version = |v| (current_version != v).then_some(KeywordClass::VersionEQ(v));
 
-        if match_ascii(s, &Self::ANY_VERSION_KW) {
-            // Each of these could be present in all versions, so if they end up
-            // here it means that the parser encountered some error that
-            // prevented them from being collected from the hash table. This
-            // means they can be ignored here, which will generate no error.
-            None
-        } else if match_ascii(s, &Self::MIN_3_0_KW) {
-            // Keywords introduced in 3.0
-            minimal_version(Version::FCS3_0)
-        } else if match_ascii(s, &Self::MIN_3_1_KW) {
-            // Keywords introduced in 3.1
-            minimal_version(Version::FCS3_1)
-        } else if match_ascii(s, &Self::MIN_3_2_KW) {
-            // Keywords introduced in 3.2
-            minimal_version(Version::FCS3_2)
-        } else if match_ascii(s, &[Unicode::C, Compensation3_0::C]) {
-            // Keywords only in 3.0
-            eq_version(Version::FCS3_0)
-        } else if PeakBin::matches(k) || PeakIndex::matches(k) || s.eq_ignore_ascii_case(Gate::C) {
-            // Keywords removed in 3.1 but in earlier versions
-            maximal_version(Version::FCS3_1)
-        } else if match_ascii(s, &[CSMode::C, CSTot::C, CSVBits::C]) || CSVFlag::matches(k) {
-            (current_version != Version::FCS3_0 && Version::FCS3_1 != current_version)
-                .then_some(KeywordClass::Version3_0or3_1)
-        } else if s.eq_ignore_ascii_case(Timestep::C) {
+        if s.eq_ignore_ascii_case(Timestep::C) {
             if current_version < Version::FCS3_0 {
                 Some(KeywordClass::VersionGE(Version::FCS3_0))
             } else {
                 Some(KeywordClass::UnusedTimestep)
             }
+        } else if let Some(vc) = KW_MAP.get(&s) {
+            match vc {
+                VersionClass::Any => None,
+                VersionClass::EQ(v) => eq_version(*v),
+                VersionClass::LE(v) => maximal_version(*v),
+                VersionClass::GE(v) => minimal_version(*v),
+                VersionClass::Is3_0or3_1 => (current_version != Version::FCS3_0
+                    && Version::FCS3_1 != current_version)
+                    .then_some(KeywordClass::Version3_0or3_1),
+            }
+        } else if PeakBin::matches(k) || PeakIndex::matches(k) {
+            // Keywords removed in 3.1 but in earlier versions
+            maximal_version(Version::FCS3_1)
+        } else if CSVFlag::matches(k) {
+            (current_version != Version::FCS3_0 && Version::FCS3_1 != current_version)
+                .then_some(KeywordClass::Version3_0or3_1)
         } else if let Some((m, n)) = Dfc::matches(k) {
             // DFC is unique because it can either not be part of the current
             // version (everything above 2.0) or it can refer to a cell in the
@@ -2463,6 +2369,7 @@ impl ExtraStdKeywords {
             match prefix {
                 MEAS_KW_PREFIX => {
                     if let Some((index, suffix)) = split_index_and_suffix(rest) {
+                        let sfx = UniCase::ascii(suffix);
                         let minimal_version_index = |v| {
                             if par.0 <= index {
                                 Some(KeywordClass::HyperPar)
@@ -2472,14 +2379,11 @@ impl ExtraStdKeywords {
                                 None
                             }
                         };
-                        if match_ascii(suffix, &Self::ANY_VERSION_SUFFIXES) {
-                            (par.0 <= index).then_some(KeywordClass::HyperPar)
-                        } else if suffix.eq_ignore_ascii_case(Gain::SUFFIX) {
-                            minimal_version_index(Version::FCS3_0)
-                        } else if suffix.eq_ignore_ascii_case(Display::SUFFIX) {
-                            minimal_version_index(Version::FCS3_1)
-                        } else if match_ascii(suffix, &Self::MIN_3_2_SUFFIXES) {
-                            minimal_version_index(Version::FCS3_2)
+                        if let Some(vc) = MEAS_SUFFIX_MAP.get(&sfx) {
+                            match vc {
+                                VersionClass::GE(v) => minimal_version_index(*v),
+                                _ => (par.0 <= index).then_some(KeywordClass::HyperPar),
+                            }
                         } else {
                             Some(KeywordClass::Pseudostandard)
                         }
@@ -2489,7 +2393,7 @@ impl ExtraStdKeywords {
                 }
                 GATE_KW_PREFIX => {
                     if let Some((index, suffix)) = split_index_and_suffix(rest)
-                        && match_ascii(suffix, &Self::GATE_SUFFIXES)
+                        && GATE_SUFFIX_SET.contains(&UniCase::ascii(suffix))
                     {
                         if par.0 <= index {
                             Some(KeywordClass::HyperPar)
@@ -2895,26 +2799,23 @@ macro_rules! kw_opt_meta_opt_int {
 }
 
 // all versions
-kw_req_meta!(AlphaNumType, "DATATYPE");
-kw_opt_meta_int!(Abrt, u32, "ABRT");
-kw_opt_meta_string!(Cytsn, "CYTSN");
-kw_opt_meta_string!(Com, "COM");
-kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta!(FCSDate, "DATE", Option<Self>);
-kw_opt_meta_string!(Exp, "EXP");
-kw_opt_meta_string!(Fil, "FIL");
-kw_opt_meta_string!(Inst, "INST");
-kw_opt_meta_int!(Lost, u32, "LOST");
-kw_opt_meta_string!(Op, "OP");
-kw_req_meta_int!(Par, usize, "PAR");
-kw_opt_meta_string!(Proj, "PROJ");
-kw_opt_meta_string!(Smno, "SMNO");
-kw_opt_meta_string!(Src, "SRC");
-kw_opt_meta_string!(Sys, "SYS");
-kw_opt_meta!(Trigger, "TR", Option<Self>);
-
-pub const BTIM_KW: &str = "BTIM";
-pub const ETIM_KW: &str = "ETIM";
+kw_req_meta!(AlphaNumType, DATATYPE_KW);
+kw_opt_meta_int!(Abrt, u32, ABRT_KW);
+kw_opt_meta_string!(Cytsn, CYTSN_KW);
+kw_opt_meta_string!(Com, COM_KW);
+kw_opt_meta_string!(Cells, CELLS_KW);
+kw_opt_meta!(FCSDate, DATE_KW, Option<Self>);
+kw_opt_meta_string!(Exp, EXP_KW);
+kw_opt_meta_string!(Fil, FIL_KW);
+kw_opt_meta_string!(Inst, INST_KW);
+kw_opt_meta_int!(Lost, u32, LOST_KW);
+kw_opt_meta_string!(Op, OP_KW);
+kw_req_meta_int!(Par, usize, PAR_KW);
+kw_opt_meta_string!(Proj, PROJ_KW);
+kw_opt_meta_string!(Smno, SMNO_KW);
+kw_opt_meta_string!(Src, SRC_KW);
+kw_opt_meta_string!(Sys, SYS_KW);
+kw_opt_meta!(Trigger, TR_KW, Option<Self>);
 
 // time for 2.0
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, BTIM_KW);
@@ -2929,40 +2830,40 @@ kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, BTIM_KW);
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, ETIM_KW);
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, "COMP", Option<Self>);
-kw_opt_meta!(Unicode, "UNICODE", Option<Self>);
+kw_opt_meta!(Compensation3_0, COMP_KW, Option<Self>);
+kw_opt_meta!(Unicode, UNICODE_KW, Option<Self>);
 
 // for 3.0+
-kw_req_meta!(Timestep, "TIMESTEP");
+kw_req_meta!(Timestep, TIMESTEP_KW);
 
 // for 3.1+
-kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta!(Originality, "ORIGINALITY", Option<Self>);
-kw_opt_meta!(LastModified, "LAST_MODIFIED", Option<Self>);
+kw_opt_meta_string!(LastModifier, LAST_MODIFIER_KW);
+kw_opt_meta!(Originality, ORIGINALITY_KW, Option<Self>);
+kw_opt_meta!(LastModified, LAST_MODIFIED_KW, Option<Self>);
 
-kw_opt_meta_string!(Plateid, "PLATEID");
-kw_opt_meta_string!(Platename, "PLATENAME");
-kw_opt_meta_string!(Wellid, "WELLID");
+kw_opt_meta_string!(Plateid, PLATEID_KW);
+kw_opt_meta_string!(Platename, PLATENAME_KW);
+kw_opt_meta_string!(Wellid, WELLID_KW);
 
-kw_opt_meta!(Spillover, "SPILLOVER", Option<Self>);
+kw_opt_meta!(Spillover, SPILLOVER_KW, Option<Self>);
 
-kw_opt_meta!(Vol, "VOL", Option<Self>);
+kw_opt_meta!(Vol, VOL_KW, Option<Self>);
 
 // for 3.2+
-kw_opt_meta_string!(Carrierid, "CARRIERID");
-kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
-kw_opt_meta_string!(Locationid, "LOCATIONID");
+kw_opt_meta_string!(Carrierid, CARRIERID_KW);
+kw_opt_meta_string!(Carriertype, CARRIERTYPE_KW);
+kw_opt_meta_string!(Locationid, LOCATIONID_KW);
 
-kw_opt_meta!(BeginDateTime, "BEGINDATETIME", Option<Self>);
-kw_opt_meta!(EndDateTime, "ENDDATETIME", Option<Self>);
-kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS", Self);
+kw_opt_meta!(BeginDateTime, BEGINDATETIME_KW, Option<Self>);
+kw_opt_meta!(EndDateTime, ENDDATETIME_KW, Option<Self>);
+kw_opt_meta!(UnstainedCenters, UNSTAINEDCENTERS_KW, Self);
 
-kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
+kw_opt_meta_string!(UnstainedInfo, UNSTAINEDINFO_KW);
 
-kw_opt_meta_string!(Flowrate, "FLOWRATE");
+kw_opt_meta_string!(Flowrate, FLOWRATE_KW);
 
 // version-specific
-kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
+kw_opt_meta_int!(Tot, usize, TOT_KW); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
 kw_req_meta!(Mode, MODE_KW); // for 2.0-3.1
@@ -2975,9 +2876,9 @@ kw_req_meta!(ByteOrd2_0, BYTEORD_KW); // 2.0/3.0
 kw_req_meta!(ByteOrd3_1, BYTEORD_KW); // 3.1+
 
 // all versions
-kw_req_meas!(Width, "B");
-kw_opt_meas_string!(Filter, "F");
-kw_opt_meas!(Power, "O", Option<Self>);
+kw_req_meas!(Width, WIDTH_KW_SUFFIX);
+kw_opt_meas_string!(Filter, FILTER_KW_SUFFIX);
+kw_opt_meas!(Power, POWER_KW_SUFFIX, Option<Self>);
 kw_opt_meas!(PercentEmitted, PERCENT_EMITTED_KW_SUFFIX, Option<Self>);
 kw_req_meas!(Range, RANGE_KW_SUFFIX);
 kw_opt_meas_string!(Longname, LONGNAME_KW_SUFFIX);
@@ -2985,13 +2886,13 @@ kw_opt_meas_string!(DetectorType, DET_TYPE_KW_SUFFIX);
 kw_opt_meas!(DetectorVoltage, DET_VOLTAGE_KW_SUFFIX, Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, "G", Option<Self>);
+kw_opt_meas!(Gain, GAIN_KW_SUFFIX, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, "D", Option<Self>);
+kw_opt_meas!(Display, DISPLAY_KW_SUFFIX, Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, "FEATURE", Option<Self>);
+kw_opt_meas!(Feature, FEATURE_KW_SUFFIX, Option<Self>);
 meas_opt_zst!(TemporalType, TYPE_KW_SUFFIX, TemporalTypeInner);
 
 impl FromStr for TemporalType {
@@ -3004,10 +2905,10 @@ impl FromStr for TemporalType {
     }
 }
 
-kw_opt_meas!(NumType, "DATATYPE", Option<Self>);
-kw_opt_meas_string!(Analyte, "ANALYTE");
-kw_opt_meas_string!(Tag, "TAG");
-kw_opt_meas_string!(DetectorName, "DET");
+kw_opt_meas!(NumType, DATATYPE_KW_SUFFIX, Option<Self>);
+kw_opt_meas_string!(Analyte, ANALYTE_KW_SUFFIX);
+kw_opt_meas_string!(Tag, TAG_KW_SUFFIX);
+kw_opt_meas_string!(DetectorName, DET_NAME_KW_SUFFIX);
 
 impl_display_maybe_self!(OpticalType);
 kw_opt_meas!(OpticalType, TYPE_KW_SUFFIX, Self);
@@ -3067,10 +2968,10 @@ impl Dfc {
 pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 
 // 3.0/3.1 subsets
-kw_opt_meta_int!(CSMode, usize, "CSMODE");
+kw_opt_meta_int!(CSMode, usize, CSMODE_KW);
 
-kw_opt_meta_opt_int!(CSTot, u32, "CSTOT");
-kw_opt_meta_opt_int!(CSVBits, u32, "CSVBITS");
+kw_opt_meta_opt_int!(CSTot, u32, CSTOT_KW);
+kw_opt_meta_opt_int!(CSVBits, u32, CSVBITS_KW);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
@@ -3100,7 +3001,7 @@ impl IndexedKey for PeakIndex {
 }
 
 // 2.0-3.1 gating parameters
-kw_opt_meta_int!(Gate, usize, "GATE");
+kw_opt_meta_int!(Gate, usize, GATE_KW);
 
 kw_opt_gate_other!(GateScale, SCALE_KW_SUFFIX);
 kw_opt_gate_string!(GateFilter, FILTER_KW_SUFFIX);
@@ -3110,13 +3011,13 @@ kw_opt_gate_other!(GateShortname, SHORTNAME_KW_SUFFIX);
 kw_opt_gate_string!(GateLongname, LONGNAME_KW_SUFFIX);
 kw_opt_gate_string!(GateDetectorType, DET_TYPE_KW_SUFFIX);
 kw_opt_gate_other!(GateDetectorVoltage, DET_VOLTAGE_KW_SUFFIX);
-kw_opt_meta!(Gating, "GATING", Option<Self>);
+kw_opt_meta!(Gating, GATING_KW, Option<Self>);
 
-kw_opt_region!(RegionWindow, "W");
+kw_opt_region!(RegionWindow, REGION_WINDOW_KW_SUFFIX);
 
 impl<I> IndexedKey for RegionGateIndex<I> {
-    const PREFIX: &'static str = "R";
-    const SUFFIX: &'static str = "I";
+    const PREFIX: &'static str = REGION_KW_PREFIX;
+    const SUFFIX: &'static str = REGION_INDEX_KW_SUFFIX;
 }
 
 impl<I> Optional for RegionGateIndex<I> {
@@ -3125,7 +3026,7 @@ impl<I> Optional for RegionGateIndex<I> {
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
-kw_req_meta!(Nextdata, "NEXTDATA");
+kw_req_meta!(Nextdata, NEXTDATA_KW);
 opt_meta!(Nextdata, Option<Self>);
 
 macro_rules! kw_offset {
@@ -3141,32 +3042,32 @@ macro_rules! kw_offset {
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    "BEGINANALYSIS"
+    BEGINANALYSIS_KW
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    "BEGINDATA"
+    BEGINDATA_KW
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    "BEGINSTEXT"
+    BEGINSTEXT_KW
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    "ENDANALYSIS"
+    ENDANALYSIS_KW
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    "ENDDATA"
+    ENDDATA_KW
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    "ENDSTEXT"
+    ENDSTEXT_KW
 );
 
 opt_meta!(Beginanalysis, Option<Self>);

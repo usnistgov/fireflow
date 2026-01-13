@@ -18,14 +18,19 @@ use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBoun
 use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
 use crate::text::lookup::{
     FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required,
+    ParseKeyError, ReqIndexedKey, ReqIndexedStKeyError, ReqKeyError, ReqMetarootKey, Required,
+    impl_from_str_with_delim,
 };
-use crate::text::named_vec::NameMapping;
+use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::{
     CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
 };
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
-use crate::text::relational::{ExistingNamedLinkError, RemovedIndexLink, RemovedNamedLink};
+use crate::text::relational::{
+    ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
+    OpticalNamedLinkError, OpticalNamesToRemove, RemovedIndexLink, RemovedNamedLink,
+    TemporalNamedLinkError,
+};
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
 use crate::validated::ascii_range::AsciiRangeValue;
@@ -44,31 +49,23 @@ use type_families::{impl_functor, impl_kind1};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
+use derive_new::new;
 use itertools::Itertools as _;
+use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
-use thiserror::Error;
-use unicase::UniCase;
-
-use derive_new::new;
-use nalgebra::DMatrix;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
 use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
 use std::str::FromStr;
+use thiserror::Error;
+use unicase::UniCase;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::lookup::{ReqIndexedStKeyError, impl_from_str_with_delim};
-use super::named_vec::{NamedSet, NamedSetMembership};
-use super::relational::{
-    KeyToIndexLinkError, KeyToNameLinkError, LinkName, OpticalNamedLinkError, OpticalNamesToRemove,
-    TemporalNamedLinkError,
-};
 
 #[cfg(feature = "python")]
 use {
@@ -77,6 +74,12 @@ use {
     },
     pyo3::prelude::*,
 };
+
+// The string primitives for almost all keywords are compiled in a build script
+// as string constants and included here. This is done in order to put these
+// strings into a pre-compiled hash table which will be used for version
+// autodetection and sorting through unused keywords efficiently.
+include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
 
 pub(crate) const MEAS_KW_PREFIX: &str = "P";
 pub(crate) const GATE_KW_PREFIX: &str = "G";
@@ -2273,8 +2276,6 @@ pub(crate) enum VersionClass {
     Is3_0or3_1,
     Any,
 }
-
-include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
 
 pub(crate) enum KeywordClass {
     VersionEQ(Version),

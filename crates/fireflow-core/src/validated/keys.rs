@@ -551,6 +551,10 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 }
 
 impl StdKey {
+    pub(crate) fn as_ascii_str(&self) -> Ascii<&str> {
+        Ascii::new(self.0.0.as_ref())
+    }
+
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
     }

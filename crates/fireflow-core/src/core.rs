@@ -53,14 +53,13 @@ use crate::text::keywords::{
     Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
     DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
-    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperParError, Inst,
-    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
-    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
-    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
-    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
-    Wavelengths, WavelengthsLossError, Wellid,
+    Exp, ExtraKeywordsError, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst,
+    LastModified, LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost,
+    MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature,
+    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    PrefixedMeasIndex, Proj, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
+    TemporalType, Timestep, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters,
+    UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -4279,7 +4278,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 });
 
             // Push pseudostandard/unused warnings/errors
-            let (extra, errors) = ExtraStdKeywords::split_keywords(kws.std, version, par);
+            // TODO fix gate arg
+            let (extra, errors) =
+                ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
             core_res
                 .extend_warnings_or_errors(
@@ -4291,28 +4292,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     sconf.allow_extra_timestep,
                 )
                 .extend_warnings_or_errors(
-                    errors.other_version,
+                    errors.errors,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
                     StdTEXTFromFlatTEXTError::from,
                     sconf.allow_other_version,
-                )
-                .extend_warnings_or_errors(
-                    errors.hyper_par,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_hyper_par,
-                )
-                .extend_warnings_or_errors(
-                    errors.pseudo,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_pseudostandard,
                 )
                 .map_ok_value(|x| (x, extra))
         })
@@ -9205,9 +9190,7 @@ pub enum StdTEXTFromFlatTEXTError {
     Shortname(LookupShortnameError),
     Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
-    Pseudostandard(PseudostandardError),
-    HyperPar(HyperParError),
-    OtherVersion(KeywordOtherVersionError),
+    Extra(ExtraKeywordsError),
     Timestep(TimestepFoundError),
 }
 
@@ -9222,9 +9205,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Shortname(OptIndexedKeyError<Shortname>),
     Layout(LookupLayoutWarning),
     Offsets(LookupTEXTOffsetsWarning),
-    Pseudostandard(PseudostandardError),
-    HyperPar(HyperParError),
-    OtherVersion(KeywordOtherVersionError),
+    Extra(ExtraKeywordsError),
     Timestep(TimestepFoundError),
 }
 

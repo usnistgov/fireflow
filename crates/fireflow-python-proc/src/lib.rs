@@ -682,8 +682,15 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
         PyDict::new_std_keywords(),
-        "Keywords which are part of the standard but have an index outside *$PAR*.",
+        "Measurement keywords which are part of the standard but have an index outside *$PAR*.",
         |_, _| quote!(self.0.hyper_par.clone()),
+    );
+
+    let hyper_gate = DocArgROIvar::new_ivar_ro(
+        "hyper_gate",
+        PyDict::new_std_keywords(),
+        "Gating keywords which are part of the standard but have an index outside *$GATE*.",
+        |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
     let other_version = DocArgROIvar::new_ivar_ro(
@@ -696,13 +703,14 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
     let doc = DocString::new_class("Extra keywords from *TEXT* standardization.").args([
         pseudostandard,
         hyper_par,
+        hyper_gate,
         other_version,
     ]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(pseudostandard, hyper_par, other_version).into()
+                #path::new(pseudostandard, hyper_par, hyper_gate, other_version).into()
             }
         }
     };

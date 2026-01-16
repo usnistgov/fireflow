@@ -1172,6 +1172,10 @@ where
                 .map_errors(ParseFlatTEXTError::from);
 
             // TODO configure allow_drop
+
+            // TODO this entire detection scheme should probably go right before
+            // the standardization bits since it isn't use for anything here and
+            // can only cause a confusing error
             let version_res = autodetect_version(
                 &kws.std,
                 header.version,

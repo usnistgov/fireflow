@@ -198,8 +198,15 @@ fn main() -> Result<(), ()> {
 
     let version_override = Arg::new(VERSION_OVERRIDE)
         .long(VERSION_OVERRIDE)
-        .value_name("VERSION")
-        .help(format!("Override the FCS version from {header_seg}."));
+        .value_name("OVERRIDE")
+        .help(format!(
+            "Override the FCS version from {header_seg}. Can be an FCS \
+             version string (like 'FCS3.2') which will force to a fixed version. \
+             Can also autodetect version with one of 'latest' or 'earliest' \
+             (the latest or earliest available version respectively) or 'loose' \
+             or 'strict' (the available version with the most or least optional \
+             keywords respectively)."
+        ));
 
     let supp_text_correction_begin = correction_arg(SUPP_TEXT_COR_BEGIN, true, &supp_text_seg);
     let supp_text_correction_end = correction_arg(SUPP_TEXT_COR_END, false, &supp_text_seg);

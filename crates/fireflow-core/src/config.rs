@@ -310,7 +310,23 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TruncateOffsets)]
     pub header: ReadHeaderInnerConfig,
 
-    /// Override the version
+    /// Use a different version than what is given in the HEADER.
+    ///
+    /// If [`VersionOverride::Force`], force the version to be the supplied
+    /// version.
+    ///
+    /// If [`VersionOverride::Autodetect`], try to detect the version given the
+    /// keywords in TEXT. This variant further takes a strategy as specified by
+    /// [`Selectversionstrategy`] to select the "best" version of multiple
+    /// choices can accommodate the given keywords. If
+    /// [`Selectversionstrategy::Latest`] or
+    /// [`Selectversionstrategy::Earliest`], use the latest of earliest
+    /// available version respectively. If [`Selectversionstrategy::Loose`] or
+    /// [`Selectversionstrategy::Strict`], choose the version which has the most
+    /// or least optional keywords. This will fail if no version can accommodate
+    /// all required keywords from *TEXT*.
+    ///
+    /// If [`None`], do not change the version from HEADER.
     pub version_override: Option<VersionOverride>,
 
     /// Corrections for supplemental TEXT segment

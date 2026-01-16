@@ -7723,7 +7723,17 @@ impl DocArgParam {
     }
 
     fn new_version_override() -> Self {
-        let d = "Override the FCS version as seen in *HEADER*.";
+        let d = "Override the FCS version as seen in *HEADER*. Use an FCS \
+                 version string like ``\"FCS3.2\"`` to force to a specific \
+                 version. Alternatively, autodetect the version from keywords in \
+                 *TEXT* using one of ``\"latest\"``, ``\"earliest\"``, \
+                 ``\"strict\"``, or ``\"loose\"``. These will be used to select \
+                 the latest version, earliest version, version with least \
+                 optional keywords, or version with most optional keywords \
+                 respectively in the event that more than one version can \
+                 accommodate the keywords from *TEXT*. Autodetection will fail \
+                 if no versions can be found which accommodate all required \
+                 keywords in *TEXT*.";
         Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }
 

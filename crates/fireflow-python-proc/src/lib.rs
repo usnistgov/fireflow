@@ -5843,7 +5843,15 @@ impl PyLiteral {
 
     fn new_version() -> Self {
         let path = parse_quote!(fireflow_core::header::Version);
-        Self::new2(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path)
+        Self::new2(ALL_VERSION_STRINGS, path)
+    }
+
+    fn new_version_override() -> Self {
+        let path = config_path("VersionOverride");
+        let vs = ALL_VERSION_STRINGS
+            .into_iter()
+            .chain(["latest", "earliest", "loose", "strict"]);
+        Self::new2(vs, path)
     }
 
     fn new_temporal_optical_key() -> Self {
@@ -7716,7 +7724,7 @@ impl DocArgParam {
 
     fn new_version_override() -> Self {
         let d = "Override the FCS version as seen in *HEADER*.";
-        Self::new_opt_param("version_override", PyLiteral::new_version(), d)
+        Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }
 
     fn new_supp_text_correction() -> Self {
@@ -8856,6 +8864,8 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_1,
     Version::FCS3_2,
 ];
+
+const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
 
 const CHRONO_REF: &str =
     "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";

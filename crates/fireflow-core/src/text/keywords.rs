@@ -120,304 +120,312 @@ pub(crate) enum MeasKeywordClass {
     Wavelength,
 }
 
-// #[allow(clippy::struct_excessive_bools)]
-// pub(crate) struct KeywordOptimizer {
-//     /// Number of keywords not counted elsewhere here
-//     n_any: usize,
-//     /// Number of optional keywords found that will be dropped if less then 3.0
-//     n_opt_min3_0: usize,
-//     /// Number of optional keywords found that will be dropped if less then 3.1
-//     n_opt_min3_1: usize,
-//     /// Number of optional keywords found that will be dropped if less then 3.2
-//     n_opt_min3_2: usize,
-//     /// Number of optional keywords found that will be dropped if greater than 3.1
-//     n_opt_max3_1: usize,
-//     /// Number of optional keywords found that will be dropped if not 2.0
-//     n_opt_eq2_0: usize,
-//     /// Number of optional keywords found that will be dropped if not 3.0
-//     n_opt_eq3_0: usize,
-//     /// Number of optional keywords found that will be dropped if not 3.2
-//     n_opt_eq3_2: usize,
-//     /// Number of optional keywords found that will be dropped if not 3.0/3.1
-//     n_opt_eq3_0or3_1: usize,
-//     /// Number of $PnN found
-//     n_pnn: usize,
-//     /// Number of $PnE found
-//     n_pne: usize,
-//     /// If $CYT was found
-//     found_cyt: bool,
-//     /// If $TOT was found
-//     found_tot: bool,
-//     /// If $BEGINDATA found
-//     found_begindata: bool,
-//     /// If $BEGINANALYSIS found
-//     found_beginanalysis: bool,
-//     /// If $BEGINSTEXT found
-//     found_beginstext: bool,
-//     /// If $ENDDATA found
-//     found_enddata: bool,
-//     /// If $ENDANALYSIS found
-//     found_endanalysis: bool,
-//     /// If $ENDSTEXT found
-//     found_endstext: bool,
-//     /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
-//     non_endian_byteord: bool,
-//     /// Value (or not) of $MODE
-//     mode_value: ModeValue,
-// }
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Default)]
+pub(crate) struct KeywordOptimizer {
+    /// Number of keywords not counted elsewhere here
+    n_any: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.0
+    n_opt_min3_0: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.1
+    n_opt_min3_1: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.2
+    n_opt_min3_2: usize,
+    /// Number of optional keywords found that will be dropped if greater than 3.1
+    n_opt_max3_1: usize,
+    /// Number of optional keywords found that will be dropped if not 2.0
+    n_opt_eq2_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0
+    n_opt_eq3_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.2
+    n_opt_eq3_2: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0/3.1
+    n_opt_eq3_0or3_1: usize,
+    /// Number of $PnN found
+    n_pnn: usize,
+    /// Number of $PnE found
+    n_pne: usize,
+    /// If $CYT was found
+    found_cyt: bool,
+    /// If $TOT was found
+    found_tot: bool,
+    /// If $BEGINDATA found
+    found_begindata: bool,
+    /// If $BEGINANALYSIS found
+    found_beginanalysis: bool,
+    /// If $BEGINSTEXT found
+    found_beginstext: bool,
+    /// If $ENDDATA found
+    found_enddata: bool,
+    /// If $ENDANALYSIS found
+    found_endanalysis: bool,
+    /// If $ENDSTEXT found
+    found_endstext: bool,
+    /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
+    non_endian_byteord: bool,
+    /// Value (or not) of $MODE
+    mode_value: ModeValue,
+}
 
-// #[derive(Clone, Copy, Default)]
-// enum ModeValue {
-//     #[default]
-//     Missing,
-//     List,
-//     Other,
-// }
+#[derive(Clone, Copy, Default)]
+enum ModeValue {
+    #[default]
+    Missing,
+    List,
+    Other,
+}
 
-// #[derive(Default)]
-// pub(crate) struct KeywordVersionScore {
-//     /// Number of required keywords expected to be in this version and found
-//     good_req: usize,
-//     /// Number of optional keywords expected to be in this version and found
-//     good_opt: usize,
-//     /// Number of keywords (opt or req) that must be dropped for this version
-//     drop: usize,
-//     /// Number of optional keywords that are missing in this version
-//     missing_opt: usize,
-//     /// Number of required keywords that are missing in this version
-//     missing_req: usize,
-//     /// Number of expected keywords that are not present in this version
-//     missing_absent: usize,
-// }
+#[derive(Default, PartialEq)]
+pub(crate) struct KeywordVersionScore {
+    /// Number of required keywords expected to be in this version and found
+    pub(crate) good_req: usize,
+    /// Number of optional keywords expected to be in this version and found
+    pub(crate) good_opt: usize,
+    /// Number of keywords (opt or req) that must be dropped for this version
+    pub(crate) drop: usize,
+    /// Number of optional keywords that are missing in this version
+    pub(crate) missing_opt: usize,
+    /// Number of required keywords that are missing in this version
+    pub(crate) missing_req: usize,
+    /// Number of expected keywords that are not present in this version
+    pub(crate) missing_absent: usize,
+}
 
-// impl KeywordOptimizer {
-//     fn get_score(&self, version: Version, par: Par) -> KeywordVersionScore {
-//         let mut score = KeywordVersionScore::default();
+impl KeywordVersionScore {
+    pub(crate) fn is_passing(&self, allow_drop: bool) -> bool {
+        (self.missing_req == 0) && (self.drop == 0 || (self.drop > 0 && allow_drop))
+    }
+}
 
-//         // these can be any version, so automatically count them as good
-//         score.good_opt += self.n_any;
+impl KeywordOptimizer {
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn get_score(&self, version: Version, par: Par) -> KeywordVersionScore {
+        let mut score = KeywordVersionScore::default();
 
-//         // count keywords as dropped if the version is not in range
-//         macro_rules! comp_drop_maybe {
-//             ($comp:expr, $field:ident) => {
-//                 if $comp {
-//                     score.good_opt += self.$field;
-//                 } else {
-//                     score.drop += self.$field;
-//                 }
-//             };
-//         }
-//         comp_drop_maybe!(version >= Version::FCS3_0, n_opt_min3_0);
-//         comp_drop_maybe!(version >= Version::FCS3_1, n_opt_min3_1);
-//         comp_drop_maybe!(version >= Version::FCS3_2, n_opt_min3_2);
-//         comp_drop_maybe!(version <= Version::FCS3_1, n_opt_max3_1);
-//         comp_drop_maybe!(version == Version::FCS2_0, n_opt_eq2_0);
-//         comp_drop_maybe!(version == Version::FCS3_0, n_opt_eq3_0);
-//         comp_drop_maybe!(version == Version::FCS3_2, n_opt_eq3_2);
-//         comp_drop_maybe!(
-//             version == Version::FCS3_0 || version == Version::FCS3_1,
-//             n_opt_eq3_0or3_1
-//         );
+        // these can be any version, so automatically count them as good
+        score.good_opt += self.n_any;
 
-//         // $PnN became required in version 3.1, so count any missing $PnN as
-//         // impossible in these later versions
-//         // ASSUME n_pnn will always be less than $PAR
-//         let missing_names = par.0.saturating_sub(self.n_pnn);
-//         if version >= Version::FCS3_1 {
-//             score.missing_req += missing_names;
-//             score.good_req += self.n_pnn;
-//         } else {
-//             score.missing_opt += missing_names;
-//             score.good_opt += self.n_pnn;
-//         }
+        // count keywords as dropped if the version is not in range
+        macro_rules! comp_drop_maybe {
+            ($comp:expr, $field:ident) => {
+                if $comp {
+                    score.good_opt += self.$field;
+                } else {
+                    score.drop += self.$field;
+                }
+            };
+        }
+        comp_drop_maybe!(version >= Version::FCS3_0, n_opt_min3_0);
+        comp_drop_maybe!(version >= Version::FCS3_1, n_opt_min3_1);
+        comp_drop_maybe!(version >= Version::FCS3_2, n_opt_min3_2);
+        comp_drop_maybe!(version <= Version::FCS3_1, n_opt_max3_1);
+        comp_drop_maybe!(version == Version::FCS2_0, n_opt_eq2_0);
+        comp_drop_maybe!(version == Version::FCS3_0, n_opt_eq3_0);
+        comp_drop_maybe!(version == Version::FCS3_2, n_opt_eq3_2);
+        comp_drop_maybe!(
+            version == Version::FCS3_0 || version == Version::FCS3_1,
+            n_opt_eq3_0or3_1
+        );
 
-//         // $PnE are the same as $PnN except for version 3.0
-//         let missing_scales = par.0.saturating_sub(self.n_pne);
-//         if version >= Version::FCS3_0 {
-//             score.missing_req += missing_scales;
-//             score.good_req += self.n_pnn;
-//         } else {
-//             score.missing_opt += missing_scales;
-//             score.good_opt += self.n_pnn;
-//         }
+        // $PnN became required in version 3.1, so count any missing $PnN as
+        // impossible in these later versions
+        // ASSUME n_pnn will always be less than $PAR
+        let missing_names = par.0.saturating_sub(self.n_pnn);
+        if version >= Version::FCS3_1 {
+            score.missing_req += missing_names;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_names;
+            score.good_opt += self.n_pnn;
+        }
 
-//         // $CYT became required in version 3.2, so mark as impossible for this
-//         // version if not found
-//         match (version == Version::FCS3_2, self.found_cyt) {
-//             (true, true) => score.good_req += 1,
-//             (true, false) => score.missing_req += 1,
-//             (false, true) => score.good_opt += 1,
-//             (false, false) => score.missing_opt += 1,
-//         }
+        // $PnE are the same as $PnN except for version 3.0
+        let missing_scales = par.0.saturating_sub(self.n_pne);
+        if version >= Version::FCS3_0 {
+            score.missing_req += missing_scales;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_scales;
+            score.good_opt += self.n_pnn;
+        }
 
-//         // $TOT became required in version 3.0
-//         match (version >= Version::FCS3_0, self.found_tot) {
-//             (true, true) => score.good_req += 1,
-//             (true, false) => score.missing_req += 1,
-//             (false, true) => score.good_opt += 1,
-//             (false, false) => score.missing_opt += 1,
-//         }
+        // $CYT became required in version 3.2, so mark as impossible for this
+        // version if not found
+        match (version == Version::FCS3_2, self.found_cyt) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
 
-//         // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0 and required in 3.0+
-//         let go_req_offsets = |s: &mut KeywordVersionScore, found: bool| {
-//             if version == Version::FCS2_0 {
-//                 if found {
-//                     s.drop += 1;
-//                 } else {
-//                     s.missing_absent += 1;
-//                 }
-//             } else if found {
-//                 s.good_req += 1;
-//             } else {
-//                 s.missing_req += 1;
-//             }
-//         };
+        // $TOT became required in version 3.0
+        match (version >= Version::FCS3_0, self.found_tot) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
 
-//         go_req_offsets(&mut score, self.found_begindata);
-//         go_req_offsets(&mut score, self.found_enddata);
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0 and required in 3.0+
+        let go_req_offsets = |s: &mut KeywordVersionScore, found: bool| {
+            if version == Version::FCS2_0 {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            } else if found {
+                s.good_req += 1;
+            } else {
+                s.missing_req += 1;
+            }
+        };
 
-//         // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0, required in 3.0/3.1, and
-//         // optional in 3.2
-//         let go_opt_offsets = |s: &mut KeywordVersionScore, found: bool| match version {
-//             Version::FCS2_0 => {
-//                 if found {
-//                     s.drop += 1;
-//                 } else {
-//                     s.missing_absent += 1;
-//                 }
-//             }
-//             Version::FCS3_0 | Version::FCS3_1 => {
-//                 if found {
-//                     s.good_req += 1;
-//                 } else {
-//                     s.missing_req += 1;
-//                 }
-//             }
-//             Version::FCS3_2 => {
-//                 if found {
-//                     s.good_opt += 1;
-//                 } else {
-//                     s.missing_opt += 1;
-//                 }
-//             }
-//         };
+        go_req_offsets(&mut score, self.found_begindata);
+        go_req_offsets(&mut score, self.found_enddata);
 
-//         go_opt_offsets(&mut score, self.found_beginanalysis);
-//         go_opt_offsets(&mut score, self.found_beginstext);
-//         go_opt_offsets(&mut score, self.found_endanalysis);
-//         go_opt_offsets(&mut score, self.found_endstext);
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0, required in 3.0/3.1, and
+        // optional in 3.2
+        let go_opt_offsets = |s: &mut KeywordVersionScore, found: bool| match version {
+            Version::FCS2_0 => {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            }
+            Version::FCS3_0 | Version::FCS3_1 => {
+                if found {
+                    s.good_req += 1;
+                } else {
+                    s.missing_req += 1;
+                }
+            }
+            Version::FCS3_2 => {
+                if found {
+                    s.good_opt += 1;
+                } else {
+                    s.missing_opt += 1;
+                }
+            }
+        };
 
-//         // $BYTEORD must only be big or little endian in 3.1+
-//         if version >= Version::FCS3_1 && self.non_endian_byteord {
-//             score.missing_req += 1;
-//         } else {
-//             score.good_req += 1;
-//         }
+        go_opt_offsets(&mut score, self.found_beginanalysis);
+        go_opt_offsets(&mut score, self.found_beginstext);
+        go_opt_offsets(&mut score, self.found_endanalysis);
+        go_opt_offsets(&mut score, self.found_endstext);
 
-//         // $MODE can only be U or C in 3.1 or less, and can only be missing
-//         // in 3.2
-//         match (version == Version::FCS3_2, self.mode_value) {
-//             (true, ModeValue::List) => score.good_opt += 1,
-//             (true, ModeValue::Other) => score.drop += 1,
-//             (true, ModeValue::Missing) => score.missing_opt += 1,
-//             (false, ModeValue::Missing) => score.missing_req += 1,
-//             (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
-//         }
+        // $BYTEORD must only be big or little endian in 3.1+
+        if version >= Version::FCS3_1 && self.non_endian_byteord {
+            score.missing_req += 1;
+        } else {
+            score.good_req += 1;
+        }
 
-//         score
-//     }
+        // $MODE can only be U or C in 3.1 or less, and can only be missing
+        // in 3.2
+        match (version == Version::FCS3_2, self.mode_value) {
+            (true, ModeValue::List) => score.good_opt += 1,
+            (true, ModeValue::Other) => score.drop += 1,
+            (true, ModeValue::Missing) => score.missing_opt += 1,
+            (false, ModeValue::Missing) => score.missing_req += 1,
+            (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
+        }
 
-//     fn classify_keyword(&mut self, key: &StdKey, value: &str) {
-//         match AnyKeywordClass::classify_keyword(key) {
-//             AnyKeywordClass::Root(r) => match r {
-//                 RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
-//                 RootKeywordClass::Beginstext => self.found_beginstext = true,
-//                 RootKeywordClass::Begindata => self.found_begindata = true,
-//                 RootKeywordClass::Endanalysis => self.found_endanalysis = true,
-//                 RootKeywordClass::Endstext => self.found_endstext = true,
-//                 RootKeywordClass::Enddata => self.found_enddata = true,
-//                 RootKeywordClass::Cyt => self.found_cyt = true,
-//                 RootKeywordClass::Tot => self.found_tot = true,
-//                 RootKeywordClass::Mode => {
-//                     // TODO if this fails we should just bug out immediately since
-//                     // this is required
-//                     let m = value
-//                         .parse::<Mode>()
-//                         .map(|m| match m {
-//                             Mode::List => ModeValue::List,
-//                             _ => ModeValue::Other,
-//                         })
-//                         .unwrap_or(ModeValue::Missing);
-//                     self.mode_value = m;
-//                 }
-//                 RootKeywordClass::Byteord => {
-//                     // TODO ditto Mode
-//                     if let Ok(res) = value.parse::<ByteOrd2_0>() {
-//                         self.non_endian_byteord = !res.is_endian();
-//                     }
-//                 }
-//                 RootKeywordClass::Timestep => {
-//                     self.n_opt_min3_0 += 1;
-//                 }
-//                 RootKeywordClass::OptGE3_1 => {
-//                     self.n_opt_min3_1 += 1;
-//                 }
-//                 RootKeywordClass::OptGE3_2 => {
-//                     self.n_opt_min3_2 += 1;
-//                 }
-//                 RootKeywordClass::OptEQ3_0or3_1 => {
-//                     self.n_opt_eq3_0or3_1 += 1;
-//                 }
-//                 RootKeywordClass::OptLE3_1 => {
-//                     self.n_opt_max3_1 += 1;
-//                 }
-//                 RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
-//                 RootKeywordClass::OptAny => self.n_any += 1,
-//             },
-//             AnyKeywordClass::MeasOptGE3_0(_) => {
-//                 self.n_opt_min3_0 += 1;
-//             }
-//             AnyKeywordClass::MeasOptGE3_1(_) => {
-//                 self.n_opt_min3_1 += 1;
-//             }
-//             AnyKeywordClass::MeasOptGE3_2(_) => {
-//                 self.n_opt_min3_2 += 1;
-//             }
-//             AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
-//                 self.n_opt_eq3_0or3_1 += 1;
-//             }
-//             AnyKeywordClass::Scale(_) => self.n_pne += 1,
-//             AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
-//             AnyKeywordClass::Wavelength(_) => {
-//                 // TODO what to do on failure?
-//                 if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
-//                     if w.0.len() > 1 {
-//                         self.n_opt_min3_1 += 1;
-//                     } else {
-//                         self.n_any += 1;
-//                     }
-//                 }
-//             }
-//             AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
-//             AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
-//             AnyKeywordClass::MeasAny(_) | AnyKeywordClass::RegionWindow => self.n_any += 1,
-//             AnyKeywordClass::RegionIndex => {
-//                 if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
-//                     self.n_opt_eq2_0 += 1;
-//                 } else if RegionGateIndex::<MeasOrGateIndex>::from_str_delim(value, true.into())
-//                     .is_ok()
-//                 {
-//                     self.n_opt_eq3_0or3_1 += 1;
-//                 } else if RegionGateIndex::<PrefixedMeasIndex>::from_str_delim(value, true.into())
-//                     .is_ok()
-//                 {
-//                     self.n_opt_eq3_2 += 1;
-//                 }
-//             }
-//             AnyKeywordClass::NonStandard => (),
-//         }
-//     }
-// }
+        score
+    }
+
+    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &str) {
+        match AnyKeywordClass::classify_keyword(key) {
+            AnyKeywordClass::Root(r) => match r {
+                RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
+                RootKeywordClass::Beginstext => self.found_beginstext = true,
+                RootKeywordClass::Begindata => self.found_begindata = true,
+                RootKeywordClass::Endanalysis => self.found_endanalysis = true,
+                RootKeywordClass::Endstext => self.found_endstext = true,
+                RootKeywordClass::Enddata => self.found_enddata = true,
+                RootKeywordClass::Cyt => self.found_cyt = true,
+                RootKeywordClass::Tot => self.found_tot = true,
+                RootKeywordClass::Mode => {
+                    // TODO if this fails we should just bug out immediately since
+                    // this is required
+                    let m = value
+                        .parse::<Mode>()
+                        .map(|m| match m {
+                            Mode::List => ModeValue::List,
+                            _ => ModeValue::Other,
+                        })
+                        .unwrap_or(ModeValue::Missing);
+                    self.mode_value = m;
+                }
+                RootKeywordClass::Byteord => {
+                    // TODO ditto Mode
+                    if let Ok(res) = value.parse::<ByteOrd2_0>() {
+                        self.non_endian_byteord = !res.is_endian();
+                    }
+                }
+                RootKeywordClass::Timestep => {
+                    self.n_opt_min3_0 += 1;
+                }
+                RootKeywordClass::OptGE3_1 => {
+                    self.n_opt_min3_1 += 1;
+                }
+                RootKeywordClass::OptGE3_2 => {
+                    self.n_opt_min3_2 += 1;
+                }
+                RootKeywordClass::OptEQ3_0or3_1 => {
+                    self.n_opt_eq3_0or3_1 += 1;
+                }
+                RootKeywordClass::OptLE3_1 => {
+                    self.n_opt_max3_1 += 1;
+                }
+                RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
+                RootKeywordClass::OptAny => self.n_any += 1,
+            },
+            AnyKeywordClass::MeasOptGE3_0(_) => {
+                self.n_opt_min3_0 += 1;
+            }
+            AnyKeywordClass::MeasOptGE3_1(_) => {
+                self.n_opt_min3_1 += 1;
+            }
+            AnyKeywordClass::MeasOptGE3_2(_) => {
+                self.n_opt_min3_2 += 1;
+            }
+            AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
+                self.n_opt_eq3_0or3_1 += 1;
+            }
+            AnyKeywordClass::Scale(_) => self.n_pne += 1,
+            AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
+            AnyKeywordClass::Wavelength(_) => {
+                // TODO what to do on failure?
+                if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
+                    if w.0.len() > 1 {
+                        self.n_opt_min3_1 += 1;
+                    } else {
+                        self.n_any += 1;
+                    }
+                }
+            }
+            AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
+            AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
+            AnyKeywordClass::MeasAny(_) | AnyKeywordClass::RegionWindow => self.n_any += 1,
+            AnyKeywordClass::RegionIndex => {
+                if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
+                    self.n_opt_eq2_0 += 1;
+                } else if RegionGateIndex::<MeasOrGateIndex>::from_str_delim(value, true.into())
+                    .is_ok()
+                {
+                    self.n_opt_eq3_0or3_1 += 1;
+                } else if RegionGateIndex::<PrefixedMeasIndex>::from_str_delim(value, true.into())
+                    .is_ok()
+                {
+                    self.n_opt_eq3_2 += 1;
+                }
+            }
+            AnyKeywordClass::NonStandard => (),
+        }
+    }
+}
 
 enum AnyKeywordClass {
     Root(RootKeywordClass),
@@ -1110,19 +1118,19 @@ impl ByteOrd2_0 {
         }
     }
 
-    // fn is_endian(&self) -> bool {
-    //     matches!(
-    //         self,
-    //         Self::O1(SizedByteOrd::Endian(_))
-    //             | Self::O2(SizedByteOrd::Endian(_))
-    //             | Self::O3(SizedByteOrd::Endian(_))
-    //             | Self::O4(SizedByteOrd::Endian(_))
-    //             | Self::O5(SizedByteOrd::Endian(_))
-    //             | Self::O6(SizedByteOrd::Endian(_))
-    //             | Self::O7(SizedByteOrd::Endian(_))
-    //             | Self::O8(SizedByteOrd::Endian(_))
-    //     )
-    // }
+    fn is_endian(&self) -> bool {
+        matches!(
+            self,
+            Self::O1(SizedByteOrd::Endian(_))
+                | Self::O2(SizedByteOrd::Endian(_))
+                | Self::O3(SizedByteOrd::Endian(_))
+                | Self::O4(SizedByteOrd::Endian(_))
+                | Self::O5(SizedByteOrd::Endian(_))
+                | Self::O6(SizedByteOrd::Endian(_))
+                | Self::O7(SizedByteOrd::Endian(_))
+                | Self::O8(SizedByteOrd::Endian(_))
+        )
+    }
 }
 
 /// The $BYTEORD field in FCS 3.1 and 3.2

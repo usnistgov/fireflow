@@ -1,7 +1,9 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{self, DatasetOffset, DelimEscapeMode, TruncateEventValues};
+use fireflow_core::config::{
+    self, DatasetOffset, DelimEscapeMode, TruncateEventValues, VersionOverride,
+};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
@@ -994,7 +996,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
 fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
     let version_override = sargs
         .get_one::<String>(VERSION_OVERRIDE)
-        .map(|s| s.parse::<Version>().unwrap());
+        .map(|s| s.parse::<VersionOverride>().unwrap());
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();

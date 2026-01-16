@@ -4,7 +4,8 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets,
+    ReadStdKeywordsConfig, ReadStdTEXTConfig, SelectVersionStrategy, TruncateOffsets,
+    VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -29,7 +30,10 @@ use crate::segment::{
     OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
     SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::keywords::{AlphaNumType, Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
+use crate::text::keywords::{
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords,
+    KeywordOptimizer, KeywordVersionScore, Nextdata, Par, Tot,
+};
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
@@ -731,6 +735,7 @@ pub enum ParseFlatTEXTError {
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
     AppendSupp(StdPresent),
+    Version(GuessVersionError),
 }
 
 /// Error when parsing primary TEXT
@@ -1020,11 +1025,11 @@ impl FlatTEXTOutput {
         Header::h_read(h, st)
             .into_log()
             .map_pure_errors(HeaderOrFlatTextError::from)
-            .and_then_commutative(|mut header| {
-                let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-                if let Some(v) = conf.version_override {
-                    header.version = v;
-                }
+            .and_then_commutative(|header| {
+                // let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+                // if let Some(VersionOverride::Force(v)) = conf.version_override {
+                //     header.version = v;
+                // }
                 h_read_flat_text_from_header(h, header, st)
                     .map_pure_errors(HeaderOrFlatTextError::from)
             })
@@ -1166,6 +1171,12 @@ where
                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                 .map_errors(ParseFlatTEXTError::from);
 
+            // TODO configure allow_drop
+            let version_res =
+                autodetect_version(&kws.std, header.version, &conf.version_override, false)
+                    .map_err(ParseFlatTEXTError::from)
+                    .into_log();
+
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
             let na_res = non_ascii_errors(&kws.non_ascii, conf)
@@ -1178,9 +1189,10 @@ where
             nextdata_res
                 .zip_f4_once(repair_res, na_res, be_res)
                 .set_err_value(())
+                .zip_commutative(version_res)
                 .group()
                 .map_error(IOErrorGroup::Pure)
-                .map_ok_value(|(nextdata, (), (), ())| {
+                .map_ok_value(|((nextdata, (), (), ()), version)| {
                     let parse = FlatTEXTParseData::new(
                         header.segments,
                         supp_text_seg,
@@ -1191,9 +1203,77 @@ where
                         prim_esc,
                         supp_esc,
                     );
-                    FlatTEXTOutput::new(header.version, vkws, parse)
+                    FlatTEXTOutput::new(version, vkws, parse)
                 })
         })
+}
+
+/// Error when trying to guess FCS version from keywords
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub enum GuessVersionError {
+    // TODO should also say a bit more on why this is the case
+    #[error("no FCS versions could be guessed from keywords")]
+    AllInvalid,
+    #[error("$PAR could not be found and thus FCS version could not be detected")]
+    NoPar,
+}
+
+fn autodetect_version(
+    kws: &StdKeywords,
+    header_version: Version,
+    ver_override: &Option<VersionOverride>,
+    allow_drop: bool,
+) -> Result<Version, GuessVersionError> {
+    let vs = [
+        Version::FCS2_0,
+        Version::FCS3_0,
+        Version::FCS3_1,
+        Version::FCS3_2,
+    ];
+    match ver_override {
+        None => Ok(header_version),
+        Some(VersionOverride::Force(v)) => Ok(*v),
+        Some(VersionOverride::AutoDetect(strat)) => {
+            let rank =
+                |(v0, s0): &(Version, KeywordVersionScore),
+                 (v1, s1): &(Version, KeywordVersionScore)| match strat {
+                    SelectVersionStrategy::Earliest => v0.cmp(v1),
+                    SelectVersionStrategy::Latest => v1.cmp(v0),
+                    SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
+                    SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
+                };
+            if let Ok(par) = Par::get_metaroot_req(kws) {
+                let mut opt = KeywordOptimizer::default();
+                for (k, v) in kws {
+                    opt.classify_keyword(k, v);
+                }
+                let scores: Vec<_> = vs.iter().map(|&v| (v, opt.get_score(v, par))).collect();
+                if let Some(xs) =
+                    NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
+                {
+                    // Found at least one version that doesn't require dropping,
+                    // rank by strategy to select
+                    Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                } else if let Some(xs) =
+                    NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
+                    && allow_drop
+                {
+                    // No versions found that can be satisfied without dropping
+                    // keywords, find versions with dropping and rank using
+                    // strategy.
+                    Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                } else {
+                    // No versions found that have valid keywords available,
+                    // return error
+                    Err(GuessVersionError::AllInvalid)
+                }
+            } else {
+                Err(GuessVersionError::NoPar)
+            }
+        }
+    }
 }
 
 fn h_read_flat_supp_text<R: Read + Seek>(
@@ -1703,7 +1783,31 @@ where
         !conf.ignore_supp_text.is_set(),
         "tried to get supp TEXT offsets when supp TEXT is ignored"
     );
-    let res = match header.version {
+    // At this point, we have not yet overridden the version since we have not
+    // read STEXT and therefore might not have all keywords. This puts us in a
+    // bit of an awkward spot in the case we wish to autodetect the version.
+    // Primary TEXT by definition must have all required keywords, so we can use
+    // $BEGIN/ENDDATA to test if the version is 3.0 or higher. Additionally, we
+    // can use lack of $CYT to test if the version is less then 3.2, although in
+    // practice this keyword is usually present despite it being optional
+    // pre-3.2. This all likely doesn't matter much anyways since STEXT is
+    // seldom used.
+    let ver = match conf.version_override {
+        None => header.version,
+        Some(VersionOverride::Force(v)) => v,
+        Some(VersionOverride::AutoDetect(_)) => {
+            if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
+                if kws.contains_key(&Cyt::std()) {
+                    Version::FCS3_2
+                } else {
+                    Version::FCS3_1
+                }
+            } else {
+                Version::FCS2_0
+            }
+        }
+    };
+    let res = match ver {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);

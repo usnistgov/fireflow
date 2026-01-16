@@ -311,7 +311,7 @@ pub struct ReadHeaderAndTEXTConfig {
     pub header: ReadHeaderInnerConfig,
 
     /// Override the version
-    pub version_override: Option<Version>,
+    pub version_override: Option<VersionOverride>,
 
     /// Corrections for supplemental TEXT segment
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
@@ -938,6 +938,62 @@ pub struct ReadSharedConfig {
 
     /// If `true`, do not emit warnings.
     pub hide_warnings: bool,
+}
+
+/// Configuration to override/detect FCS version
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum VersionOverride {
+    Force(Version),
+    AutoDetect(SelectVersionStrategy),
+}
+
+impl FromStr for VersionOverride {
+    type Err = VersionOverrideError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(ret) = s.parse::<Version>() {
+            Ok(Self::Force(ret))
+        } else if let Ok(ret) = s.parse::<SelectVersionStrategy>() {
+            Ok(Self::AutoDetect(ret))
+        } else {
+            Err(VersionOverrideError)
+        }
+    }
+}
+
+/// Error when parsing [`DelimEscapeMode`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be an FCS version string or one of 'latest', 'earliest', 'loose', or 'strict'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct VersionOverrideError;
+
+/// Strategy to use when autodetecting FCS version
+#[derive(Clone, Copy)]
+pub enum SelectVersionStrategy {
+    /// Choose the latest version
+    Latest,
+    /// Choose the earliest version
+    Earliest,
+    /// Choose the version with the most optional keywords
+    Loose,
+    /// Choose the version with the least optional keywords
+    Strict,
+}
+
+impl FromStr for SelectVersionStrategy {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "latest" => Ok(Self::Latest),
+            "earliest" => Ok(Self::Earliest),
+            "loose" => Ok(Self::Loose),
+            "strict" => Ok(Self::Strict),
+            _ => Err(()),
+        }
+    }
 }
 
 /// Choose how to escape delims in TEXT segment.

@@ -4,8 +4,7 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdKeywordsConfig, ReadStdTEXTConfig, SelectVersionStrategy, TruncateOffsets,
-    VersionOverride,
+    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -14,8 +13,8 @@ use crate::core::{
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::header::{
-    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
-    Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError, Version,
+    Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -31,8 +30,7 @@ use crate::segment::{
     SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{
-    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords,
-    KeywordOptimizer, KeywordVersionScore, Nextdata, Par, Tot,
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords, Nextdata, Tot,
 };
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
@@ -144,6 +142,17 @@ pub fn fcs_read_flat_dataset(
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
+        .and_then_commutative(|(mut flat, h, st)| {
+            flat.version
+                .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
+                .map_err(FlatDatasetError::from)
+                .map_err(IOErrorGroup::new_pure_one)
+                .map(|v| {
+                    flat.version = v;
+                    (flat, h, st)
+                })
+                .into_log()
+        })
         .and_then_commutative(|(flat, mut h, st)| {
             let segs = flat.parse.non_data_segments();
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
@@ -635,6 +644,7 @@ pub enum FlatDatasetError {
     Flat(HeaderOrFlatTextError),
     Read(LookupAndReadDataAnalysisError),
     Warn(FlatDatasetWarning),
+    Version(GuessVersionError),
 }
 
 /// Error when parsing HEADER or TEXT segments in flat mode
@@ -735,7 +745,6 @@ pub enum ParseFlatTEXTError {
     NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
     AppendSupp(StdPresent),
-    Version(GuessVersionError),
 }
 
 /// Error when parsing primary TEXT
@@ -1045,7 +1054,9 @@ impl FlatTEXTOutput {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>,
     {
         let segs = self.parse.non_data_segments();
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
@@ -1068,7 +1079,10 @@ impl FlatTEXTOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadEventsConfig>,
     {
         let hs = &self.parse.header_segments;
         let d = hs.data;
@@ -1171,20 +1185,6 @@ where
                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                 .map_errors(ParseFlatTEXTError::from);
 
-            // TODO configure allow_drop
-
-            // TODO this entire detection scheme should probably go right before
-            // the standardization bits since it isn't use for anything here and
-            // can only cause a confusing error
-            let version_res = autodetect_version(
-                &kws.std,
-                header.version,
-                conf.version_override.as_ref(),
-                false,
-            )
-            .map_err(ParseFlatTEXTError::from)
-            .into_log();
-
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
             let na_res = non_ascii_errors(&kws.non_ascii, conf)
@@ -1197,10 +1197,9 @@ where
             nextdata_res
                 .zip_f4_once(repair_res, na_res, be_res)
                 .set_err_value(())
-                .zip_commutative(version_res)
                 .group()
                 .map_error(IOErrorGroup::Pure)
-                .map_ok_value(|((nextdata, (), (), ()), version)| {
+                .map_ok_value(|(nextdata, (), (), ())| {
                     let parse = FlatTEXTParseData::new(
                         header.segments,
                         supp_text_seg,
@@ -1211,77 +1210,9 @@ where
                         prim_esc,
                         supp_esc,
                     );
-                    FlatTEXTOutput::new(version, vkws, parse)
+                    FlatTEXTOutput::new(header.version, vkws, parse)
                 })
         })
-}
-
-/// Error when trying to guess FCS version from keywords
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub enum GuessVersionError {
-    // TODO should also say a bit more on why this is the case
-    #[error("no FCS versions could be guessed from keywords")]
-    AllInvalid,
-    #[error("$PAR could not be found and thus FCS version could not be detected")]
-    NoPar,
-}
-
-fn autodetect_version(
-    kws: &StdKeywords,
-    header_version: Version,
-    ver_override: Option<&VersionOverride>,
-    allow_drop: bool,
-) -> Result<Version, GuessVersionError> {
-    let vs = [
-        Version::FCS2_0,
-        Version::FCS3_0,
-        Version::FCS3_1,
-        Version::FCS3_2,
-    ];
-    match ver_override {
-        None => Ok(header_version),
-        Some(VersionOverride::Force(v)) => Ok(*v),
-        Some(VersionOverride::AutoDetect(strat)) => {
-            let rank =
-                |(v0, s0): &(Version, KeywordVersionScore),
-                 (v1, s1): &(Version, KeywordVersionScore)| match strat {
-                    SelectVersionStrategy::Earliest => v0.cmp(v1),
-                    SelectVersionStrategy::Latest => v1.cmp(v0),
-                    SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
-                    SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
-                };
-            if let Ok(par) = Par::get_metaroot_req(kws) {
-                let mut opt = KeywordOptimizer::default();
-                for (k, v) in kws {
-                    opt.classify_keyword(k, v);
-                }
-                let scores: Vec<_> = vs.iter().map(|&v| (v, opt.get_score(v, par))).collect();
-                if let Some(xs) =
-                    NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
-                {
-                    // Found at least one version that doesn't require dropping,
-                    // rank by strategy to select
-                    Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
-                } else if let Some(xs) =
-                    NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
-                    && allow_drop
-                {
-                    // No versions found that can be satisfied without dropping
-                    // keywords, find versions with dropping and rank using
-                    // strategy.
-                    Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
-                } else {
-                    // No versions found that have valid keywords available,
-                    // return error
-                    Err(GuessVersionError::AllInvalid)
-                }
-            } else {
-                Err(GuessVersionError::NoPar)
-            }
-        }
-    }
 }
 
 fn h_read_flat_supp_text<R: Read + Seek>(

@@ -43,7 +43,7 @@ class _HeaderConfig(BaseModel):
 
 
 class _ReadFlatTEXTConfig(BaseModel):
-    version_override: pft.FCSVersion | None = None
+    version_override: pft.VersionOverride | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     nextdata_correction: int = 0
     allow_overlapping_supp_text: bool = False

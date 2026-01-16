@@ -1172,10 +1172,14 @@ where
                 .map_errors(ParseFlatTEXTError::from);
 
             // TODO configure allow_drop
-            let version_res =
-                autodetect_version(&kws.std, header.version, &conf.version_override, false)
-                    .map_err(ParseFlatTEXTError::from)
-                    .into_log();
+            let version_res = autodetect_version(
+                &kws.std,
+                header.version,
+                conf.version_override.as_ref(),
+                false,
+            )
+            .map_err(ParseFlatTEXTError::from)
+            .into_log();
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
@@ -1223,7 +1227,7 @@ pub enum GuessVersionError {
 fn autodetect_version(
     kws: &StdKeywords,
     header_version: Version,
-    ver_override: &Option<VersionOverride>,
+    ver_override: Option<&VersionOverride>,
     allow_drop: bool,
 ) -> Result<Version, GuessVersionError> {
     let vs = [

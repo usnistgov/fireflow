@@ -52,6 +52,7 @@ from pyreflow.typing import (
     RootOrMeas,
     TruncateEventValues,
     DelimEscapeMode,
+    VersionOverride,
 )
 import pyreflow._defaults as pfd
 
@@ -2002,7 +2003,7 @@ def fcs_read_flat_text(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2050,7 +2051,7 @@ def fcs_read_std_text(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2133,7 +2134,7 @@ def fcs_read_flat_dataset(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2199,7 +2200,7 @@ def fcs_read_std_dataset(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2289,7 +2290,7 @@ def fcs_read_flat_texts(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2338,7 +2339,7 @@ def fcs_read_std_texts(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2422,7 +2423,7 @@ def fcs_read_flat_datasets(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2489,7 +2490,7 @@ def fcs_read_std_datasets(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,
@@ -2610,7 +2611,7 @@ def fcs_summarize(
     allow_negative: bool = False,
     truncate_offsets: bool = False,
     # flat args
-    version_override: FCSVersion | None = None,
+    version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
     allow_overlapping_supp_text: bool = False,

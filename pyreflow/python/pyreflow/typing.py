@@ -65,6 +65,17 @@ Feature = Literal["Area", "Width", "Height"]
 
 FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
 
+VersionOverride = Literal[
+    "FCS2.0",
+    "FCS3.0",
+    "FCS3.1",
+    "FCS3.2",
+    "latest",
+    "earliest",
+    "loose",
+    "strict",
+]
+
 FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]

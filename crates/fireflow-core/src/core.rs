@@ -7349,7 +7349,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let es =
-            TemporalOpticalKey::remove_keys_2_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
+            TemporalOpticalKey::remove_keys_3_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
         let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);

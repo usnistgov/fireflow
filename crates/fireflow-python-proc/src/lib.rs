@@ -7298,7 +7298,6 @@ impl DocArgParam {
     fn new_read_std_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let ignore_time_gain = Self::new_ignore_time_gain_param();
         let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
         let disallow_localtime = Self::new_disallow_localtime_param();
 
@@ -7325,17 +7324,10 @@ impl DocArgParam {
         .into_iter();
 
         let ps: Vec<_> = match version {
-            Some(Version::FCS2_0) => std_common_args.collect(),
-            Some(Version::FCS3_0) => std_common_args.chain([ignore_time_gain]).collect(),
-            Some(Version::FCS3_1) => std_common_args
-                .chain([ignore_time_gain, parse_indexed_spillover])
-                .collect(),
+            Some(Version::FCS2_0 | Version::FCS3_0) => std_common_args.collect(),
+            Some(Version::FCS3_1) => std_common_args.chain([parse_indexed_spillover]).collect(),
             _ => std_common_args
-                .chain([
-                    ignore_time_gain,
-                    parse_indexed_spillover,
-                    disallow_localtime,
-                ])
+                .chain([parse_indexed_spillover, disallow_localtime])
                 .collect(),
         };
 
@@ -7453,14 +7445,6 @@ impl DocArgParam {
         Self::new_bool_param("force_time_linear", d)
     }
 
-    fn new_ignore_time_gain_param() -> Self {
-        let d = "If ``True`` ignore the *$PnG* (gain) keyword. This keyword should not \
-                 be set according to the standard} however, this library will allow \
-                 gain to be 1.0 since this equates to identity. If gain is not 1.0, \
-                 this is nonsense and it can be ignored with this flag.";
-        Self::new_bool_param("ignore_time_gain", d)
-    }
-
     fn new_ignore_time_optical_keys_param() -> Self {
         let p = PyList::new(
             PyLiteral::new_temporal_optical_key(),
@@ -7468,9 +7452,12 @@ impl DocArgParam {
             None,
         );
         let d = "Ignore optical keys in temporal measurement. These keys are \
-                 nonsensical for time measurements but are not explicitly forbidden in \
-                 the the standard. Provided keys are the string after the \"Pn\" in \
-                 the \"PnX\" keywords.";
+                 *$PnG* which is explicitly forbidden by the standard but \
+                 allowed in this library to be set to ``\"1.0\"`` (noop), or \
+                 others which are nonsensical for time measurements but are not \
+                 explicitly forbidden in the the standard (such as *$PnL*). \
+                 Provided keys are the string after the \"Pn\" in the \"PnX\" \
+                 keywords.";
         Self::new_param("ignore_time_optical_keys", p, d).def_auto()
     }
 

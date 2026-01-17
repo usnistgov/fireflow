@@ -87,6 +87,7 @@ MixedType: TypeAlias = (
 )
 
 TemporalOpticalKey = Literal[
+    "G",
     "F",
     "L",
     "O",

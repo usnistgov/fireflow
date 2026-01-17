@@ -1,6 +1,6 @@
 use crate::config::{
     ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-    TrimIntraValueWhitespace,
+    TemporalOpticalKey, TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -708,9 +708,9 @@ impl Gain {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
+        let ignore = &AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
         let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
-        if gain_flag.is_set() {
+        if ignore.contains(&TemporalOpticalKey::Gain) {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {

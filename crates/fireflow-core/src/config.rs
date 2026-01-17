@@ -625,20 +625,13 @@ pub struct ReadStdKeywordsConfig {
     /// If `true` force, force scale to be linear for temporal measurement.
     pub force_time_linear: ForceTimeLinear,
 
-    /// If `true`, ignore $PnG for the temporal measurement.
-    ///
-    /// The standard explicitly forbids gain from being set for the temporal
-    /// channel. This library will allow gain to be 1.0 since this shouldn't
-    /// hurt anything. However, some instruments set gain to be something other
-    /// than 1.0, which is nonsense and can be ignored with this flag.
-    pub ignore_time_gain: IgnoreTimeGain,
-
-    /// If `true`, ignore optical keywords in time channel.
+    /// Ignore optical keywords in time channel.
     ///
     /// These are keys which the standard does not explicitly forbid but are
     /// nonsense for the time measurement.
     ///
-    /// This cannot ignore PnG; to remove that pass `ignore_time_gain`.
+    /// In the case of $PnG, the value is allowed to be set to 1.0 since this
+    /// equates to a no-op.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
     /// If `true`, parse $SPILLOVER with indices rather than names.
@@ -774,7 +767,6 @@ impl Default for ReadStdKeywordsConfig {
             time_meas_pattern: None,
             allow_missing_time: AllowMissingTime::default(),
             force_time_linear: ForceTimeLinear::default(),
-            ignore_time_gain: IgnoreTimeGain::default(),
             ignore_time_optical_keys: HashSet::default(),
             parse_indexed_spillover: ParseIndexedSpillover::default(),
             date_pattern: None,
@@ -1216,14 +1208,8 @@ impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
 impl_error_flag!(false_is_error AllowMissingTime);
 impl_config_flag!(ForceTimeLinear);
-impl_config_flag!(IgnoreTimeGain);
 impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
-// impl_error_flag!(false_is_error AllowPseudostandard);
-// impl_error_flag!(false_is_error ProcessHyperPar);
-// impl_error_flag!(false_is_error AllowOtherVersion);
-// impl_error_flag!(false_is_error AllowExtraTimestep);
-// impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_error_flag!(true_is_error DisallowDeprecated);
@@ -1264,6 +1250,9 @@ pub struct TimeMeasNamePattern(pub Regex);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Display, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum TemporalOpticalKey {
+    /// PnG
+    #[display("G")]
+    Gain,
     /// PnF
     #[display("F")]
     Filter,
@@ -1303,6 +1292,7 @@ impl FromStr for TemporalOpticalKey {
     type Err = ParseTemporalOpticalKeyError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "G" => Ok(Self::Gain),
             "F" => Ok(Self::Filter),
             "L" => Ok(Self::Wavelength),
             "O" => Ok(Self::Power),
@@ -1322,7 +1312,7 @@ impl FromStr for TemporalOpticalKey {
 /// Error when creating [`TemporalOpticalKey`] from string
 #[derive(Debug, Error)]
 #[error(
-    "must be one of  'F', 'L', 'O', 'T', 'P', 'V', \
+    "must be one of  'G', 'F', 'L', 'O', 'T', 'P', 'V', \
      'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1332,6 +1322,7 @@ pub struct ParseTemporalOpticalKeyError;
 impl TemporalOpticalKey {
     pub(crate) fn std_key(self, i: MeasIndex) -> StdKey {
         match self {
+            Self::Gain => kws::Gain::std(i),
             Self::Filter => kws::Filter::std(i),
             // NOTE this is $PnL for all versions
             Self::Wavelength => kws::Wavelength::std(i),
@@ -1384,6 +1375,24 @@ impl TemporalOpticalKey {
         Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
     }
 
+    pub(crate) fn remove_keys_3_0(
+        ignore: &HashSet<Self>,
+        kws: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+    ) -> Vec<TemporalHasOpticalKeyError> {
+        let targets = [
+            Self::Gain,
+            Self::DetectorType,
+            Self::DetectorVoltage,
+            Self::Filter,
+            Self::PercentEmitted,
+            Self::Power,
+            Self::Wavelength,
+        ];
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+    }
+
     pub(crate) fn remove_keys_3_1(
         ignore: &HashSet<Self>,
         kws: &mut StdKeywords,
@@ -1391,6 +1400,7 @@ impl TemporalOpticalKey {
         i: MeasIndex,
     ) -> Vec<TemporalHasOpticalKeyError> {
         let targets = [
+            Self::Gain,
             Self::Calibration,
             Self::DetectorType,
             Self::DetectorVoltage,
@@ -1409,6 +1419,7 @@ impl TemporalOpticalKey {
         i: MeasIndex,
     ) -> Vec<TemporalHasOpticalKeyError> {
         let targets = [
+            Self::Gain,
             Self::Analyte,
             Self::Calibration,
             Self::DetectorName,
@@ -1423,18 +1434,6 @@ impl TemporalOpticalKey {
         ];
         Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
     }
-
-    // pub(crate) fn remove_keys(
-    //     xs: &HashSet<Self>,
-    //     kws: &mut StdKeywords,
-    //     nonstd: &mut NonStdKeywords,
-    //     i: MeasIndex,
-    // ) {
-    //     for x in xs {
-    //         let k = x.std_key(i);
-    //         nonstd.transfer_demoted(kws, k);
-    //     }
-    // }
 }
 
 /// Error when optical keyword is present in temporal measurement.

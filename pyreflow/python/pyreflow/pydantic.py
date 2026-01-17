@@ -92,7 +92,6 @@ class _ReadStdKeywordsConfig(BaseModel):
     disallow_deprecated: bool = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
-    ignore_time_gain: bool = False
     parse_indexed_spillover: bool = False
     disallow_localtime: bool = False
 

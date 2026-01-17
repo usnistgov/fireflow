@@ -51,13 +51,13 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
+    Abrt, Analyte, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
-    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
-    Exp, ExtraKeywordsError, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst,
-    LastModified, LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost,
-    MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature,
-    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
+    ExtraKeywordsError, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified,
+    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType,
+    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
     PrefixedMeasIndex, Proj, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
     TemporalType, Timestep, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters,
     UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
@@ -4242,13 +4242,6 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
-        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been processed
-        // when we read the TEXT; remove them so they don't trigger false
-        // positives later when we test for pseudostandard keys
-        let _ = kws.std.remove(&Nextdata::std());
-        let _ = kws.std.remove(&Beginstext::std());
-        let _ = kws.std.remove(&Endstext::std());
-
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)

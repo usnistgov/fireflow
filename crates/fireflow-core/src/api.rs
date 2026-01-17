@@ -1152,10 +1152,6 @@ where
         })
         .and_then_commutative(|(mut kws, delim, prim_esc)| {
             if conf.ignore_supp_text.is_set() {
-                // NOTE rip out the STEXT keywords so they don't trigger a false
-                // positive pseudostandard keyword error later
-                let _ = kws.std.remove(&Beginstext::std());
-                let _ = kws.std.remove(&Endstext::std());
                 LogResult::new_ok((delim, kws, None, prim_esc, None))
             } else {
                 lookup_stext_offsets(&kws.std, &header, st)

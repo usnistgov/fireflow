@@ -439,10 +439,10 @@ impl Version {
                 let rank =
                     |(v0, s0): &(Self, KeywordVersionScore),
                      (v1, s1): &(Self, KeywordVersionScore)| match strat {
-                        SelectVersionStrategy::Earliest => v0.cmp(v1),
-                        SelectVersionStrategy::Latest => v1.cmp(v0),
-                        SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
-                        SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
+                        SelectVersionStrategy::Earliest => v1.cmp(v0),
+                        SelectVersionStrategy::Latest => v0.cmp(v1),
+                        SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
+                        SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
                     };
                 if let Ok(par) = Par::get_metaroot_req(kws) {
                     let mut opt = KeywordOptimizer::default();

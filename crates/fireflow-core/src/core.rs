@@ -54,13 +54,14 @@ use crate::text::keywords::{
     Abrt, Analyte, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
     DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
-    ExtraKeywordsError, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Inst, LastModified,
-    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Proj, Range, Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0,
-    TemporalType, Timestep, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters,
-    UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperGateError, HyperParError, Inst,
+    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
+    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
+    NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
+    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
+    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
+    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
+    Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -4306,7 +4307,31 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     sconf.allow_extra_timestep,
                 )
                 .extend_warnings_or_errors(
-                    errors.errors,
+                    errors.pseudo,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTErrorInner::from,
+                    sconf.allow_pseudostandard,
+                )
+                .extend_warnings_or_errors(
+                    errors.hyper_par,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTErrorInner::from,
+                    sconf.allow_hyper_par,
+                )
+                .extend_warnings_or_errors(
+                    errors.hyper_gate,
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTErrorInner::from,
+                    sconf.allow_hyper_par,
+                )
+                .extend_warnings_or_errors(
+                    errors.other_version,
                     |_v| (),
                     |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
@@ -9213,8 +9238,11 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     Shortname(LookupShortnameError),
     Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
-    Extra(ExtraKeywordsError),
     Timestep(TimestepFoundError),
+    Pseudo(PseudostandardError),
+    HyperPar(HyperParError),
+    HyperGate(HyperGateError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -9228,8 +9256,11 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Shortname(OptIndexedKeyError<Shortname>),
     Layout(LookupLayoutWarning),
     Offsets(LookupTEXTOffsetsWarning),
-    Extra(ExtraKeywordsError),
     Timestep(TimestepFoundError),
+    Pseudo(PseudostandardError),
+    HyperPar(HyperParError),
+    HyperGate(HyperGateError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Error when reading standardized DATA from keyword pairs

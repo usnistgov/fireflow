@@ -2770,7 +2770,10 @@ pub(crate) enum ExtraKeywordClass {
 
 #[derive(new)]
 pub(crate) struct ExtraKeywordOutput {
-    pub(crate) errors: Vec<ExtraKeywordsError>,
+    pub(crate) pseudo: Vec<PseudostandardError>,
+    pub(crate) hyper_par: Vec<HyperParError>,
+    pub(crate) hyper_gate: Vec<HyperGateError>,
+    pub(crate) other_version: Vec<KeywordOtherVersionError>,
     pub(crate) timestep_found: bool,
 }
 
@@ -2872,24 +2875,27 @@ impl ExtraStdKeywords {
         let mut hyper_par = HashMap::new();
         let mut hyper_gate = HashMap::new();
         let mut other_version = HashMap::new();
-        let mut errors = vec![];
+        let mut pseudo_es = vec![];
+        let mut hyper_par_es = vec![];
+        let mut hyper_gate_es = vec![];
+        let mut other_version_es = vec![];
         let mut timestamp_found = false;
         for (k, v) in kws {
             macro_rules! go_version {
                 ($vs:expr) => {
                     let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
-                    errors.push(e.into());
+                    other_version_es.push(e.into());
                     other_version.insert(k, v);
                 };
             }
             if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
-                        errors.push(HyperParError::new(par, k.clone()).into());
+                        hyper_par_es.push(HyperParError::new(par, k.clone()).into());
                         hyper_par.insert(k, v);
                     }
                     ExtraKeywordClass::HyperGate => {
-                        errors.push(HyperGateError::new(gate, k.clone()).into());
+                        hyper_gate_es.push(HyperGateError::new(gate, k.clone()).into());
                         hyper_gate.insert(k, v);
                     }
                     ExtraKeywordClass::VersionEQ(ver) => {
@@ -2911,7 +2917,7 @@ impl ExtraStdKeywords {
                         go_version!(vs);
                     }
                     ExtraKeywordClass::Pseudostandard => {
-                        errors.push(PseudostandardError(k.clone()).into());
+                        pseudo_es.push(PseudostandardError(k.clone()).into());
                         pseudo.insert(k, v);
                     }
                     ExtraKeywordClass::UnusedTimestep => {
@@ -2921,21 +2927,26 @@ impl ExtraStdKeywords {
             }
         }
         let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version);
-        errors.sort(); // nice usability improvement
-        let out = ExtraKeywordOutput::new(errors, timestamp_found);
+        let out = ExtraKeywordOutput::new(
+            pseudo_es,
+            hyper_par_es,
+            hyper_gate_es,
+            other_version_es,
+            timestamp_found,
+        );
         (ret, out)
     }
 }
 
 /// Error denoting that pseudostandard keyword was found.
-#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Error)]
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
-#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
+#[derive(Debug, Error, new)]
 #[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
@@ -2945,7 +2956,7 @@ pub struct HyperParError {
 }
 
 /// Error denoting that gating keyword within standard but above $GATE was found
-#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
+#[derive(Debug, Error, new)]
 #[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
@@ -2955,7 +2966,7 @@ pub struct HyperGateError {
 }
 
 /// Error denoting that keyword from different version was found
-#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
+#[derive(Debug, Error, new)]
 #[error(
     "keyword is not compatible with {current} but is compatible with {os}: {key}",
     os = self.others.iter().join(", ")
@@ -2966,16 +2977,6 @@ pub struct KeywordOtherVersionError {
     pub key: StdKey,
     pub current: Version,
     pub others: NonEmpty<Version>,
-}
-
-/// Error denoting that extra standard keywords were found
-#[derive(From, Debug, Error, Display, PartialEq, PartialOrd, Eq, Ord)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ExtraKeywordsError {
-    Pseudo(PseudostandardError),
-    HyperPar(HyperParError),
-    HyperGate(HyperGateError),
-    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Error denoting that $TIMESTEP was unused and possibly should have been

@@ -700,17 +700,25 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.other_version.clone()),
     );
 
+    let timestep = DocArgROIvar::new_ivar_ro(
+        "timestep",
+        PyOpt::new(PyStr::default()),
+        "Unused *$TIMESTEP* keyword",
+        |_, _| quote!(self.0.timestep.clone()),
+    );
+
     let doc = DocString::new_class("Extra keywords from *TEXT* standardization.").args([
         pseudostandard,
         hyper_par,
         hyper_gate,
         other_version,
+        timestep,
     ]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(pseudostandard, hyper_par, hyper_gate, other_version).into()
+                #path::new(pseudostandard, hyper_par, hyper_gate, other_version, timestep).into()
             }
         }
     };
@@ -5311,11 +5319,8 @@ impl PyException {
     }
 
     fn new_extra() -> Self {
-        Self::new_pyreflow(&PyreflowError::ExtraKeyword).desc(
-            "If any standard keys are unused and \
-             ``allow_pseudostandard`` or ``allow_unused_standard`` \
-             are ``False``",
-        )
+        Self::new_pyreflow(&PyreflowError::ExtraKeyword)
+            .desc("If any standard keys are unused and not dropped by some other option")
     }
 
     fn new_deprecated() -> Self {
@@ -7309,10 +7314,10 @@ impl DocArgParam {
             Self::new_datetime_pattern_param(),
             Self::new_last_modified_pattern_param(),
             Self::new_allow_other_feature_param(),
-            Self::new_allow_pseudostandard_param(),
-            Self::new_allow_hyper_par_param(),
-            Self::new_allow_other_version_param(),
-            Self::new_allow_extra_timestep_param(),
+            Self::new_process_pseudostandard_param(),
+            Self::new_process_hyper_par_param(),
+            Self::new_process_other_version_param(),
+            Self::new_process_extra_timestep_param(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -7558,27 +7563,27 @@ impl DocArgParam {
         Self::new_opt_param("time_pattern", pytype, arg_desc)
     }
 
-    fn new_allow_pseudostandard_param() -> Self {
-        let d = "If ``True`` allow non-standard keywords with a leading *$*. The \
+    fn new_process_pseudostandard_param() -> Self {
+        let d = "Process non-standard keywords with a leading *$*. The \
                  presence of such keywords often means the version in *HEADER* \
                  is incorrect.";
-        Self::new_bool_param("allow_pseudostandard", d)
+        Self::new_proc_kw_fail("process_pseudostandard", "ProcessPseudostandard", d)
     }
 
-    fn new_allow_hyper_par_param() -> Self {
-        let d = "If ``True`` allow measurement keywords whose index is greater than *$PAR*.";
-        Self::new_bool_param("allow_hyper_par", d)
+    fn new_process_hyper_par_param() -> Self {
+        let d = "Process measurement keywords whose index is greater than *$PAR*.";
+        Self::new_proc_kw_fail("process_hyper_par", "ProcessHyperPar", d)
     }
 
-    fn new_allow_other_version_param() -> Self {
-        let d = "If ``True`` allow standard keywords from different FCS versions.";
-        Self::new_bool_param("allow_other_version", d)
+    fn new_process_other_version_param() -> Self {
+        let d = "Process standard keywords from different FCS versions.";
+        Self::new_proc_kw_fail("process_other_version", "ProcessOtherVersion", d)
     }
 
-    fn new_allow_extra_timestep_param() -> Self {
-        let d = "If ``True`` allow *$TIMESTEP* to be present which may indicate \
+    fn new_process_extra_timestep_param() -> Self {
+        let d = "Process *$TIMESTEP* to be present which may indicate \
                  a time measurement is present but not identified.";
-        Self::new_bool_param("allow_extra_timestep", d)
+        Self::new_proc_kw_fail("process_extra_timestep", "ProcessExtraTimestep", d)
     }
 
     fn new_process_optional_failure() -> Self {

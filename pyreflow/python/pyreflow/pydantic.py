@@ -85,10 +85,10 @@ class _ReadStdKeywordsConfig(BaseModel):
     datetime_pattern: str | None = None
     last_modified_pattern: str | None = None
     allow_other_feature: bool = False
-    allow_pseudostandard: bool = False
-    allow_hyper_par: bool = False
-    allow_other_version: bool = False
-    allow_extra_timestep: bool = False
+    process_pseudostandard: pft.ProcessKeywordFailure = "error"
+    process_hyper_par: pft.ProcessKeywordFailure = "error"
+    process_other_version: pft.ProcessKeywordFailure = "error"
+    process_extra_timestep: pft.ProcessKeywordFailure = "error"
     disallow_deprecated: bool = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN

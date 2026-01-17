@@ -2755,6 +2755,7 @@ pub struct ExtraStdKeywords {
     pub hyper_par: StdKeywords,
     pub hyper_gate: StdKeywords,
     pub other_version: StdKeywords,
+    pub timestep: Option<String>,
 }
 
 pub(crate) enum ExtraKeywordClass {
@@ -2774,7 +2775,6 @@ pub(crate) struct ExtraKeywordOutput {
     pub(crate) hyper_par: Vec<HyperParError>,
     pub(crate) hyper_gate: Vec<HyperGateError>,
     pub(crate) other_version: Vec<KeywordOtherVersionError>,
-    pub(crate) timestep_found: bool,
 }
 
 impl ExtraStdKeywords {
@@ -2879,7 +2879,7 @@ impl ExtraStdKeywords {
         let mut hyper_par_es = vec![];
         let mut hyper_gate_es = vec![];
         let mut other_version_es = vec![];
-        let mut timestamp_found = false;
+        let mut timestep = None;
         for (k, v) in kws {
             macro_rules! go_version {
                 ($vs:expr) => {
@@ -2921,19 +2921,13 @@ impl ExtraStdKeywords {
                         pseudo.insert(k, v);
                     }
                     ExtraKeywordClass::UnusedTimestep => {
-                        timestamp_found = true;
+                        timestep = Some(v);
                     }
                 }
             }
         }
-        let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version);
-        let out = ExtraKeywordOutput::new(
-            pseudo_es,
-            hyper_par_es,
-            hyper_gate_es,
-            other_version_es,
-            timestamp_found,
-        );
+        let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
+        let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
         (ret, out)
     }
 }

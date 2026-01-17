@@ -2,10 +2,11 @@
 
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowDeprecated, DisallowRangeTrunc, ProcessOptionalFailure, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DisallowDeprecated, DisallowRangeTrunc, ProcessKeywordFailure, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState,
+    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -116,6 +117,7 @@ use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
+use std::mem;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -4257,7 +4259,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             // Split nonstandard measurements using pattern (if given); this
             // implicitly will encode $PAR downstream via length
             let nonstd_succ = Self::split_nonstandard(par, nonstd, conf.as_ref());
-            let core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
+            let mut core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                 // Lookup $PnN and layout (which are independent of each other)
                 .and_then_commutative(|mut meas_nonstd| {
@@ -4293,51 +4295,65 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
             // Push pseudostandard/unused warnings/errors
             // TODO fix gate arg
-            let (extra, errors) =
+            let (mut extra, errors) =
                 ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
-            core_res
-                .extend_warnings_or_errors(
-                    errors.timestep_found.then_some(TimestepFoundError),
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    sconf.allow_extra_timestep,
-                )
-                .extend_warnings_or_errors(
-                    errors.pseudo,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    sconf.allow_pseudostandard,
-                )
-                .extend_warnings_or_errors(
-                    errors.hyper_par,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    sconf.allow_hyper_par,
-                )
-                .extend_warnings_or_errors(
-                    errors.hyper_gate,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    sconf.allow_hyper_par,
-                )
-                .extend_warnings_or_errors(
-                    errors.other_version,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTErrorInner::from,
-                    sconf.allow_other_version,
-                )
-                .map_ok_value(|x| (x, extra))
+            if let Some(t) = mem::take(&mut extra.timestep) {
+                match sconf.process_extra_timestep.0 {
+                    ProcessKeywordFailure::Demote => {
+                        core_res = core_res.map_ok_value(|mut core| {
+                            core.metaroot
+                                .nonstandard_keywords
+                                .insert_demoted(Timestep::std(), t);
+                            core
+                        });
+                    }
+                    ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
+                        core_res = core_res.extend_warnings_or_errors(
+                            Some(TimestepFoundError),
+                            |_v| (),
+                            |_p| (),
+                            StdTEXTFromFlatTEXTWarning::from,
+                            StdTEXTFromFlatTEXTErrorInner::from,
+                            sconf.process_extra_timestep,
+                        );
+                    }
+                    ProcessKeywordFailure::DropSilent => (),
+                }
+            }
+
+            macro_rules! go_extra {
+                ($proc:ident, $keyvals:ident, $errors:ident) => {
+                    match sconf.$proc.into() {
+                        ProcessKeywordFailure::Demote => {
+                            core_res = core_res.map_ok_value(|mut core| {
+                                for (k, v) in mem::take(&mut extra.$keyvals) {
+                                    core.metaroot.nonstandard_keywords.insert_demoted(k, v);
+                                }
+                                core
+                            })
+                        }
+                        ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
+                            core_res = core_res.extend_warnings_or_errors(
+                                errors.$errors,
+                                |_v| (),
+                                |_p| (),
+                                StdTEXTFromFlatTEXTWarning::from,
+                                StdTEXTFromFlatTEXTErrorInner::from,
+                                sconf.$proc,
+                            )
+                        }
+                        ProcessKeywordFailure::DropSilent => (),
+                    };
+                };
+            }
+
+            go_extra!(process_pseudostandard, pseudostandard, pseudo);
+            go_extra!(process_hyper_par, hyper_par, hyper_par);
+            go_extra!(process_hyper_par, hyper_gate, hyper_gate);
+            go_extra!(process_other_version, other_version, other_version);
+
+            core_res.map_ok_value(|x| (x, extra))
         })
     }
 

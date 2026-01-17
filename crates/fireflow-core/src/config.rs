@@ -562,7 +562,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without using
-    /// [`ReadStdKeywordsConfig::allow_pseudostandard`], which is a crude
+    /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
     /// sledgehammer.
     pub demote_from_standard: KeyPatterns,
 
@@ -696,14 +696,14 @@ pub struct ReadStdKeywordsConfig {
     /// keyword.
     pub allow_other_feature: AllowOtherFeature,
 
-    /// If `true`, allow non-standard keywords starting with `"$"`.
+    /// Process non-standard keywords starting with `"$"`.
     ///
     /// The `"$`" prefix is reserved for standard keywords only. While little
     /// harm may come from violating this, having these keywords might signify
     /// that the version in the HEADER is wrong and that the file actually
     /// follows a different FCS standard (usually higher) in which these
     /// keywords are standard.
-    pub allow_pseudostandard: AllowPseudostandard,
+    pub process_pseudostandard: ProcessPseudostandard,
 
     /// If `true`, allow keywords that have indices greater than $PAR.
     ///
@@ -711,13 +711,13 @@ pub struct ReadStdKeywordsConfig {
     /// non-standard keyword since it is not part of a relevant measurement.
     /// Setting this to `true` turns the existence of these into a warning
     /// rather than an error.
-    pub allow_hyper_par: AllowHyperPar,
+    pub process_hyper_par: ProcessHyperPar,
 
     /// If `true`, allow standard keywords from a different version.
     ///
     /// Such errors (warnings if `true`) can likely be solved by overriding the
     /// version.
-    pub allow_other_version: AllowOtherVersion,
+    pub process_other_version: ProcessOtherVersion,
 
     /// If `true`, allow $TIMESTEP to be unused.
     ///
@@ -725,7 +725,7 @@ pub struct ReadStdKeywordsConfig {
     /// the dataset but was its $PnN was not properly matched. Setting this
     /// to `true` will suppress the resulting error, but one should make sure
     /// that time is indeed really missing.
-    pub allow_extra_timestep: AllowExtraTimestep,
+    pub process_extra_timestep: ProcessExtraTimestep,
 
     /// If `true`, throw an error if TEXT includes any deprecated features.
     ///
@@ -782,10 +782,10 @@ impl Default for ReadStdKeywordsConfig {
             datetime_pattern: None,
             last_modified_pattern: None,
             allow_other_feature: AllowOtherFeature::default(),
-            allow_pseudostandard: AllowPseudostandard::default(),
-            allow_hyper_par: AllowHyperPar::default(),
-            allow_other_version: AllowOtherVersion::default(),
-            allow_extra_timestep: AllowExtraTimestep::default(),
+            process_pseudostandard: ProcessPseudostandard::default(),
+            process_hyper_par: ProcessHyperPar::default(),
+            process_other_version: ProcessOtherVersion::default(),
+            process_extra_timestep: ProcessExtraTimestep::default(),
             disallow_deprecated: DisallowDeprecated::default(),
             fix_log_scale_offsets: FixLogScaleOffsets::default(),
             disallow_localtime: DisallowLocaltime::default(),
@@ -979,7 +979,7 @@ pub struct VersionOverrideError;
 
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
-        #[derive(Clone, Copy, Default, FromStr)]
+        #[derive(Clone, Copy, Default, FromStr, Into)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
         pub struct $t(pub ProcessKeywordFailure);
 
@@ -988,16 +988,20 @@ macro_rules! impl_proc_key_fail {
                 matches!(&self.0, ProcessKeywordFailure::Error)
             }
         }
-
-        impl $t {
-            pub(crate) fn is_demote(&self) -> bool {
-                matches!(&self.0, ProcessKeywordFailure::Demote)
-            }
-        }
     };
 }
 
 impl_proc_key_fail!(ProcessOptionalFailure);
+impl_proc_key_fail!(ProcessOtherVersion);
+impl_proc_key_fail!(ProcessHyperPar);
+impl_proc_key_fail!(ProcessPseudostandard);
+impl_proc_key_fail!(ProcessExtraTimestep);
+
+impl ProcessOptionalFailure {
+    pub(crate) fn is_demote(self) -> bool {
+        matches!(&self.0, ProcessKeywordFailure::Demote)
+    }
+}
 
 /// Configuration to deal with optional standard keywords that cause errors
 #[derive(Clone, Copy, Default)]
@@ -1215,10 +1219,10 @@ impl_config_flag!(ForceTimeLinear);
 impl_config_flag!(IgnoreTimeGain);
 impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
-impl_error_flag!(false_is_error AllowPseudostandard);
-impl_error_flag!(false_is_error AllowHyperPar);
-impl_error_flag!(false_is_error AllowOtherVersion);
-impl_error_flag!(false_is_error AllowExtraTimestep);
+// impl_error_flag!(false_is_error AllowPseudostandard);
+// impl_error_flag!(false_is_error ProcessHyperPar);
+// impl_error_flag!(false_is_error AllowOtherVersion);
+// impl_error_flag!(false_is_error AllowExtraTimestep);
 // impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);

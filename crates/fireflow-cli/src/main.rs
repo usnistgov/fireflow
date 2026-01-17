@@ -2,7 +2,8 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, ProcessOptionalFailure, TruncateEventValues,
+    self, DatasetOffset, DelimEscapeMode, ProcessExtraTimestep, ProcessHyperPar,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TruncateEventValues,
     VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
@@ -486,26 +487,26 @@ fn main() -> Result<(), ()> {
         ),
     );
 
-    let allow_pseudostandard = flag_arg(
-        ALLOW_PSEUDOSTANDARD,
-        "Allow non-standard keywords that start with a '$'.",
+    let process_pseudostandard = proc_kw_fail_arg(
+        PROCESS_PSEUDOSTANDARD,
+        "Process non-standard keywords that start with a '$'.",
     );
 
-    let allow_hyper_par = flag_arg(
-        ALLOW_HYPER_PAR,
-        "Allow measurement keywords whose index is greater than $PAR.",
+    let process_hyper_par = proc_kw_fail_arg(
+        PROCESS_HYPER_PAR,
+        "Process measurement keywords whose index is greater than $PAR.",
     );
 
-    let allow_other_version = flag_arg(
-        ALLOW_OTHER_VERSION,
-        "Allow standard keywords from different FCS version",
+    let process_other_version = proc_kw_fail_arg(
+        PROCESS_OTHER_VERSION,
+        "Process standard keywords from different FCS version.",
     );
 
-    let allow_extra_timestep = flag_arg(
-        ALLOW_EXTRA_TIMESTEP,
+    let process_extra_timestep = proc_kw_fail_arg(
+        PROCESS_EXTRA_TIMESTEP,
         format!(
-            "Allow {} to be unused, which may indicate that a time measurement \
-             is present but not identified",
+            "Process unused {}, which may indicate that a time measurement \
+             is present but not identified.",
             kw_style.paint("TIMESTEP")
         ),
     );
@@ -596,10 +597,10 @@ fn main() -> Result<(), ()> {
         datetime_pattern,
         last_modified_pattern,
         allow_other_feature,
-        allow_pseudostandard,
-        allow_hyper_par,
-        allow_other_version,
-        allow_extra_timestep,
+        process_pseudostandard,
+        process_hyper_par,
+        process_other_version,
+        process_extra_timestep,
         disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
@@ -1107,6 +1108,27 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .map(|d| d.parse::<TimePattern>().unwrap());
     let datetime_pattern = sargs.get_one::<String>(DATETIME_PATTERN).cloned();
     let last_modified_pattern = sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned();
+
+    let process_pseudostandard = sargs
+        .get_one::<String>(PROCESS_PSEUDOSTANDARD)
+        .map(|s| s.parse::<ProcessPseudostandard>().unwrap())
+        .unwrap_or_default();
+
+    let process_hyper_par = sargs
+        .get_one::<String>(PROCESS_HYPER_PAR)
+        .map(|s| s.parse::<ProcessHyperPar>().unwrap())
+        .unwrap_or_default();
+
+    let process_other_version = sargs
+        .get_one::<String>(PROCESS_OTHER_VERSION)
+        .map(|s| s.parse::<ProcessOtherVersion>().unwrap())
+        .unwrap_or_default();
+
+    let process_extra_timestep = sargs
+        .get_one::<String>(PROCESS_EXTRA_TIMESTEP)
+        .map(|s| s.parse::<ProcessExtraTimestep>().unwrap())
+        .unwrap_or_default();
+
     config::ReadStdKeywordsConfig {
         dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
@@ -1121,10 +1143,10 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         datetime_pattern,
         last_modified_pattern,
         allow_other_feature: sargs.get_flag(ALLOW_OTHER_FEATURE).into(),
-        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
-        allow_hyper_par: sargs.get_flag(ALLOW_HYPER_PAR).into(),
-        allow_other_version: sargs.get_flag(ALLOW_OTHER_VERSION).into(),
-        allow_extra_timestep: sargs.get_flag(ALLOW_EXTRA_TIMESTEP).into(),
+        process_pseudostandard,
+        process_hyper_par,
+        process_other_version,
+        process_extra_timestep,
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
@@ -1458,15 +1480,15 @@ const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 
 const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
 
-const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
+const PROCESS_PSEUDOSTANDARD: &str = "process-pseudostandard";
 
-const ALLOW_HYPER_PAR: &str = "allow-hyper-par";
+const PROCESS_HYPER_PAR: &str = "process-hyper-par";
 
-const ALLOW_OTHER_VERSION: &str = "allow-other-version";
+const PROCESS_OTHER_VERSION: &str = "process-other-version";
 
-const ALLOW_EXTRA_TIMESTEP: &str = "allow-extra-timestep";
+const PROCESS_EXTRA_TIMESTEP: &str = "process-extra-timestep";
 
-const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-dropping";
+const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-failure";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

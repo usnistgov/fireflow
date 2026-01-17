@@ -1,6 +1,4 @@
-use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-};
+use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
@@ -170,7 +168,7 @@ impl<X> Timestamps<X> {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupTimestampsError<X, X::Err>>
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupTimestampsError<X, X::Err>>
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
@@ -187,7 +185,7 @@ impl<X> Timestamps<X> {
         let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.allow_optional_dropping;
+        let flag = rconf.process_optional_failure;
         go!(b)
             .zip_f3_once(go!(e), go!(d))
             .and_then_deferred(|(btim, etim, date)| {
@@ -196,7 +194,7 @@ impl<X> Timestamps<X> {
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
-                        if rconf.transfer_dropped_optional.is_set() {
+                        if rconf.process_optional_failure.is_demote() {
                             ret.date
                                 .as_ref()
                                 .inspect(|&x| nonstd.insert_demoted_metaroot(x));

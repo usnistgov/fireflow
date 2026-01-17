@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
+    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
     TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
@@ -704,12 +704,12 @@ impl Gain {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGainError>
+    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
-        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
+        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         if gain_flag.is_set() {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
@@ -2884,18 +2884,18 @@ impl ExtraStdKeywords {
             macro_rules! go_version {
                 ($vs:expr) => {
                     let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
-                    other_version_es.push(e.into());
+                    other_version_es.push(e);
                     other_version.insert(k, v);
                 };
             }
             if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
-                        hyper_par_es.push(HyperParError::new(par, k.clone()).into());
+                        hyper_par_es.push(HyperParError::new(par, k.clone()));
                         hyper_par.insert(k, v);
                     }
                     ExtraKeywordClass::HyperGate => {
-                        hyper_gate_es.push(HyperGateError::new(gate, k.clone()).into());
+                        hyper_gate_es.push(HyperGateError::new(gate, k.clone()));
                         hyper_gate.insert(k, v);
                     }
                     ExtraKeywordClass::VersionEQ(ver) => {
@@ -2917,7 +2917,7 @@ impl ExtraStdKeywords {
                         go_version!(vs);
                     }
                     ExtraKeywordClass::Pseudostandard => {
-                        pseudo_es.push(PseudostandardError(k.clone()).into());
+                        pseudo_es.push(PseudostandardError(k.clone()));
                         pseudo.insert(k, v);
                     }
                     ExtraKeywordClass::UnusedTimestep => {

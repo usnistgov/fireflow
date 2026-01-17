@@ -105,8 +105,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     allow_header_text_offset_mismatch: bool = False
     allow_missing_required_offsets: bool = False
     truncate_text_offsets: bool = False
-    allow_optional_dropping: bool = False
-    transfer_dropped_optional: bool = False
+    process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
     disallow_range_truncation: bool = False

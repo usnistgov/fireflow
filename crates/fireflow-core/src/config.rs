@@ -849,18 +849,10 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(TruncateOffsets)]
     pub truncate_text_offsets: TruncateOffsets,
 
-    /// If `true`, allow optional keys to be dropped on error with a warning.
+    /// Choose how to deal with optional keywords which produce errors.
     ///
     /// Also used when parsing any keyword in standard mode.
-    pub allow_optional_dropping: AllowOptionalDropping,
-
-    /// If `true`, transfer dropped optional keys to nonstandard dict.
-    ///
-    /// Has no effect if [`Self::allow_optional_dropping`] is `false` as all
-    /// dropped optional keywords will produce a fatal error.
-    ///
-    /// Also used when parsing any keyword in standard mode.
-    pub transfer_dropped_optional: TransferDroppedOptional,
+    pub process_optional_failure: ProcessOptionalFailure,
 
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
@@ -978,12 +970,69 @@ impl FromStr for VersionOverride {
     }
 }
 
-/// Error when parsing [`DelimEscapeMode`] from [`String`]
+/// Error when parsing [`VersionOverride`] from [`String`]
 #[derive(Error, Debug)]
 #[error("must be an FCS version string or one of 'latest', 'earliest', 'loose', or 'strict'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct VersionOverrideError;
+
+macro_rules! impl_proc_key_fail {
+    ($t:ident) => {
+        #[derive(Clone, Copy, Default, FromStr)]
+        #[cfg_attr(feature = "python", derive(FromPyString))]
+        pub struct $t(pub ProcessKeywordFailure);
+
+        impl ErrorFlag for $t {
+            fn is_error(&self) -> bool {
+                matches!(&self.0, ProcessKeywordFailure::Error)
+            }
+        }
+
+        impl $t {
+            pub(crate) fn is_demote(&self) -> bool {
+                matches!(&self.0, ProcessKeywordFailure::Demote)
+            }
+        }
+    };
+}
+
+impl_proc_key_fail!(ProcessOptionalFailure);
+
+/// Configuration to deal with optional standard keywords that cause errors
+#[derive(Clone, Copy, Default)]
+pub enum ProcessKeywordFailure {
+    /// Throw an error
+    #[default]
+    Error,
+    /// Demote to nonstandard
+    Demote,
+    /// Drop with warning
+    Drop,
+    /// Drop with no warning
+    DropSilent,
+}
+
+impl FromStr for ProcessKeywordFailure {
+    type Err = ProcessKeywordFailureError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "error" => Ok(Self::Error),
+            "demote" => Ok(Self::Demote),
+            "drop" => Ok(Self::Drop),
+            "drop_silent" => Ok(Self::DropSilent),
+            _ => Err(ProcessKeywordFailureError),
+        }
+    }
+}
+
+/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'error', 'demote', 'drop', or 'drop_silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct ProcessKeywordFailureError;
 
 /// Strategy to use when autodetecting FCS version
 #[derive(Clone, Copy)]
@@ -1089,12 +1138,8 @@ pub trait ConfigFlag {
     fn is_set(&self) -> bool;
 }
 
-pub trait ErrorFlag: ConfigFlag {
-    const TRUE_IS_ERROR: bool;
-
-    fn is_error(&self) -> bool {
-        self.is_set() == Self::TRUE_IS_ERROR
-    }
+pub trait ErrorFlag {
+    fn is_error(&self) -> bool;
 }
 
 macro_rules! impl_config_flag {
@@ -1113,18 +1158,22 @@ macro_rules! impl_config_flag {
 
 macro_rules! impl_error_flag {
     (true_is_error $n:ident) => {
-        impl_error_flag!($n, true);
-    };
-
-    (false_is_error $n:ident) => {
-        impl_error_flag!($n, false);
-    };
-
-    ($n:ident, $true_is_error:expr) => {
         impl_config_flag!($n);
 
         impl ErrorFlag for $n {
-            const TRUE_IS_ERROR: bool = $true_is_error;
+            fn is_error(&self) -> bool {
+                self.0 == true
+            }
+        }
+    };
+
+    (false_is_error $n:ident) => {
+        impl_config_flag!($n);
+
+        impl ErrorFlag for $n {
+            fn is_error(&self) -> bool {
+                self.0 == false
+            }
         }
     };
 }
@@ -1170,7 +1219,7 @@ impl_error_flag!(false_is_error AllowPseudostandard);
 impl_error_flag!(false_is_error AllowHyperPar);
 impl_error_flag!(false_is_error AllowOtherVersion);
 impl_error_flag!(false_is_error AllowExtraTimestep);
-impl_error_flag!(false_is_error AllowOptionalDropping);
+// impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_error_flag!(true_is_error DisallowDeprecated);

@@ -52,7 +52,7 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowOptionalDropping, AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _,
+    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _, ProcessOptionalFailure,
     ReadDataKeywordsConfig, ReadEventsConfig, TruncateEventValues,
 };
 use crate::core::{
@@ -384,13 +384,13 @@ pub trait IsNumType: Sized {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>;
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>>;
 
     fn lookup_all(
         std: &mut StdKeywords,
@@ -442,7 +442,11 @@ pub trait IsNumType: Sized {
     fn make_meas(
         width: Result<Width, ReqIndexedKeyError<Width>>,
         range: Result<Range, ReqIndexedKeyError<Range>>,
-        datatype: DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>>,
+        datatype: DeferredSwitchableError<
+            Self,
+            ProcessOptionalFailure,
+            OptIndexedKeyError<NumType>,
+        >,
     ) -> LookupOneMeasLayoutResult<Self> {
         let w = width.map_err(LookupMeasLayoutError::from).into_log();
         let r = range.map_err(LookupMeasLayoutError::from).into_log();
@@ -1219,16 +1223,16 @@ impl IsNumType for Nothing<NumType> {
         _: &mut NonStdKeywords,
         _: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
-        LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>> {
+        LogResult::new_switchable_ok(Self::default(), conf.process_optional_failure)
     }
 
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
-        LogResult::new_switchable_ok(Self::default(), conf.allow_optional_dropping)
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>> {
+        LogResult::new_switchable_ok(Self::default(), conf.process_optional_failure)
     }
 }
 
@@ -1238,7 +1242,7 @@ impl IsNumType for Option<NumType> {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>> {
         NumType::remove_or_drop_meas_opt(std, nonstd, i, conf)
     }
 
@@ -1246,7 +1250,7 @@ impl IsNumType for Option<NumType> {
         kws: &StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptIndexedKeyError<NumType>> {
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptIndexedKeyError<NumType>> {
         NumType::get_or_ignore_meas_opt(kws, i, conf)
     }
 }

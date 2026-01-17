@@ -1,12 +1,11 @@
 //! Data structures representing standardized TEXT segment
 
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadDataKeywordsConfig,
+    AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
+    DisallowDeprecated, DisallowRangeTrunc, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    WriteTEXTInnerConfig,
+    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, WriteDatasetInnerConfig,
+    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -4466,7 +4465,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     fn deprecated(
         &mut self,
         dep_flag: DisallowDeprecated,
-        xfer_flag: TransferDroppedOptional,
+        xfer_flag: ProcessOptionalFailure,
     ) -> SwitchableErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
     where
         Version: From<M::Ver>,
@@ -4482,8 +4481,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // disallow_deprecated flag effectively takes its place. If this flag is
         // set, the we consider it an error to be deprecated, thus dropping a
         // keyval is not relevant (error = crash).
-        let keep = xfer_flag.is_set();
-        let do_demote = dep_flag.is_set() && xfer_flag.is_set();
+        let keep = xfer_flag.is_demote();
+        let do_demote = dep_flag.is_set() && xfer_flag.is_demote();
         for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {
                 d.demote(&mut self.metaroot.nonstandard_keywords, keep);
@@ -4537,7 +4536,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             None
         };
 
-        let drop_flag = rconf.allow_optional_dropping;
+        let drop_flag = rconf.process_optional_failure;
         let missing_flag = sconf.allow_missing_time;
         Measurements::try_new(measurements)
             .map_err(LookupCoreError::from)
@@ -4551,7 +4550,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .set_ok_value(ms)
             })
             .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_set())
+                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_demote())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(drop_flag)
                     .switchable_into_commutative()
@@ -4559,7 +4558,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
                     .and_then_commutative(|mut ret| {
-                        let xfer_flag = rconf.transfer_dropped_optional;
+                        let xfer_flag = rconf.process_optional_failure;
                         let dep_flag = sconf.disallow_deprecated;
                         ret.deprecated(dep_flag, xfer_flag)
                             .map_switchable_errors(NewCoreWarning::from)
@@ -5523,7 +5522,7 @@ impl UnstainedData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>>
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptKeyStError<UnstainedCenters>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -5590,8 +5589,8 @@ impl CSVFlags {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
-        let flag = conf.allow_optional_dropping;
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupCSVFlagsError> {
+        let flag = conf.process_optional_failure;
         CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupCSVFlagsError::from)
             .into_deferred_nowarn()
@@ -5637,7 +5636,7 @@ impl ModificationData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError>
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupModifiedDataError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -5648,7 +5647,7 @@ impl ModificationData {
         let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
+        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
             .nowarn_into_switchable(flag)

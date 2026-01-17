@@ -6946,6 +6946,21 @@ impl DocArgParam {
         Self::new_param(name, PyBool::default(), desc).def_auto()
     }
 
+    fn new_proc_kw_fail(
+        name: impl fmt::Display,
+        ident_name: &str,
+        desc: impl fmt::Display,
+    ) -> Self {
+        let path = config_path(ident_name);
+        let pt = PyLiteral::new2(["error", "demote", "drop", "drop_silent"], path);
+        let d = format!(
+            "{desc} Use ``\"error\"`` to throw error on failure, \
+             ``\"demote\"`` to demote to non-standard, ``\"drop\"`` to drop \
+             with warning, or ``\"drop_silent\"`` to drop with no warning"
+        );
+        Self::new_param(name, pt, d).def_auto()
+    }
+
     fn new_opt_param(
         name: impl fmt::Display,
         pytype: impl Into<ArgPyType>,
@@ -7341,23 +7356,19 @@ impl DocArgParam {
             ],
         };
 
-        let allow_optional_dropping = Self::new_allow_optional_dropping();
-        let transfer_dropped_optional = Self::new_transfer_dropped_optional();
+        let process_optional_failure = Self::new_process_optional_failure();
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         let layout_ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => [
-                allow_optional_dropping,
-                transfer_dropped_optional,
-                disallow_range_truncation,
-            ]
-            .into_iter()
-            .collect(),
+            Some(Version::FCS3_1 | Version::FCS3_2) => {
+                [process_optional_failure, disallow_range_truncation]
+                    .into_iter()
+                    .collect()
+            }
             _ => [
-                allow_optional_dropping,
-                transfer_dropped_optional,
+                process_optional_failure,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
@@ -7570,14 +7581,9 @@ impl DocArgParam {
         Self::new_bool_param("allow_extra_timestep", d)
     }
 
-    fn new_allow_optional_dropping() -> Self {
-        let d = "If ``True`` drop optional keys that cause an error and emit warning instead.";
-        Self::new_bool_param("allow_optional_dropping", d)
-    }
-
-    fn new_transfer_dropped_optional() -> Self {
-        let d = "If ``True`` transfer optional keys to non-standard dict if dropped.";
-        Self::new_bool_param("transfer_dropped_optional", d)
+    fn new_process_optional_failure() -> Self {
+        let d = "Process optional keys which cause an error.";
+        Self::new_proc_kw_fail("process_optional_failure", "ProcessOptionalFailure", d)
     }
 
     fn new_disallow_deprecated_param() -> Self {

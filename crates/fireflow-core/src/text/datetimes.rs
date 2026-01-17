@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
+    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
@@ -101,7 +101,7 @@ impl Datetimes {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupDatetimesError>
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupDatetimesError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -112,7 +112,7 @@ impl Datetimes {
             .map_err(LookupDatetimesError::from)
             .into_deferred_nowarn();
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.allow_optional_dropping;
+        let flag = rconf.process_optional_failure;
         b.zip_f2_once(e)
             .and_then_deferred(|(begin, end)| {
                 Self::try_new(begin, end)
@@ -120,7 +120,7 @@ impl Datetimes {
                     .map_err_value(|ret| {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
-                        if rconf.transfer_dropped_optional.is_set() {
+                        if rconf.process_optional_failure.is_demote() {
                             ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
                             ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
                         }

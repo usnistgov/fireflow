@@ -2,7 +2,8 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, TruncateEventValues, VersionOverride,
+    self, DatasetOffset, DelimEscapeMode, ProcessOptionalFailure, TruncateEventValues,
+    VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -645,14 +646,9 @@ fn main() -> Result<(), ()> {
         format!("Truncate offsets in {text_seg} if they exceed end of file."),
     );
 
-    let allow_optional_dropping = flag_arg(
-        ALLOW_OPTIONAL_DROPPING,
-        "Drop optional keys if they cause an error.",
-    );
-
-    let transfer_dropped_optional = flag_arg(
-        TRANSFER_DROPPED_OPTIONAL,
-        "Transfer optional keys to non-standard dict if they are dropped.",
+    let process_optional_failure = proc_kw_fail_arg(
+        PROCESS_OPTIONAL_FAILURE,
+        "Process optional keys if they cause an error.",
     );
 
     let int_widths_from_byteord = flag_arg(
@@ -696,8 +692,7 @@ fn main() -> Result<(), ()> {
         allow_header_text_offset_mismatch,
         allow_missing_required_offsets,
         truncate_text_offsets,
-        allow_optional_dropping,
-        transfer_dropped_optional,
+        process_optional_failure,
         int_widths_from_byteord,
         int_byteord_override,
         disallow_range_truncation,
@@ -959,6 +954,14 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
         .help(help)
 }
 
+fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
+    Arg::new(long).long(long).help(format!(
+        "{help_front} Must be one of 'error', 'demote', 'drop', or \
+         'drop_silent' which will throw an error, demote to non-standard, \
+         drop with warning, or drop silently respectively"
+    ))
+}
+
 fn format_section(
     header: &'_ str,
     paragraphs: impl IntoIterator<Item = impl Display>,
@@ -1173,6 +1176,11 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
+    let process_optional_failure = sargs
+        .get_one::<String>(PROCESS_OPTIONAL_FAILURE)
+        .map(|s| s.parse::<ProcessOptionalFailure>().unwrap())
+        .unwrap_or_default();
+
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
@@ -1184,8 +1192,7 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
         allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
-        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
-        transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
+        process_optional_failure,
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override,
         disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
@@ -1459,9 +1466,7 @@ const ALLOW_OTHER_VERSION: &str = "allow-other-version";
 
 const ALLOW_EXTRA_TIMESTEP: &str = "allow-extra-timestep";
 
-const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
-
-const TRANSFER_DROPPED_OPTIONAL: &str = "transfer-dropped-optional";
+const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-dropping";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

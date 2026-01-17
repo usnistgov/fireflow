@@ -13,7 +13,7 @@ use {
 };
 
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Display, FromStr, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, FromStr, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct IndexFromOne(NonZeroUsize);
 
@@ -34,7 +34,7 @@ macro_rules! newtype_index {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug,
+        #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug,
                  FromStr, Display, From, Into, Hash)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]

@@ -2921,20 +2921,21 @@ impl ExtraStdKeywords {
             }
         }
         let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version);
+        errors.sort(); // nice usability improvement
         let out = ExtraKeywordOutput::new(errors, timestamp_found);
         (ret, out)
     }
 }
 
 /// Error denoting that pseudostandard keyword was found.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord)]
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
 #[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
@@ -2944,7 +2945,7 @@ pub struct HyperParError {
 }
 
 /// Error denoting that gating keyword within standard but above $GATE was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
 #[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
@@ -2954,7 +2955,7 @@ pub struct HyperGateError {
 }
 
 /// Error denoting that keyword from different version was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, PartialEq, PartialOrd, Eq, Ord, new)]
 #[error(
     "keyword is not compatible with {current} but is compatible with {os}: {key}",
     os = self.others.iter().join(", ")
@@ -2968,7 +2969,7 @@ pub struct KeywordOtherVersionError {
 }
 
 /// Error denoting that extra standard keywords were found
-#[derive(From, Debug, Error, Display)]
+#[derive(From, Debug, Error, Display, PartialEq, PartialOrd, Eq, Ord)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ExtraKeywordsError {
     Pseudo(PseudostandardError),
@@ -3010,7 +3011,9 @@ macro_rules! newtype_string {
 
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
-        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq, Debug)]
+        #[derive(
+            Clone, Copy, Display, FromStr, From, Into, PartialEq, PartialOrd, Eq, Ord, Debug,
+        )]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub $type);

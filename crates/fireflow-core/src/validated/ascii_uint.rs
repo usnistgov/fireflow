@@ -122,7 +122,7 @@ impl UintSpacePad20 {
         bs: &[u8],
         allow_negative: AllowNegative,
     ) -> Result<Self, ParseFixedUintError> {
-        debug_assert!(bs.len() > 20, "cannot parse more than 20 bytes");
+        debug_assert!(bs.len() <= 20, "cannot parse more than 20 bytes");
         let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i32>()?;
         if x < 0 {
             if allow_negative.is_set() {

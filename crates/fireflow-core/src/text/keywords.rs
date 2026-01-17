@@ -467,8 +467,13 @@ impl AnyKeywordClass {
         }
 
         fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
-            let (x, y) = haystack.split_at(prefix.len());
-            x.eq_ignore_ascii_case(prefix).then_some(y)
+            let n = prefix.len();
+            if n > haystack.len() {
+                None
+            } else {
+                let (x, y) = haystack.split_at(n);
+                x.eq_ignore_ascii_case(prefix).then_some(y)
+            }
         }
 
         let s = key.as_ascii_str();

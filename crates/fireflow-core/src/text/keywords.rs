@@ -460,7 +460,8 @@ impl AnyKeywordClass {
                     index = 10 * index + (usize::from(*y) - 48);
                     k += 1;
                 }
-                Some((index, xs.split_at(k).1))
+                debug_assert!(index > 0, "index should be greater than 0 here");
+                Some((index - 1, xs.split_at(k).1))
             } else {
                 None
             }

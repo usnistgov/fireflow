@@ -315,14 +315,14 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If [`VersionOverride::Force`], force the version to be the supplied
     /// version.
     ///
-    /// If [`VersionOverride::Autodetect`], try to detect the version given the
+    /// If [`VersionOverride::AutoDetect`], try to detect the version given the
     /// keywords in TEXT. This variant further takes a strategy as specified by
-    /// [`Selectversionstrategy`] to select the "best" version of multiple
+    /// [`SelectVersionStrategy`] to select the "best" version of multiple
     /// choices can accommodate the given keywords. If
-    /// [`Selectversionstrategy::Latest`] or
-    /// [`Selectversionstrategy::Earliest`], use the latest of earliest
-    /// available version respectively. If [`Selectversionstrategy::Loose`] or
-    /// [`Selectversionstrategy::Strict`], choose the version which has the most
+    /// [`SelectVersionStrategy::Latest`] or
+    /// [`SelectVersionStrategy::Earliest`], use the latest of earliest
+    /// available version respectively. If [`SelectVersionStrategy::Loose`] or
+    /// [`SelectVersionStrategy::Strict`], choose the version which has the most
     /// or least optional keywords. This will fail if no version can accommodate
     /// all required keywords from *TEXT*.
     ///

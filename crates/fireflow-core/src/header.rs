@@ -462,7 +462,14 @@ impl Version {
                         // No versions found that can be satisfied without dropping
                         // keywords, find versions with dropping and rank using
                         // strategy.
-                        Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                        let ret = xs.maximum_by(|&x, &y| {
+                            if x.1.drop == y.1.drop {
+                                rank(x, y)
+                            } else {
+                                y.1.drop.cmp(&x.1.drop)
+                            }
+                        });
+                        Ok(ret.0)
                     } else {
                         // No versions found that have valid keywords available,
                         // return error

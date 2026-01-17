@@ -1,6 +1,6 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-    TrimIntraValueWhitespace,
+    ConfigFlag as _, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ReadStdKeywordsConfig, TrimIntraValueWhitespace,
 };
 use crate::logging::{DeferredSwitchableError, ResultExt as _};
 use crate::validated::keys::{
@@ -228,14 +228,14 @@ pub(crate) trait Optional: Sized {
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<
         Self::Outer,
-        AllowOptionalDropping,
+        ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self, I>,
     >
     where
         SpecificKey<Self, I>: AnyKey,
         Self: FromStr,
     {
-        Self::get_opt(kws, k).into_deferred_switchable(conf.allow_optional_dropping)
+        Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
     }
 
     fn remove_opt<I>(
@@ -285,11 +285,17 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
-        Self::remove_opt(kws, k).inspect_err(|e| {
-            if conf.transfer_dropped_optional.is_set() {
-                nonstd.insert_demoted(k.as_std(), e.value.clone());
-            }
-        })
+        match Self::remove_opt(kws, k) {
+            Ok(ret) => Ok(ret),
+            Err(e) => match conf.process_optional_failure.0 {
+                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
+                ProcessKeywordFailure::Demote => {
+                    nonstd.insert_demoted(k.as_std(), e.value.clone());
+                    Err(e)
+                }
+                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
+            },
+        }
     }
 
     fn remove_or_transfer_opt_with<C, I>(
@@ -305,11 +311,18 @@ pub(crate) trait Optional: Sized {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        Self::remove_opt_with(std, k, data, conf.as_ref()).inspect_err(|e| {
-            if rconf.transfer_dropped_optional.is_set() {
-                nonstd.insert_demoted(k.as_std(), e.value.clone());
-            }
-        })
+        match Self::remove_opt_with(std, k, data, conf.as_ref()) {
+            Ok(ret) => Ok(ret),
+            // TODO not dry
+            Err(e) => match rconf.process_optional_failure.0 {
+                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
+                ProcessKeywordFailure::Demote => {
+                    nonstd.insert_demoted(k.as_std(), e.value.clone());
+                    Err(e)
+                }
+                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
+            },
+        }
     }
 
     fn remove_or_drop_opt<I>(
@@ -319,7 +332,7 @@ pub(crate) trait Optional: Sized {
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<
         Self::Outer,
-        AllowOptionalDropping,
+        ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self, I>,
     >
     where
@@ -329,7 +342,7 @@ pub(crate) trait Optional: Sized {
         Self::remove_or_transfer_opt(std, nonstd, k, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(conf.allow_optional_dropping)
+            .nowarn_into_switchable(conf.process_optional_failure)
     }
 
     fn remove_or_drop_opt_with<C, I>(
@@ -340,7 +353,7 @@ pub(crate) trait Optional: Sized {
         conf: &C,
     ) -> DeferredSwitchableError<
         Self::Outer,
-        AllowOptionalDropping,
+        ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self, I>,
     >
     where
@@ -352,7 +365,7 @@ pub(crate) trait Optional: Sized {
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
             .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(rconf.allow_optional_dropping)
+            .nowarn_into_switchable(rconf.process_optional_failure)
     }
 
     fn get_opt_inner<F, E, I>(
@@ -522,7 +535,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -534,7 +547,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyStError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyStError<Self>>
     where
         Self: FromStrWith,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
@@ -573,7 +586,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         kws: &StdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -604,7 +617,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -617,7 +630,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptIndexedKeyStError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyStError<Self>>
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,

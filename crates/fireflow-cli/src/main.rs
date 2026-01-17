@@ -1,9 +1,12 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{self, DatasetOffset, DelimEscapeMode, TruncateEventValues};
+use fireflow_core::config::{
+    self, DatasetOffset, DelimEscapeMode, ProcessExtraTimestep, ProcessHyperPar,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TruncateEventValues,
+    VersionOverride,
+};
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::header::Version;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::datepattern::DatePattern;
@@ -197,8 +200,15 @@ fn main() -> Result<(), ()> {
 
     let version_override = Arg::new(VERSION_OVERRIDE)
         .long(VERSION_OVERRIDE)
-        .value_name("VERSION")
-        .help(format!("Override the FCS version from {header_seg}."));
+        .value_name("OVERRIDE")
+        .help(format!(
+            "Override the FCS version from {header_seg}. Can be an FCS \
+             version string (like 'FCS3.2') which will force to a fixed version. \
+             Can also autodetect version with one of 'latest' or 'earliest' \
+             (the latest or earliest available version respectively) or 'loose' \
+             or 'strict' (the available version with the most or least optional \
+             keywords respectively)."
+        ));
 
     let supp_text_correction_begin = correction_arg(SUPP_TEXT_COR_BEGIN, true, &supp_text_seg);
     let supp_text_correction_end = correction_arg(SUPP_TEXT_COR_END, false, &supp_text_seg);
@@ -477,26 +487,26 @@ fn main() -> Result<(), ()> {
         ),
     );
 
-    let allow_pseudostandard = flag_arg(
-        ALLOW_PSEUDOSTANDARD,
-        "Allow non-standard keywords that start with a '$'.",
+    let process_pseudostandard = proc_kw_fail_arg(
+        PROCESS_PSEUDOSTANDARD,
+        "Process non-standard keywords that start with a '$'.",
     );
 
-    let allow_hyper_par = flag_arg(
-        ALLOW_HYPER_PAR,
-        "Allow measurement keywords whose index is greater than $PAR.",
+    let process_hyper_par = proc_kw_fail_arg(
+        PROCESS_HYPER_PAR,
+        "Process measurement keywords whose index is greater than $PAR.",
     );
 
-    let allow_other_version = flag_arg(
-        ALLOW_OTHER_VERSION,
-        "Allow standard keywords from different FCS version",
+    let process_other_version = proc_kw_fail_arg(
+        PROCESS_OTHER_VERSION,
+        "Process standard keywords from different FCS version.",
     );
 
-    let allow_extra_timestep = flag_arg(
-        ALLOW_EXTRA_TIMESTEP,
+    let process_extra_timestep = proc_kw_fail_arg(
+        PROCESS_EXTRA_TIMESTEP,
         format!(
-            "Allow {} to be unused, which may indicate that a time measurement \
-             is present but not identified",
+            "Process unused {}, which may indicate that a time measurement \
+             is present but not identified.",
             kw_style.paint("TIMESTEP")
         ),
     );
@@ -587,10 +597,10 @@ fn main() -> Result<(), ()> {
         datetime_pattern,
         last_modified_pattern,
         allow_other_feature,
-        allow_pseudostandard,
-        allow_hyper_par,
-        allow_other_version,
-        allow_extra_timestep,
+        process_pseudostandard,
+        process_hyper_par,
+        process_other_version,
+        process_extra_timestep,
         disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
@@ -637,14 +647,9 @@ fn main() -> Result<(), ()> {
         format!("Truncate offsets in {text_seg} if they exceed end of file."),
     );
 
-    let allow_optional_dropping = flag_arg(
-        ALLOW_OPTIONAL_DROPPING,
-        "Drop optional keys if they cause an error.",
-    );
-
-    let transfer_dropped_optional = flag_arg(
-        TRANSFER_DROPPED_OPTIONAL,
-        "Transfer optional keys to non-standard dict if they are dropped.",
+    let process_optional_failure = proc_kw_fail_arg(
+        PROCESS_OPTIONAL_FAILURE,
+        "Process optional keys if they cause an error.",
     );
 
     let int_widths_from_byteord = flag_arg(
@@ -688,8 +693,7 @@ fn main() -> Result<(), ()> {
         allow_header_text_offset_mismatch,
         allow_missing_required_offsets,
         truncate_text_offsets,
-        allow_optional_dropping,
-        transfer_dropped_optional,
+        process_optional_failure,
         int_widths_from_byteord,
         int_byteord_override,
         disallow_range_truncation,
@@ -951,6 +955,14 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
         .help(help)
 }
 
+fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
+    Arg::new(long).long(long).help(format!(
+        "{help_front} Must be one of 'error', 'demote', 'drop', or \
+         'drop_silent' which will throw an error, demote to non-standard, \
+         drop with warning, or drop silently respectively"
+    ))
+}
+
 fn format_section(
     header: &'_ str,
     paragraphs: impl IntoIterator<Item = impl Display>,
@@ -994,7 +1006,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
 fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
     let version_override = sargs
         .get_one::<String>(VERSION_OVERRIDE)
-        .map(|s| s.parse::<Version>().unwrap());
+        .map(|s| s.parse::<VersionOverride>().unwrap());
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
@@ -1096,6 +1108,27 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .map(|d| d.parse::<TimePattern>().unwrap());
     let datetime_pattern = sargs.get_one::<String>(DATETIME_PATTERN).cloned();
     let last_modified_pattern = sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned();
+
+    let process_pseudostandard = sargs
+        .get_one::<String>(PROCESS_PSEUDOSTANDARD)
+        .map(|s| s.parse::<ProcessPseudostandard>().unwrap())
+        .unwrap_or_default();
+
+    let process_hyper_par = sargs
+        .get_one::<String>(PROCESS_HYPER_PAR)
+        .map(|s| s.parse::<ProcessHyperPar>().unwrap())
+        .unwrap_or_default();
+
+    let process_other_version = sargs
+        .get_one::<String>(PROCESS_OTHER_VERSION)
+        .map(|s| s.parse::<ProcessOtherVersion>().unwrap())
+        .unwrap_or_default();
+
+    let process_extra_timestep = sargs
+        .get_one::<String>(PROCESS_EXTRA_TIMESTEP)
+        .map(|s| s.parse::<ProcessExtraTimestep>().unwrap())
+        .unwrap_or_default();
+
     config::ReadStdKeywordsConfig {
         dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
@@ -1110,10 +1143,10 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         datetime_pattern,
         last_modified_pattern,
         allow_other_feature: sargs.get_flag(ALLOW_OTHER_FEATURE).into(),
-        allow_pseudostandard: sargs.get_flag(ALLOW_PSEUDOSTANDARD).into(),
-        allow_hyper_par: sargs.get_flag(ALLOW_HYPER_PAR).into(),
-        allow_other_version: sargs.get_flag(ALLOW_OTHER_VERSION).into(),
-        allow_extra_timestep: sargs.get_flag(ALLOW_EXTRA_TIMESTEP).into(),
+        process_pseudostandard,
+        process_hyper_par,
+        process_other_version,
+        process_extra_timestep,
         disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
@@ -1165,6 +1198,11 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
+    let process_optional_failure = sargs
+        .get_one::<String>(PROCESS_OPTIONAL_FAILURE)
+        .map(|s| s.parse::<ProcessOptionalFailure>().unwrap())
+        .unwrap_or_default();
+
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
@@ -1176,8 +1214,7 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
         allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
-        allow_optional_dropping: sargs.get_flag(ALLOW_OPTIONAL_DROPPING).into(),
-        transfer_dropped_optional: sargs.get_flag(TRANSFER_DROPPED_OPTIONAL).into(),
+        process_optional_failure,
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override,
         disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
@@ -1443,17 +1480,15 @@ const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 
 const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
 
-const ALLOW_PSEUDOSTANDARD: &str = "allow-pseudostandard";
+const PROCESS_PSEUDOSTANDARD: &str = "process-pseudostandard";
 
-const ALLOW_HYPER_PAR: &str = "allow-hyper-par";
+const PROCESS_HYPER_PAR: &str = "process-hyper-par";
 
-const ALLOW_OTHER_VERSION: &str = "allow-other-version";
+const PROCESS_OTHER_VERSION: &str = "process-other-version";
 
-const ALLOW_EXTRA_TIMESTEP: &str = "allow-extra-timestep";
+const PROCESS_EXTRA_TIMESTEP: &str = "process-extra-timestep";
 
-const ALLOW_OPTIONAL_DROPPING: &str = "allow-optional-dropping";
-
-const TRANSFER_DROPPED_OPTIONAL: &str = "transfer-dropped-optional";
+const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-failure";
 
 const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 

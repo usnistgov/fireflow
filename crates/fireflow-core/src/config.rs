@@ -310,8 +310,24 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TruncateOffsets)]
     pub header: ReadHeaderInnerConfig,
 
-    /// Override the version
-    pub version_override: Option<Version>,
+    /// Use a different version than what is given in the HEADER.
+    ///
+    /// If [`VersionOverride::Force`], force the version to be the supplied
+    /// version.
+    ///
+    /// If [`VersionOverride::AutoDetect`], try to detect the version given the
+    /// keywords in TEXT. This variant further takes a strategy as specified by
+    /// [`SelectVersionStrategy`] to select the "best" version of multiple
+    /// choices can accommodate the given keywords. If
+    /// [`SelectVersionStrategy::Latest`] or
+    /// [`SelectVersionStrategy::Earliest`], use the latest of earliest
+    /// available version respectively. If [`SelectVersionStrategy::Loose`] or
+    /// [`SelectVersionStrategy::Strict`], choose the version which has the most
+    /// or least optional keywords. This will fail if no version can accommodate
+    /// all required keywords from *TEXT*.
+    ///
+    /// If [`None`], do not change the version from HEADER.
+    pub version_override: Option<VersionOverride>,
 
     /// Corrections for supplemental TEXT segment
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
@@ -546,7 +562,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// processed downstream.
     ///
     /// Useful for surgically correcting "pseudostandard" keywords without using
-    /// [`ReadStdKeywordsConfig::allow_pseudostandard`], which is a crude
+    /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
     /// sledgehammer.
     pub demote_from_standard: KeyPatterns,
 
@@ -680,14 +696,14 @@ pub struct ReadStdKeywordsConfig {
     /// keyword.
     pub allow_other_feature: AllowOtherFeature,
 
-    /// If `true`, allow non-standard keywords starting with `"$"`.
+    /// Process non-standard keywords starting with `"$"`.
     ///
     /// The `"$`" prefix is reserved for standard keywords only. While little
     /// harm may come from violating this, having these keywords might signify
     /// that the version in the HEADER is wrong and that the file actually
     /// follows a different FCS standard (usually higher) in which these
     /// keywords are standard.
-    pub allow_pseudostandard: AllowPseudostandard,
+    pub process_pseudostandard: ProcessPseudostandard,
 
     /// If `true`, allow keywords that have indices greater than $PAR.
     ///
@@ -695,13 +711,13 @@ pub struct ReadStdKeywordsConfig {
     /// non-standard keyword since it is not part of a relevant measurement.
     /// Setting this to `true` turns the existence of these into a warning
     /// rather than an error.
-    pub allow_hyper_par: AllowHyperPar,
+    pub process_hyper_par: ProcessHyperPar,
 
     /// If `true`, allow standard keywords from a different version.
     ///
     /// Such errors (warnings if `true`) can likely be solved by overriding the
     /// version.
-    pub allow_other_version: AllowOtherVersion,
+    pub process_other_version: ProcessOtherVersion,
 
     /// If `true`, allow $TIMESTEP to be unused.
     ///
@@ -709,7 +725,7 @@ pub struct ReadStdKeywordsConfig {
     /// the dataset but was its $PnN was not properly matched. Setting this
     /// to `true` will suppress the resulting error, but one should make sure
     /// that time is indeed really missing.
-    pub allow_extra_timestep: AllowExtraTimestep,
+    pub process_extra_timestep: ProcessExtraTimestep,
 
     /// If `true`, throw an error if TEXT includes any deprecated features.
     ///
@@ -766,10 +782,10 @@ impl Default for ReadStdKeywordsConfig {
             datetime_pattern: None,
             last_modified_pattern: None,
             allow_other_feature: AllowOtherFeature::default(),
-            allow_pseudostandard: AllowPseudostandard::default(),
-            allow_hyper_par: AllowHyperPar::default(),
-            allow_other_version: AllowOtherVersion::default(),
-            allow_extra_timestep: AllowExtraTimestep::default(),
+            process_pseudostandard: ProcessPseudostandard::default(),
+            process_hyper_par: ProcessHyperPar::default(),
+            process_other_version: ProcessOtherVersion::default(),
+            process_extra_timestep: ProcessExtraTimestep::default(),
             disallow_deprecated: DisallowDeprecated::default(),
             fix_log_scale_offsets: FixLogScaleOffsets::default(),
             disallow_localtime: DisallowLocaltime::default(),
@@ -833,18 +849,10 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(TruncateOffsets)]
     pub truncate_text_offsets: TruncateOffsets,
 
-    /// If `true`, allow optional keys to be dropped on error with a warning.
+    /// Choose how to deal with optional keywords which produce errors.
     ///
     /// Also used when parsing any keyword in standard mode.
-    pub allow_optional_dropping: AllowOptionalDropping,
-
-    /// If `true`, transfer dropped optional keys to nonstandard dict.
-    ///
-    /// Has no effect if [`Self::allow_optional_dropping`] is `false` as all
-    /// dropped optional keywords will produce a fatal error.
-    ///
-    /// Also used when parsing any keyword in standard mode.
-    pub transfer_dropped_optional: TransferDroppedOptional,
+    pub process_optional_failure: ProcessOptionalFailure,
 
     /// If given, override $PnB with the number of bytes in $BYTEORD.
     ///
@@ -940,6 +948,123 @@ pub struct ReadSharedConfig {
     pub hide_warnings: bool,
 }
 
+/// Configuration to override/detect FCS version
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum VersionOverride {
+    Force(Version),
+    AutoDetect(SelectVersionStrategy),
+}
+
+impl FromStr for VersionOverride {
+    type Err = VersionOverrideError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(ret) = s.parse::<Version>() {
+            Ok(Self::Force(ret))
+        } else if let Ok(ret) = s.parse::<SelectVersionStrategy>() {
+            Ok(Self::AutoDetect(ret))
+        } else {
+            Err(VersionOverrideError)
+        }
+    }
+}
+
+/// Error when parsing [`VersionOverride`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be an FCS version string or one of 'latest', 'earliest', 'loose', or 'strict'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct VersionOverrideError;
+
+macro_rules! impl_proc_key_fail {
+    ($t:ident) => {
+        #[derive(Clone, Copy, Default, FromStr, Into)]
+        #[cfg_attr(feature = "python", derive(FromPyString))]
+        pub struct $t(pub ProcessKeywordFailure);
+
+        impl ErrorFlag for $t {
+            fn is_error(&self) -> bool {
+                matches!(&self.0, ProcessKeywordFailure::Error)
+            }
+        }
+    };
+}
+
+impl_proc_key_fail!(ProcessOptionalFailure);
+impl_proc_key_fail!(ProcessOtherVersion);
+impl_proc_key_fail!(ProcessHyperPar);
+impl_proc_key_fail!(ProcessPseudostandard);
+impl_proc_key_fail!(ProcessExtraTimestep);
+
+impl ProcessOptionalFailure {
+    pub(crate) fn is_demote(self) -> bool {
+        matches!(&self.0, ProcessKeywordFailure::Demote)
+    }
+}
+
+/// Configuration to deal with optional standard keywords that cause errors
+#[derive(Clone, Copy, Default)]
+pub enum ProcessKeywordFailure {
+    /// Throw an error
+    #[default]
+    Error,
+    /// Demote to nonstandard
+    Demote,
+    /// Drop with warning
+    Drop,
+    /// Drop with no warning
+    DropSilent,
+}
+
+impl FromStr for ProcessKeywordFailure {
+    type Err = ProcessKeywordFailureError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "error" => Ok(Self::Error),
+            "demote" => Ok(Self::Demote),
+            "drop" => Ok(Self::Drop),
+            "drop_silent" => Ok(Self::DropSilent),
+            _ => Err(ProcessKeywordFailureError),
+        }
+    }
+}
+
+/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'error', 'demote', 'drop', or 'drop_silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct ProcessKeywordFailureError;
+
+/// Strategy to use when autodetecting FCS version
+#[derive(Clone, Copy)]
+pub enum SelectVersionStrategy {
+    /// Choose the latest version
+    Latest,
+    /// Choose the earliest version
+    Earliest,
+    /// Choose the version with the most optional keywords
+    Loose,
+    /// Choose the version with the least optional keywords
+    Strict,
+}
+
+impl FromStr for SelectVersionStrategy {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "latest" => Ok(Self::Latest),
+            "earliest" => Ok(Self::Earliest),
+            "loose" => Ok(Self::Loose),
+            "strict" => Ok(Self::Strict),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Choose how to escape delims in TEXT segment.
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
@@ -1017,12 +1142,8 @@ pub trait ConfigFlag {
     fn is_set(&self) -> bool;
 }
 
-pub trait ErrorFlag: ConfigFlag {
-    const TRUE_IS_ERROR: bool;
-
-    fn is_error(&self) -> bool {
-        self.is_set() == Self::TRUE_IS_ERROR
-    }
+pub trait ErrorFlag {
+    fn is_error(&self) -> bool;
 }
 
 macro_rules! impl_config_flag {
@@ -1041,18 +1162,22 @@ macro_rules! impl_config_flag {
 
 macro_rules! impl_error_flag {
     (true_is_error $n:ident) => {
-        impl_error_flag!($n, true);
-    };
-
-    (false_is_error $n:ident) => {
-        impl_error_flag!($n, false);
-    };
-
-    ($n:ident, $true_is_error:expr) => {
         impl_config_flag!($n);
 
         impl ErrorFlag for $n {
-            const TRUE_IS_ERROR: bool = $true_is_error;
+            fn is_error(&self) -> bool {
+                self.0 == true
+            }
+        }
+    };
+
+    (false_is_error $n:ident) => {
+        impl_config_flag!($n);
+
+        impl ErrorFlag for $n {
+            fn is_error(&self) -> bool {
+                self.0 == false
+            }
         }
     };
 }
@@ -1094,11 +1219,11 @@ impl_config_flag!(ForceTimeLinear);
 impl_config_flag!(IgnoreTimeGain);
 impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
-impl_error_flag!(false_is_error AllowPseudostandard);
-impl_error_flag!(false_is_error AllowHyperPar);
-impl_error_flag!(false_is_error AllowOtherVersion);
-impl_error_flag!(false_is_error AllowExtraTimestep);
-impl_error_flag!(false_is_error AllowOptionalDropping);
+// impl_error_flag!(false_is_error AllowPseudostandard);
+// impl_error_flag!(false_is_error ProcessHyperPar);
+// impl_error_flag!(false_is_error AllowOtherVersion);
+// impl_error_flag!(false_is_error AllowExtraTimestep);
+// impl_error_flag!(false_is_error AllowOptionalDropping);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_error_flag!(true_is_error DisallowDeprecated);

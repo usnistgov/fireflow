@@ -1,10 +1,10 @@
 //! Data structures representing standardized TEXT segment
 
 use crate::config::{
-    AllowLoss, AllowOptionalDropping, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset,
-    DatasetOffsetError, DisallowDeprecated, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, TransferDroppedOptional,
+    AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
+    DisallowDeprecated, DisallowRangeTrunc, ProcessKeywordFailure, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState,
+    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
     WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
     WriteTEXTInnerConfig,
 };
@@ -16,7 +16,8 @@ use crate::data::{
     ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1,
+    Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -50,10 +51,10 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, Analyte, Beginstext, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
+    Abrt, Analyte, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
     CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
-    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Endstext,
-    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperParError, Inst,
+    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
+    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperGateError, HyperParError, Inst,
     KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
     LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
     NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
@@ -116,6 +117,7 @@ use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
+use std::mem;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -495,19 +497,28 @@ impl AnyCoreTEXT {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>,
     {
         macro_rules! go {
             ($t:ident) => {
                 $t::new_from_keywords_with_offsets(kws, segs, st)
                     .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
+                    .map_errors(StdTEXTFromFlatTEXTError::from)
             };
         }
-        match version {
-            Version::FCS2_0 => go!(CoreTEXT2_0),
-            Version::FCS3_0 => go!(CoreTEXT3_0),
-            Version::FCS3_1 => go!(CoreTEXT3_1),
-            Version::FCS3_2 => go!(CoreTEXT3_2),
+
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+
+        match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
+            Ok(ver) => match ver {
+                Version::FCS2_0 => go!(CoreTEXT2_0),
+                Version::FCS3_0 => go!(CoreTEXT3_0),
+                Version::FCS3_1 => go!(CoreTEXT3_1),
+                Version::FCS3_2 => go!(CoreTEXT3_2),
+            },
+            Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
         }
     }
 }
@@ -526,7 +537,7 @@ impl AnyCoreDataset {
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         other_segs: &[OtherSegment20],
-        conf: &ReadState<C>,
+        st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromFlatTEXTWarning,
@@ -535,7 +546,10 @@ impl AnyCoreDataset {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadEventsConfig>,
     {
         let segs = NonDataSegments::new(
             PrimaryTextSegment::default(),
@@ -544,17 +558,25 @@ impl AnyCoreDataset {
             other_segs,
             None,
         );
+
         macro_rules! go {
             ($t:ident) => {
-                $t::new_from_keywords_inner(h, kws, &segs, conf)
+                $t::new_from_keywords_inner(h, kws, &segs, st)
                     .map_ok_value(|(x, y)| (x.into(), y))
+                    .map_pure_errors(StdDatasetFromFlatTextError::from)
             };
         }
-        match version {
-            Version::FCS2_0 => go!(CoreDataset2_0),
-            Version::FCS3_0 => go!(CoreDataset3_0),
-            Version::FCS3_1 => go!(CoreDataset3_1),
-            Version::FCS3_2 => go!(CoreDataset3_2),
+
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+
+        match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
+            Ok(ver) => match ver {
+                Version::FCS2_0 => go!(CoreDataset2_0),
+                Version::FCS3_0 => go!(CoreDataset3_0),
+                Version::FCS3_1 => go!(CoreDataset3_1),
+                Version::FCS3_2 => go!(CoreDataset3_2),
+            },
+            Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
         }
     }
 }
@@ -4153,7 +4175,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
         (),
         StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTError,
+        StdTEXTFromFlatTEXTErrorInner,
     >
     where
         M: LookupMetaroot,
@@ -4169,7 +4191,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // determine if TEXT is totally standardized or not.
         let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, segs, st)
             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-            .map_errors(StdTEXTFromFlatTEXTError::from);
+            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
         Self::lookup_inner(kws, &st.conf)
             .zip_commutative(offsets_res)
@@ -4212,7 +4234,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         (Self, ExtraStdKeywords),
         (),
         StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTError,
+        StdTEXTFromFlatTEXTErrorInner,
     >
     where
         M: LookupMetaroot,
@@ -4222,17 +4244,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
-        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been processed
-        // when we read the TEXT; remove them so they don't trigger false
-        // positives later when we test for pseudostandard keys
-        let _ = kws.std.remove(&Nextdata::std());
-        let _ = kws.std.remove(&Beginstext::std());
-        let _ = kws.std.remove(&Endstext::std());
-
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
-            .map_err(StdTEXTFromFlatTEXTError::from)
+            .map_err(StdTEXTFromFlatTEXTErrorInner::from)
             .into_log();
 
         let version = M::Ver::fcs_version();
@@ -4244,13 +4259,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             // Split nonstandard measurements using pattern (if given); this
             // implicitly will encode $PAR downstream via length
             let nonstd_succ = Self::split_nonstandard(par, nonstd, conf.as_ref());
-            let core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
+            let mut core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                 // Lookup $PnN and layout (which are independent of each other)
                 .and_then_commutative(|mut meas_nonstd| {
                     Self::lookup_names(std, &mut meas_nonstd[..], conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTError::from)
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
                         .map_ok_value(|n| (n, meas_nonstd))
                 })
                 // Lookup root and measurement keywords (which depend on $PnN)
@@ -4260,61 +4275,85 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     let layout_res =
                         <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                            .map_errors(StdTEXTFromFlatTEXTError::from);
+                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
                     let root_res = Metaroot::lookup_metaroot(std, &names[..], kws.nonstd, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTError::from);
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
                     let meas_res = Self::lookup_measurements(std, names, meas_nonstd, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTError::from);
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
                     root_res.zip3_commutative(meas_res, layout_res)
                 })
                 .and_then_commutative(|(metaroot, meas, layout)| {
                     Self::try_new(metaroot, meas, layout, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTError::from)
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
                 });
 
             // Push pseudostandard/unused warnings/errors
-            let (extra, errors) = ExtraStdKeywords::split_keywords(kws.std, version, par);
+            // TODO fix gate arg
+            let (mut extra, errors) =
+                ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
-            core_res
-                .extend_warnings_or_errors(
-                    errors.timestep_found.then_some(TimestepFoundError),
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_extra_timestep,
-                )
-                .extend_warnings_or_errors(
-                    errors.other_version,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_other_version,
-                )
-                .extend_warnings_or_errors(
-                    errors.hyper_par,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_hyper_par,
-                )
-                .extend_warnings_or_errors(
-                    errors.pseudo,
-                    |_v| (),
-                    |_p| (),
-                    StdTEXTFromFlatTEXTWarning::from,
-                    StdTEXTFromFlatTEXTError::from,
-                    sconf.allow_pseudostandard,
-                )
-                .map_ok_value(|x| (x, extra))
+            if let Some(t) = mem::take(&mut extra.timestep) {
+                match sconf.process_extra_timestep.0 {
+                    ProcessKeywordFailure::Demote => {
+                        core_res = core_res.map_ok_value(|mut core| {
+                            core.metaroot
+                                .nonstandard_keywords
+                                .insert_demoted(Timestep::std(), t);
+                            core
+                        });
+                    }
+                    ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
+                        core_res = core_res.extend_warnings_or_errors(
+                            Some(TimestepFoundError),
+                            |_v| (),
+                            |_p| (),
+                            StdTEXTFromFlatTEXTWarning::from,
+                            StdTEXTFromFlatTEXTErrorInner::from,
+                            sconf.process_extra_timestep,
+                        );
+                    }
+                    ProcessKeywordFailure::DropSilent => (),
+                }
+            }
+
+            macro_rules! go_extra {
+                ($proc:ident, $keyvals:ident, $errors:ident) => {
+                    match sconf.$proc.into() {
+                        ProcessKeywordFailure::Demote => {
+                            core_res = core_res.map_ok_value(|mut core| {
+                                for (k, v) in mem::take(&mut extra.$keyvals) {
+                                    core.metaroot.nonstandard_keywords.insert_demoted(k, v);
+                                }
+                                core
+                            })
+                        }
+                        ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
+                            core_res = core_res.extend_warnings_or_errors(
+                                errors.$errors,
+                                |_v| (),
+                                |_p| (),
+                                StdTEXTFromFlatTEXTWarning::from,
+                                StdTEXTFromFlatTEXTErrorInner::from,
+                                sconf.$proc,
+                            )
+                        }
+                        ProcessKeywordFailure::DropSilent => (),
+                    };
+                };
+            }
+
+            go_extra!(process_pseudostandard, pseudostandard, pseudo);
+            go_extra!(process_hyper_par, hyper_par, hyper_par);
+            go_extra!(process_hyper_par, hyper_gate, hyper_gate);
+            go_extra!(process_other_version, other_version, other_version);
+
+            core_res.map_ok_value(|x| (x, extra))
         })
     }
 
@@ -4442,7 +4481,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     fn deprecated(
         &mut self,
         dep_flag: DisallowDeprecated,
-        xfer_flag: TransferDroppedOptional,
+        xfer_flag: ProcessOptionalFailure,
     ) -> SwitchableErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
     where
         Version: From<M::Ver>,
@@ -4458,8 +4497,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // disallow_deprecated flag effectively takes its place. If this flag is
         // set, the we consider it an error to be deprecated, thus dropping a
         // keyval is not relevant (error = crash).
-        let keep = xfer_flag.is_set();
-        let do_demote = dep_flag.is_set() && xfer_flag.is_set();
+        let keep = xfer_flag.is_demote();
+        let do_demote = dep_flag.is_set() && xfer_flag.is_demote();
         for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {
                 d.demote(&mut self.metaroot.nonstandard_keywords, keep);
@@ -4513,7 +4552,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             None
         };
 
-        let drop_flag = rconf.allow_optional_dropping;
+        let drop_flag = rconf.process_optional_failure;
         let missing_flag = sconf.allow_missing_time;
         Measurements::try_new(measurements)
             .map_err(LookupCoreError::from)
@@ -4527,7 +4566,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .set_ok_value(ms)
             })
             .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_set())
+                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_demote())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(drop_flag)
                     .switchable_into_commutative()
@@ -4535,7 +4574,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
                     .and_then_commutative(|mut ret| {
-                        let xfer_flag = rconf.transfer_dropped_optional;
+                        let xfer_flag = rconf.process_optional_failure;
                         let dep_flag = sconf.disallow_deprecated;
                         ret.deprecated(dep_flag, xfer_flag)
                             .map_switchable_errors(NewCoreWarning::from)
@@ -4632,7 +4671,7 @@ where
             + AsRef<ReadSharedConfig>,
     {
         ReadState::open(p, dataset_offset, conf)
-            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextError::from))
+            .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
@@ -4648,7 +4687,7 @@ where
                     .sequence_commutative();
                 data_res
                     .zip3_commutative(anal_res, oss_res)
-                    .map_errors(StdDatasetFromFlatTextError::from)
+                    .map_errors(StdDatasetFromFlatTextErrorInner::from)
                     .map_ok_value(|(d, a, o)| (d, a, o, st, file))
                     .nowarn_into_warn()
                     .group()
@@ -4659,7 +4698,8 @@ where
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextError::from)
+            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextErrorInner::from)
+            .map_pure_errors(StdDatasetFromFlatTextError::from)
             .deanonymize()
     }
 
@@ -4671,7 +4711,7 @@ where
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
         StdDatasetFromFlatTEXTWarning,
-        StdDatasetFromFlatTextError,
+        StdDatasetFromFlatTextErrorInner,
         (),
     >
     where
@@ -4685,7 +4725,7 @@ where
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, segs, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-            .map_errors(StdDatasetFromFlatTextError::from)
+            .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
@@ -4697,7 +4737,7 @@ where
                 text.layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-                    .map_pure_errors(StdDatasetFromFlatTextError::from)
+                    .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|data| {
                         ar.h_read(h)
                             .and_then(|analysis| {
@@ -5498,7 +5538,7 @@ impl UnstainedData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableError<Self, AllowOptionalDropping, OptKeyStError<UnstainedCenters>>
+    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptKeyStError<UnstainedCenters>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -5565,8 +5605,8 @@ impl CSVFlags {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupCSVFlagsError> {
-        let flag = conf.allow_optional_dropping;
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupCSVFlagsError> {
+        let flag = conf.process_optional_failure;
         CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
             .map_err(LookupCSVFlagsError::from)
             .into_deferred_nowarn()
@@ -5612,7 +5652,7 @@ impl ModificationData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, AllowOptionalDropping, LookupModifiedDataError>
+    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupModifiedDataError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -5623,7 +5663,7 @@ impl ModificationData {
         let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
             .map_err(LookupModifiedDataError::from)
             .into_deferred_nowarn();
-        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
+        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         last_mod_date
             .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
             .nowarn_into_switchable(flag)
@@ -9191,24 +9231,33 @@ pub struct NonLinearTemporalTransformError;
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
-    Error(StdTEXTFromFlatTEXTError),
+    Error(StdTEXTFromFlatTEXTErrorInner),
     Warn(StdTEXTFromFlatTEXTWarning),
+}
+
+/// Error when reading standardized TEXT from keyword pairs
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromFlatTEXTError {
+    Inner(StdTEXTFromFlatTEXTErrorInner),
+    Version(GuessVersionError),
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum StdTEXTFromFlatTEXTError {
+pub enum StdTEXTFromFlatTEXTErrorInner {
     New(LookupCoreError),
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
     Shortname(LookupShortnameError),
     Layout(LookupLayoutError),
     Offsets(LookupTEXTOffsetsError),
-    Pseudostandard(PseudostandardError),
-    HyperPar(HyperParError),
-    OtherVersion(KeywordOtherVersionError),
     Timestep(TimestepFoundError),
+    Pseudo(PseudostandardError),
+    HyperPar(HyperParError),
+    HyperGate(HyperGateError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -9222,18 +9271,27 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Shortname(OptIndexedKeyError<Shortname>),
     Layout(LookupLayoutWarning),
     Offsets(LookupTEXTOffsetsWarning),
-    Pseudostandard(PseudostandardError),
-    HyperPar(HyperParError),
-    OtherVersion(KeywordOtherVersionError),
     Timestep(TimestepFoundError),
+    Pseudo(PseudostandardError),
+    HyperPar(HyperParError),
+    HyperGate(HyperGateError),
+    OtherVersion(KeywordOtherVersionError),
 }
 
 /// Error when reading standardized DATA from keyword pairs
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromFlatTextError {
+    Inner(StdDatasetFromFlatTextErrorInner),
+    Version(GuessVersionError),
+}
+
+/// Error (inner) when reading standardized DATA from keyword pairs
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdDatasetFromFlatTextErrorInner {
     DatasetOffset(DatasetOffsetError),
-    TEXT(StdTEXTFromFlatTEXTError),
+    TEXT(StdTEXTFromFlatTEXTErrorInner),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Segment(RelativeToAbsSegmentError),

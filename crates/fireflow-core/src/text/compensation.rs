@@ -1,4 +1,4 @@
-use crate::config::{AllowOptionalDropping, ReadDataKeywordsConfig};
+use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig};
 use crate::core::BiIndexedKeyLossError;
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
@@ -47,12 +47,12 @@ impl Compensation2_0 {
         kws: &mut StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupComp2_0Error> {
+    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let n = par.0;
-        let flag = conf.allow_optional_dropping;
+        let flag = conf.process_optional_failure;
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {

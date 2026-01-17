@@ -65,6 +65,17 @@ Feature = Literal["Area", "Width", "Height"]
 
 FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
 
+VersionOverride = Literal[
+    "FCS2.0",
+    "FCS3.0",
+    "FCS3.1",
+    "FCS3.2",
+    "latest",
+    "earliest",
+    "loose",
+    "strict",
+]
+
 FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]
@@ -145,3 +156,5 @@ TruncateEventValues: TypeAlias = Literal["int_only", "all", "none"]
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
+
+ProcessKeywordFailure: TypeAlias = Literal["error", "demote", "drop", "drop_silent"]

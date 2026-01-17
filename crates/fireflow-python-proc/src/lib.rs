@@ -682,8 +682,15 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
         PyDict::new_std_keywords(),
-        "Keywords which are part of the standard but have an index outside *$PAR*.",
+        "Measurement keywords which are part of the standard but have an index outside *$PAR*.",
         |_, _| quote!(self.0.hyper_par.clone()),
+    );
+
+    let hyper_gate = DocArgROIvar::new_ivar_ro(
+        "hyper_gate",
+        PyDict::new_std_keywords(),
+        "Gating keywords which are part of the standard but have an index outside *$GATE*.",
+        |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
     let other_version = DocArgROIvar::new_ivar_ro(
@@ -693,16 +700,25 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.other_version.clone()),
     );
 
+    let timestep = DocArgROIvar::new_ivar_ro(
+        "timestep",
+        PyOpt::new(PyStr::default()),
+        "Unused *$TIMESTEP* keyword",
+        |_, _| quote!(self.0.timestep.clone()),
+    );
+
     let doc = DocString::new_class("Extra keywords from *TEXT* standardization.").args([
         pseudostandard,
         hyper_par,
+        hyper_gate,
         other_version,
+        timestep,
     ]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(pseudostandard, hyper_par, other_version).into()
+                #path::new(pseudostandard, hyper_par, hyper_gate, other_version, timestep).into()
             }
         }
     };
@@ -5303,11 +5319,8 @@ impl PyException {
     }
 
     fn new_extra() -> Self {
-        Self::new_pyreflow(&PyreflowError::ExtraKeyword).desc(
-            "If any standard keys are unused and \
-             ``allow_pseudostandard`` or ``allow_unused_standard`` \
-             are ``False``",
-        )
+        Self::new_pyreflow(&PyreflowError::ExtraKeyword)
+            .desc("If any standard keys are unused and not dropped by some other option")
     }
 
     fn new_deprecated() -> Self {
@@ -5835,7 +5848,15 @@ impl PyLiteral {
 
     fn new_version() -> Self {
         let path = parse_quote!(fireflow_core::header::Version);
-        Self::new2(["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"], path)
+        Self::new2(ALL_VERSION_STRINGS, path)
+    }
+
+    fn new_version_override() -> Self {
+        let path = config_path("VersionOverride");
+        let vs = ALL_VERSION_STRINGS
+            .into_iter()
+            .chain(["latest", "earliest", "loose", "strict"]);
+        Self::new2(vs, path)
     }
 
     fn new_temporal_optical_key() -> Self {
@@ -6930,6 +6951,21 @@ impl DocArgParam {
         Self::new_param(name, PyBool::default(), desc).def_auto()
     }
 
+    fn new_proc_kw_fail(
+        name: impl fmt::Display,
+        ident_name: &str,
+        desc: impl fmt::Display,
+    ) -> Self {
+        let path = config_path(ident_name);
+        let pt = PyLiteral::new2(["error", "demote", "drop", "drop_silent"], path);
+        let d = format!(
+            "{desc} Use ``\"error\"`` to throw error on failure, \
+             ``\"demote\"`` to demote to non-standard, ``\"drop\"`` to drop \
+             with warning, or ``\"drop_silent\"`` to drop with no warning"
+        );
+        Self::new_param(name, pt, d).def_auto()
+    }
+
     fn new_opt_param(
         name: impl fmt::Display,
         pytype: impl Into<ArgPyType>,
@@ -7278,10 +7314,10 @@ impl DocArgParam {
             Self::new_datetime_pattern_param(),
             Self::new_last_modified_pattern_param(),
             Self::new_allow_other_feature_param(),
-            Self::new_allow_pseudostandard_param(),
-            Self::new_allow_hyper_par_param(),
-            Self::new_allow_other_version_param(),
-            Self::new_allow_extra_timestep_param(),
+            Self::new_process_pseudostandard_param(),
+            Self::new_process_hyper_par_param(),
+            Self::new_process_other_version_param(),
+            Self::new_process_extra_timestep_param(),
             Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
@@ -7325,23 +7361,19 @@ impl DocArgParam {
             ],
         };
 
-        let allow_optional_dropping = Self::new_allow_optional_dropping();
-        let transfer_dropped_optional = Self::new_transfer_dropped_optional();
+        let process_optional_failure = Self::new_process_optional_failure();
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         let layout_ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => [
-                allow_optional_dropping,
-                transfer_dropped_optional,
-                disallow_range_truncation,
-            ]
-            .into_iter()
-            .collect(),
+            Some(Version::FCS3_1 | Version::FCS3_2) => {
+                [process_optional_failure, disallow_range_truncation]
+                    .into_iter()
+                    .collect()
+            }
             _ => [
-                allow_optional_dropping,
-                transfer_dropped_optional,
+                process_optional_failure,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
@@ -7531,37 +7563,32 @@ impl DocArgParam {
         Self::new_opt_param("time_pattern", pytype, arg_desc)
     }
 
-    fn new_allow_pseudostandard_param() -> Self {
-        let d = "If ``True`` allow non-standard keywords with a leading *$*. The \
+    fn new_process_pseudostandard_param() -> Self {
+        let d = "Process non-standard keywords with a leading *$*. The \
                  presence of such keywords often means the version in *HEADER* \
                  is incorrect.";
-        Self::new_bool_param("allow_pseudostandard", d)
+        Self::new_proc_kw_fail("process_pseudostandard", "ProcessPseudostandard", d)
     }
 
-    fn new_allow_hyper_par_param() -> Self {
-        let d = "If ``True`` allow measurement keywords whose index is greater than *$PAR*.";
-        Self::new_bool_param("allow_hyper_par", d)
+    fn new_process_hyper_par_param() -> Self {
+        let d = "Process measurement keywords whose index is greater than *$PAR*.";
+        Self::new_proc_kw_fail("process_hyper_par", "ProcessHyperPar", d)
     }
 
-    fn new_allow_other_version_param() -> Self {
-        let d = "If ``True`` allow standard keywords from different FCS versions.";
-        Self::new_bool_param("allow_other_version", d)
+    fn new_process_other_version_param() -> Self {
+        let d = "Process standard keywords from different FCS versions.";
+        Self::new_proc_kw_fail("process_other_version", "ProcessOtherVersion", d)
     }
 
-    fn new_allow_extra_timestep_param() -> Self {
-        let d = "If ``True`` allow *$TIMESTEP* to be present which may indicate \
+    fn new_process_extra_timestep_param() -> Self {
+        let d = "Process *$TIMESTEP* to be present which may indicate \
                  a time measurement is present but not identified.";
-        Self::new_bool_param("allow_extra_timestep", d)
+        Self::new_proc_kw_fail("process_extra_timestep", "ProcessExtraTimestep", d)
     }
 
-    fn new_allow_optional_dropping() -> Self {
-        let d = "If ``True`` drop optional keys that cause an error and emit warning instead.";
-        Self::new_bool_param("allow_optional_dropping", d)
-    }
-
-    fn new_transfer_dropped_optional() -> Self {
-        let d = "If ``True`` transfer optional keys to non-standard dict if dropped.";
-        Self::new_bool_param("transfer_dropped_optional", d)
+    fn new_process_optional_failure() -> Self {
+        let d = "Process optional keys which cause an error.";
+        Self::new_proc_kw_fail("process_optional_failure", "ProcessOptionalFailure", d)
     }
 
     fn new_disallow_deprecated_param() -> Self {
@@ -7707,8 +7734,18 @@ impl DocArgParam {
     }
 
     fn new_version_override() -> Self {
-        let d = "Override the FCS version as seen in *HEADER*.";
-        Self::new_opt_param("version_override", PyLiteral::new_version(), d)
+        let d = "Override the FCS version as seen in *HEADER*. Use an FCS \
+                 version string like ``\"FCS3.2\"`` to force to a specific \
+                 version. Alternatively, autodetect the version from keywords in \
+                 *TEXT* using one of ``\"latest\"``, ``\"earliest\"``, \
+                 ``\"strict\"``, or ``\"loose\"``. These will be used to select \
+                 the latest version, earliest version, version with least \
+                 optional keywords, or version with most optional keywords \
+                 respectively in the event that more than one version can \
+                 accommodate the keywords from *TEXT*. Autodetection will fail \
+                 if no versions can be found which accommodate all required \
+                 keywords in *TEXT*.";
+        Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }
 
     fn new_supp_text_correction() -> Self {
@@ -8848,6 +8885,8 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_1,
     Version::FCS3_2,
 ];
+
+const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
 
 const CHRONO_REF: &str =
     "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";

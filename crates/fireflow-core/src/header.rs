@@ -2,6 +2,7 @@
 
 use crate::config::{
     AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadState,
+    SelectVersionStrategy, VersionOverride,
 };
 use crate::core::Other;
 use crate::logging::{
@@ -15,14 +16,15 @@ use crate::segment::{
     TEXTSegment,
 };
 use crate::text::keywords::{
-    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
+    KeywordVersionScore, Nextdata, Par,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad20, UintZeroPad20,
 };
-use crate::validated::keys::Key as _;
+use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::TEXTDelim;
 
 use type_families::ApplyOnce as _;
@@ -30,6 +32,7 @@ use type_families::ApplyOnce as _;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
+use nonempty::NonEmpty;
 use num_traits::identities::Zero;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
@@ -41,6 +44,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
+    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     pyo3::prelude::*,
 };
@@ -421,6 +425,62 @@ impl Version {
             Err(IOErrorGroup::new_pure_one(e.into()))
         }
     }
+
+    pub(crate) fn autodetect(
+        self,
+        kws: &StdKeywords,
+        ver_override: Option<&VersionOverride>,
+    ) -> Result<Self, GuessVersionError> {
+        let vs = [Self::FCS2_0, Self::FCS3_0, Self::FCS3_1, Self::FCS3_2];
+        match ver_override {
+            None => Ok(self),
+            Some(VersionOverride::Force(v)) => Ok(*v),
+            Some(VersionOverride::AutoDetect(strat)) => {
+                let rank =
+                    |(v0, s0): &(Self, KeywordVersionScore),
+                     (v1, s1): &(Self, KeywordVersionScore)| match strat {
+                        SelectVersionStrategy::Earliest => v1.cmp(v0),
+                        SelectVersionStrategy::Latest => v0.cmp(v1),
+                        SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
+                        SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
+                    };
+                if let Ok(par) = Par::get_metaroot_req(kws) {
+                    let mut opt = KeywordOptimizer::default();
+                    for (k, v) in kws {
+                        opt.classify_keyword(k, v);
+                    }
+                    let scores: Vec<_> = vs.iter().map(|&v| (v, opt.get_score(v, par))).collect();
+                    if let Some(xs) =
+                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
+                    {
+                        // Found at least one version that doesn't require dropping,
+                        // rank by strategy to select
+                        Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                    } else if let Some(xs) =
+                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
+                    {
+                        // No versions found that can be satisfied without dropping
+                        // keywords, find versions with dropping and rank using
+                        // strategy.
+                        let ret = xs.maximum_by(|&x, &y| {
+                            if x.1.drop == y.1.drop {
+                                rank(x, y)
+                            } else {
+                                y.1.drop.cmp(&x.1.drop)
+                            }
+                        });
+                        Ok(ret.0)
+                    } else {
+                        // No versions found that have valid keywords available,
+                        // return error
+                        Err(GuessVersionError::AllInvalid)
+                    }
+                } else {
+                    Err(GuessVersionError::NoPar)
+                }
+            }
+        }
+    }
 }
 
 impl FromStr for Version {
@@ -513,6 +573,18 @@ pub struct VersionNonUtf8Error(Vec<u8>);
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct VersionNoBytesError(u64);
+
+/// Error when trying to guess FCS version from keywords
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub enum GuessVersionError {
+    // TODO should also say a bit more on why this is the case
+    #[error("no FCS versions could be guessed from keywords")]
+    AllInvalid,
+    #[error("$PAR could not be found and thus FCS version could not be detected")]
+    NoPar,
+}
 
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {

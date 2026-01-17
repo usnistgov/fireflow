@@ -1,10 +1,10 @@
 //! Reading and writing offsets in an FCS file
 
 use crate::config::{
-    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative,
-    AllowOptionalDropping, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadState,
-    TruncateOffsets,
+    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative, ConfigFlag,
+    DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
+    ReadState, TruncateOffsets,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -556,7 +556,7 @@ where
         let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
         // TODO configure this
-        let drop_flag = AllowOptionalDropping(true);
+        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::Drop);
         let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
 
         match Self::with_opt_pair(pair, st) {

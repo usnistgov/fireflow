@@ -1,4 +1,4 @@
-use crate::config::{AllowLoss, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
+use crate::config::{AllowLoss, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::data::IndexedError;
 use crate::logging::{
@@ -314,13 +314,13 @@ impl AppliedGates2_0 {
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.allow_optional_dropping;
+        let flag = rconf.process_optional_failure;
         ag.zip_f2_once(gm)
             .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
                 Self::try_new(gated_measurements.0, scheme).map_err(LookupAppliedGatesError::Link)
             })
             .map_err_value(|ret| {
-                if rconf.transfer_dropped_optional.is_set() {
+                if rconf.process_optional_failure.is_demote() {
                     ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
@@ -461,7 +461,7 @@ impl AppliedGates3_0 {
                 LogResult::Succ(succ)
             })
             .map_err_value(|ret| {
-                if rconf.transfer_dropped_optional.is_set() {
+                if rconf.process_optional_failure.is_demote() {
                     ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
@@ -579,7 +579,7 @@ impl AppliedGates3_2 {
         GatingScheme::lookup(std, nonstd, conf)
             .map_deferred_value(Self)
             .map_err_value(|ret| {
-                if rconf.transfer_dropped_optional.is_set() {
+                if rconf.process_optional_failure.is_demote() {
                     ret.0
                         .opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
@@ -814,7 +814,7 @@ impl<I> GatingScheme<I> {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.allow_optional_dropping;
+        let flag = rconf.process_optional_failure;
         Gating::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupGatingSchemeError::Gating)
             .switchable_into_commutative()
@@ -957,7 +957,7 @@ impl<I> Region<I> {
             .switchable_into_commutative()
             .into_semigroup();
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.allow_optional_dropping;
+        let flag = rconf.process_optional_failure;
         index_res
             .zip_f2_once(window_res)
             .and_then_deferred_switchable_result(flag, |(gi_opt, w_opt)| {
@@ -970,7 +970,7 @@ impl<I> Region<I> {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
                         Ok(x) => Ok(Some(x.fmap_into())),
                         Err((gi_, w_)) => {
-                            if flag.is_set() {
+                            if flag.is_demote() {
                                 nonstd.insert_demoted_meas(ri.into(), &gi_);
                                 nonstd.insert_demoted_meas(ri.into(), &w_);
                             }
@@ -978,13 +978,13 @@ impl<I> Region<I> {
                         }
                     },
                     (Some(gi), None) => {
-                        if flag.is_set() {
+                        if flag.is_demote() {
                             nonstd.insert_demoted_meas(ri.into(), &gi);
                         }
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
                     (None, Some(w)) => {
-                        if flag.is_set() {
+                        if flag.is_demote() {
                             nonstd.insert_demoted_meas(ri.into(), &w);
                         }
                         Err(IndexWindowMismatchError::NoIndex(ri))

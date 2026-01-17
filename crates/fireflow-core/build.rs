@@ -2,106 +2,87 @@ use std::env;
 use std::fs::File;
 use std::io::{self, BufWriter, Write as _};
 use std::path::Path;
-use unicase::UniCase;
+use unicase::Ascii;
 
 fn write_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     let mut m = phf_codegen::Map::new();
     let i = "KW_MAP";
-    let vt = "VersionClass";
+    let vt = "RootKeywordClass";
 
-    let any_version = [
-        ("MODE_KW", "MODE"),
-        ("ABRT_KW", "ABRT"),
-        ("BTIM_KW", "BTIM"),
-        ("BYTEORD_KW", "BYTEORD"),
-        ("CYT_KW", "CYT"),
-        ("CYTSN_KW", "CYTSN"),
-        ("COM_KW", "COM"),
-        ("CELLS_KW", "CELLS"),
-        ("DATATYPE_KW", "DATATYPE"),
-        ("DATE_KW", "DATE"),
-        ("ETIM_KW", "ETIM"),
-        ("EXP_KW", "EXP"),
-        ("FIL_KW", "FIL"),
-        ("GATING_KW", "GATING"),
-        ("INST_KW", "INST"),
-        ("LOST_KW", "LOST"),
-        ("NEXTDATA_KW", "NEXTDATA"),
-        ("OP_KW", "OP"),
-        ("PAR_KW", "PAR"),
-        ("PROJ_KW", "PROJ"),
-        ("SMNO_KW", "SMNO"),
-        ("SRC_KW", "SRC"),
-        ("SYS_KW", "SYS"),
-        ("TOT_KW", "TOT"),
-        ("TR_KW", "TR"),
+    let special = [
+        ("BYTEORD", "RootKeywordClass::Byteord"),
+        ("MODE", "RootKeywordClass::Mode"),
+        ("CYT", "RootKeywordClass::Cyt"),
+        ("TOT", "RootKeywordClass::Tot"),
+        ("BEGINANALYSIS", "RootKeywordClass::Beginanalysis"),
+        ("BEGINDATA", "RootKeywordClass::Begindata"),
+        ("BEGINSTEXT", "RootKeywordClass::Beginstext"),
+        ("ENDANALYSIS", "RootKeywordClass::Endanalysis"),
+        ("ENDDATA", "RootKeywordClass::Enddata"),
+        ("ENDSTEXT", "RootKeywordClass::Endstext"),
+        ("TIMESTEP", "RootKeywordClass::Timestep"),
     ];
 
-    let min_3_0 = [
-        ("BEGINANALYSIS_KW", "BEGINANALYSIS"),
-        ("BEGINDATA_KW", "BEGINDATA"),
-        ("BEGINSTEXT_KW", "BEGINSTEXT"),
-        ("ENDANALYSIS_KW", "ENDANALYSIS"),
-        ("ENDDATA_KW", "ENDDATA"),
-        ("ENDSTEXT_KW", "ENDSTEXT"),
-        ("TIMESTEP_KW", "TIMESTEP"),
+    let any_version = [
+        "ABRT", "BTIM", "CYTSN", "COM", "CELLS", "DATATYPE", "DATE", "ETIM", "EXP", "FIL",
+        "GATING", "INST", "LOST", "NEXTDATA", "OP", "PAR", "PROJ", "SMNO", "SRC", "SYS", "TR",
     ];
 
     let min_3_1 = [
-        ("LAST_MODIFIER_KW", "LAST_MODIFIER"),
-        ("ORIGINALITY_KW", "ORIGINALITY"),
-        ("LAST_MODIFIED_KW", "LAST_MODIFIED"),
-        ("PLATEID_KW", "PLATEID"),
-        ("PLATENAME_KW", "PLATENAME"),
-        ("WELLID_KW", "WELLID"),
-        ("SPILLOVER_KW", "SPILLOVER"),
-        ("VOL_KW", "VOL"),
+        "LAST_MODIFIER",
+        "ORIGINALITY",
+        "LAST_MODIFIED",
+        "PLATEID",
+        "PLATENAME",
+        "WELLID",
+        "SPILLOVER",
+        "VOL",
     ];
 
     let min_3_2 = [
-        ("CARRIERID_KW", "CARRIERID"),
-        ("CARRIERTYPE_KW", "CARRIERTYPE"),
-        ("LOCATIONID_KW", "LOCATIONID"),
-        ("BEGINDATETIME_KW", "BEGINDATETIME"),
-        ("ENDDATETIME_KW", "ENDDATETIME"),
-        ("UNSTAINEDCENTERS_KW", "UNSTAINEDCENTERS"),
-        ("UNSTAINEDINFO_KW", "UNSTAINEDINFO"),
-        ("FLOWRATE_KW", "FLOWRATE"),
+        "CARRIERID",
+        "CARRIERTYPE",
+        "LOCATIONID",
+        "BEGINDATETIME",
+        "ENDDATETIME",
+        "UNSTAINEDCENTERS",
+        "UNSTAINEDINFO",
+        "FLOWRATE",
     ];
 
-    let max_3_1 = [("GATE_KW", "GATE")];
+    let max_3_1 = ["GATE"];
 
-    let is3_0or3_1 = [
-        ("CSMODE_KW", "CSMODE"),
-        ("CSTOT_KW", "CSTOT"),
-        ("CSVBITS_KW", "CSVBITS"),
-    ];
+    let is3_0or3_1 = ["CSMODE", "CSTOT", "CSVBITS"];
 
-    let only3_0 = [("UNICODE_KW", "UNICODE"), ("COMP_KW", "COMP")];
+    let only3_0 = ["UNICODE", "COMP"];
 
     macro_rules! go {
         ($pairs:expr, $class:expr) => {
-            for (k, v) in $pairs {
-                writeln!(file, "pub(crate) const {k}: &str = \"{v}\";").unwrap();
-                m.entry(UniCase::ascii(v), $class);
+            for v in $pairs {
+                writeln!(file, "pub(crate) const {v}_KW: &str = \"{v}\";")?;
+                m.entry(Ascii::new(v), $class);
             }
         };
     }
 
-    go!(&any_version, "VersionClass::Any");
-    go!(&min_3_0, "VersionClass::GE(Version::FCS3_0)");
-    go!(&min_3_1, "VersionClass::GE(Version::FCS3_1)");
-    go!(&min_3_2, "VersionClass::GE(Version::FCS3_2)");
-    go!(&is3_0or3_1, "VersionClass::Is3_0or3_1");
-    go!(&only3_0, "VersionClass::EQ(Version::FCS3_0)");
-    go!(&max_3_1, "VersionClass::LE(Version::FCS3_1)");
+    for (v, p) in special {
+        m.entry(Ascii::new(v), p);
+        writeln!(file, "pub(crate) const {v}_KW: &str = \"{v}\";")?;
+    }
+
+    go!(&any_version, "RootKeywordClass::OptAny");
+    go!(&min_3_1, "RootKeywordClass::OptGE3_1");
+    go!(&min_3_2, "RootKeywordClass::OptGE3_2");
+    go!(&is3_0or3_1, "RootKeywordClass::OptEQ3_0or3_1");
+    go!(&only3_0, "RootKeywordClass::OptEQ3_0");
+    go!(&max_3_1, "RootKeywordClass::OptLE3_1");
 
     let b = m.build();
 
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {i}: phf::Map<unicase::UniCase<&'static str>, {vt}> = {b};"
+        "static {i}: phf::Map<unicase::Ascii<&'static str>, {vt}> = {b};"
     )
 }
 
@@ -110,11 +91,25 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     let mut gate_set = phf_codegen::Set::new();
     let meas_map_ident = "MEAS_SUFFIX_MAP";
     let gate_set_ident = "GATE_SUFFIX_SET";
-    let meas_value = "VersionClass";
+    let meas_value = "MeasKeywordClass";
+
+    let special = [
+        ("SCALE_KW_SUFFIX", "E", true, "MeasKeywordClass::Scale"),
+        (
+            "WAVELENGTH_KW_SUFFIX",
+            "L",
+            false,
+            "MeasKeywordClass::Wavelength",
+        ),
+        (
+            "SHORTNAME_KW_SUFFIX",
+            "N",
+            true,
+            "MeasKeywordClass::Shortname",
+        ),
+    ];
 
     let any_version = [
-        ("SCALE_KW_SUFFIX", "E", true),
-        ("WAVELENGTH_KW_SUFFIX", "L", false),
         ("WIDTH_KW_SUFFIX", "B", false),
         ("FILTER_KW_SUFFIX", "F", true),
         ("POWER_KW_SUFFIX", "O", false),
@@ -123,7 +118,6 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
         ("LONGNAME_KW_SUFFIX", "S", true),
         ("DET_TYPE_KW_SUFFIX", "T", true),
         ("DET_VOLTAGE_KW_SUFFIX", "V", true),
-        ("SHORTNAME_KW_SUFFIX", "N", true),
     ];
 
     let min_3_0 = [("GAIN_KW_SUFFIX", "G", false)];
@@ -146,18 +140,26 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
         ($pairs:expr, $class:expr) => {
             for (k, v, also_gate) in $pairs {
                 writeln!(file, "pub(crate) const {k}: &str = \"{v}\";").unwrap();
-                meas_map.entry(UniCase::ascii(v), $class);
+                meas_map.entry(Ascii::new(v), $class);
                 if also_gate {
-                    gate_set.entry(UniCase::ascii(v));
+                    gate_set.entry(Ascii::new(v));
                 }
             }
         };
     }
 
-    go!(any_version, "VersionClass::Any");
-    go!(min_3_0, "VersionClass::GE(Version::FCS3_0)");
-    go!(min_3_1, "VersionClass::GE(Version::FCS3_1)");
-    go!(min_3_2, "VersionClass::GE(Version::FCS3_2)");
+    go!(any_version, "MeasKeywordClass::OptAny");
+    go!(min_3_0, "MeasKeywordClass::OptGE3_0");
+    go!(min_3_1, "MeasKeywordClass::OptGE3_1");
+    go!(min_3_2, "MeasKeywordClass::OptGE3_2");
+
+    for (k, v, also_gate, var) in special {
+        writeln!(file, "pub(crate) const {k}: &str = \"{v}\";").unwrap();
+        meas_map.entry(Ascii::new(v), var);
+        if also_gate {
+            gate_set.entry(Ascii::new(v));
+        }
+    }
 
     let mb = meas_map.build();
     let gb = gate_set.build();
@@ -165,12 +167,12 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {meas_map_ident}: phf::Map<UniCase<&'static str>, {meas_value}> = {mb};"
+        "static {meas_map_ident}: phf::Map<Ascii<&'static str>, {meas_value}> = {mb};"
     )?;
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {gate_set_ident}: phf::Set<UniCase<&'static str>> = {gb};"
+        "static {gate_set_ident}: phf::Set<Ascii<&'static str>> = {gb};"
     )
 }
 

@@ -1,5 +1,5 @@
 use crate::config::{
-    AllowOptionalDropping, ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
+    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
     TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
@@ -62,7 +62,7 @@ use std::mem::take;
 use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 use thiserror::Error;
-use unicase::UniCase;
+use unicase::Ascii;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -80,6 +80,479 @@ use {
 // strings into a pre-compiled hash table which will be used for version
 // autodetection and sorting through unused keywords efficiently.
 include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
+
+/// Data structure to classify root (non-indexed) keywords.
+///
+/// For optional keywords this simply records the version in which a given
+/// keyword is valid. Some specific keywords ($CYT, $TOT, etc) are explicitly
+/// encoded since they are optional or required (or missing entirely) depending
+/// on version. $BYTEORD is included because a non-endian value implies 2.0/3.0.
+/// $MODE is included because its value and optionality is different between 3.1
+/// and 3.2
+#[derive(Clone, Copy)]
+pub(crate) enum RootKeywordClass {
+    OptAny,
+    OptGE3_1,
+    OptGE3_2,
+    OptEQ3_0or3_1,
+    OptEQ3_0,
+    OptLE3_1,
+    Mode,
+    Cyt,
+    Tot,
+    Timestep,
+    Byteord,
+    Begindata,
+    Enddata,
+    Beginanalysis,
+    Endanalysis,
+    Beginstext,
+    Endstext,
+}
+
+pub(crate) enum MeasKeywordClass {
+    OptAny,
+    OptGE3_0,
+    OptGE3_1,
+    OptGE3_2,
+    Scale,
+    Shortname,
+    Wavelength,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Default)]
+pub(crate) struct KeywordOptimizer {
+    /// Number of keywords not counted elsewhere here
+    n_any: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.0
+    n_opt_min3_0: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.1
+    n_opt_min3_1: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.2
+    n_opt_min3_2: usize,
+    /// Number of optional keywords found that will be dropped if greater than 3.1
+    n_opt_max3_1: usize,
+    /// Number of optional keywords found that will be dropped if not 2.0
+    n_opt_eq2_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0
+    n_opt_eq3_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.2
+    n_opt_eq3_2: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0/3.1
+    n_opt_eq3_0or3_1: usize,
+    /// Number of $PnN found
+    n_pnn: usize,
+    /// Number of $PnE found
+    n_pne: usize,
+    /// If $CYT was found
+    found_cyt: bool,
+    /// If $TOT was found
+    found_tot: bool,
+    /// If $BEGINDATA found
+    found_begindata: bool,
+    /// If $BEGINANALYSIS found
+    found_beginanalysis: bool,
+    /// If $BEGINSTEXT found
+    found_beginstext: bool,
+    /// If $ENDDATA found
+    found_enddata: bool,
+    /// If $ENDANALYSIS found
+    found_endanalysis: bool,
+    /// If $ENDSTEXT found
+    found_endstext: bool,
+    /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
+    non_endian_byteord: bool,
+    /// Value (or not) of $MODE
+    mode_value: ModeValue,
+}
+
+#[derive(Clone, Copy, Default)]
+enum ModeValue {
+    #[default]
+    Missing,
+    List,
+    Other,
+}
+
+#[derive(Default, PartialEq)]
+pub(crate) struct KeywordVersionScore {
+    /// Number of required keywords expected to be in this version and found
+    pub(crate) good_req: usize,
+    /// Number of optional keywords expected to be in this version and found
+    pub(crate) good_opt: usize,
+    /// Number of keywords (opt or req) that must be dropped for this version
+    pub(crate) drop: usize,
+    /// Number of optional keywords that are missing in this version
+    pub(crate) missing_opt: usize,
+    /// Number of required keywords that are missing in this version
+    pub(crate) missing_req: usize,
+    /// Number of expected keywords that are not present in this version
+    pub(crate) missing_absent: usize,
+}
+
+impl KeywordVersionScore {
+    pub(crate) fn is_passing(&self, allow_drop: bool) -> bool {
+        (self.missing_req == 0) && (self.drop == 0 || (self.drop > 0 && allow_drop))
+    }
+}
+
+impl KeywordOptimizer {
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn get_score(&self, version: Version, par: Par) -> KeywordVersionScore {
+        let mut score = KeywordVersionScore::default();
+
+        // these can be any version, so automatically count them as good
+        score.good_opt += self.n_any;
+
+        // count keywords as dropped if the version is not in range
+        macro_rules! comp_drop_maybe {
+            ($comp:expr, $field:ident) => {
+                if $comp {
+                    score.good_opt += self.$field;
+                } else {
+                    score.drop += self.$field;
+                }
+            };
+        }
+        comp_drop_maybe!(version >= Version::FCS3_0, n_opt_min3_0);
+        comp_drop_maybe!(version >= Version::FCS3_1, n_opt_min3_1);
+        comp_drop_maybe!(version >= Version::FCS3_2, n_opt_min3_2);
+        comp_drop_maybe!(version <= Version::FCS3_1, n_opt_max3_1);
+        comp_drop_maybe!(version == Version::FCS2_0, n_opt_eq2_0);
+        comp_drop_maybe!(version == Version::FCS3_0, n_opt_eq3_0);
+        comp_drop_maybe!(version == Version::FCS3_2, n_opt_eq3_2);
+        comp_drop_maybe!(
+            version == Version::FCS3_0 || version == Version::FCS3_1,
+            n_opt_eq3_0or3_1
+        );
+
+        // $PnN became required in version 3.1, so count any missing $PnN as
+        // impossible in these later versions
+        // ASSUME n_pnn will always be less than $PAR
+        let missing_names = par.0.saturating_sub(self.n_pnn);
+        if version >= Version::FCS3_1 {
+            score.missing_req += missing_names;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_names;
+            score.good_opt += self.n_pnn;
+        }
+
+        // $PnE are the same as $PnN except for version 3.0
+        let missing_scales = par.0.saturating_sub(self.n_pne);
+        if version >= Version::FCS3_0 {
+            score.missing_req += missing_scales;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_scales;
+            score.good_opt += self.n_pnn;
+        }
+
+        // $CYT became required in version 3.2, so mark as impossible for this
+        // version if not found
+        match (version == Version::FCS3_2, self.found_cyt) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
+
+        // $TOT became required in version 3.0
+        match (version >= Version::FCS3_0, self.found_tot) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
+
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0 and required in 3.0+
+        let go_req_offsets = |s: &mut KeywordVersionScore, found: bool| {
+            if version == Version::FCS2_0 {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            } else if found {
+                s.good_req += 1;
+            } else {
+                s.missing_req += 1;
+            }
+        };
+
+        go_req_offsets(&mut score, self.found_begindata);
+        go_req_offsets(&mut score, self.found_enddata);
+
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0, required in 3.0/3.1, and
+        // optional in 3.2
+        let go_opt_offsets = |s: &mut KeywordVersionScore, found: bool| match version {
+            Version::FCS2_0 => {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            }
+            Version::FCS3_0 | Version::FCS3_1 => {
+                if found {
+                    s.good_req += 1;
+                } else {
+                    s.missing_req += 1;
+                }
+            }
+            Version::FCS3_2 => {
+                if found {
+                    s.good_opt += 1;
+                } else {
+                    s.missing_opt += 1;
+                }
+            }
+        };
+
+        go_opt_offsets(&mut score, self.found_beginanalysis);
+        go_opt_offsets(&mut score, self.found_beginstext);
+        go_opt_offsets(&mut score, self.found_endanalysis);
+        go_opt_offsets(&mut score, self.found_endstext);
+
+        // $BYTEORD must only be big or little endian in 3.1+
+        if version >= Version::FCS3_1 && self.non_endian_byteord {
+            score.missing_req += 1;
+        } else {
+            score.good_req += 1;
+        }
+
+        // $MODE can only be U or C in 3.1 or less, and can only be missing
+        // in 3.2
+        match (version == Version::FCS3_2, self.mode_value) {
+            (true, ModeValue::List) => score.good_opt += 1,
+            (true, ModeValue::Other) => score.drop += 1,
+            (true, ModeValue::Missing) => score.missing_opt += 1,
+            (false, ModeValue::Missing) => score.missing_req += 1,
+            (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
+        }
+
+        score
+    }
+
+    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &str) {
+        match AnyKeywordClass::classify_keyword(key) {
+            AnyKeywordClass::Root(r) => match r {
+                RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
+                RootKeywordClass::Beginstext => self.found_beginstext = true,
+                RootKeywordClass::Begindata => self.found_begindata = true,
+                RootKeywordClass::Endanalysis => self.found_endanalysis = true,
+                RootKeywordClass::Endstext => self.found_endstext = true,
+                RootKeywordClass::Enddata => self.found_enddata = true,
+                RootKeywordClass::Cyt => self.found_cyt = true,
+                RootKeywordClass::Tot => self.found_tot = true,
+                RootKeywordClass::Mode => {
+                    // TODO if this fails we should just bug out immediately since
+                    // this is required
+                    let m = value
+                        .parse::<Mode>()
+                        .map(|m| match m {
+                            Mode::List => ModeValue::List,
+                            _ => ModeValue::Other,
+                        })
+                        .unwrap_or(ModeValue::Missing);
+                    self.mode_value = m;
+                }
+                RootKeywordClass::Byteord => {
+                    // TODO ditto Mode
+                    if let Ok(res) = value.parse::<ByteOrd2_0>() {
+                        self.non_endian_byteord = !res.is_endian();
+                    }
+                }
+                RootKeywordClass::Timestep => {
+                    self.n_opt_min3_0 += 1;
+                }
+                RootKeywordClass::OptGE3_1 => {
+                    self.n_opt_min3_1 += 1;
+                }
+                RootKeywordClass::OptGE3_2 => {
+                    self.n_opt_min3_2 += 1;
+                }
+                RootKeywordClass::OptEQ3_0or3_1 => {
+                    self.n_opt_eq3_0or3_1 += 1;
+                }
+                RootKeywordClass::OptLE3_1 => {
+                    self.n_opt_max3_1 += 1;
+                }
+                RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
+                RootKeywordClass::OptAny => self.n_any += 1,
+            },
+            AnyKeywordClass::MeasOptGE3_0(_) => {
+                self.n_opt_min3_0 += 1;
+            }
+            AnyKeywordClass::MeasOptGE3_1(_) => {
+                self.n_opt_min3_1 += 1;
+            }
+            AnyKeywordClass::MeasOptGE3_2(_) => {
+                self.n_opt_min3_2 += 1;
+            }
+            AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
+                self.n_opt_eq3_0or3_1 += 1;
+            }
+            AnyKeywordClass::Scale(_) => self.n_pne += 1,
+            AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
+            AnyKeywordClass::Wavelength(_) => {
+                // TODO what to do on failure?
+                if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
+                    if w.0.len() > 1 {
+                        self.n_opt_min3_1 += 1;
+                    } else {
+                        self.n_any += 1;
+                    }
+                }
+            }
+            AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
+            AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
+            AnyKeywordClass::MeasAny(_) | AnyKeywordClass::RegionWindow => self.n_any += 1,
+            AnyKeywordClass::RegionIndex => {
+                if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
+                    self.n_opt_eq2_0 += 1;
+                } else if RegionGateIndex::<MeasOrGateIndex>::from_str_delim(value, true.into())
+                    .is_ok()
+                {
+                    self.n_opt_eq3_0or3_1 += 1;
+                } else if RegionGateIndex::<PrefixedMeasIndex>::from_str_delim(value, true.into())
+                    .is_ok()
+                {
+                    self.n_opt_eq3_2 += 1;
+                }
+            }
+            AnyKeywordClass::NonStandard => (),
+        }
+    }
+}
+
+enum AnyKeywordClass {
+    Root(RootKeywordClass),
+    MeasAny(MeasIndex),
+    MeasOptGE3_0(MeasIndex),
+    MeasOptGE3_1(MeasIndex),
+    MeasOptGE3_2(MeasIndex),
+    MeasOptEq3_0or3_1(MeasIndex),
+    Shortname(MeasIndex),
+    Scale(MeasIndex),
+    Wavelength(MeasIndex),
+    Dfc(MeasIndex, MeasIndex),
+    GateOptLE3_1(GateIndex),
+    RegionIndex,
+    RegionWindow,
+    NonStandard,
+}
+
+impl AnyKeywordClass {
+    fn classify_keyword(key: &StdKey) -> Self {
+        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
+            let mut index = 0_usize;
+            let mut it = xs.as_bytes().iter();
+            // read first character, only continue if a digit 1-9 (no leading
+            // zeros)
+            if let Some(x) = it.by_ref().next()
+                && (49..58).contains(x)
+            {
+                index += usize::from(*x) - 48;
+                let mut k = 1;
+                for y in it.take_while(|&&z| (48..58).contains(&z)) {
+                    index = 10 * index + (usize::from(*y) - 48);
+                    k += 1;
+                }
+                debug_assert!(index > 0, "index should be greater than 0 here");
+                Some((index - 1, xs.split_at(k).1))
+            } else {
+                None
+            }
+        }
+
+        fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
+            let n = prefix.len();
+            if n > haystack.len() {
+                None
+            } else {
+                let (x, y) = haystack.split_at(n);
+                x.eq_ignore_ascii_case(prefix).then_some(y)
+            }
+        }
+
+        let s = key.as_ascii_str();
+        let ss: &str = key.as_ref();
+
+        debug_assert!(s.is_ascii(), "key is not ASCII");
+
+        if let Some(rc) = KW_MAP.get(&s) {
+            Self::Root(*rc)
+        } else if let Some(rest) = starts_with_icase(ss, "P") {
+            // $Pn* keywords or $PKn or $PKNn
+            if let Some((index, suffix)) =
+                starts_with_icase(rest, "KN").and_then(|r| split_index_and_suffix(r))
+                && suffix.is_empty()
+            {
+                // $PKNn
+                Self::MeasOptGE3_1(index.into())
+            } else if let Some((index, suffix)) =
+                starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
+                && suffix.is_empty()
+            {
+                // $PKn
+                Self::MeasOptGE3_1(index.into())
+            } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
+                // $Pn*
+                let j = index.into();
+                if let Some(vc) = MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
+                    match vc {
+                        MeasKeywordClass::OptAny => Self::MeasAny(j),
+                        MeasKeywordClass::OptGE3_0 => Self::MeasOptGE3_0(j),
+                        MeasKeywordClass::OptGE3_1 => Self::MeasOptGE3_1(j),
+                        MeasKeywordClass::OptGE3_2 => Self::MeasOptGE3_2(j),
+                        MeasKeywordClass::Shortname => Self::Shortname(j),
+                        MeasKeywordClass::Scale => Self::Scale(j),
+                        MeasKeywordClass::Wavelength => Self::Wavelength(j),
+                    }
+                } else {
+                    Self::NonStandard
+                }
+            } else {
+                Self::NonStandard
+            }
+        } else if let Some((index, suffix)) =
+            starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
+            && GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
+        {
+            // $Gn* keywords
+            Self::GateOptLE3_1(index.into())
+        } else if let Some((_, suffix)) =
+            starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
+        {
+            // $Rn* keywords
+            if RegionGateIndex::<()>::SUFFIX.eq_ignore_ascii_case(suffix) {
+                Self::RegionIndex
+            } else if RegionWindow::SUFFIX.eq_ignore_ascii_case(suffix) {
+                Self::RegionWindow
+            } else {
+                Self::NonStandard
+            }
+        } else if let Some((index, suffix)) =
+            starts_with_icase(ss, "CSV").and_then(|r| split_index_and_suffix(r))
+            && suffix.eq_ignore_ascii_case("FLAG")
+        {
+            // $CSVnFLAG
+            Self::MeasOptEq3_0or3_1(index.into())
+        } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
+            .and_then(|r| split_index_and_suffix(r))
+            .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))
+            .and_then(|(i0, r)| split_index_and_suffix(r).map(|(i1, rr)| (i0, i1, rr)))
+            && suffix.is_empty()
+        {
+            // $DFCmTOn
+            Self::Dfc(i0.into(), i1.into())
+        } else {
+            Self::NonStandard
+        }
+    }
+}
 
 pub(crate) const MEAS_KW_PREFIX: &str = "P";
 pub(crate) const GATE_KW_PREFIX: &str = "G";
@@ -231,12 +704,12 @@ impl Gain {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Option<Self>, AllowOptionalDropping, LookupTemporalGainError>
+    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let gain_flag = AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_gain;
-        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).allow_optional_dropping;
+        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
         if gain_flag.is_set() {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
@@ -649,6 +1122,20 @@ impl ByteOrd2_0 {
             Self::O7(_) => SizedByteOrd::<7>::nbytes(),
             Self::O8(_) => SizedByteOrd::<8>::nbytes(),
         }
+    }
+
+    fn is_endian(&self) -> bool {
+        matches!(
+            self,
+            Self::O1(SizedByteOrd::Endian(_))
+                | Self::O2(SizedByteOrd::Endian(_))
+                | Self::O3(SizedByteOrd::Endian(_))
+                | Self::O4(SizedByteOrd::Endian(_))
+                | Self::O5(SizedByteOrd::Endian(_))
+                | Self::O6(SizedByteOrd::Endian(_))
+                | Self::O7(SizedByteOrd::Endian(_))
+                | Self::O8(SizedByteOrd::Endian(_))
+        )
     }
 }
 
@@ -2266,33 +2753,28 @@ impl CheckMaybe for UnstainedCenters {
 pub struct ExtraStdKeywords {
     pub pseudostandard: StdKeywords,
     pub hyper_par: StdKeywords,
+    pub hyper_gate: StdKeywords,
     pub other_version: StdKeywords,
+    pub timestep: Option<String>,
 }
 
-pub(crate) enum VersionClass {
-    EQ(Version),
-    LE(Version),
-    GE(Version),
-    Is3_0or3_1,
-    Any,
-}
-
-pub(crate) enum KeywordClass {
+pub(crate) enum ExtraKeywordClass {
     VersionEQ(Version),
     VersionLE(Version),
     VersionGE(Version),
     Version3_0or3_1,
     HyperPar,
+    HyperGate,
     Pseudostandard,
     UnusedTimestep,
 }
 
 #[derive(new)]
 pub(crate) struct ExtraKeywordOutput {
-    pub(crate) other_version: Vec<KeywordOtherVersionError>,
-    pub(crate) hyper_par: Vec<HyperParError>,
     pub(crate) pseudo: Vec<PseudostandardError>,
-    pub(crate) timestep_found: bool,
+    pub(crate) hyper_par: Vec<HyperParError>,
+    pub(crate) hyper_gate: Vec<HyperGateError>,
+    pub(crate) other_version: Vec<KeywordOtherVersionError>,
 }
 
 impl ExtraStdKeywords {
@@ -2302,123 +2784,78 @@ impl ExtraStdKeywords {
     /// get called if $PAR is not parsed properly. Will also not match
     /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
     /// been processed when parsing TEXT itself.
-    #[allow(clippy::too_many_lines)]
-    fn classify_kws(k: &StdKey, current_version: Version, par: Par) -> Option<KeywordClass> {
-        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
-            let mut index = 0_usize;
-            let mut it = xs.as_bytes().iter();
-            // read first character, only continue if a digit 1-9 (no leading
-            // zeros)
-            if let Some(x) = it.by_ref().next()
-                && (49..58).contains(x)
-            {
-                index += usize::from(*x) - 48;
-                let mut k = 1;
-                for y in it.take_while(|&&z| (48..58).contains(&z)) {
-                    index = 10 * index + (usize::from(*y) - 48);
-                    k += 1;
-                }
-                Some((index, xs.split_at(k).1))
-            } else {
-                None
-            }
-        }
+    fn classify_kws(
+        key: &StdKey,
+        current_version: Version,
+        par: Par,
+        gate: Gate,
+    ) -> Option<ExtraKeywordClass> {
+        let minimal_version = |v| (current_version < v).then_some(ExtraKeywordClass::VersionGE(v));
+        let maximal_version = |v| (v < current_version).then_some(ExtraKeywordClass::VersionLE(v));
+        let eq_version = |v| (current_version != v).then_some(ExtraKeywordClass::VersionEQ(v));
 
-        let s: UniCase<&str> = UniCase::ascii(k.as_ref());
-        let match_ascii =
-            |ss: &str, xs: &[&str]| -> bool { xs.iter().any(|x| ss.eq_ignore_ascii_case(x)) };
-        let minimal_version = |v| (current_version < v).then_some(KeywordClass::VersionGE(v));
-        let maximal_version = |v| (v < current_version).then_some(KeywordClass::VersionLE(v));
-        let eq_version = |v| (current_version != v).then_some(KeywordClass::VersionEQ(v));
+        let maximal_indexed_version = |v, i: MeasIndex| {
+            if usize::from(i) >= par.0 {
+                Some(ExtraKeywordClass::HyperPar)
+            } else {
+                maximal_version(v)
+            }
+        };
 
-        if s.eq_ignore_ascii_case(Timestep::C) {
-            if current_version < Version::FCS3_0 {
-                Some(KeywordClass::VersionGE(Version::FCS3_0))
-            } else {
-                Some(KeywordClass::UnusedTimestep)
-            }
-        } else if let Some(vc) = KW_MAP.get(&s) {
-            match vc {
-                VersionClass::Any => None,
-                VersionClass::EQ(v) => eq_version(*v),
-                VersionClass::LE(v) => maximal_version(*v),
-                VersionClass::GE(v) => minimal_version(*v),
-                VersionClass::Is3_0or3_1 => (current_version != Version::FCS3_0
-                    && Version::FCS3_1 != current_version)
-                    .then_some(KeywordClass::Version3_0or3_1),
-            }
-        } else if PeakBin::matches(k) || PeakIndex::matches(k) {
-            // Keywords removed in 3.1 but in earlier versions
-            maximal_version(Version::FCS3_1)
-        } else if CSVFlag::matches(k) {
-            (current_version != Version::FCS3_0 && Version::FCS3_1 != current_version)
-                .then_some(KeywordClass::Version3_0or3_1)
-        } else if let Some((m, n)) = Dfc::matches(k) {
-            // DFC is unique because it can either not be part of the current
-            // version (everything above 2.0) or it can refer to a cell in the
-            // compensation matrix that is impossible according to $PAR
-            if current_version == Version::FCS2_0 {
-                (par.0 <= m || par.0 <= n).then_some(KeywordClass::HyperPar)
-            } else {
-                Some(KeywordClass::VersionEQ(Version::FCS2_0))
-            }
-        } else {
-            // At this point, the keyword is either $Pn*, $Gn*, $Rn*, or
-            // something outside the standard.
-            debug_assert!(s.is_ascii(), "key is not ASCII");
-            let (prefix, rest) = s.split_at(1);
-            match prefix {
-                MEAS_KW_PREFIX => {
-                    if let Some((index, suffix)) = split_index_and_suffix(rest) {
-                        let sfx = UniCase::ascii(suffix);
-                        let minimal_version_index = |v| {
-                            if par.0 <= index {
-                                Some(KeywordClass::HyperPar)
-                            } else if current_version < v {
-                                Some(KeywordClass::VersionGE(v))
-                            } else {
-                                None
-                            }
-                        };
-                        if let Some(vc) = MEAS_SUFFIX_MAP.get(&sfx) {
-                            match vc {
-                                VersionClass::GE(v) => minimal_version_index(*v),
-                                _ => (par.0 <= index).then_some(KeywordClass::HyperPar),
-                            }
-                        } else {
-                            Some(KeywordClass::Pseudostandard)
-                        }
+        match AnyKeywordClass::classify_keyword(key) {
+            AnyKeywordClass::Root(r) => match r {
+                RootKeywordClass::Beginanalysis
+                | RootKeywordClass::Beginstext
+                | RootKeywordClass::Begindata
+                | RootKeywordClass::Endanalysis
+                | RootKeywordClass::Endstext
+                | RootKeywordClass::Enddata => minimal_version(Version::FCS3_0),
+                RootKeywordClass::Timestep => {
+                    if current_version < Version::FCS3_0 {
+                        Some(ExtraKeywordClass::VersionGE(Version::FCS3_0))
                     } else {
-                        Some(KeywordClass::Pseudostandard)
+                        Some(ExtraKeywordClass::UnusedTimestep)
                     }
                 }
-                GATE_KW_PREFIX => {
-                    if let Some((index, suffix)) = split_index_and_suffix(rest)
-                        && GATE_SUFFIX_SET.contains(&UniCase::ascii(suffix))
-                    {
-                        if par.0 <= index {
-                            Some(KeywordClass::HyperPar)
-                        } else if current_version > Version::FCS3_1 {
-                            Some(KeywordClass::VersionLE(Version::FCS3_1))
-                        } else {
-                            None
-                        }
-                    } else {
-                        Some(KeywordClass::Pseudostandard)
-                    }
+                RootKeywordClass::OptGE3_1 => minimal_version(Version::FCS3_1),
+                RootKeywordClass::OptGE3_2 => minimal_version(Version::FCS3_2),
+                RootKeywordClass::OptEQ3_0or3_1 => (current_version == Version::FCS3_0
+                    || current_version == Version::FCS3_1)
+                    .then_some(ExtraKeywordClass::Version3_0or3_1),
+                RootKeywordClass::OptEQ3_0 => eq_version(Version::FCS3_0),
+                RootKeywordClass::OptLE3_1 => maximal_version(Version::FCS3_1),
+                _ => None,
+            },
+            AnyKeywordClass::MeasOptGE3_0(i) => maximal_indexed_version(Version::FCS3_0, i),
+            AnyKeywordClass::MeasOptGE3_1(i) => maximal_indexed_version(Version::FCS3_1, i),
+            AnyKeywordClass::MeasOptGE3_2(i) => maximal_indexed_version(Version::FCS3_2, i),
+            AnyKeywordClass::MeasOptEq3_0or3_1(i) => {
+                if usize::from(i) >= par.0 {
+                    Some(ExtraKeywordClass::HyperPar)
+                } else if current_version == Version::FCS3_0 || current_version == Version::FCS3_1 {
+                    Some(ExtraKeywordClass::Version3_0or3_1)
+                } else {
+                    None
                 }
-                REGION_KW_PREFIX => {
-                    let rs = [RegionGateIndex::<()>::SUFFIX, RegionWindow::SUFFIX];
-                    if let Some((index, suffix)) = split_index_and_suffix(rest)
-                        && match_ascii(suffix, &rs)
-                    {
-                        (par.0 <= index).then_some(KeywordClass::HyperPar)
-                    } else {
-                        Some(KeywordClass::Pseudostandard)
-                    }
-                }
-                _ => Some(KeywordClass::Pseudostandard),
             }
+            AnyKeywordClass::GateOptLE3_1(i) => {
+                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
+            }
+            AnyKeywordClass::Dfc(x, y) => {
+                if usize::from(x) >= par.0 || usize::from(y) >= par.0 {
+                    Some(ExtraKeywordClass::HyperPar)
+                } else {
+                    eq_version(Version::FCS2_0)
+                }
+            }
+            AnyKeywordClass::Scale(i)
+            | AnyKeywordClass::Shortname(i)
+            | AnyKeywordClass::Wavelength(i)
+            | AnyKeywordClass::MeasAny(i) => {
+                (usize::from(i) >= par.0).then_some(ExtraKeywordClass::HyperPar)
+            }
+            AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
+            AnyKeywordClass::NonStandard => Some(ExtraKeywordClass::Pseudostandard),
         }
     }
 
@@ -2426,6 +2863,7 @@ impl ExtraStdKeywords {
         kws: StdKeywords,
         current_version: Version,
         par: Par,
+        gate: Gate,
     ) -> (Self, ExtraKeywordOutput) {
         let all_versions = [
             Version::FCS2_0,
@@ -2435,61 +2873,62 @@ impl ExtraStdKeywords {
         ];
         let mut pseudo = HashMap::new();
         let mut hyper_par = HashMap::new();
+        let mut hyper_gate = HashMap::new();
         let mut other_version = HashMap::new();
-        let mut pseudo_errors = vec![];
-        let mut hyper_par_errors = vec![];
-        let mut other_version_errors = vec![];
-        let mut timestamp_found = false;
+        let mut pseudo_es = vec![];
+        let mut hyper_par_es = vec![];
+        let mut hyper_gate_es = vec![];
+        let mut other_version_es = vec![];
+        let mut timestep = None;
         for (k, v) in kws {
             macro_rules! go_version {
                 ($vs:expr) => {
                     let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
-                    other_version_errors.push(e.into());
+                    other_version_es.push(e);
                     other_version.insert(k, v);
                 };
             }
-            if let Some(m) = Self::classify_kws(&k, current_version, par) {
+            if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
-                    KeywordClass::HyperPar => {
-                        hyper_par_errors.push(HyperParError::new(par, k.clone()));
+                    ExtraKeywordClass::HyperPar => {
+                        hyper_par_es.push(HyperParError::new(par, k.clone()));
                         hyper_par.insert(k, v);
                     }
-                    KeywordClass::VersionEQ(ver) => {
+                    ExtraKeywordClass::HyperGate => {
+                        hyper_gate_es.push(HyperGateError::new(gate, k.clone()));
+                        hyper_gate.insert(k, v);
+                    }
+                    ExtraKeywordClass::VersionEQ(ver) => {
                         let vs = NonEmpty::new(ver);
                         go_version!(vs);
                     }
-                    KeywordClass::VersionLE(ver) => {
+                    ExtraKeywordClass::VersionLE(ver) => {
                         let mut vs = NonEmpty::new(ver);
                         vs.extend(all_versions.iter().filter(|&&x| x < ver).copied());
                         go_version!(vs);
                     }
-                    KeywordClass::VersionGE(ver) => {
+                    ExtraKeywordClass::VersionGE(ver) => {
                         let mut vs = NonEmpty::new(ver);
                         vs.extend(all_versions.iter().filter(|&&x| x > ver).copied());
                         go_version!(vs);
                     }
-                    KeywordClass::Version3_0or3_1 => {
+                    ExtraKeywordClass::Version3_0or3_1 => {
                         let vs = NonEmpty::from((Version::FCS3_0, vec![Version::FCS3_1]));
                         go_version!(vs);
                     }
-                    KeywordClass::Pseudostandard => {
-                        pseudo_errors.push(PseudostandardError(k.clone()));
+                    ExtraKeywordClass::Pseudostandard => {
+                        pseudo_es.push(PseudostandardError(k.clone()));
                         pseudo.insert(k, v);
                     }
-                    KeywordClass::UnusedTimestep => {
-                        timestamp_found = true;
+                    ExtraKeywordClass::UnusedTimestep => {
+                        timestep = Some(v);
                     }
                 }
             }
         }
-        let ret = Self::new(pseudo, hyper_par, other_version);
-        let errors = ExtraKeywordOutput::new(
-            other_version_errors,
-            hyper_par_errors,
-            pseudo_errors,
-            timestamp_found,
-        );
-        (ret, errors)
+        let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
+        let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
+        (ret, out)
     }
 }
 
@@ -2500,13 +2939,23 @@ impl ExtraStdKeywords {
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
-/// Error denoting that keyword within standard but above $PAR was found
+/// Error denoting that measurement keyword within standard but above $PAR was found
 #[derive(Debug, Error, new)]
-#[error("keyword is part of standard but outside $PAR ({par}): {key}")]
+#[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
 pub struct HyperParError {
     pub par: Par,
+    pub key: StdKey,
+}
+
+/// Error denoting that gating keyword within standard but above $GATE was found
+#[derive(Debug, Error, new)]
+#[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+pub struct HyperGateError {
+    pub gate: Gate,
     pub key: StdKey,
 }
 
@@ -2557,7 +3006,9 @@ macro_rules! newtype_string {
 
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
-        #[derive(Clone, Copy, Display, FromStr, From, Into, PartialEq, Debug)]
+        #[derive(
+            Clone, Copy, Display, FromStr, From, Into, PartialEq, PartialOrd, Eq, Ord, Debug,
+        )]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub $type);

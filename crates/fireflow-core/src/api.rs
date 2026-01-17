@@ -4,7 +4,7 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets,
+    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -13,8 +13,8 @@ use crate::core::{
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::header::{
-    Header, HeaderError, HeaderSegments, HeaderValidationError, Version, Version2_0, Version3_0,
-    Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError, Version,
+    Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -29,7 +29,9 @@ use crate::segment::{
     OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
     SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
-use crate::text::keywords::{AlphaNumType, Beginstext, Endstext, ExtraStdKeywords, Nextdata, Tot};
+use crate::text::keywords::{
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords, Nextdata, Tot,
+};
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
@@ -140,6 +142,17 @@ pub fn fcs_read_flat_dataset(
     read_fcs_flat_text_inner(path, dataset_offset, conf)
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
+        .and_then_commutative(|(mut flat, h, st)| {
+            flat.version
+                .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
+                .map_err(FlatDatasetError::from)
+                .map_err(IOErrorGroup::new_pure_one)
+                .map(|v| {
+                    flat.version = v;
+                    (flat, h, st)
+                })
+                .into_log()
+        })
         .and_then_commutative(|(flat, mut h, st)| {
             let segs = flat.parse.non_data_segments();
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
@@ -631,6 +644,7 @@ pub enum FlatDatasetError {
     Flat(HeaderOrFlatTextError),
     Read(LookupAndReadDataAnalysisError),
     Warn(FlatDatasetWarning),
+    Version(GuessVersionError),
 }
 
 /// Error when parsing HEADER or TEXT segments in flat mode
@@ -1020,11 +1034,11 @@ impl FlatTEXTOutput {
         Header::h_read(h, st)
             .into_log()
             .map_pure_errors(HeaderOrFlatTextError::from)
-            .and_then_commutative(|mut header| {
-                let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-                if let Some(v) = conf.version_override {
-                    header.version = v;
-                }
+            .and_then_commutative(|header| {
+                // let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+                // if let Some(VersionOverride::Force(v)) = conf.version_override {
+                //     header.version = v;
+                // }
                 h_read_flat_text_from_header(h, header, st)
                     .map_pure_errors(HeaderOrFlatTextError::from)
             })
@@ -1040,7 +1054,9 @@ impl FlatTEXTOutput {
         StdTEXTFromFlatTEXTError,
     >
     where
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>,
     {
         let segs = self.parse.non_data_segments();
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
@@ -1063,7 +1079,10 @@ impl FlatTEXTOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadEventsConfig>,
     {
         let hs = &self.parse.header_segments;
         let d = hs.data;
@@ -1133,10 +1152,6 @@ where
         })
         .and_then_commutative(|(mut kws, delim, prim_esc)| {
             if conf.ignore_supp_text.is_set() {
-                // NOTE rip out the STEXT keywords so they don't trigger a false
-                // positive pseudostandard keyword error later
-                let _ = kws.std.remove(&Beginstext::std());
-                let _ = kws.std.remove(&Endstext::std());
                 LogResult::new_ok((delim, kws, None, prim_esc, None))
             } else {
                 lookup_stext_offsets(&kws.std, &header, st)
@@ -1703,7 +1718,31 @@ where
         !conf.ignore_supp_text.is_set(),
         "tried to get supp TEXT offsets when supp TEXT is ignored"
     );
-    let res = match header.version {
+    // At this point, we have not yet overridden the version since we have not
+    // read STEXT and therefore might not have all keywords. This puts us in a
+    // bit of an awkward spot in the case we wish to autodetect the version.
+    // Primary TEXT by definition must have all required keywords, so we can use
+    // $BEGIN/ENDDATA to test if the version is 3.0 or higher. Additionally, we
+    // can use lack of $CYT to test if the version is less then 3.2, although in
+    // practice this keyword is usually present despite it being optional
+    // pre-3.2. This all likely doesn't matter much anyways since STEXT is
+    // seldom used.
+    let ver = match conf.version_override {
+        None => header.version,
+        Some(VersionOverride::Force(v)) => v,
+        Some(VersionOverride::AutoDetect(_)) => {
+            if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
+                if kws.contains_key(&Cyt::std()) {
+                    Version::FCS3_2
+                } else {
+                    Version::FCS3_1
+                }
+            } else {
+                Version::FCS2_0
+            }
+        }
+    };
+    let res = match ver {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);

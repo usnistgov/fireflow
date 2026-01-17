@@ -43,7 +43,7 @@ class _HeaderConfig(BaseModel):
 
 
 class _ReadFlatTEXTConfig(BaseModel):
-    version_override: pft.FCSVersion | None = None
+    version_override: pft.VersionOverride | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     nextdata_correction: int = 0
     allow_overlapping_supp_text: bool = False
@@ -85,10 +85,10 @@ class _ReadStdKeywordsConfig(BaseModel):
     datetime_pattern: str | None = None
     last_modified_pattern: str | None = None
     allow_other_feature: bool = False
-    allow_pseudostandard: bool = False
-    allow_hyper_par: bool = False
-    allow_other_version: bool = False
-    allow_extra_timestep: bool = False
+    process_pseudostandard: pft.ProcessKeywordFailure = "error"
+    process_hyper_par: pft.ProcessKeywordFailure = "error"
+    process_other_version: pft.ProcessKeywordFailure = "error"
+    process_extra_timestep: pft.ProcessKeywordFailure = "error"
     disallow_deprecated: bool = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
@@ -105,8 +105,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     allow_header_text_offset_mismatch: bool = False
     allow_missing_required_offsets: bool = False
     truncate_text_offsets: bool = False
-    allow_optional_dropping: bool = False
-    transfer_dropped_optional: bool = False
+    process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
     disallow_range_truncation: bool = False

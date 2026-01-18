@@ -7777,7 +7777,12 @@ impl DocArgParam {
              a warning if such an overlap is found. Otherwise raise a {exc}. \
              The offsets will not be used if an overlap is found in either case."
         );
-        Self::new_bool_param("allow_overlapping_supp_text", d)
+        Self::new_tri_flag_param(
+            "allow_overlapping_supp_text",
+            true,
+            "AllowOverlappingSuppTEXT",
+            d,
+        )
     }
 
     fn new_ignore_supp_text() -> Self {

@@ -34,6 +34,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
@@ -348,7 +349,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be ignored regardless of this flag if they are
     /// duplicated.
-    pub allow_overlapping_supp_text: AllowDuplicatedSuppTEXT,
+    pub allow_overlapping_supp_text: AllowOverlappingSuppTEXT,
 
     /// If `true`, totally ignore STEXT and its offsets.
     ///
@@ -1181,8 +1182,7 @@ impl_config_flag!(TruncateOffsets);
 impl_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_error_flag!(false_is_error AllowTotMismatch);
 
-impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
-impl_error_flag!(false_is_error IgnoreSuppTEXT);
+impl_config_flag!(IgnoreSuppTEXT);
 impl_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_error_flag!(false_is_error AllowNonunique);
@@ -1238,13 +1238,15 @@ macro_rules! impl_tri_error_flag {
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $n(pub TriFlag);
 
-        impl From<$n> for Option<$d> {
-            fn from(value: DisallowOverRange) -> Self {
-                Option::<bool>::from(value.0).map($d)
+        impl From<$n> for Option<$d<$n>> {
+            fn from(value: $n) -> Self {
+                Option::<bool>::from(value.0).map($d::<$n>::new)
             }
         }
     };
 }
+
+impl_tri_error_flag!(false_is_error AllowOverlappingSuppTEXT);
 
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
@@ -1297,23 +1299,29 @@ impl From<Option<bool>> for TriFlag {
     }
 }
 
-// /// Fake flag to use for non-public switchable errors (false = error)
-// #[derive(From, Clone, Copy)]
-// pub(crate) struct DummyFalseErrorFlag(pub bool);
+/// Fake flag to use for non-public switchable errors (false = error)
+#[derive(From, Clone, Copy, new)]
+pub(crate) struct DummyFalseErrorFlag<T> {
+    pub inner: bool,
+    pub _id: PhantomData<T>,
+}
 
-// impl ErrorFlag for DummyFalseErrorFlag {
-//     fn is_error(&self) -> bool {
-//         !self.0
-//     }
-// }
+impl<T> ErrorFlag for DummyFalseErrorFlag<T> {
+    fn is_error(&self) -> bool {
+        !self.inner
+    }
+}
 
 /// Fake flag to use for non-public switchable errors (true = error)
-#[derive(From, Clone, Copy)]
-pub(crate) struct DummyTrueErrorFlag(pub bool);
+#[derive(From, Clone, Copy, new)]
+pub(crate) struct DummyTrueErrorFlag<T> {
+    pub inner: bool,
+    pub _id: PhantomData<T>,
+}
 
-impl ErrorFlag for DummyTrueErrorFlag {
+impl<T> ErrorFlag for DummyTrueErrorFlag<T> {
     fn is_error(&self) -> bool {
-        self.0
+        self.inner
     }
 }
 

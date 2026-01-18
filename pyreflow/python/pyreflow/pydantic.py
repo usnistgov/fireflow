@@ -46,7 +46,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     version_override: pft.VersionOverride | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     nextdata_correction: int = 0
-    allow_overlapping_supp_text: bool = False
+    allow_overlapping_supp_text: pft.TriFlag = False
     ignore_supp_text: bool = False
     delim_escape_mode: pft.DelimEscapeMode = "escaped"
     allow_non_ascii_delim: bool = False

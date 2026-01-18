@@ -2,9 +2,9 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, DisallowOverRange, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TruncateEventValues,
-    VersionOverride,
+    self, AllowOverlappingSuppTEXT, DatasetOffset, DelimEscapeMode, DisallowOverRange,
+    ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion,
+    ProcessPseudostandard, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -218,8 +218,9 @@ fn main() -> Result<(), ()> {
         .value_name("INT")
         .help(format!("Correction for {}", kw_style.paint("$NEXTDATA")));
 
-    let allow_overlapping_supp_text = flag_arg(
+    let allow_overlapping_supp_text = tri_flag_arg(
         ALLOW_OVERLAPPING_SUPP_TEXT,
+        true,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
              {prim_text_seg} or the boundaries of {header_seg}."
@@ -1028,6 +1029,11 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 
     let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
 
+    let allow_overlapping_supp_text = sargs
+        .get_one::<String>(ALLOW_OVERLAPPING_SUPP_TEXT)
+        .map(|s| s.parse::<AllowOverlappingSuppTEXT>().unwrap())
+        .unwrap_or_default();
+
     let to_blank = |s: &str| (s.to_owned(), ());
 
     let ignore_standard_keys =
@@ -1059,7 +1065,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         version_override,
         supp_text_correction,
         nextdata_correction,
-        allow_overlapping_supp_text: sargs.get_flag(ALLOW_OVERLAPPING_SUPP_TEXT).into(),
+        allow_overlapping_supp_text,
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode,
         allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),

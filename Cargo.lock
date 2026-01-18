@@ -791,16 +791,6 @@ dependencies = [
 name = "fireflow-python-proc"
 version = "0.1.0"
 dependencies = [
- "fireflow-python-types",
- "proc-macro2",
- "quote",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "fireflow-python-types"
-version = "0.1.0"
-dependencies = [
  "derive-new",
  "derive_more",
  "itertools 0.14.0",

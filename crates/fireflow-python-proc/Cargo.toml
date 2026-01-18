@@ -4,10 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+derive-new = { workspace = true }
+derive_more = { workspace = true, features = ["from", "as_ref", "display"] }
 syn = { workspace = true, features = ["extra-traits"] }
+itertools = { workspace = true }
+nonempty = { workspace = true }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-fireflow-python-types = { path = "../fireflow-python-types" }
 
 [lib]
 proc-macro = true

@@ -6951,6 +6951,26 @@ impl DocArgParam {
         Self::new_param(name, PyBool::default(), desc).def_auto()
     }
 
+    fn new_tri_flag_param(
+        name: impl fmt::Display,
+        false_is_error: bool,
+        ident_name: &str,
+        desc: impl fmt::Display,
+    ) -> Self {
+        let path = config_path(ident_name);
+        let (false_action, true_action) = if false_is_error {
+            ("throw error", "throw warning")
+        } else {
+            ("throw warning", "throw error")
+        };
+        let d = format!(
+            "{desc} If ``False``, {false_action}. If ``True``, \
+             {true_action}. If ``\"silent\"``, do nothing."
+        );
+        let pt = PyUnion::new2(PyBool::default(), PyLiteral::new1(["silent"]), path);
+        Self::new_param(name, pt, d).def_auto()
+    }
+
     fn new_proc_kw_fail(
         name: impl fmt::Display,
         ident_name: &str,
@@ -8024,12 +8044,10 @@ impl DocArgParam {
     }
 
     fn new_disallow_over_range() -> Self {
-        let d = "If ``true``, forbid event values in *DATA* to exceed *$PnR*. \
-                 Each column containing an overrange value will be reported, \
-                 either as an error (``true``) or warning (``false``). This \
-                 flag only has an effect if the column is not truncated \
-                 according to `truncate_event_values`.";
-        Self::new_bool_param("disallow_over_range", d)
+        let d = "Forbid event values in *DATA* to exceed *$PnR*. \
+                 This flag only has an effect if the column is not truncated \
+                 according to ``truncate_event_values``.";
+        Self::new_tri_flag_param("disallow_over_range", false, "DisallowOverRange", d)
     }
 
     fn new_warnings_are_errors_param() -> Self {

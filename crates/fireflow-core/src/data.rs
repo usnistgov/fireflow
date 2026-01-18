@@ -52,8 +52,8 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ErrorFlag as _, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadEventsConfig, TruncateEventValues,
+    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadEventsConfig, TriFlag, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -2353,14 +2353,16 @@ where
                         }
                     }
                 }
-                let overrange_res = if conf.disallow_over_range.is_error() {
-                    ErrorGroup::try_new(es)
+                let overrange_res = match conf.disallow_over_range.0 {
+                    TriFlag::False => ErrorGroup::try_new(es)
                         .map_err(ReadDataframeError::from)
                         .map_err(IOErrorGroup::new_pure_one)
-                        .into_log()
-                } else {
-                    let ws = es.fmap(ReadDataframeWarning::from);
-                    LogResult::new_ok(()).set_commutative_warnings(ws)
+                        .into_log(),
+                    TriFlag::True => {
+                        let ws = es.fmap(ReadDataframeWarning::from);
+                        LogResult::new_ok(()).set_commutative_warnings(ws)
+                    }
+                    TriFlag::Noop => LogResult::new_ok(()),
                 };
                 overrange_res.map_ok_value(|()| {
                     let cs = data
@@ -2935,14 +2937,16 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .iter_mut()
             .enumerate()
             .filter_map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values));
-        let overrange_res = if conf.disallow_over_range.is_error() {
-            ErrorGroup::try_new(es)
+        let overrange_res = match conf.disallow_over_range.0 {
+            TriFlag::False => ErrorGroup::try_new(es)
                 .map_err(ReadDataframeError::from)
                 .map_err(ImpureError::Pure)
-                .into_log()
-        } else {
-            let ws = es.collect();
-            LogResult::new_ok(()).set_commutative_warnings(ws)
+                .into_log(),
+            TriFlag::True => {
+                let ws = es.collect();
+                LogResult::new_ok(()).set_commutative_warnings(ws)
+            }
+            TriFlag::Noop => LogResult::new_ok(()),
         };
         overrange_res.map_ok_value(|()| {
             let data = col_readers.into_iter().map(Readable::into_dataframe_column);

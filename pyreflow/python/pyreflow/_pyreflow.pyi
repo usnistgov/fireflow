@@ -54,6 +54,7 @@ from pyreflow.typing import (
     DelimEscapeMode,
     VersionOverride,
     ProcessKeywordFailure,
+    TriFlag,
 )
 import pyreflow._defaults as pfd
 
@@ -1372,7 +1373,7 @@ class CoreDataset2_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: bool = False,
+        disallow_over_range: TriFlag = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1481,7 +1482,7 @@ class CoreDataset3_0(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: bool = False,
+        disallow_over_range: TriFlag = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1596,7 +1597,7 @@ class CoreDataset3_1(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: bool = False,
+        disallow_over_range: TriFlag = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1715,7 +1716,7 @@ class CoreDataset3_2(
         allow_uneven_event_width: bool = False,
         allow_tot_mismatch: bool = False,
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: bool = False,
+        disallow_over_range: TriFlag = False,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -2166,7 +2167,7 @@ def fcs_read_flat_dataset(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2252,7 +2253,7 @@ def fcs_read_std_dataset(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2450,7 +2451,7 @@ def fcs_read_flat_datasets(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2537,7 +2538,7 @@ def fcs_read_std_datasets(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2567,7 +2568,7 @@ def fcs_read_flat_dataset_with_keywords(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2634,7 +2635,7 @@ def fcs_summarize(
     allow_uneven_event_width: bool = False,
     allow_tot_mismatch: bool = False,
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: bool = False,
+    disallow_over_range: TriFlag = False,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,

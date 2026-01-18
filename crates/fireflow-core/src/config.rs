@@ -1180,7 +1180,6 @@ impl_config_flag!(TruncateOffsets);
 
 impl_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_error_flag!(false_is_error AllowTotMismatch);
-impl_error_flag!(true_is_error DisallowOverRange);
 
 impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_error_flag!(false_is_error IgnoreSuppTEXT);
@@ -1224,6 +1223,99 @@ impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);
 impl_config_flag!(AppendableFlag);
 impl_config_flag!(AppendFlag);
+
+macro_rules! impl_tri_error_flag {
+    (true_is_error $n:ident) => {
+        impl_tri_error_flag!(_common $n, DummyTrueErrorFlag);
+    };
+
+    (false_is_error $n:ident) => {
+        impl_tri_error_flag!(_common $n, DummyFalseErrorFlag);
+    };
+
+    (_common $n:ident, $d:ident) => {
+        #[derive(From, Clone, Copy, Default, FromStr)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        pub struct $n(pub TriFlag);
+
+        impl From<$n> for Option<$d> {
+            fn from(value: DisallowOverRange) -> Self {
+                Option::<bool>::from(value.0).map($d)
+            }
+        }
+    };
+}
+
+impl_tri_error_flag!(true_is_error DisallowOverRange);
+
+/// Tri-state flag to throw warning, throw error, or do nothing
+#[derive(Clone, Copy, Default)]
+pub enum TriFlag {
+    #[default]
+    False,
+    True,
+    Noop,
+}
+
+impl FromStr for TriFlag {
+    type Err = TriFlagError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "false" => Ok(Self::False),
+            "true" => Ok(Self::True),
+            "silent" => Ok(Self::Noop),
+            _ => Err(TriFlagError),
+        }
+    }
+}
+
+/// Error when parsing [`VersionOverride`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'false', 'true', or 'silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct TriFlagError;
+
+impl From<TriFlag> for Option<bool> {
+    fn from(value: TriFlag) -> Self {
+        match value {
+            TriFlag::False => Some(false),
+            TriFlag::True => Some(true),
+            TriFlag::Noop => None,
+        }
+    }
+}
+
+impl From<Option<bool>> for TriFlag {
+    fn from(value: Option<bool>) -> Self {
+        match value {
+            Some(false) => Self::False,
+            Some(true) => Self::True,
+            None => Self::Noop,
+        }
+    }
+}
+
+// /// Fake flag to use for non-public switchable errors (false = error)
+// #[derive(From, Clone, Copy)]
+// pub(crate) struct DummyFalseErrorFlag(pub bool);
+
+// impl ErrorFlag for DummyFalseErrorFlag {
+//     fn is_error(&self) -> bool {
+//         !self.0
+//     }
+// }
+
+/// Fake flag to use for non-public switchable errors (true = error)
+#[derive(From, Clone, Copy)]
+pub(crate) struct DummyTrueErrorFlag(pub bool);
+
+impl ErrorFlag for DummyTrueErrorFlag {
+    fn is_error(&self) -> bool {
+        self.0
+    }
+}
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {
@@ -1517,9 +1609,27 @@ mod python {
     use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
 
-    use super::TimeMeasNamePattern;
+    use super::{TimeMeasNamePattern, TriFlag};
 
     use pyo3::prelude::*;
+    use std::convert::Infallible;
+
+    impl<'py> FromPyObject<'py> for TriFlag {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x: Option<bool> = ob.extract()?;
+            Ok(x.into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TriFlag {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Option::<bool>::from(self).into_pyobject(py)
+        }
+    }
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

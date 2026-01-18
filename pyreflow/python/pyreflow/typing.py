@@ -159,3 +159,5 @@ ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
 
 ProcessKeywordFailure: TypeAlias = Literal["error", "demote", "drop", "drop_silent"]
+
+TriFlag: TypeAlias = bool | Literal["silent"]

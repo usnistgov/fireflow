@@ -114,7 +114,7 @@ class _ReadEventsConfig(BaseModel):
     allow_uneven_event_width: bool = False
     allow_tot_mismatch: bool = False
     truncate_event_values: pft.TruncateEventValues = "int_only"
-    disallow_over_range: bool = False
+    disallow_over_range: pft.TriFlag = False
 
 
 class _ReadSharedConfig(BaseModel):

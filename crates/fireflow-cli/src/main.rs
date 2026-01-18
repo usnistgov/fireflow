@@ -2,7 +2,7 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, ProcessExtraTimestep, ProcessHyperPar,
+    self, DatasetOffset, DelimEscapeMode, DisallowOverRange, ProcessExtraTimestep, ProcessHyperPar,
     ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TruncateEventValues,
     VersionOverride,
 };
@@ -720,11 +720,12 @@ fn main() -> Result<(), ()> {
             kw_style.paint("$PnR"),
         ));
 
-    let disallow_over_range = flag_arg(
+    let disallow_over_range = tri_flag_arg(
         DISALLOW_OVER_RANGE,
+        false,
         format!(
             "Forbid values in DATA to exceed {}. Does nothing if column \
-             was truncated according to '{}'",
+             was truncated according to '{}'.",
             kw_style.paint("$PnR"),
             TRUNCATE_EVENT_VALUES
         ),
@@ -957,6 +958,18 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
         "{help_front} Must be one of 'error', 'demote', 'drop', or \
          'drop_silent' which will throw an error, demote to non-standard, \
          drop with warning, or drop silently respectively"
+    ))
+}
+
+fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Display) -> Arg {
+    let (false_action, true_action) = if false_is_error {
+        ("throw error", "throw warning")
+    } else {
+        ("throw warning", "throw error")
+    };
+    Arg::new(long).long(long).help(format!(
+        "{help_front} Must be one of 'false', ({false_action}) 'true', \
+         ({true_action}) 'silent' (do nothing)."
     ))
 }
 
@@ -1222,11 +1235,15 @@ fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
         .get_one::<String>(TRUNCATE_EVENT_VALUES)
         .map(|s| s.parse::<TruncateEventValues>().unwrap())
         .unwrap_or_default();
+    let disallow_over_range = sargs
+        .get_one::<String>(DISALLOW_OVER_RANGE)
+        .map(|s| s.parse::<DisallowOverRange>().unwrap())
+        .unwrap_or_default();
     config::ReadEventsConfig {
         allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
         allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
         truncate_event_values,
-        disallow_over_range: sargs.get_flag(DISALLOW_OVER_RANGE).into(),
+        disallow_over_range,
     }
 }
 

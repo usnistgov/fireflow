@@ -1838,6 +1838,34 @@ class DatasetSegments:
     def analysis_seg_raw(self) -> Segment | None: ...
 
 @final
+class SplitTEXTOutput:
+    def __new__(
+        cls,
+        escaped: bool,
+        keys_with_blank_values: list[bytes],
+        values_with_blank_keys: list[bytes],
+        tokens_with_boundary_delims: list[bytes],
+        last_odd_token: bytes,
+        missing_final_delim: bool,
+        trailing_whitespace_length: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def escaped(self) -> bool: ...
+    @property
+    def keys_with_blank_values(self) -> list[bytes]: ...
+    @property
+    def values_with_blank_keys(self) -> list[bytes]: ...
+    @property
+    def tokens_with_boundary_delims(self) -> list[bytes]: ...
+    @property
+    def last_odd_token(self) -> bytes: ...
+    @property
+    def missing_final_delim(self) -> bool: ...
+    @property
+    def trailing_whitespace_length(self) -> int: ...
+
+@final
 class FlatTEXTParseData:
     def __new__(
         cls,
@@ -1847,8 +1875,11 @@ class FlatTEXTParseData:
         delimiter: int,
         non_ascii: list[tuple[str, str]],
         byte_pairs: list[tuple[bytes, bytes]],
-        primary_escaped: bool,
-        supp_escaped: bool | None,
+        non_unique_std_keywords: list[tuple[str, str]],
+        non_unique_nonstd_keywords: list[tuple[str, str]],
+        ignored_standard_keywords: list[tuple[str, bytes]],
+        primary_split: SplitTEXTOutput,
+        supp_split: SplitTEXTOutput | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1864,9 +1895,15 @@ class FlatTEXTParseData:
     @property
     def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
     @property
-    def primary_escaped(self) -> bool: ...
+    def non_unique_std_keywords(self) -> list[tuple[str, str]]: ...
     @property
-    def supp_escaped(self) -> bool | None: ...
+    def non_unique_nonstd_keywords(self) -> list[tuple[str, str]]: ...
+    @property
+    def ignored_standard_keywords(self) -> list[tuple[str, bytes]]: ...
+    @property
+    def primary_split(self) -> SplitTEXTOutput: ...
+    @property
+    def supp_split(self) -> SplitTEXTOutput | None: ...
 
 @final
 class FlatTEXTOutput:
@@ -2739,6 +2776,7 @@ __all__ = [
     "ExtraStdKeywords",
     "ValidKeywords",
     "DatasetSegments",
+    "SplitTEXTOutput",
     "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",

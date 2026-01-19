@@ -936,18 +936,48 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
 
-    let primary_escaped = DocArgROIvar::new_ivar_ro(
-        "primary_escaped",
-        PyBool::default(),
-        "``True`` if primary *TEXT* delimiters were escaped.",
-        |_, _| quote!(self.0.primary_escaped),
+    let non_unique_std = DocArgROIvar::new_ivar_ro(
+        "non_unique_std_keywords",
+        PyList::new1(PyTuple::new2([
+            PyType::from(PyStr::new_std_keyword()),
+            PyStr::default().into(),
+        ])),
+        "Standard keys which already appeared in *TEXT* previously.",
+        |_, _| quote!(self.0.non_unique_std_keywords.clone()),
     );
 
-    let supp_escaped = DocArgROIvar::new_ivar_ro(
-        "supp_escaped",
-        PyOpt::new(PyBool::default()),
-        "``True`` if supp *TEXT* delimiters were escaped.",
-        |_, _| quote!(self.0.supp_escaped),
+    let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
+        "non_unique_nonstd_keywords",
+        PyList::new1(PyTuple::new2([
+            PyType::from(PyStr::new_nonstd_keyword()),
+            PyStr::default().into(),
+        ])),
+        "Nonstandard keys which already appeared in *TEXT* previously.",
+        |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
+    );
+
+    let ignored = DocArgROIvar::new_ivar_ro(
+        "ignored_standard_keywords",
+        PyList::new1(PyTuple::new2([
+            PyType::from(PyStr::new_std_keyword()),
+            PyBytes::default().into(),
+        ])),
+        "Standard keys which were ignored by the user.",
+        |_, _| quote!(self.0.ignored_standard_keywords.clone()),
+    );
+
+    let primary_split = DocArgROIvar::new_ivar_ro(
+        "primary_split",
+        PyClass::new_py(["api"], "SplitTEXTOutput"),
+        "Additional parsing diagnostics for primary *TEXT*.",
+        |_, _| quote!(self.0.primary_split.clone().into()),
+    );
+
+    let supp_split = DocArgROIvar::new_ivar_ro(
+        "supp_split",
+        PyOpt::new(PyClass::new_py(["api"], "SplitTEXTOutput")),
+        "Additional parsing diagnostics for supplemental *TEXT*.",
+        |_, _| quote!(self.0.supp_split.as_ref().map(|x| x.clone().into())),
     );
 
     let args = [
@@ -957,11 +987,92 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         delim,
         non_ascii,
         byte_pairs,
-        primary_escaped,
-        supp_escaped,
+        non_unique_std,
+        non_unique_nonstd,
+        ignored,
+        primary_split,
+        supp_split,
     ];
 
-    let doc = DocString::new_class("Miscellaneous data obtained when parsing *TEXT*.").args(args);
+    let doc = DocString::new_class("Diagnostic data from parsing *TEXT*.").args(args);
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_split_text_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let escaped = DocArgROIvar::new_ivar_ro(
+        "escaped",
+        PyBool::default(),
+        "``True`` if delimiters were escaped.",
+        |_, _| quote!(self.0.escaped),
+    );
+
+    let keys_with_blank_values = DocArgROIvar::new_ivar_ro(
+        "keys_with_blank_values",
+        PyList::new1(PyBytes::default()),
+        "Keys which have blank values (relatively common).",
+        |_, _| quote!(self.0.keys_with_blank_values.clone()),
+    );
+
+    let values_with_blank_keys = DocArgROIvar::new_ivar_ro(
+        "values_with_blank_keys",
+        PyList::new1(PyBytes::default()),
+        "Values which have blank keys (relatively rare).",
+        |_, _| quote!(self.0.values_with_blank_keys.clone()),
+    );
+
+    let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
+        "tokens_with_boundary_delims",
+        PyList::new1(PyBytes::default()),
+        "Tokens (keys or values) which have delimiters at their boundary.",
+        |_, _| quote!(self.0.tokens_with_boundary_delims.clone()),
+    );
+
+    let last_odd_token = DocArgROIvar::new_ivar_ro(
+        "last_odd_token",
+        PyBytes::default(),
+        "Last token if the number of tokens is odd (empty if not present).",
+        |_, _| quote!(self.0.last_odd_token.clone()),
+    );
+
+    let missing_final_delim = DocArgROIvar::new_ivar_ro(
+        "missing_final_delim",
+        PyBool::default(),
+        "``True`` if *TEXT* does not end with a delimiter.",
+        |_, _| quote!(self.0.missing_final_delim),
+    );
+
+    let trailing_whitespace_length = DocArgROIvar::new_ivar_ro(
+        "trailing_whitespace_length",
+        RsInt::Usize,
+        "Number of whitespace characters after *TEXT*",
+        |_, _| quote!(self.0.trailing_whitespace_length),
+    );
+
+    let args = [
+        escaped,
+        keys_with_blank_values,
+        values_with_blank_keys,
+        tokens_with_boundary_delims,
+        last_odd_token,
+        missing_final_delim,
+        trailing_whitespace_length,
+    ];
+
+    let doc =
+        DocString::new_class("Diagnostic data when parsing a specific *TEXT* segment.").args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -5734,6 +5845,22 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
+    fn new_std_keyword() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKey).desc(
+            "if %x is empty, does not start with \
+             ``\"$\"``, or is only a ``\"$\"``",
+        );
+        Self::default().rstype(path).exc(e)
+    }
+
+    fn new_nonstd_keyword() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
+            .desc("if %x is empty or starts with ``\"$\"``");
+        Self::default().rstype(path).exc(e)
+    }
+
     fn new_regexp() -> Self {
         let desc = format!("if %x is not a valid regular expression as described in {REGEXP_REF}");
         let exc = PyException::new_config().desc(desc);
@@ -5830,19 +5957,11 @@ impl<E: From<PyException>> PyDict<E> {
     }
 
     fn new_std_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKey).desc(
-            "if %x is empty, does not start with \
-             ``\"$\"``, or is only a ``\"$\"``",
-        );
-        Self::new1(PyStr::default().rstype(path).exc(e), PyStr::default())
+        Self::new1(PyStr::new_std_keyword(), PyStr::default())
     }
 
     fn new_nonstd_keywords() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
-            .desc("if %x is empty or starts with ``\"$\"``");
-        Self::new1(PyStr::default().rstype(path).exc(e), PyStr::default())
+        Self::new1(PyStr::new_nonstd_keyword(), PyStr::default())
     }
 
     fn new_keywords() -> Self {

@@ -1,7 +1,7 @@
 use crate::config::{AllowNonunique, ConfigFlag as _, ReadHeaderAndTEXTConfig, UseLatin1};
 use crate::logging::{
     DeferredSwitchableError, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndErrorResult,
 };
 use crate::text::index::IndexFromOne;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
@@ -825,7 +825,7 @@ impl ParsedKeywords {
                                 let vo = value.into_owned();
                                 insert_nonunique(&mut self.nonstd, NonStdKey(kk), vo, conf)
                                     .map_deferred_value(|pair| {
-                                        self.non_unique_nonstd_keywords.extend(pair)
+                                        self.non_unique_nonstd_keywords.extend(pair);
                                     })
                             } else {
                                 let rk = renames.get(&kk).cloned().unwrap_or(kk);
@@ -836,7 +836,7 @@ impl ParsedKeywords {
                                 };
                                 insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
                                     .map_deferred_value(|pair| {
-                                        self.non_unique_std_keywords.extend(pair)
+                                        self.non_unique_std_keywords.extend(pair);
                                     })
                             };
                             res.switchable_into_commutative().repack_warnings()
@@ -853,12 +853,12 @@ impl ParsedKeywords {
                         let res = if to_std.is_match(&kk) {
                             insert_nonunique(&mut self.std, StdKey(kk), value, conf)
                                 .map_deferred_value(|pair| {
-                                    self.non_unique_std_keywords.extend(pair)
+                                    self.non_unique_std_keywords.extend(pair);
                                 })
                         } else {
                             insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
                                 .map_deferred_value(|pair| {
-                                    self.non_unique_nonstd_keywords.extend(pair)
+                                    self.non_unique_nonstd_keywords.extend(pair);
                                 })
                         };
                         res.switchable_into_commutative().repack_warnings()

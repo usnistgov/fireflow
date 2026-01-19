@@ -554,29 +554,29 @@ pub struct FlatTEXTParseData {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitTEXTOutput {
     /// `true` if TEXT delimiters were escaped
-    escaped: bool,
+    pub escaped: bool,
 
     /// Keys that have blank values.
     ///
     /// Only relevant in escaped delimiter mode.
-    keys_with_blank_values: Vec<Vec<u8>>,
+    pub keys_with_blank_values: Vec<Vec<u8>>,
 
     /// Values with blank keys.
-    values_with_blank_keys: Vec<Vec<u8>>,
+    pub values_with_blank_keys: Vec<Vec<u8>>,
 
     /// Tokens with delimiters at their boundaries (without the delimiters).
     ///
     /// Only relevant in escaped delimiter mode.
-    tokens_with_boundary_delims: Vec<Vec<u8>>,
+    pub tokens_with_boundary_delims: Vec<Vec<u8>>,
 
     /// Last token if the number of tokens was odd.
-    last_odd_token: Vec<u8>,
+    pub last_odd_token: Vec<u8>,
 
     /// `true` if final delimiter was missing
-    missing_final_delim: bool,
+    pub missing_final_delim: bool,
 
     /// Length of trailing whitespace after TEXT in bytes
-    trailing_whitespace_length: usize,
+    pub trailing_whitespace_length: usize,
 }
 
 struct SplitTEXTOutputInner {

@@ -104,8 +104,8 @@ use fireflow_python_proc::{
     impl_py_dataset_summary, impl_py_extra_std_keywords, impl_py_flat_dataset_output,
     impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output, impl_py_flat_text_parse_data,
     impl_py_header, impl_py_header_segments, impl_py_raw_header_segments,
-    impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output, impl_py_std_text_output,
-    impl_py_valid_keywords,
+    impl_py_split_text_output, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
+    impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -135,6 +135,7 @@ impl_py_dataset_segments!(core::DatasetSegments);
 impl_py_flat_text_output!(api::FlatTEXTOutput);
 impl_py_flat_dataset_output!(api::FlatDatasetOutput);
 impl_py_flat_text_parse_data!(api::FlatTEXTParseData);
+impl_py_split_text_output!(api::SplitTEXTOutput);
 impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
 
 impl_py_std_text_output!(api::StdTEXTOutput);

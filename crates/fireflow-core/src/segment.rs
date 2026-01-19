@@ -66,6 +66,16 @@ pub struct OffsetSegment<I, S, T, O> {
     _src: PhantomData<S>,
 }
 
+/// Segment offsets as read straight from the file with no corrections.
+///
+/// Useful for diagnostics.
+#[derive(Clone, Copy, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct RawSegment {
+    pub begin: i128,
+    pub end: i128,
+}
+
 /// A non-empty segment that still has regional/src data but is type-agnostic.
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
@@ -996,7 +1006,7 @@ impl<I: Copy> HeaderSegment<I> {
         corr: HeaderCorrection<I>,
         version: Version,
         st: &ReadState<C>,
-    ) -> Result<Self, IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> Result<(Self, RawSegment), IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig>,
@@ -1032,11 +1042,13 @@ impl<I: Copy> HeaderSegment<I> {
         let end_res = parse_one(buf1, false).into_nowarn();
         begin_res
             .zip_commutative(end_res)
-            .and_then_commutative(|(begin, end)| {
+            .and_then_commutative(|((begin, begin_raw), (end, end_raw))| {
                 // TEXT segment is not squishable
                 let allow_squish = !is_text;
                 let squish = conf.squish_offsets.is_set() && allow_squish;
+                let raw = RawSegment::new(begin_raw, end_raw);
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
+                    .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
                     .into_log()
             })
@@ -1095,7 +1107,7 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> Result<Vec<Self>, IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> Result<Vec<(Self, RawSegment)>, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig>,
@@ -1164,7 +1176,7 @@ impl OtherSegment20 {
         bs1: &[u8],
         allow_negative: AllowNegative,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
-    ) -> ErrorsResult<Self, (), HeaderSegmentError> {
+    ) -> ErrorsResult<(Self, RawSegment), (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
@@ -1173,13 +1185,15 @@ impl OtherSegment20 {
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res
-            .zip_commutative(end_res)
-            .and_then_commutative(|(begin, end)| {
+        begin_res.zip_commutative(end_res).and_then_commutative(
+            |((begin, begin_raw), (end, end_raw))| {
+                let raw = RawSegment::new(begin_raw, end_raw);
                 Self::try_new(begin, end, conf)
+                    .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
                     .into_log()
-            })
+            },
+        )
     }
 }
 
@@ -1612,7 +1626,9 @@ mod python {
     use crate::config::DatasetOffset;
     use crate::python::ConfigError;
 
-    use super::{HasRegion, InnerSegment, NonEmptySegment, RelativeSegment, Segment, Zero};
+    use super::{
+        HasRegion, InnerSegment, NonEmptySegment, RawSegment, RelativeSegment, Segment, Zero,
+    };
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
@@ -1673,6 +1689,23 @@ mod python {
                 .try_coords()
                 .map_or((0, 0), |(b, e, _)| (b, e))
                 .into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for RawSegment {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (i128, i128) = ob.extract()?;
+            Ok(Self::new(begin, end))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for RawSegment {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(i128, i128) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.begin, self.end).into_pyobject(py)
         }
     }
 }

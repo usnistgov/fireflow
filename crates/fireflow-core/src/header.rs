@@ -11,7 +11,7 @@ use crate::logging::{
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, RawSegment, Segment,
     SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
     TEXTSegment,
 };
@@ -46,7 +46,6 @@ use serde::Serialize;
 use {
     crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
-    pyo3::prelude::*,
 };
 
 /// The length of the HEADER.
@@ -91,7 +90,7 @@ impl_version!(Version3_0, FCS3_0);
 impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
-/// The three segments from the HEADER
+/// The segments from the HEADER
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
@@ -99,6 +98,16 @@ pub struct HeaderSegments<T> {
     pub data: HeaderDataSegment,
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment<T>>,
+}
+
+/// The uncorrected segments from the HEADER
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct RawHeaderSegments {
+    pub text: RawSegment,
+    pub data: RawSegment,
+    pub analysis: RawSegment,
+    pub other: Vec<RawSegment>,
 }
 
 impl<T> HeaderSegments<T> {
@@ -283,10 +292,10 @@ impl<T> HeaderSegments<T> {
 /// Only valid segments are to be put in this struct (ie begin <= end).
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments<UintSpacePad20>,
+    pub raw: RawHeaderSegments,
 }
 
 impl Header {
@@ -299,7 +308,10 @@ impl Header {
         R: Read + Seek,
     {
         h.seek(SeekFrom::Start(st.dataset_offset.0))?;
-        let (version, text, data, analysis) = h_read_required_header(h, st)?;
+        let req = h_read_required_header(h, st)?;
+        let (text, text_raw) = req.text;
+        let (data, data_raw) = req.data;
+        let (analysis, analysis_raw) = req.analysis;
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
         let other_res = if let Some(m) = min_coord {
@@ -309,7 +321,14 @@ impl Header {
         };
         let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
-            .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
+            .map(|other| {
+                let (os, os_raw) = other.into_iter().unzip();
+                Self::new(
+                    req.version,
+                    HeaderSegments::new(text, data, analysis, os),
+                    RawHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw),
+                )
+            })
             .ungroup()
             .map_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
@@ -324,19 +343,18 @@ impl Header {
     }
 }
 
+#[derive(new)]
+struct ReqHeader {
+    version: Version,
+    text: (PrimaryTextSegment, RawSegment),
+    data: (HeaderDataSegment, RawSegment),
+    analysis: (HeaderAnalysisSegment, RawSegment),
+}
+
 fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> IOGroupResult<
-    (
-        Version,
-        PrimaryTextSegment,
-        HeaderDataSegment,
-        HeaderAnalysisSegment,
-    ),
-    HeaderError,
-    (),
->
+) -> IOGroupResult<ReqHeader, HeaderError, ()>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderInnerConfig>,
@@ -373,7 +391,7 @@ where
         .group()
         .resolve_nowarn()
         .map_err(IOErrorGroup::Pure)
-        .map(|(t, d, a)| (version, t, d, a))
+        .map(|(t, d, a)| ReqHeader::new(version, t, d, a))
 }
 
 fn h_read_spaces<R, C>(

@@ -1756,13 +1756,36 @@ class HeaderSegments:
     def other_segs(self) -> list[Segment]: ...
 
 @final
+class RawHeaderSegments:
+    def __new__(
+        cls,
+        text_seg: Segment,
+        data_seg: Segment,
+        analysis_seg: Segment,
+        other_segs: list[Segment],
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def text_seg(self) -> Segment: ...
+    @property
+    def data_seg(self) -> Segment: ...
+    @property
+    def analysis_seg(self) -> Segment: ...
+    @property
+    def other_segs(self) -> list[Segment]: ...
+
+@final
 class Header:
-    def __new__(cls, version: FCSVersion, segments: HeaderSegments) -> Self: ...
+    def __new__(
+        cls, version: FCSVersion, segments: HeaderSegments, raw: RawHeaderSegments
+    ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
     def segments(self) -> HeaderSegments: ...
+    @property
+    def raw(self) -> RawHeaderSegments: ...
 
 @final
 class ValidKeywords:
@@ -2699,6 +2722,7 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
+    "RawHeaderSegments",
     "FlatTEXTOutput",
     "FlatDatasetOutput",
     "FlatDatasetWithKwsOutput",

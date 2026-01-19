@@ -14,6 +14,7 @@ from ._pyreflow import fcs_summarize as fcs_summarize
 
 from ._pyreflow import Header as Header
 from ._pyreflow import HeaderSegments as HeaderSegments
+from ._pyreflow import RawHeaderSegments as RawHeaderSegments
 
 from ._pyreflow import FlatTEXTOutput as FlatTEXTOutput
 from ._pyreflow import FlatDatasetOutput as FlatDatasetOutput

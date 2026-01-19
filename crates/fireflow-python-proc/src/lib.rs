@@ -595,11 +595,11 @@ pub fn impl_py_raw_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_raw_seg_param("text", "TEXT", SegmentSrc::Header)
+    let text = DocArg::new_raw_seg_param("text_seg", "TEXT", SegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_raw_seg_param("data", "DATA", SegmentSrc::Header)
+    let data = DocArg::new_raw_seg_param("data_seg", "DATA", SegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_raw_seg_param("analysis", "ANALYSIS", SegmentSrc::Header)
+    let analysis = DocArg::new_raw_seg_param("analysis_seg", "ANALYSIS", SegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
@@ -4247,7 +4247,7 @@ struct SelfArg;
 #[derive(Clone, Copy)]
 enum SegmentSrc {
     Header,
-    Text,
+    // Text,
     Any,
 }
 
@@ -6081,7 +6081,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_data_segment(src: SegmentSrc) -> Self {
         let id = match src {
             SegmentSrc::Header => "HeaderDataSegment",
-            SegmentSrc::Text => "TextDataSegment",
+            // SegmentSrc::Text => "TextDataSegment",
             SegmentSrc::Any => "AnyDataSegment",
         };
         Self::new_segment(id)
@@ -6090,7 +6090,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_analysis_segment(src: SegmentSrc) -> Self {
         let id = match src {
             SegmentSrc::Header => "HeaderAnalysisSegment",
-            SegmentSrc::Text => "TextAnalysisSegment",
+            // SegmentSrc::Text => "TextAnalysisSegment",
             SegmentSrc::Any => "AnyAnalysisSegment",
         };
         Self::new_segment(id)
@@ -8724,7 +8724,7 @@ impl fmt::Display for SegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::Header => "*HEADER*",
-            Self::Text => "*TEXT*",
+            // Self::Text => "*TEXT*",
             Self::Any => "*HEADER* or *TEXT*",
         };
         f.write_str(s)

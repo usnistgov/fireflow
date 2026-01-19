@@ -14,8 +14,8 @@ use crate::core::{
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::header::{
-    GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError, Version,
-    Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError,
+    RawHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -500,8 +500,11 @@ pub struct FlatDatasetWithKwsOutput {
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTParseData {
-    /// Offsets read from HEADER
+    /// Corrected offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,
+
+    /// Uncorrected offsets read from HEADER
+    pub raw_header_segments: RawHeaderSegments,
 
     /// Supplemental TEXT offsets (corrected and raw)
     ///
@@ -541,12 +544,19 @@ pub struct FlatTEXTParseData {
     /// Ignored standard keys with their values
     pub ignored_standard_keywords: Vec<(StdKey, Vec<u8>)>,
 
+    /// Keys with empty values as a result of trimming whitespace.
+    pub keys_with_empty_trimmed_values: Vec<Vec<u8>>,
+
+    /// Keys with values that are not empty after whitespace was trimmed off.
+    ///
+    /// Values included here are the original values before trimming.
+    pub keys_with_trimmed_values: Vec<(Vec<u8>, Vec<u8>)>,
+
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTOutput,
 
     /// Output from splitting supplemental TEXT
     pub supp_split: Option<SplitTEXTOutput>,
-    // TODO record if whitespace was trimmed from keywords
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -1249,6 +1259,7 @@ where
                 .map_ok_value(|(nextdata, (), (), ())| {
                     let parse = FlatTEXTParseData {
                         header_segments: header.segments,
+                        raw_header_segments: header.raw,
                         supp_text: supp_text_seg,
                         nextdata,
                         delimiter: delim,
@@ -1257,6 +1268,8 @@ where
                         non_unique_std_keywords: kws.non_unique_std_keywords,
                         non_unique_nonstd_keywords: kws.non_unique_nonstd_keywords,
                         ignored_standard_keywords: kws.ignored_std_keywords,
+                        keys_with_empty_trimmed_values: kws.keys_with_empty_trimmed_values,
+                        keys_with_trimmed_values: kws.keys_with_trimmed_values,
                         primary_split: prim_out,
                         supp_split: supp_out,
                     };

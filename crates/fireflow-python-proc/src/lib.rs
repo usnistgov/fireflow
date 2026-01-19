@@ -889,6 +889,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     doc.into_impl_class(name, &path, new).1.into()
 }
 
+#[allow(clippy::too_many_lines)]
 #[proc_macro]
 pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
@@ -897,8 +898,15 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let segments = DocArgROIvar::new_ivar_ro(
         "header_segments",
         PyClass::new_py(["api"], "HeaderSegments"),
-        "Segments from *HEADER*.",
+        "Corrected segments from *HEADER*.",
         |_, _| quote!(self.0.header_segments.clone().into()),
+    );
+
+    let raw_segments = DocArgROIvar::new_ivar_ro(
+        "raw_header_segments",
+        PyClass::new_py(["api"], "RawHeaderSegments"),
+        "Uncorrected segments from *HEADER*.",
+        |_, _| quote!(self.0.raw_header_segments.clone().into()),
     );
 
     let supp = DocArgROIvar::new_ivar_ro(
@@ -966,6 +974,20 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.ignored_standard_keywords.clone()),
     );
 
+    let trimmed_empty = DocArgROIvar::new_ivar_ro(
+        "keys_with_empty_trimmed_values",
+        PyList::new1(PyBytes::default()),
+        "Keys with empty values as a result of trimming whitespace.",
+        |_, _| quote!(self.0.keys_with_empty_trimmed_values.clone()),
+    );
+
+    let trimmed = DocArgROIvar::new_ivar_ro(
+        "keys_with_trimmed_values",
+        PyList::new1(PyTuple::new2(vec![PyBytes::default(); 2])),
+        "Keys with values that are not empty after whitespace was trimmed off.",
+        |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
+    );
+
     let primary_split = DocArgROIvar::new_ivar_ro(
         "primary_split",
         PyClass::new_py(["api"], "SplitTEXTOutput"),
@@ -982,6 +1004,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let args = [
         segments,
+        raw_segments,
         supp,
         nextdata,
         delim,
@@ -990,6 +1013,8 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         non_unique_std,
         non_unique_nonstd,
         ignored,
+        trimmed_empty,
+        trimmed,
         primary_split,
         supp_split,
     ];

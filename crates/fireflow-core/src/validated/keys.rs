@@ -140,6 +140,17 @@ pub struct ParsedKeywords {
 
     /// Standard keys which were ignored
     pub ignored_std_keywords: Vec<(StdKey, Vec<u8>)>,
+
+    /// Keys with empty values.
+    ///
+    /// The only way this can happen at this stage is if the value is entirely
+    /// whitespace and is trimmed.
+    pub keys_with_empty_trimmed_values: Vec<Vec<u8>>,
+
+    /// Keys with values that were trimmed
+    ///
+    /// The value included here is the original value.
+    pub keys_with_trimmed_values: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;
@@ -772,12 +783,17 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
-        let check_trim = |trimmed| {
-            if AsRef::<str>::as_ref(&trimmed).is_empty() {
+        let check_trim = |this: &mut Self, trimmed| {
+            let s = AsRef::<str>::as_ref(&trimmed);
+            if s.is_empty() {
+                this.keys_with_empty_trimmed_values.push(k.to_vec());
                 let e = BlankValueError(k.to_vec());
                 SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty_values)
                     .switchable_into_commutative()
             } else {
+                if v.len() < s.len() {
+                    this.keys_with_trimmed_values.push((k.to_vec(), v.to_vec()));
+                }
                 LogResult::new_ok(Some(trimmed))
             }
         };
@@ -790,7 +806,7 @@ impl ParsedKeywords {
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
-                    check_trim(Cow::Owned(trimmed))
+                    check_trim(self, Cow::Owned(trimmed))
                 } else {
                     // ASSUME this will always be a non-empty string since
                     // it is using the value slice inputted to this function
@@ -799,7 +815,7 @@ impl ParsedKeywords {
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
                 if conf.trim_value_whitespace.is_set() {
-                    check_trim(Cow::Borrowed(vv.trim()))
+                    check_trim(self, Cow::Borrowed(vv.trim()))
                 } else {
                     LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }

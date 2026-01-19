@@ -1870,6 +1870,7 @@ class FlatTEXTParseData:
     def __new__(
         cls,
         header_segments: HeaderSegments,
+        raw_header_segments: RawHeaderSegments,
         supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
@@ -1878,12 +1879,16 @@ class FlatTEXTParseData:
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
         ignored_standard_keywords: list[tuple[str, bytes]],
+        keys_with_empty_trimmed_values: list[bytes],
+        keys_with_trimmed_values: list[tuple[bytes, bytes]],
         primary_split: SplitTEXTOutput,
         supp_split: SplitTEXTOutput | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_segments(self) -> HeaderSegments: ...
+    @property
+    def raw_header_segments(self) -> RawHeaderSegments: ...
     @property
     def supp_text(self) -> Segment | None: ...
     @property
@@ -1900,6 +1905,10 @@ class FlatTEXTParseData:
     def non_unique_nonstd_keywords(self) -> list[tuple[str, str]]: ...
     @property
     def ignored_standard_keywords(self) -> list[tuple[str, bytes]]: ...
+    @property
+    def keys_with_empty_trimmed_values(self) -> list[bytes]: ...
+    @property
+    def keys_with_trimmed_values(self) -> list[tuple[bytes, bytes]]: ...
     @property
     def primary_split(self) -> SplitTEXTOutput: ...
     @property

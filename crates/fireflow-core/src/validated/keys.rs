@@ -1,6 +1,7 @@
 use crate::config::{AllowNonunique, ConfigFlag as _, ReadHeaderAndTEXTConfig, UseLatin1};
 use crate::logging::{
-    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
+    DeferredSwitchableError, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult,
 };
 use crate::text::index::IndexFromOne;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
@@ -130,6 +131,15 @@ pub struct ParsedKeywords {
 
     /// Keywords that are not valid UTF-8 strings
     pub byte_pairs: BytesPairs,
+
+    /// Standard keys which appear more than once with their values.
+    pub non_unique_std_keywords: Vec<(StdKey, String)>,
+
+    /// Non-standard keys which appear more than once with their values.
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
+
+    /// Standard keys which were ignored
+    pub ignored_std_keywords: Vec<(StdKey, Vec<u8>)>,
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;
@@ -806,6 +816,7 @@ impl ParsedKeywords {
                 // Standard key: starts with '$', check that remaining chars
                 // are ASCII
                 if ignore.is_match(&kk) {
+                    self.ignored_std_keywords.push((StdKey(kk), v.to_vec()));
                     LogResult::new_ok(())
                 } else {
                     parse_value().and_then_commutative(|maybe_value| {
@@ -813,6 +824,9 @@ impl ParsedKeywords {
                             let res = if to_nonstd.is_match(&kk) {
                                 let vo = value.into_owned();
                                 insert_nonunique(&mut self.nonstd, NonStdKey(kk), vo, conf)
+                                    .map_deferred_value(|pair| {
+                                        self.non_unique_nonstd_keywords.extend(pair)
+                                    })
                             } else {
                                 let rk = renames.get(&kk).cloned().unwrap_or(kk);
                                 let rv = if let Some(s) = subs.get(&rk) {
@@ -821,6 +835,9 @@ impl ParsedKeywords {
                                     value.into_owned()
                                 };
                                 insert_nonunique(&mut self.std, StdKey(rk), rv, conf)
+                                    .map_deferred_value(|pair| {
+                                        self.non_unique_std_keywords.extend(pair)
+                                    })
                             };
                             res.switchable_into_commutative().repack_warnings()
                         } else {
@@ -835,8 +852,14 @@ impl ParsedKeywords {
                     if let Some(value) = maybe_value.map(Cow::into_owned) {
                         let res = if to_std.is_match(&kk) {
                             insert_nonunique(&mut self.std, StdKey(kk), value, conf)
+                                .map_deferred_value(|pair| {
+                                    self.non_unique_std_keywords.extend(pair)
+                                })
                         } else {
                             insert_nonunique(&mut self.nonstd, NonStdKey(kk), value, conf)
+                                .map_deferred_value(|pair| {
+                                    self.non_unique_nonstd_keywords.extend(pair)
+                                })
                         };
                         res.switchable_into_commutative().repack_warnings()
                     } else {
@@ -865,10 +888,15 @@ impl ParsedKeywords {
         new: &HashMap<KeyString, String>,
         flag: AllowNonunique,
     ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
+        // TODO lots of clones
         let es = new
             .iter()
             .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => Some(KeyPresent::new(e.key().clone(), v.clone())),
+                Entry::Occupied(e) => {
+                    self.non_unique_std_keywords
+                        .push((StdKey(k.clone()), v.clone()));
+                    Some(KeyPresent::new(e.key().clone(), v.clone()))
+                }
                 Entry::Vacant(e) => {
                     e.insert(v.clone());
                     None
@@ -1004,7 +1032,7 @@ fn insert_nonunique<K>(
     k: K,
     value: String,
     conf: &ReadHeaderAndTEXTConfig,
-) -> SwitchableErrorResult<(), (), AllowNonunique, KeywordInsertError>
+) -> DeferredSwitchableError<Option<(K, String)>, AllowNonunique, KeywordInsertError>
 where
     K: Hash + Eq + Clone + AsRef<KeyString>,
     KeywordInsertError: From<KeyPresent<K>>,
@@ -1013,8 +1041,11 @@ where
     match kws.entry(k) {
         Entry::Occupied(ent) => {
             let key = ent.key().clone();
-            let err = KeyPresent { key, value };
-            LogResult::new_deferred_switchable((), err.into(), flag)
+            let err = KeyPresent {
+                key: key.clone(),
+                value: value.clone(),
+            };
+            LogResult::new_deferred_switchable(Some((key, value)), err.into(), flag)
         }
         Entry::Vacant(ent) => {
             let v = conf
@@ -1023,7 +1054,7 @@ where
                 .map(ToString::to_string)
                 .unwrap_or(value);
             ent.insert(v);
-            LogResult::new_switchable_ok((), flag)
+            LogResult::new_switchable_ok(None, flag)
         }
     }
 }

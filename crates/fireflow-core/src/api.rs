@@ -1,10 +1,11 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AllowMissingFinalDelim, ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode,
-    DummyFalseErrorFlag, ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, DummyFalseErrorFlag,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdKeywordsConfig, ReadStdTEXTConfig, TruncateOffsets, VersionOverride,
+    ReadStdKeywordsConfig, ReadStdTEXTConfig, TrimTrailingWhitespace, TruncateOffsets,
+    VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -38,8 +39,8 @@ use crate::text::lookup::{
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
-    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, ParsedKeywords,
-    StdKeywords, StdPresent, ValidKeywords,
+    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, NonStdKey,
+    ParsedKeywords, StdKey, StdKeywords, StdPresent, ValidKeywords,
 };
 
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
@@ -531,11 +532,60 @@ pub struct FlatTEXTParseData {
     /// Included here for debugging
     pub byte_pairs: BytesPairs,
 
-    /// `true` if primary TEXT delimiters were escaped
-    pub primary_escaped: bool,
+    /// Standard keys which appear more than once with their values.
+    pub non_unique_std_keywords: Vec<(StdKey, String)>,
 
-    /// `true` if supplemental TEXT delimiters were escaped
-    pub supp_escaped: Option<bool>,
+    /// Nonstandard keys which appear more than once with their values.
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
+
+    /// Ignored standard keys with their values
+    pub ignored_standard_keywords: Vec<(StdKey, Vec<u8>)>,
+
+    /// Output from splitting primary TEXT
+    pub primary_split: SplitTEXTOutput,
+
+    /// Output from splitting supplemental TEXT
+    pub supp_split: Option<SplitTEXTOutput>,
+    // TODO record if whitespace was trimmed from keywords
+}
+
+/// Data pertaining to parsing the TEXT segment.
+#[derive(new, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct SplitTEXTOutput {
+    /// `true` if TEXT delimiters were escaped
+    escaped: bool,
+
+    /// Keys that have blank values.
+    ///
+    /// Only relevant in escaped delimiter mode.
+    keys_with_blank_values: Vec<Vec<u8>>,
+
+    /// Values with blank keys.
+    values_with_blank_keys: Vec<Vec<u8>>,
+
+    /// Tokens with delimiters at their boundaries (without the delimiters).
+    ///
+    /// Only relevant in escaped delimiter mode.
+    tokens_with_boundary_delims: Vec<Vec<u8>>,
+
+    /// Last token if the number of tokens was odd.
+    last_odd_token: Vec<u8>,
+
+    /// `true` if final delimiter was missing
+    missing_final_delim: bool,
+
+    /// Length of trailing whitespace after TEXT in bytes
+    trailing_whitespace_length: usize,
+}
+
+struct SplitTEXTOutputInner {
+    keys_with_blank_values: Vec<Vec<u8>>,
+    values_with_blank_keys: Vec<Vec<u8>>,
+    tokens_with_boundary_delims: Vec<Vec<u8>>,
+    last_odd_token: Vec<u8>,
+    missing_final_delim: bool,
+    trailing_whitespace_length: usize,
 }
 
 /// Summary of an FCS dataset
@@ -1150,9 +1200,9 @@ where
                 .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|escaped| (kws, delim, escaped))
         })
-        .and_then_commutative(|(mut kws, delim, prim_esc)| {
+        .and_then_commutative(|(mut kws, delim, prim_out)| {
             if conf.ignore_supp_text.is_set() {
-                LogResult::new_ok((delim, kws, None, prim_esc, None))
+                LogResult::new_ok((delim, kws, None, prim_out, None))
             } else {
                 lookup_stext_offsets(&kws.std, &header, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
@@ -1166,11 +1216,11 @@ where
                         h_read_flat_supp_text(h, corr_seg, &mut kws, &mut buf, delim, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
-                            .map_ok_value(|supp_esc| (delim, kws, seg, prim_esc, supp_esc))
+                            .map_ok_value(|supp_out| (delim, kws, seg, prim_out, supp_out))
                     })
             }
         })
-        .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_esc, supp_esc)| {
+        .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_out, supp_out)| {
             let nextdata_res = lookup_nextdata(&kws.std, conf)
                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                 .map_errors(ParseFlatTEXTError::from)
@@ -1197,16 +1247,19 @@ where
                 .group()
                 .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|(nextdata, (), (), ())| {
-                    let parse = FlatTEXTParseData::new(
-                        header.segments,
-                        supp_text_seg,
+                    let parse = FlatTEXTParseData {
+                        header_segments: header.segments,
+                        supp_text: supp_text_seg,
                         nextdata,
-                        delim,
-                        kws.non_ascii,
-                        kws.byte_pairs,
-                        prim_esc,
-                        supp_esc,
-                    );
+                        delimiter: delim,
+                        non_ascii: kws.non_ascii,
+                        byte_pairs: kws.byte_pairs,
+                        non_unique_std_keywords: kws.non_unique_std_keywords,
+                        non_unique_nonstd_keywords: kws.non_unique_nonstd_keywords,
+                        ignored_standard_keywords: kws.ignored_std_keywords,
+                        primary_split: prim_out,
+                        supp_split: supp_out,
+                    };
                     FlatTEXTOutput::new(header.version, vkws, parse)
                 })
         })
@@ -1220,7 +1273,7 @@ fn h_read_flat_supp_text<R: Read + Seek>(
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndIOGroupResult<
-    Option<bool>,
+    Option<SplitTEXTOutput>,
     ParseSupplementalTEXTError,
     ParseSupplementalTEXTError,
     (),
@@ -1256,7 +1309,7 @@ fn split_flat_primary_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<bool, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
+) -> WarningsAndErrorsResult<SplitTEXTOutput, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
         LogResult::new_err(NoTEXTWordsError.into())
     } else {
@@ -1270,8 +1323,12 @@ fn split_flat_supp_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<Option<bool>, (), ParseSupplementalTEXTError, ParseSupplementalTEXTError>
-{
+) -> WarningsAndErrorsResult<
+    Option<SplitTEXTOutput>,
+    (),
+    ParseSupplementalTEXTError,
+    ParseSupplementalTEXTError,
+> {
     if let Some((byte0, rest)) = bytes.split_first() {
         let flag = conf.allow_supp_text_own_delim;
         split_flat_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
@@ -1295,14 +1352,14 @@ fn split_flat_text_inner(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<bool, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+) -> WarningsAndErrorsResult<SplitTEXTOutput, (), ParseKeywordsIssue, ParseKeywordsIssue> {
     let escape_res = match conf.delim_escape_mode {
         DelimEscapeMode::Unescaped => Ok(false),
         DelimEscapeMode::Escaped => Ok(true),
         DelimEscapeMode::GuessEscaped => Err(true),
         DelimEscapeMode::GuessUnescaped => Err(false),
     };
-    let escape =
+    let escaped =
         escape_res.unwrap_or_else(
             |default_escape| match guess_delim_escape_mode(delim, bytes) {
                 GuessedEscapeMode::Escaped => true,
@@ -1310,12 +1367,20 @@ fn split_flat_text_inner(
                 GuessedEscapeMode::Ambiguous => default_escape,
             },
         );
-    let res = if escape {
+    let res = if escaped {
         split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
     } else {
         split_flat_text_unescaped_delim(kws, delim, bytes, tk, conf)
     };
-    res.set_ok_value(escape)
+    res.map_ok_value(|inner| SplitTEXTOutput {
+        keys_with_blank_values: inner.keys_with_blank_values,
+        values_with_blank_keys: inner.values_with_blank_keys,
+        tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
+        last_odd_token: inner.last_odd_token,
+        missing_final_delim: inner.missing_final_delim,
+        trailing_whitespace_length: inner.trailing_whitespace_length,
+        escaped,
+    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -1455,12 +1520,14 @@ fn split_flat_text_unescaped_delim(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut blank_keys = vec![];
-    let mut blank_vals = vec![];
+) -> WarningsAndErrorsResult<SplitTEXTOutputInner, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+    let mut keys_with_blank_values = vec![];
+    let mut values_with_blank_keys = vec![];
+    let mut blank_key_errors = vec![];
+    let mut blank_val_errors = vec![];
     let mut insert_results = vec![];
 
-    let mut it = bytes.split(|x| *x == delim);
+    let mut it = bytes.split(|x| *x == delim).peekable();
     let mut prev_was_key = false;
     let mut prev_token: &[u8] = &[];
 
@@ -1471,7 +1538,8 @@ fn split_flat_text_unescaped_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                blank_keys.push(BlankKeyError(tk));
+                values_with_blank_keys.push(value.to_vec());
+                blank_key_errors.push(BlankKeyError(tk));
             } else {
                 // if everything is correct, we should exit here since the
                 // last token will be the blank slice after the final delim
@@ -1481,7 +1549,14 @@ fn split_flat_text_unescaped_delim(
             prev_was_key = false;
             prev_token = value;
             if value.is_empty() {
-                blank_vals.push(BlankValueError(key.to_vec()));
+                // If there is nothing after a blank value this actually means
+                // that TEXT has an odd number of tokens and ends with a
+                // delimiter, and the "value" is the blank after the last
+                // delimiter
+                if it.peek().is_some() {
+                    keys_with_blank_values.push(key.to_vec());
+                    blank_val_errors.push(BlankValueError(key.to_vec()));
+                }
             } else {
                 let e = kws
                     .insert(key, value, conf)
@@ -1498,38 +1573,61 @@ fn split_flat_text_unescaped_delim(
 
     // If last token is all spaces and we want to "trim" them, this will allow
     // us to bypass some errors below since these can be ignored
-    let trim_trailing = prev_token
-        .iter()
-        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
-        && conf.trim_trailing_whitespace.is_set();
+    let (trim_trailing, trailing_whitespace_length) =
+        check_trailing_whitespace(prev_token, conf.trim_trailing_whitespace);
 
     // We should end on a blank, which corresponds to a (not valid) key. If this
     // is not the case, the number of tokens was not even.
     let uneven_ok = prev_was_key || trim_trailing;
+
     // Don't emit this error if we are trimming whitespace off the end, because
     // the "odd token" in that case is entirely whitespace and therefore can be
     // ignored
     let uneven_err = UnevenTokensError(tk).into();
     let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
         .switchable_into_commutative();
+    let last_odd_token = if uneven_ok {
+        Vec::default()
+    } else {
+        prev_token.to_vec()
+    };
 
     // If the last token was not a blank, we did not end on a delimiter.
 
     let delim_flag = conf.allow_missing_final_delim;
     // Don't emit this error if we are trimming whitespace off the end because
     // the thing immediately before the whitespace is a delimiter in this case
-    let final_delim_res = (!trim_trailing)
-        .then(|| check_final_delimiter(prev_token, tk, delim_flag).switchable_into_commutative());
+    let final_delim_err = NonEmpty::from_slice(prev_token)
+        .map(|bs| FinalDelimError::new(tk, bs))
+        .map(ParseKeywordsIssue::from);
+    let missing_final_delim = !trim_trailing && final_delim_err.is_some();
+    let final_delim_res = missing_final_delim.then(|| {
+        LogResult::new_switchable_maybe((), (), final_delim_err, delim_flag)
+            .switchable_into_commutative()
+    });
 
-    let blank_key_res =
-        SwitchableErrorsResult::new_switchable_iter((), (), blank_keys, conf.allow_empty_keys)
-            .map_switchable_errors(ParseKeywordsIssue::from)
-            .switchable_into_commutative();
+    let blank_key_res = SwitchableErrorsResult::new_switchable_iter(
+        (),
+        (),
+        blank_key_errors,
+        conf.allow_empty_keys,
+    )
+    .map_switchable_errors(ParseKeywordsIssue::from)
+    .switchable_into_commutative();
 
     let blank_val_succ = Success::new_non_switchable(())
-        .set_warnings(blank_vals)
+        .set_warnings(blank_val_errors)
         .map_warnings(ParseKeywordsIssue::from);
     let blank_val_res = LogResult::Succ(blank_val_succ);
+
+    let ret = SplitTEXTOutputInner {
+        keys_with_blank_values,
+        values_with_blank_keys,
+        tokens_with_boundary_delims: vec![],
+        last_odd_token,
+        missing_final_delim,
+        trailing_whitespace_length,
+    };
 
     // TODO this is one instance where it could be inefficient to chain together
     // lots of options, which are stack allocated but need to be converted to
@@ -1542,17 +1640,19 @@ fn split_flat_text_unescaped_delim(
         .chain([uneven_res, blank_key_res, blank_val_res])
         .chain(final_delim_res)
         .sequence_def_void()
+        .set_ok_value(ret)
 }
 
+#[allow(clippy::too_many_lines)]
 fn split_flat_text_escaped_delim(
     kws: &mut ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<(), (), ParseKeywordsIssue, ParseKeywordsIssue> {
+) -> WarningsAndErrorsResult<SplitTEXTOutputInner, (), ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut insert_results = vec![];
-    let mut boundary_errors = vec![];
+    let mut tokens_with_boundary_delims = vec![];
 
     let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
         let e = kws
@@ -1581,7 +1681,7 @@ fn split_flat_text_escaped_delim(
         } else {
             if consec_blanks & 1 == 0 {
                 if consec_blanks > 0 {
-                    boundary_errors.push(DelimBoundError::new(segment.to_vec(), tk).into());
+                    tokens_with_boundary_delims.push(segment.to_vec());
                 }
                 // Previous number of delimiters is odd, treat this as a token
                 // boundary
@@ -1614,10 +1714,8 @@ fn split_flat_text_escaped_delim(
 
     // If last token is all spaces and we want to "trim" them, this will allow us
     // to bypass some errors below since these can be ignored
-    let trim_trailing = lastbuf
-        .iter()
-        .all(|c| char::is_ascii_whitespace(&char::from(*c)))
-        && conf.trim_trailing_whitespace.is_set();
+    let (trim_trailing, trailing_whitespace_length) =
+        check_trailing_whitespace(lastbuf, conf.trim_trailing_whitespace);
 
     // If all went perfectly, we should have one consecutive blank at this point
     // since the space between the last delim and the end will show up as a
@@ -1645,7 +1743,7 @@ fn split_flat_text_escaped_delim(
         } else {
             valuebuf.clone()
         };
-        boundary_errors.push(DelimBoundError::new(seg, tk).into());
+        tokens_with_boundary_delims.push(seg);
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
         if consec_blanks & 1 == 1 {
@@ -1653,14 +1751,16 @@ fn split_flat_text_escaped_delim(
         }
     }
 
-    let uneven_err = if valuebuf.is_empty() {
+    let (uneven_err, last_odd_token) = if valuebuf.is_empty() {
         // Don't emit this error if we are trimming whitespace off the end,
         // because the "odd token" in that case is entirely whitespace and
         // therefore can be ignored
-        (!trim_trailing).then_some(UnevenTokensError(tk).into())
+        (!trim_trailing)
+            .then_some((UnevenTokensError(tk).into(), keybuf.clone()))
+            .unzip()
     } else {
         push_pair(&keybuf, &valuebuf);
-        None
+        (None, None)
     };
 
     let uneven_res = LogResult::new_switchable_maybe((), (), uneven_err, conf.allow_odd)
@@ -1674,12 +1774,30 @@ fn split_flat_text_escaped_delim(
         .switchable_into_commutative();
     // Don't emit this error if we are trimming whitespace off the end because
     // the thing immediately before the whitespace is a delimiter in this case
-    let final_delim_res = (!trim_trailing)
-        .then(|| check_final_delimiter(lastbuf, tk, delim_flag).switchable_into_commutative());
+    let final_delim_err = NonEmpty::from_slice(lastbuf)
+        .map(|bs| FinalDelimError::new(tk, bs))
+        .map(ParseKeywordsIssue::from);
+    let missing_final_delim = !trim_trailing && final_delim_err.is_some();
+    let final_delim_res = missing_final_delim.then(|| {
+        LogResult::new_switchable_maybe((), (), final_delim_err, delim_flag)
+            .switchable_into_commutative()
+    });
 
+    let bound_iter = tokens_with_boundary_delims
+        .iter()
+        .map(|token| DelimBoundError::new(token.clone(), tk).into());
     let boundary_res =
-        LogResult::new_switchable_iter((), (), boundary_errors, conf.allow_delim_at_boundary)
+        LogResult::new_switchable_iter((), (), bound_iter, conf.allow_delim_at_boundary)
             .switchable_into_commutative();
+
+    let ret = SplitTEXTOutputInner {
+        keys_with_blank_values: vec![],
+        values_with_blank_keys: vec![],
+        tokens_with_boundary_delims,
+        last_odd_token: last_odd_token.unwrap_or_default(),
+        missing_final_delim,
+        trailing_whitespace_length,
+    };
 
     insert_results
         .into_iter()
@@ -1687,17 +1805,7 @@ fn split_flat_text_escaped_delim(
         .chain([uneven_res, even_delim_res, boundary_res])
         .chain(final_delim_res)
         .sequence_def_void()
-}
-
-fn check_final_delimiter(
-    buf: &[u8],
-    tk: TEXTKind,
-    flag: AllowMissingFinalDelim,
-) -> SwitchableErrorsResult<(), (), AllowMissingFinalDelim, ParseKeywordsIssue> {
-    let e = NonEmpty::from_slice(buf)
-        .map(|bs| FinalDelimError::new(tk, bs))
-        .map(ParseKeywordsIssue::from);
-    LogResult::new_switchable_maybe((), (), e, flag)
+        .set_ok_value(ret)
 }
 
 fn lookup_stext_offsets<C>(
@@ -1790,6 +1898,19 @@ where
             }
         })
     })
+}
+
+fn check_trailing_whitespace(lastbuf: &[u8], flag: TrimTrailingWhitespace) -> (bool, usize) {
+    let has_trailing_whitespace = lastbuf
+        .iter()
+        .all(|c| char::is_ascii_whitespace(&char::from(*c)));
+    let trim_trailing = has_trailing_whitespace && flag.is_set();
+    let len = if has_trailing_whitespace {
+        lastbuf.len()
+    } else {
+        0
+    };
+    (trim_trailing, len)
 }
 
 fn lookup_nextdata(

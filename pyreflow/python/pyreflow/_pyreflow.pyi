@@ -1824,19 +1824,25 @@ class DatasetSegments:
         cls,
         data_seg: Segment,
         analysis_seg: Segment,
+        data_seg_raw: Segment | None,
+        analysis_seg_raw: Segment | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def data_seg(self) -> Segment: ...
     @property
     def analysis_seg(self) -> Segment: ...
+    @property
+    def data_seg_raw(self) -> Segment | None: ...
+    @property
+    def analysis_seg_raw(self) -> Segment | None: ...
 
 @final
 class FlatTEXTParseData:
     def __new__(
         cls,
         header_segments: HeaderSegments,
-        supp_text: Segment | None,
+        supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
         non_ascii: list[tuple[str, str]],

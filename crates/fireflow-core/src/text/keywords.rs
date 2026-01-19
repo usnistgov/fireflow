@@ -3484,7 +3484,8 @@ opt_meta!(Nextdata, Option<Self>);
 macro_rules! kw_offset {
     ($(#[$attr:meta])* $t:ident, $key:expr) => {
         $(#[$attr])*
-        #[derive(Display, From, Into, FromStr, Debug)]
+        #[derive(Display, From, Into, FromStr, Debug, Clone, Copy)]
+        #[into(u64, i128, UintZeroPad20)]
         pub struct $t(pub UintZeroPad20);
 
         kw_req_meta!($t, $key);

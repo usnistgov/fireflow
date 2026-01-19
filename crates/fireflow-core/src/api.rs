@@ -26,8 +26,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
-    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
-    SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
+    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RawSegment, RelativeSegment,
+    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords, Nextdata, Tot,
@@ -502,11 +502,11 @@ pub struct FlatTEXTParseData {
     /// Offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,
 
-    /// Supplemental TEXT offsets
+    /// Supplemental TEXT offsets (corrected and raw)
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
-    pub supp_text: Option<SupplementalTextSegment>,
+    pub supp_text: Option<(SupplementalTextSegment, RawSegment)>,
 
     /// NEXTDATA offset
     ///
@@ -1162,7 +1162,8 @@ where
                     .set_err_value(())
                     .and_then_commutative(|seg| {
                         buf.clear();
-                        h_read_flat_supp_text(h, seg.as_ref(), &mut kws, &mut buf, delim, conf)
+                        let corr_seg = seg.as_ref().map(|(c, _)| c);
+                        h_read_flat_supp_text(h, corr_seg, &mut kws, &mut buf, delim, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
                             .map_ok_value(|supp_esc| (delim, kws, seg, prim_esc, supp_esc))
@@ -1704,7 +1705,7 @@ fn lookup_stext_offsets<C>(
     header: &Header,
     st: &ReadState<C>,
 ) -> DeferredWarningsAndErrors<
-    Option<SupplementalTextSegment>,
+    Option<(SupplementalTextSegment, RawSegment)>,
     STextSegmentWarning,
     STextSegmentError,
 >
@@ -1771,14 +1772,14 @@ where
         }
     };
     res.and_then_deferred(|x| {
-        x.map_or(LogResult::new_ok(None), |seg| {
+        x.map_or(LogResult::new_ok(None), |(seg, raw)| {
             if let Some(flag) =
                 Option::<DummyFalseErrorFlag<_>>::from(conf.allow_overlapping_supp_text)
             {
                 header
                     .segments
                     .validate_text(&seg, conf.header.other_width)
-                    .set_ok_value(Some(seg))
+                    .set_ok_value(Some((seg, raw)))
                     .set_err_value(None)
                     .nowarn_into_switchable(flag)
                     .map_switchable_errors(STextSegmentError::from)
@@ -1851,7 +1852,7 @@ impl FlatTEXTParseData {
             hs.data,
             hs.analysis,
             &hs.other[..],
-            self.supp_text.as_ref().copied(),
+            self.supp_text.as_ref().copied().map(|(c, _)| c),
         )
     }
 }

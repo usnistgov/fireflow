@@ -186,14 +186,14 @@ pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
 pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
-    AnySegment<T>,
+    (AnySegment<T>, Option<RawSegment>),
     (),
     ReqSegmentWithDefaultWarning<T>,
     ReqSegmentWithDefaultError<T>,
 >;
 
 pub(crate) type OptSegTentative<T> = DeferredWarningsAndErrors<
-    AnySegment<T>,
+    (AnySegment<T>, Option<RawSegment>),
     OptSegmentWithDefaultWarning<T>,
     OptSegmentWithDefaultWarning<T>,
 >;
@@ -309,7 +309,7 @@ where
         pair: ReqPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
-        Segment<Self, SegmentFromTEXT, UintZeroPad20>,
+        (Segment<Self, SegmentFromTEXT, UintZeroPad20>, RawSegment),
         (
             ReqSegmentError<Self::B, Self::E>,
             Option<ReqSegmentError<Self::B, Self::E>>,
@@ -317,11 +317,16 @@ where
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
                 let new_conf = Self::segment_conf(st);
+                let raw = RawSegment::new(i128::from(x0), i128::from(x1));
                 Segment::try_new(x0, x1, &new_conf)
+                    .map(|x| (x, raw))
                     .map_err(ReqSegmentError::Segment)
                     .map_err(|e| (e, None))
             }
@@ -365,11 +370,14 @@ where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig>,
         ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
-            LogResult::new_ok(default.into_any())
+            LogResult::new_ok((default.into_any(), None))
         } else {
             let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
@@ -385,6 +393,9 @@ where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig>,
         ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         // if we want to totally ignore the TEXT offsets, just blindly remove
         // them so we don't trigger any pseudostandard false positives later and
@@ -393,7 +404,7 @@ where
         if ignore_flag.is_set() {
             let _ = Self::remove_req_pair(kws);
             let default: &HeaderSegment<Self> = segs.as_ref();
-            LogResult::new_ok(default.into_any())
+            LogResult::new_ok((default.into_any(), None))
         } else {
             let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
@@ -411,6 +422,9 @@ where
             + AsRef<AllowMissingRequiredOffsets>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
@@ -418,7 +432,7 @@ where
         let missing_flag: &AllowMissingRequiredOffsets = st.conf.as_ref();
 
         match Self::with_req_pair(pair, st) {
-            Ok(text_seg) => {
+            Ok((text_seg, raw)) => {
                 let val_res = segs
                     .validate::<_, Self::OtherDataId>(&text_seg)
                     .nowarn_into_switchable(*missing_flag)
@@ -432,7 +446,7 @@ where
                 val_res
                     .zip_commutative(mismatch_res)
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .map_ok_value(|((), ret)| ret)
+                    .map_ok_value(|((), ret)| (ret, Some(raw)))
             }
             Err((e0, e1)) => {
                 let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
@@ -440,7 +454,7 @@ where
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .set_ok_value(header_seg);
+                    .set_ok_value((header_seg, None));
                 let w = SegmentDefaultWarning::default().into();
                 res.eval_warning(|_| Some(w));
                 res
@@ -460,7 +474,7 @@ where
         pair: OptPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
-        Option<Segment<Self, SegmentFromTEXT, UintZeroPad20>>,
+        Option<(Segment<Self, SegmentFromTEXT, UintZeroPad20>, RawSegment)>,
         (
             OptSegmentError<Self::B, Self::E>,
             Option<OptSegmentError<Self::B, Self::E>>,
@@ -468,12 +482,18 @@ where
     >
     where
         C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
                 let new_conf = Self::segment_conf(st);
                 x0.zip(x1)
-                    .map(|(y0, y1)| Segment::try_new(y0, y1, &new_conf))
+                    .map(|(y0, y1)| {
+                        let raw = RawSegment::new(i128::from(y0), i128::from(y1));
+                        Segment::try_new(y0, y1, &new_conf).map(|x| (x, raw))
+                    })
                     .transpose()
                     .map_err(OptSegmentError::Segment)
                     .map_err(|e| (e, None))
@@ -518,11 +538,14 @@ where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig>,
         ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
-            LogResult::new_ok(default.into_any())
+            LogResult::new_ok((default.into_any(), None))
         } else {
             let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::get_opt_pair(kws);
@@ -539,12 +562,15 @@ where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig>,
         ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
         if ignore_flag.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             let _ = Self::remove_opt_pair(kws);
-            LogResult::new_ok(default.into_any())
+            LogResult::new_ok((default.into_any(), None))
         } else {
             let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::remove_opt_pair(kws);
@@ -562,6 +588,9 @@ where
         C: AsRef<AllowHeaderTEXTOffsetMismatch>
             + AsRef<TruncateOffsets>
             + AsRef<TEXTCorrection<Self>>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
     {
         let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
@@ -571,8 +600,8 @@ where
 
         match Self::with_opt_pair(pair, st) {
             Ok(ts) => match ts {
-                None => LogResult::new_ok(header_seg),
-                Some(text_seg) => {
+                None => LogResult::new_ok((header_seg, None)),
+                Some((text_seg, raw)) => {
                     let val_res = segs
                         .validate::<_, Self::OtherDataId>(&text_seg)
                         .nowarn_into_switchable(drop_flag)
@@ -586,11 +615,11 @@ where
                     )
                     .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                     .switchable_into_commutative();
-                    val_res.lift_f2_once(mismatch_res, |(), ret| ret)
+                    val_res.lift_f2_once(mismatch_res, |(), ret| (ret, Some(raw)))
                 }
             },
             Err((e0, e1)) => {
-                SwitchableErrorsResult::new_deferred_switchable(header_seg, e0, drop_flag)
+                SwitchableErrorsResult::new_deferred_switchable((header_seg, None), e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
                     .map_switchable_errors(OptSegmentError::from)
                     .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)

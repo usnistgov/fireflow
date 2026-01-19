@@ -32,8 +32,8 @@ use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId,
-    PrimaryTextSegment, RelativeSegment, RelativeToAbsSegmentError, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    PrimaryTextSegment, RawSegment, RelativeSegment, RelativeToAbsSegmentError,
+    ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -1323,6 +1323,12 @@ pub struct DatasetSegments {
 
     /// offsets used to parse ANALYSIS
     pub analysis: AnyAnalysisSegment,
+
+    /// Raw offsets for DATA if from TEXT
+    pub data_raw: Option<RawSegment>,
+
+    /// Raw offsets for ANALYSIS if from TEXT
+    pub analysis_raw: Option<RawSegment>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -7762,7 +7768,12 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
+                let s = DatasetSegments::new(
+                    segs.data.into_any(),
+                    segs.analysis.into_any(),
+                    None,
+                    None,
+                );
                 TEXTOffsets::new(s, tot).into()
             });
         LogResult::Succ(succ)
@@ -7780,7 +7791,12 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
+                let s = DatasetSegments::new(
+                    segs.data.into_any(),
+                    segs.analysis.into_any(),
+                    None,
+                    None,
+                );
                 TEXTOffsets::new(s, tot).into()
             });
         LogResult::Succ(succ)
@@ -7818,7 +7834,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn lookup_ro<C>(
@@ -7840,7 +7858,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn tot(&self) -> Self::TotDef {
@@ -7875,7 +7895,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn lookup_ro<C>(
@@ -7897,7 +7919,9 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn tot(&self) -> Self::TotDef {

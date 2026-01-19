@@ -595,11 +595,11 @@ pub fn impl_py_raw_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_raw_seg_param("text_seg", "TEXT", SegmentSrc::Header)
+    let text = DocArg::new_raw_seg_param("text_seg", "TEXT", RawSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_raw_seg_param("data_seg", "DATA", SegmentSrc::Header)
+    let data = DocArg::new_raw_seg_param("data_seg", "DATA", RawSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_raw_seg_param("analysis_seg", "ANALYSIS", SegmentSrc::Header)
+    let analysis = DocArg::new_raw_seg_param("analysis_seg", "ANALYSIS", RawSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
@@ -775,14 +775,19 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
     let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
         .into_ro(|_, _| quote!(self.0.analysis));
+    let data_raw = DocArg::new_raw_seg_param("data_seg_raw", "DATA", RawSegmentSrc::Text)
+        .into_ro(|_, _| quote!(self.0.data_raw));
+    let analysis_raw =
+        DocArg::new_raw_seg_param("analysis_seg_raw", "ANALYSIS", RawSegmentSrc::Text)
+            .into_ro(|_, _| quote!(self.0.analysis_raw));
 
-    let doc =
-        DocString::new_class("Segments used to parse *DATA* and *ANALYSIS*").args([data, analysis]);
+    let args = [data, analysis, data_raw, analysis_raw];
+    let doc = DocString::new_class("Segments used to parse *DATA* and *ANALYSIS*").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(data_seg, analysis_seg).into()
+                #path::new(data_seg, analysis_seg, data_seg_raw, analysis_seg_raw).into()
             }
         }
     };
@@ -898,8 +903,8 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
-        PyOpt::new(PyTuple::new_supp_text_segment()),
-        "Supplemental *TEXT* offsets if given.",
+        PyOpt::new(PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_raw_segment())),
+        "Supplemental *TEXT* offsets if given (corrected and uncorrected).",
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
     );
 
@@ -4247,8 +4252,14 @@ struct SelfArg;
 #[derive(Clone, Copy)]
 enum SegmentSrc {
     Header,
-    // Text,
     Any,
+}
+
+/// The origin of a raw segment
+#[derive(Clone, Copy)]
+enum RawSegmentSrc {
+    Header,
+    Text,
 }
 
 /// Any python argument documentation type
@@ -6081,7 +6092,6 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_data_segment(src: SegmentSrc) -> Self {
         let id = match src {
             SegmentSrc::Header => "HeaderDataSegment",
-            // SegmentSrc::Text => "TextDataSegment",
             SegmentSrc::Any => "AnyDataSegment",
         };
         Self::new_segment(id)
@@ -6090,7 +6100,6 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_analysis_segment(src: SegmentSrc) -> Self {
         let id = match src {
             SegmentSrc::Header => "HeaderAnalysisSegment",
-            // SegmentSrc::Text => "TextAnalysisSegment",
             SegmentSrc::Any => "AnyAnalysisSegment",
         };
         Self::new_segment(id)
@@ -7123,9 +7132,18 @@ impl DocArgParam {
         Self::new_param("parse", PyClass::new_py(["api"], "FlatTEXTParseData"), desc)
     }
 
-    fn new_raw_seg_param(argname: &str, which: impl fmt::Display, src: SegmentSrc) -> Self {
-        let desc = format!("The uncorrected *{which}* segment from {src}.");
-        Self::new_param(argname, PyTuple::new_raw_segment(), desc)
+    fn new_raw_seg_param(argname: &str, which: impl fmt::Display, src: RawSegmentSrc) -> Self {
+        let optional = matches!(src, RawSegmentSrc::Text);
+        let (pt, end) = if optional {
+            (
+                PyType::from(PyOpt::new(PyTuple::new_raw_segment())),
+                " (if found)",
+            )
+        } else {
+            (PyTuple::new_raw_segment().into(), "")
+        };
+        let desc = format!("The uncorrected *{which}* segment from {src}{end}.");
+        Self::new_param(argname, pt, desc)
     }
 
     fn new_text_seg_param() -> Self {
@@ -8724,8 +8742,17 @@ impl fmt::Display for SegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::Header => "*HEADER*",
-            // Self::Text => "*TEXT*",
             Self::Any => "*HEADER* or *TEXT*",
+        };
+        f.write_str(s)
+    }
+}
+
+impl fmt::Display for RawSegmentSrc {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Header => "*HEADER*",
+            Self::Text => "*TEXT*",
         };
         f.write_str(s)
     }

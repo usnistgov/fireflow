@@ -139,18 +139,18 @@ pub struct ParsedKeywords {
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
 
     /// Standard keys which were ignored
-    pub ignored_std_keywords: Vec<(StdKey, Vec<u8>)>,
+    pub ignored_std_keywords: Vec<(StdKey, StringOrBytes)>,
 
     /// Keys with empty values.
     ///
     /// The only way this can happen at this stage is if the value is entirely
     /// whitespace and is trimmed.
-    pub keys_with_empty_trimmed_values: Vec<Vec<u8>>,
+    pub keys_with_empty_trimmed_values: Vec<StringOrBytes>,
 
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(Vec<u8>, Vec<u8>)>,
+    pub keys_with_trimmed_values: Vec<(StringOrBytes, StringOrBytes)>,
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;
@@ -191,6 +191,45 @@ pub struct CaseInsRegex(Regex);
 pub(crate) struct KeyMatcher<'a, T> {
     literal: HashMap<&'a KeyString, T>,
     pattern: Vec<(&'a CaseInsRegex, T)>,
+}
+
+/// A bytestring which is either a Utf8 string or a non-Utf8 byte sequence.
+#[derive(Clone, Display, PartialEq, Debug)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum StringOrBytes {
+    #[display("{_0}")]
+    Utf8(String),
+    #[display("[{}]", _0.iter().join(","))]
+    Bytes(Vec<u8>),
+}
+
+impl Default for StringOrBytes {
+    fn default() -> Self {
+        Self::Utf8(String::new())
+    }
+}
+
+impl From<Vec<u8>> for StringOrBytes {
+    fn from(value: Vec<u8>) -> Self {
+        match String::from_utf8(value) {
+            Ok(s) => Self::Utf8(s),
+            Err(e) => Self::Bytes(e.into_bytes()),
+        }
+    }
+}
+
+impl StringOrBytes {
+    pub(crate) fn desc(&self) -> &'static str {
+        match self {
+            Self::Bytes(_) => "byte sequence",
+            Self::Utf8(_) => "string",
+        }
+    }
+
+    pub(crate) fn full(&self) -> String {
+        format!("{} {}", self.desc(), self)
+    }
 }
 
 /// A [`StdKey`] without an index
@@ -786,13 +825,14 @@ impl ParsedKeywords {
         let check_trim = |this: &mut Self, trimmed| {
             let s = AsRef::<str>::as_ref(&trimmed);
             if s.is_empty() {
-                this.keys_with_empty_trimmed_values.push(k.to_vec());
+                this.keys_with_empty_trimmed_values.push(k.to_vec().into());
                 let e = BlankValueError(k.to_vec());
                 SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty_values)
                     .switchable_into_commutative()
             } else {
                 if v.len() < s.len() {
-                    this.keys_with_trimmed_values.push((k.to_vec(), v.to_vec()));
+                    let pair = (k.to_vec().into(), v.to_vec().into());
+                    this.keys_with_trimmed_values.push(pair);
                 }
                 LogResult::new_ok(Some(trimmed))
             }
@@ -832,7 +872,8 @@ impl ParsedKeywords {
                 // Standard key: starts with '$', check that remaining chars
                 // are ASCII
                 if ignore.is_match(&kk) {
-                    self.ignored_std_keywords.push((StdKey(kk), v.to_vec()));
+                    let pair = (StdKey(kk), v.to_vec().into());
+                    self.ignored_std_keywords.push(pair);
                     LogResult::new_ok(())
                 } else {
                     parse_value().and_then_commutative(|maybe_value| {

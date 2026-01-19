@@ -968,7 +968,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         "ignored_standard_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyBytes::default().into(),
+            PyUnion::new_string_or_bytes().into(),
         ])),
         "Standard keys which were ignored by the user.",
         |_, _| quote!(self.0.ignored_standard_keywords.clone()),
@@ -976,14 +976,14 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let trimmed_empty = DocArgROIvar::new_ivar_ro(
         "keys_with_empty_trimmed_values",
-        PyList::new1(PyBytes::default()),
+        PyList::new1(PyUnion::new_string_or_bytes()),
         "Keys with empty values as a result of trimming whitespace.",
         |_, _| quote!(self.0.keys_with_empty_trimmed_values.clone()),
     );
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
-        PyList::new1(PyTuple::new2(vec![PyBytes::default(); 2])),
+        PyList::new1(PyTuple::new2(vec![PyUnion::new_string_or_bytes(); 2])),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
     );
@@ -1046,28 +1046,28 @@ pub fn impl_py_split_text_output(input: TokenStream) -> TokenStream {
 
     let keys_with_blank_values = DocArgROIvar::new_ivar_ro(
         "keys_with_blank_values",
-        PyList::new1(PyBytes::default()),
+        PyList::new1(PyUnion::new_string_or_bytes()),
         "Keys which have blank values (relatively common).",
         |_, _| quote!(self.0.keys_with_blank_values.clone()),
     );
 
     let values_with_blank_keys = DocArgROIvar::new_ivar_ro(
         "values_with_blank_keys",
-        PyList::new1(PyBytes::default()),
+        PyList::new1(PyUnion::new_string_or_bytes()),
         "Values which have blank keys (relatively rare).",
         |_, _| quote!(self.0.values_with_blank_keys.clone()),
     );
 
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
         "tokens_with_boundary_delims",
-        PyList::new1(PyBytes::default()),
+        PyList::new1(PyUnion::new_string_or_bytes()),
         "Tokens (keys or values) which have delimiters at their boundary.",
         |_, _| quote!(self.0.tokens_with_boundary_delims.clone()),
     );
 
     let last_odd_token = DocArgROIvar::new_ivar_ro(
         "last_odd_token",
-        PyBytes::default(),
+        PyUnion::new_string_or_bytes(),
         "Last token if the number of tokens is odd (empty if not present).",
         |_, _| quote!(self.0.last_odd_token.clone()),
     );
@@ -6380,6 +6380,11 @@ impl<E: From<PyException>> PyUnion<E> {
             ALL_VERSIONS.into_iter().map(PyClass::new_coredataset),
             parse_quote!(PyAnyCoreDataset),
         )
+    }
+
+    fn new_string_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
+        Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 }
 

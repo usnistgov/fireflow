@@ -40,7 +40,7 @@ use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, NonStdKey,
-    ParsedKeywords, StdKey, StdKeywords, StdPresent, ValidKeywords,
+    ParsedKeywords, StdKey, StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
 };
 
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
@@ -542,15 +542,15 @@ pub struct FlatTEXTParseData {
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
 
     /// Ignored standard keys with their values
-    pub ignored_standard_keywords: Vec<(StdKey, Vec<u8>)>,
+    pub ignored_standard_keywords: Vec<(StdKey, StringOrBytes)>,
 
     /// Keys with empty values as a result of trimming whitespace.
-    pub keys_with_empty_trimmed_values: Vec<Vec<u8>>,
+    pub keys_with_empty_trimmed_values: Vec<StringOrBytes>,
 
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(Vec<u8>, Vec<u8>)>,
+    pub keys_with_trimmed_values: Vec<(StringOrBytes, StringOrBytes)>,
 
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTOutput,
@@ -569,18 +569,18 @@ pub struct SplitTEXTOutput {
     /// Keys that have blank values.
     ///
     /// Only relevant in escaped delimiter mode.
-    pub keys_with_blank_values: Vec<Vec<u8>>,
+    pub keys_with_blank_values: Vec<StringOrBytes>,
 
     /// Values with blank keys.
-    pub values_with_blank_keys: Vec<Vec<u8>>,
+    pub values_with_blank_keys: Vec<StringOrBytes>,
 
     /// Tokens with delimiters at their boundaries (without the delimiters).
     ///
     /// Only relevant in escaped delimiter mode.
-    pub tokens_with_boundary_delims: Vec<Vec<u8>>,
+    pub tokens_with_boundary_delims: Vec<StringOrBytes>,
 
     /// Last token if the number of tokens was odd.
-    pub last_odd_token: Vec<u8>,
+    pub last_odd_token: StringOrBytes,
 
     /// `true` if final delimiter was missing
     pub missing_final_delim: bool,
@@ -590,10 +590,10 @@ pub struct SplitTEXTOutput {
 }
 
 struct SplitTEXTOutputInner {
-    keys_with_blank_values: Vec<Vec<u8>>,
-    values_with_blank_keys: Vec<Vec<u8>>,
-    tokens_with_boundary_delims: Vec<Vec<u8>>,
-    last_odd_token: Vec<u8>,
+    keys_with_blank_values: Vec<StringOrBytes>,
+    values_with_blank_keys: Vec<StringOrBytes>,
+    tokens_with_boundary_delims: Vec<StringOrBytes>,
+    last_odd_token: StringOrBytes,
     missing_final_delim: bool,
     trailing_whitespace_length: usize,
 }
@@ -947,21 +947,17 @@ pub struct EvenFinalDelimError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimBoundError {
-    bytes: Vec<u8>,
+    bytes: StringOrBytes,
     kind: TEXTKind,
 }
 
 impl fmt::Display for DelimBoundError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let seq = if let Ok(s) = str::from_utf8(&self.bytes) {
-            format!("string '{s}'")
-        } else {
-            format!("byte sequence {:?}", self.bytes)
-        };
         write!(
             f,
             "escaped delimiter encountered before unescaped delimiter and \
-             after {seq} in {} TEXT",
+             after {} in {} TEXT",
+            self.bytes.full(),
             self.kind
         )
     }
@@ -1551,7 +1547,7 @@ fn split_flat_text_unescaped_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                values_with_blank_keys.push(value.to_vec());
+                values_with_blank_keys.push(value.to_vec().into());
                 blank_key_errors.push(BlankKeyError(tk));
             } else {
                 // if everything is correct, we should exit here since the
@@ -1567,7 +1563,8 @@ fn split_flat_text_unescaped_delim(
                 // delimiter, and the "value" is the blank after the last
                 // delimiter
                 if it.peek().is_some() {
-                    keys_with_blank_values.push(key.to_vec());
+                    keys_with_blank_values.push(key.to_vec().into());
+                    // TODO collect these errors from the blank key buffer in prev line
                     blank_val_errors.push(BlankValueError(key.to_vec()));
                 }
             } else {
@@ -1600,9 +1597,9 @@ fn split_flat_text_unescaped_delim(
     let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
         .switchable_into_commutative();
     let last_odd_token = if uneven_ok {
-        Vec::default()
+        StringOrBytes::default()
     } else {
-        prev_token.to_vec()
+        prev_token.to_vec().into()
     };
 
     // If the last token was not a blank, we did not end on a delimiter.
@@ -1694,7 +1691,8 @@ fn split_flat_text_escaped_delim(
         } else {
             if consec_blanks & 1 == 0 {
                 if consec_blanks > 0 {
-                    tokens_with_boundary_delims.push(segment.to_vec());
+                    let seg = StringOrBytes::from(segment.to_vec());
+                    tokens_with_boundary_delims.push(seg);
                 }
                 // Previous number of delimiters is odd, treat this as a token
                 // boundary
@@ -1756,7 +1754,7 @@ fn split_flat_text_escaped_delim(
         } else {
             valuebuf.clone()
         };
-        tokens_with_boundary_delims.push(seg);
+        tokens_with_boundary_delims.push(StringOrBytes::from(seg));
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
         if consec_blanks & 1 == 1 {
@@ -1769,7 +1767,7 @@ fn split_flat_text_escaped_delim(
         // because the "odd token" in that case is entirely whitespace and
         // therefore can be ignored
         (!trim_trailing)
-            .then_some((UnevenTokensError(tk).into(), keybuf.clone()))
+            .then_some((UnevenTokensError(tk).into(), keybuf.clone().into()))
             .unzip()
     } else {
         push_pair(&keybuf, &valuebuf);

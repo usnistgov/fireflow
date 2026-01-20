@@ -58,7 +58,7 @@ use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
-    AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
+    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
 };
@@ -104,8 +104,8 @@ use fireflow_python_proc::{
     impl_py_dataset_summary, impl_py_extra_std_keywords, impl_py_flat_dataset_output,
     impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output, impl_py_flat_text_parse_data,
     impl_py_header, impl_py_header_segments, impl_py_raw_header_segments,
-    impl_py_split_text_output, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
-    impl_py_std_text_output, impl_py_valid_keywords,
+    impl_py_read_events_output, impl_py_split_text_output, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -137,6 +137,7 @@ impl_py_flat_dataset_output!(api::FlatDatasetOutput);
 impl_py_flat_text_parse_data!(api::FlatTEXTParseData);
 impl_py_split_text_output!(api::SplitTEXTOutput);
 impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
+impl_py_read_events_output!(data::ReadEventsOutput);
 
 impl_py_std_text_output!(api::StdTEXTOutput);
 impl_py_std_dataset_output!(api::StdDatasetOutput);

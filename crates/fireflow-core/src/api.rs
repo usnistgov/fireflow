@@ -13,6 +13,7 @@ use crate::core::{
     StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
+use crate::data::ReadEventsOutput;
 use crate::header::{
     GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError,
     RawHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -95,7 +96,7 @@ pub fn fcs_read_flat_text(
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
-    read_fcs_flat_text_inner(path, dataset_offset, conf)
+    read_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
         .warnings_to_pure_errors(&conf.shared, HeaderOrFlatTextError::from)
         .deanonymize()
@@ -113,7 +114,7 @@ pub fn fcs_read_std_text(
     StdTEXTError,
     StdTEXTSummary,
 > {
-    read_fcs_flat_text_inner(path, dataset_offset, conf)
+    read_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, st)| (x, st))
         .map_commutative_warnings(StdTEXTWarning::from)
         .map_pure_errors(StdTEXTError::from)
@@ -140,7 +141,7 @@ pub fn fcs_read_flat_dataset(
     FlatDatasetError,
     FlatDatasetSummary,
 > {
-    read_fcs_flat_text_inner(path, dataset_offset, conf)
+    read_flat_text_inner(path, dataset_offset, conf)
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(mut flat, h, st)| {
@@ -177,7 +178,7 @@ pub fn fcs_read_std_dataset(
     StdDatasetError,
     StdDatasetSummary,
 > {
-    read_fcs_flat_text_inner(path, dataset_offset, conf)
+    read_flat_text_inner(path, dataset_offset, conf)
         .map_commutative_warnings(StdDatasetWarning::from)
         .map_pure_errors(StdDatasetError::from)
         .and_then_commutative(|(flat, mut h, st)| {
@@ -493,6 +494,9 @@ pub struct FlatDatasetWithKwsOutput {
 
     /// Offsets used to parse DATA and ANALYSIS
     pub dataset_segments: DatasetSegments,
+
+    /// Diagnostic output from parsing DATA segment
+    pub events_output: ReadEventsOutput,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -995,7 +999,7 @@ impl fmt::Display for NonUtf8KeywordError {
 }
 
 #[allow(clippy::type_complexity)]
-fn read_fcs_flat_text_inner<C>(
+fn read_flat_text_inner<C>(
     p: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: C,
@@ -1039,11 +1043,17 @@ where
 {
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
-        .and_then_commutative(|(data, analysis, dataset_segments)| {
+        .and_then_commutative(|(data, analysis, dataset_segments, event_out)| {
             OthersReader::new(segs.other)
                 .h_read(h)
                 .map(|others| {
-                    FlatDatasetWithKwsOutput::new(data, analysis, others, dataset_segments)
+                    FlatDatasetWithKwsOutput::new(
+                        data,
+                        analysis,
+                        others,
+                        dataset_segments,
+                        event_out,
+                    )
                 })
                 .map_err(IOErrorGroup::from)
                 .into_log()
@@ -1136,7 +1146,7 @@ fn kws_to_df_analysis<C, R>(
     segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (FCSDataFrame, Analysis, DatasetSegments),
+    (FCSDataFrame, Analysis, DatasetSegments, ReadEventsOutput),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),

@@ -13,7 +13,7 @@ use crate::data::{
     IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
     LayoutOps as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
     MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
-    ScaleDatatypeMismatchError, VersionedDataLayout,
+    ReadEventsOutput, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1,
@@ -1305,13 +1305,15 @@ pub struct OthersReader<'a> {
 
 /// Output of using keywords to read standardized TEXT+DATA
 #[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetWithKwsOutput {
     /// DATA+ANALYSIS
     pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
     pub extra: ExtraStdKeywords,
+
+    /// Diagnostic output from parsing DATA segment
+    pub events_output: ReadEventsOutput,
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
@@ -1444,7 +1446,7 @@ pub(crate) trait PrivVersioned: Versioned {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, Analysis, DatasetSegments),
+        (FCSDataFrame, Analysis, DatasetSegments, ReadEventsOutput),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -1477,9 +1479,9 @@ pub(crate) trait PrivVersioned: Versioned {
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                    .and_then_commutative(|d| {
+                    .and_then_commutative(|(df, event_out)| {
                         ar.h_read(h)
-                            .map(|a| (d, a, *dataset_segs))
+                            .map(|a| (df, a, *dataset_segs, event_out))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -4736,7 +4738,6 @@ where
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
-                let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 let or = OthersReader::new(segs.other);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
@@ -4744,11 +4745,13 @@ where
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .and_then_commutative(|data| {
+                    .and_then_commutative(|(data, event_out)| {
                         ar.h_read(h)
                             .and_then(|analysis| {
                                 let others = or.h_read(h)?;
                                 let c = text.into_coredataset_unchecked(data, analysis, others);
+                                let out =
+                                    StdDatasetWithKwsOutput::new(*dataset_segs, extra, event_out);
                                 Ok((c, out))
                             })
                             .map_err(IOErrorGroup::from)

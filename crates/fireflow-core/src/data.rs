@@ -377,6 +377,40 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<Nothing<NumType>>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
+/// Diagnostic output from reading DATA segment
+#[derive(Clone, PartialEq, Default, new)]
+pub struct ReadEventsOutput {
+    /// The width of one event in bytes (if not ASCII delimited).
+    pub event_width: Option<u64>,
+
+    /// The remainder after dividing length of DATA by event width.
+    ///
+    /// For well-formed files, this should be zero.
+    ///
+    /// Will be [`Option::None`] for delimited ASCII layouts.
+    pub event_data_remainder: Option<u64>,
+
+    /// `true` if $TOT does not match the number of events computed via event width.
+    ///
+    /// [`Option::None`] if $TOT is missing (FCS 2.0) or the layout is ASCII
+    /// delimited and there is no event width.
+    pub tot_event_mismatch: Option<bool>,
+
+    /// Columns for which at least one event was truncated to fit $PnR.
+    ///
+    /// Length of vector will be equal to $PAR. If truncation event is found,
+    /// the index in the vector corresponding to the column will contain the
+    /// row number, otherwise [`Option::None`].
+    pub truncated_columns: Vec<Option<usize>>,
+}
+
+#[derive(new)]
+struct ComputedRowsResult {
+    total_events: u64,
+    event_width: u64,
+    remainder: u64,
+}
+
 /// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
     fn lookup_datatype(
@@ -470,12 +504,12 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Self,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
+    ) -> SwitchableErrorResult<Option<bool>, (), AllowTotMismatch, TotEventMismatchError> {
         Self::with_tot(
             (),
             tot,
-            |(), t| Self::check_tot_inner(total_events, t, flag),
-            |()| LogResult::new_switchable_ok((), flag),
+            |(), t| Self::check_tot_inner(total_events, t, flag).map_ok_value(Some),
+            |()| LogResult::new_switchable_ok(None, flag),
         )
     }
 
@@ -484,11 +518,12 @@ pub trait IsTot: Sized {
         total_events: u64,
         tot: Tot,
         flag: AllowTotMismatch,
-    ) -> SwitchableErrorResult<(), (), AllowTotMismatch, TotEventMismatchError> {
+    ) -> SwitchableErrorResult<bool, (), AllowTotMismatch, TotEventMismatchError> {
         let count = usize::try_from(total_events)
             .expect("event count exceeded maximum platform pointer size");
         let i = TotEventMismatchError { tot, total_events };
-        LogResult::new_switchable_ok_if(tot.0 == count, (), (), i, flag)
+        let tot_eq = tot.0 == count;
+        LogResult::new_switchable_ok_if(tot_eq, !tot_eq, (), i, flag)
     }
 }
 
@@ -522,7 +557,12 @@ pub trait LayoutOps<'a, T>: Sized {
         tot: T,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
+    ) -> WarningsAndIOGroupResult<
+        (FCSDataFrame, ReadEventsOutput),
+        ReadDataframeWarning,
+        ReadDataframeError,
+        (),
+    >
     where
         T: IsTot;
 
@@ -654,7 +694,12 @@ where
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
+    ) -> WarningsAndIOGroupResult<
+        (FCSDataFrame, ReadEventsOutput),
+        ReadDataframeWarning,
+        ReadDataframeError,
+        (),
+    > {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
         // It's passed down to each layer of the read stack to avoid making the
@@ -662,15 +707,16 @@ where
         // more complex. Good enough to pass the buffer and only use it when
         // needed.
         let mut buf = vec![];
-        // if we cannot get coords, it means the segment is empty, thus the
-        // returned dataframe should be empty
-        seg.try_abs_coords()
-            .map_or(LogResult::new_ok(FCSDataFrame::default()), |(begin, _)| {
-                h.seek(SeekFrom::Start(begin))
-                    .map_err(IOErrorGroup::from)
-                    .into_log()
-                    .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf))
-            })
+        match seg.try_abs_coords() {
+            // if we cannot get coords, it means the segment is empty, thus the
+            // returned dataframe should be empty
+            None => LogResult::new_ok((FCSDataFrame::default(), ReadEventsOutput::default())),
+            Some((begin, _)) => h
+                .seek(SeekFrom::Start(begin))
+                .map_err(IOErrorGroup::from)
+                .into_log()
+                .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf)),
+        }
     }
 
     fn h_write_df<W>(
@@ -2302,7 +2348,12 @@ where
         tot: T,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()> {
+    ) -> WarningsAndIOGroupResult<
+        (FCSDataFrame, ReadEventsOutput),
+        ReadDataframeWarning,
+        ReadDataframeError,
+        (),
+    > {
         macro_rules! go {
             ($x:expr) => {
                 $x.map_err(|e| {
@@ -2333,22 +2384,30 @@ where
                     "columns must all be same length"
                 );
                 let mut es = vec![];
+                let mut truncated = vec![None; rs.len()];
                 let trunc = conf.truncate_event_values;
+                let col_iter = data.iter_mut().zip(rs).enumerate();
                 if trunc.matches_datatype(AlphaNumType::Ascii) {
                     // truncate values if we configured this behavior
-                    for (col, r) in data.iter_mut().zip(rs) {
-                        for x in col.iter_mut() {
+                    for (i, (col, r)) in col_iter {
+                        for (rowi, x) in col.iter_mut().enumerate() {
                             if *x > r.0 {
                                 *x = r.0;
+                                if truncated[i].is_none() {
+                                    truncated[i] = Some(rowi);
+                                }
                             }
                         }
                     }
                 } else {
                     // otherwise warn/error if value is overrange
-                    for (i, (col, r)) in data.iter().zip(rs).enumerate() {
+                    for (i, (col, r)) in col_iter {
                         for (rowi, x) in col.iter().enumerate() {
                             if *x > r.0 {
                                 es.push(EventOverRangeError::new(rowi, i.into(), r.0.into()));
+                                if truncated[i].is_none() {
+                                    truncated[i] = Some(rowi);
+                                }
                             }
                         }
                     }
@@ -2369,7 +2428,9 @@ where
                         .into_iter()
                         .map(FCSColumn::from)
                         .map(AnyFCSColumn::from);
-                    FCSDataFrame::try_new(cs).unwrap()
+                    let out = ReadEventsOutput::new(None, None, None, truncated);
+                    let df = FCSDataFrame::try_new(cs).unwrap();
+                    (df, out)
                 })
             })
     }
@@ -2698,7 +2759,12 @@ where
         tot: T,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOGroupResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError, ()>
+    ) -> WarningsAndIOGroupResult<
+        (FCSDataFrame, ReadEventsOutput),
+        ReadDataframeWarning,
+        ReadDataframeError,
+        (),
+    >
     where
         T: IsTot,
     {
@@ -2709,22 +2775,31 @@ where
             .into_semigroup()
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|n| {
-                T::check_tot(n, tot, conf.allow_tot_mismatch)
+            .and_then_commutative(|nrow_out| {
+                T::check_tot(nrow_out.total_events, tot, conf.allow_tot_mismatch)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .map_errors(ReadDataframeError::from)
                     .into_semigroup()
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .set_ok_value(n)
+                    .map_ok_value(|tot_not_eq| (tot_not_eq, nrow_out))
             })
-            .and_then_commutative(|n| {
-                let nn = usize::try_from(n).expect("nrows exceeds usize");
-                self.h_read_unchecked_df(h, nn, buf, conf)
+            .and_then_commutative(|(tot_not_eq, nrow_out)| {
+                let n = usize::try_from(nrow_out.total_events).expect("nrows exceeds usize");
+                self.h_read_unchecked_df(h, n, buf, conf)
                     .map_error(IOErrorGroup::from)
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .repack_warnings()
+                    .map_ok_value(|(df, trunc)| {
+                        let out = ReadEventsOutput::new(
+                            Some(nrow_out.event_width),
+                            Some(nrow_out.remainder),
+                            tot_not_eq,
+                            trunc,
+                        );
+                        (df, out)
+                    })
             })
     }
 
@@ -2913,7 +2988,11 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         nrows: usize,
         buf: &mut Vec<u8>,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<FCSDataFrame, EventOverRangeError, ReadDataframeError>
+    ) -> WarningsAndIOResult<
+        (FCSDataFrame, Vec<Option<usize>>),
+        EventOverRangeError,
+        ReadDataframeError,
+    >
     where
         R: Read,
         S: Copy,
@@ -2933,24 +3012,27 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 }
             }
         }
-        let es = col_readers
+        let es: Vec<_> = col_readers
             .iter_mut()
             .enumerate()
-            .filter_map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values));
+            .map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values))
+            .collect();
+        let trunc = es.iter().map(|e| e.as_ref().map(|x| x.row)).collect();
         let overrange_res = match conf.disallow_over_range.0 {
-            TriFlag::False => ErrorGroup::try_new(es)
+            TriFlag::False => ErrorGroup::try_new(es.into_iter().flatten())
                 .map_err(ReadDataframeError::from)
                 .map_err(ImpureError::Pure)
                 .into_log(),
             TriFlag::True => {
-                let ws = es.collect();
+                let ws = es.into_iter().flatten().collect();
                 LogResult::new_ok(()).set_commutative_warnings(ws)
             }
             TriFlag::Noop => LogResult::new_ok(()),
         };
         overrange_res.map_ok_value(|()| {
             let data = col_readers.into_iter().map(Readable::into_dataframe_column);
-            FCSDataFrame::try_new(data).unwrap()
+            let df = FCSDataFrame::try_new(data).unwrap();
+            (df, trunc)
         })
     }
 
@@ -3007,7 +3089,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         &self,
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningOrErrorResult<u64, (), UnevenEventWidthError, EventWidthError>
+    ) -> WarningOrErrorResult<ComputedRowsResult, (), UnevenEventWidthError, EventWidthError>
     where
         S: Clone,
         C: IsFixed,
@@ -3022,7 +3104,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             let is_ok = remainder == 0;
             let e = UnevenEventWidthError::new(w, n, remainder);
             let flag = conf.allow_uneven_event_width;
-            SwitchableErrorResult::new_switchable_ok_if(is_ok, total_events, (), e, flag)
+            let out = ComputedRowsResult::new(total_events, w, remainder);
+            SwitchableErrorResult::new_switchable_ok_if(is_ok, out, (), e, flag)
                 .switchable_into_non_commutative()
                 .map_errors(EventWidthError::from)
         }

@@ -1928,6 +1928,25 @@ class FlatTEXTOutput:
     def parse(self) -> FlatTEXTParseData: ...
 
 @final
+class ReadEventsOutput:
+    def __new__(
+        cls,
+        event_width: int | None,
+        event_data_remainder: int | None,
+        tot_event_mismatch: bool | None,
+        truncated_columns: list[int | None],
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def event_width(self) -> int | None: ...
+    @property
+    def event_data_remainder(self) -> int | None: ...
+    @property
+    def tot_event_mismatch(self) -> bool | None: ...
+    @property
+    def truncated_columns(self) -> list[int | None]: ...
+
+@final
 class FlatDatasetWithKwsOutput:
     def __new__(
         cls,
@@ -1935,6 +1954,7 @@ class FlatDatasetWithKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_segs: DatasetSegments,
+        events_output: ReadEventsOutput,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1945,6 +1965,8 @@ class FlatDatasetWithKwsOutput:
     def others(self) -> list[bytes]: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
+    @property
+    def events_output(self) -> ReadEventsOutput: ...
 
 @final
 class FlatDatasetOutput:
@@ -1984,12 +2006,15 @@ class StdDatasetWithKwsOutput:
         cls,
         dataset_segs: DatasetSegments,
         extra: ExtraStdKeywords,
+        events_output: ReadEventsOutput,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
     def extra(self) -> ExtraStdKeywords: ...
+    @property
+    def events_output(self) -> ReadEventsOutput: ...
 
 @final
 class StdDatasetOutput:
@@ -2783,6 +2808,7 @@ __all__ = [
     "ValidKeywords",
     "DatasetSegments",
     "SplitTEXTOutput",
+    "ReadEventsOutput",
     "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",

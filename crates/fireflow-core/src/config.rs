@@ -595,10 +595,11 @@ pub struct ReadHeaderAndTEXTConfig {
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone)]
 pub struct ReadStdKeywordsConfig {
+    // TODO return vector of names that were changed
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
     /// All versions of the standards requires that all $PnN be unique.
-    /// Furthermore, many data structures and operations and `fireflow` are
+    /// Furthermore, many data structures and operations in `fireflow` are
     /// impossible without a guarantee that names are unique.
     ///
     /// Setting this option will append incrementing digits to non-unique names
@@ -606,6 +607,7 @@ pub struct ReadStdKeywordsConfig {
     /// "X0" and "X1".
     pub dedup_measurement_names: DedupMeasNames,
 
+    // TODO return values that were changed
     /// If `true`, remove whitespace between commas where applicable.
     ///
     /// This will only affect keywords that are given as comma-separated lists,
@@ -623,9 +625,11 @@ pub struct ReadStdKeywordsConfig {
     /// If `true`, allow time to be absent even if we specify `time_meas_pattern`.
     pub allow_missing_time: AllowMissingTime,
 
+    // TODO return something that indicates this was used
     /// If `true` force, force scale to be linear for temporal measurement.
     pub force_time_linear: ForceTimeLinear,
 
+    // TODO control if these should be dropped/demoted/returned in extra
     /// Ignore optical keywords in time channel.
     ///
     /// These are keys which the standard does not explicitly forbid but are
@@ -668,6 +672,7 @@ pub struct ReadStdKeywordsConfig {
     /// format which is `"%d-%b-%Y %H:%M:%S"` possibly with centiseconds after.
     pub last_modified_pattern: Option<String>,
 
+    // TODO return something indicating this happened
     /// If `true`, capture other values for $PnFEATURE not mentioned in the standard.
     ///
     /// $PnFEATURE as described in the standard only explicitly mentions
@@ -726,6 +731,7 @@ pub struct ReadStdKeywordsConfig {
     /// If `false`, merely throw a warning.
     pub disallow_deprecated: DisallowDeprecated,
 
+    // TODO return vector showing values that were fixed
     /// If `true`, try to fix log-scale $PnE and $GnE keywords.
     ///
     /// These keywords are both formatted like `"X,Y"` where `X` and `Y` are
@@ -737,6 +743,8 @@ pub struct ReadStdKeywordsConfig {
     /// becomes `"X,1.0"`.
     pub fix_log_scale_offsets: FixLogScaleOffsets,
 
+    // TODO add flag to force all scales to be linear since some files use log
+    // for float values
     /// If `true`, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
     ///
     /// The standards do not require that these keys use a timezone. However, it
@@ -754,7 +762,7 @@ pub struct ReadStdKeywordsConfig {
     /// expression to match keywords. It should not start with a `"$"` and must
     /// contain a literal `"%n"`.
     ///
-    /// This will matching something like `"P7FOO"` which would be `"FOO"` for
+    /// This will match something like `"P7FOO"` which would be `"FOO"` for
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
@@ -805,6 +813,7 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
+    // TODO unused
     /// If `true`, ignore DATA offsets in TEXT.
     ///
     /// This may be useful if DATA offsets are different from those in HEADER,
@@ -813,6 +822,7 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(IgnoreTEXTDataOffsets)]
     pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
+    // TODO unused
     /// If `true`, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in
@@ -892,7 +902,7 @@ pub struct ReadDataKeywordsConfig {
     /// Due to the vagueness in the standard and the fact that the
     /// interpretation of large $PnR is fairly clear, this is not an error by
     /// default. Users might be interested in setting this to `true` if large
-    /// $PnR values might indicated a typo or other issue.
+    /// $PnR values might indicate a typo or other issue.
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.

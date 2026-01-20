@@ -692,13 +692,72 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let dataset_segs =
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
-    let args = [data, analysis, others, dataset_segs];
+    let event = DocArgROIvar::new_ivar_ro(
+        "events_output",
+        PyClass::new_py(["api"], "ReadEventsOutput"),
+        "Diagnostic output from parsing DATA segment.",
+        |_, _| quote!(self.0.events_output.clone().into()),
+    );
+
+    let args = [data, analysis, others, dataset_segs, event];
     let doc = DocString::new_class("Dataset from parsing flat *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(data, analysis, others, dataset_segs.into()).into()
+                #path::new(data, analysis, others, dataset_segs.into(), events_output.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_read_events_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let event_width = DocArgROIvar::new_ivar_ro(
+        "event_width",
+        PyOpt::new(RsInt::U64),
+        "The width of one event in bytes (if not ASCII delimited).",
+        |_, _| quote!(self.0.event_width.clone()),
+    );
+
+    let event_data_remainder = DocArgROIvar::new_ivar_ro(
+        "event_data_remainder",
+        PyOpt::new(RsInt::U64),
+        "The remainder after dividing length of DATA by event width.",
+        |_, _| quote!(self.0.event_data_remainder.clone()),
+    );
+
+    let tot_event_mismatch = DocArgROIvar::new_ivar_ro(
+        "tot_event_mismatch",
+        PyOpt::new(PyBool::default()),
+        "``True`` if *$TOT* does not match the number of events computed via event width.",
+        |_, _| quote!(self.0.tot_event_mismatch.clone()),
+    );
+
+    let truncated_columns = DocArgROIvar::new_ivar_ro(
+        "truncated_columns",
+        PyList::new1(PyOpt::new(RsInt::Usize)),
+        "Columns for which at least one event was truncated to fit *$PnR*.",
+        |_, _| quote!(self.0.truncated_columns.clone()),
+    );
+
+    let args = [
+        event_width,
+        event_data_remainder,
+        tot_event_mismatch,
+        truncated_columns,
+    ];
+    let doc = DocString::new_class("Diagnostic output from reading *DATA* segment.").args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
             }
         }
     };
@@ -872,13 +931,20 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let extra =
         DocArg::new_extra_std_keywords_param().into_ro(|_, _| quote!(self.0.extra.clone().into()));
 
+    let event = DocArgROIvar::new_ivar_ro(
+        "events_output",
+        PyClass::new_py(["api"], "ReadEventsOutput"),
+        "Diagnostic output from parsing DATA segment.",
+        |_, _| quote!(self.0.events_output.clone().into()),
+    );
+
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT* from keywords.")
-        .args([dataset_segs, extra]);
+        .args([dataset_segs, extra, event]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(dataset_segs.into(), extra.into()).into()
+                #path::new(dataset_segs.into(), extra.into(), events_output.into()).into()
             }
         }
     };

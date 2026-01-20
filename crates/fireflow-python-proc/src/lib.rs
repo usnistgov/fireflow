@@ -77,8 +77,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are not parsable");
-    let exc1 = PyException::new_non_ascii();
-    let xs = [exc0, exc1];
+    let xs = [exc0];
 
     let ret_pt = PyClass::new_py(["api"], "FlatTEXTOutput");
 
@@ -162,14 +161,13 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are unparsable");
-    let exc1 = PyException::new_non_ascii();
-    let exc2 = PyException::new_extra();
-    let exc3 = PyException::new_deprecated();
-    let exc4 = PyException::new_parse_keyval();
-    let exc5 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc1 = PyException::new_extra();
+    let exc2 = PyException::new_deprecated();
+    let exc3 = PyException::new_parse_keyval();
+    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational)
         .desc("If keywords that are referenced by other keywords are missing");
 
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
+    let xs = [exc0, exc1, exc2, exc3, exc4];
 
     let pt_ret =
         PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
@@ -257,17 +255,16 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
-    let exc1 = PyException::new_non_ascii();
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
-    let exc2 = PyException::new_deprecated()
+    let exc1 = PyException::new_deprecated()
         .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
-    let exc3 = PyException::new_parse_keyval();
-    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational)
         .desc("If keywords are incompatible with indicated layout of *DATA*");
-    let exc5 = PyException::new_event_data();
+    let exc4 = PyException::new_event_data();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
+    let xs = [exc0, exc1, exc2, exc3, exc4];
 
     let pt_data_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
     let pt_smry_ret = PyClass::new_py(["api"], "DatasetSummary");
@@ -372,17 +369,16 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
-    let exc1 = PyException::new_non_ascii();
-    let exc2 = PyException::new_deprecated();
-    let exc3 = PyException::new_parse_keyval();
-    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+    let exc1 = PyException::new_deprecated();
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
         "If keywords are incompatible with indicated layout of *DATA* or \
          if keywords that are referenced by other keywords do not exist",
     );
-    let exc5 = PyException::new_event_data();
-    let exc6 = PyException::new_extra();
+    let exc4 = PyException::new_event_data();
+    let exc5 = PyException::new_extra();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5, exc6];
+    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
 
     let pt_ret = PyTuple::new1(PyUnion::new_anycoredataset())
         .add(PyClass::new_py(["api"], "StdDatasetOutput"));
@@ -930,17 +926,10 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.delimiter),
     );
 
-    let non_ascii = DocArgROIvar::new_ivar_ro(
-        "non_ascii",
-        PyList::new1(PyTuple::new2(vec![PyStr::default(); 2])),
-        "Keywords with a non-ASCII but still valid UTF-8 key.",
-        |_, _| quote!(self.0.non_ascii.clone()),
-    );
-
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
-        PyList::new1(PyTuple::new2(vec![PyBytes::default(); 2])),
-        "Keywords with invalid UTF-8 characters.",
+        PyList::new1(PyTuple::new2(vec![PyUnion::new_string_or_bytes(); 2])),
+        "Keywords with keys that are not ASCII or values that are not UTF-8.",
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
 
@@ -1008,7 +997,6 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         supp,
         nextdata,
         delim,
-        non_ascii,
         byte_pairs,
         non_unique_std,
         non_unique_nonstd,
@@ -5497,13 +5485,6 @@ impl PyException {
 
     fn new_invalid_keyword() -> Self {
         Self::new_pyreflow(&PyreflowError::InvalidKeywordValue)
-    }
-
-    fn new_non_ascii() -> Self {
-        Self::new_pyreflow(&PyreflowError::ParseKey).desc(
-            "If any keys from *TEXT* contain non-ASCII characters and \
-             ``allow_non_ascii_keywords`` is ``False``",
-        )
     }
 
     fn new_config() -> Self {

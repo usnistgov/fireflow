@@ -2790,7 +2790,6 @@ class TestReadWrite:
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
         assert uncore.parse.delimiter == 30
-        assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
         assert len(uncore.extra.pseudostandard) == 0
         assert len(uncore.extra.hyper_par) == 0
@@ -2801,7 +2800,6 @@ class TestReadWrite:
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
         assert uncore.parse.delimiter == 30
-        assert len(uncore.parse.non_ascii) == 0
         assert len(uncore.parse.byte_pairs) == 0
         assert len(uncore.dataset.extra.pseudostandard) == 0
         assert len(uncore.dataset.extra.hyper_par) == 0

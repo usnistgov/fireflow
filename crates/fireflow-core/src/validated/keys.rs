@@ -126,10 +126,7 @@ pub struct ParsedKeywords {
     /// Non-standard keywords (without '$')
     pub nonstd: NonStdKeywords,
 
-    /// Keywords that don't have ASCII keys (not allowed)
-    pub non_ascii: NonAsciiPairs,
-
-    /// Keywords that are not valid UTF-8 strings
+    /// Keywords that have invalid bytes in either key or value
     pub byte_pairs: BytesPairs,
 
     /// Standard keys which appear more than once with their values.
@@ -154,8 +151,7 @@ pub struct ParsedKeywords {
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;
-pub type NonAsciiPairs = Vec<(String, String)>;
-pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
+pub type BytesPairs = Vec<(StringOrBytes, StringOrBytes)>;
 
 /// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
@@ -228,7 +224,14 @@ impl StringOrBytes {
     }
 
     pub(crate) fn full(&self) -> String {
-        format!("{} {}", self.desc(), self)
+        format!("{} '{}'", self.desc(), self)
+    }
+
+    pub(crate) fn as_latin1(&self, n: usize) -> String {
+        match self {
+            Self::Bytes(xs) => xs.iter().take(n).copied().map(char::from).collect(),
+            Self::Utf8(xs) => xs.chars().take(n).collect(),
+        }
     }
 }
 
@@ -823,14 +826,15 @@ impl ParsedKeywords {
         };
 
         let check_trim = |this: &mut Self, trimmed| {
-            let s = AsRef::<str>::as_ref(&trimmed);
-            if s.is_empty() {
-                this.keys_with_empty_trimmed_values.push(k.to_vec().into());
-                let e = BlankValueError(k.to_vec());
+            let tr = AsRef::<str>::as_ref(&trimmed);
+            if tr.is_empty() {
+                let sb = StringOrBytes::from(k.to_vec());
+                this.keys_with_empty_trimmed_values.push(sb.clone());
+                let e = BlankValueError(sb);
                 SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty_values)
                     .switchable_into_commutative()
             } else {
-                if v.len() < s.len() {
+                if v.len() < tr.len() {
                     let pair = (k.to_vec().into(), v.to_vec().into());
                     this.keys_with_trimmed_values.push(pair);
                 }
@@ -860,7 +864,8 @@ impl ParsedKeywords {
                     LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }
             } else {
-                self.byte_pairs.push((k.to_vec(), v.to_vec()));
+                let pairs = (k.to_vec().into(), v.to_vec().into());
+                self.byte_pairs.push(pairs);
                 LogResult::new_ok(None)
             };
             res.repack_warnings::<Vec<_>>()
@@ -930,10 +935,8 @@ impl ParsedKeywords {
             // the user cares
             parse_value().and_then_commutative(|maybe_value| {
                 if let Some(value) = maybe_value.map(Cow::into_owned) {
-                    match String::from_utf8(k.to_vec()) {
-                        Ok(key) => self.non_ascii.push((key, value)),
-                        Err(e) => self.byte_pairs.push((e.into_bytes(), value.into_bytes())),
-                    }
+                    let pair = (k.to_vec().into(), value.into_bytes().into());
+                    self.byte_pairs.push(pair);
                 }
                 LogResult::new_ok(())
             })
@@ -945,7 +948,6 @@ impl ParsedKeywords {
         new: &HashMap<KeyString, String>,
         flag: AllowNonunique,
     ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
-        // TODO lots of clones
         let es = new
             .iter()
             .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
@@ -1025,15 +1027,15 @@ pub enum KeywordInsertError {
 #[derive(Debug, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
-pub struct BlankValueError(pub Vec<u8>);
+pub struct BlankValueError(pub StringOrBytes);
 
 impl fmt::Display for BlankValueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = str::from_utf8(&self.0[..]).map_or_else(
-            |_| format!("key's bytes were {}", self.0.iter().join(",")),
-            |s| format!("key was {s}"),
-        );
-        write!(f, "skipping key with blank value, {s}")
+        // let s = str::from_utf8(&self.0[..]).map_or_else(
+        //     |_| format!("key's bytes were {}", self.0.iter().join(",")),
+        //     |s| format!("key was {s}"),
+        // );
+        write!(f, "skipping key with blank value, {}", self.0.full())
     }
 }
 

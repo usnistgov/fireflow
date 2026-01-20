@@ -39,8 +39,8 @@ use crate::text::lookup::{
 use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
-    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonAsciiPairs, NonStdKey,
-    ParsedKeywords, StdKey, StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
+    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey,
+    StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
 };
 
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
@@ -523,15 +523,9 @@ pub struct FlatTEXTParseData {
     /// Included here for informational purposes.
     pub delimiter: u8,
 
-    /// Keywords with a non-ASCII but still valid UTF-8 key.
-    ///
-    /// Non-ASCII keys are non-conforment but are included here in case the user
-    /// wants to fix them or know they are present
-    pub non_ascii: NonAsciiPairs,
-
     /// Keywords that could not be parsed.
     ///
-    /// These have either a key or value or both that is not a UTF-8 string.
+    /// These have either a non-ASCII key or a non-UTF8 value (or both).
     /// Included here for debugging
     pub byte_pairs: BytesPairs,
 
@@ -802,7 +796,6 @@ pub enum ParseFlatTEXTError {
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
     Nextdata(ReqKeyError<Nextdata>),
-    NonAscii(NonAsciiKeyError),
     NonUtf8(NonUtf8KeywordError),
     AppendSupp(StdPresent),
 }
@@ -866,11 +859,17 @@ pub struct EmptyTEXTError;
 pub struct NoTEXTWordsError;
 
 /// Error when blank key is encountered in TEXT
-#[derive(Debug, Error)]
-#[error("encountered blank key in {0} TEXT, skipping key and its value")]
+#[derive(Debug, Error, new)]
+#[error(
+    "skipping blank key in {kind} TEXT with value of '{}' in Latin-1",
+    truncate_string(self.bytes.as_latin1(21).as_str(), 20),
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct BlankKeyError(TEXTKind);
+pub struct BlankKeyError {
+    kind: TEXTKind,
+    bytes: StringOrBytes,
+}
 
 /// Error when number of tokens in TEXT is not even
 #[derive(Debug, Error)]
@@ -944,23 +943,16 @@ pub struct EvenFinalDelimError;
 ///
 /// This can only happen in escaped TEXT
 #[derive(Debug, Error, new)]
+#[error(
+    "escaped delimiter encountered before unescaped delimiter and after {} in {} TEXT",
+    truncate_string(self.bytes.as_latin1(21).as_str(), 20),
+    self.kind
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimBoundError {
     bytes: StringOrBytes,
     kind: TEXTKind,
-}
-
-impl fmt::Display for DelimBoundError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "escaped delimiter encountered before unescaped delimiter and \
-             after {} in {} TEXT",
-            self.bytes.full(),
-            self.kind
-        )
-    }
 }
 
 /// Error when delimiter of supplemental TEXT does not match primary TEXT
@@ -976,32 +968,20 @@ pub struct DelimMismatch {
     delim: u8,
 }
 
-/// Error when non-ASCII key is encounter when parsing TEXT
-#[derive(Debug, Clone, Error)]
-#[error("non-ASCII key encountered and dropped: {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonAsciiKeyError(String);
-
 /// Error when key or value with invalid UTF-8 characters is encountered
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NonUtf8KeywordError {
-    key: Vec<u8>,
-    value: Vec<u8>,
+    key: StringOrBytes,
+    value: StringOrBytes,
 }
 
 impl fmt::Display for NonUtf8KeywordError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = 20;
-        let go = |xs: &Vec<u8>| {
-            let s = xs
-                .iter()
-                .take(n + 1)
-                .copied()
-                .map(char::from)
-                .collect::<String>();
+        let go = |xs: &StringOrBytes| {
+            let s = &xs.as_latin1(n + 1);
             truncate_string(s.as_str(), n)
         };
         write!(
@@ -1240,26 +1220,22 @@ where
 
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-            let na_res = non_ascii_errors(&kws.non_ascii, conf)
-                .map_errors(ParseFlatTEXTError::from)
-                .nowarn_into_warn();
             let be_res = byte_errors(&kws.byte_pairs, conf)
                 .map_errors(ParseFlatTEXTError::from)
                 .nowarn_into_warn();
 
             nextdata_res
-                .zip_f4_once(repair_res, na_res, be_res)
+                .zip_f3_once(repair_res, be_res)
                 .set_err_value(())
                 .group()
                 .map_error(IOErrorGroup::Pure)
-                .map_ok_value(|(nextdata, (), (), ())| {
+                .map_ok_value(|(nextdata, (), ())| {
                     let parse = FlatTEXTParseData {
                         header_segments: header.segments,
                         raw_header_segments: header.raw,
                         supp_text: supp_text_seg,
                         nextdata,
                         delimiter: delim,
-                        non_ascii: kws.non_ascii,
                         byte_pairs: kws.byte_pairs,
                         non_unique_std_keywords: kws.non_unique_std_keywords,
                         non_unique_nonstd_keywords: kws.non_unique_nonstd_keywords,
@@ -1532,8 +1508,6 @@ fn split_flat_text_unescaped_delim(
 ) -> WarningsAndErrorsResult<SplitTEXTOutputInner, (), ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut keys_with_blank_values = vec![];
     let mut values_with_blank_keys = vec![];
-    let mut blank_key_errors = vec![];
-    let mut blank_val_errors = vec![];
     let mut insert_results = vec![];
 
     let mut it = bytes.split(|x| *x == delim).peekable();
@@ -1547,8 +1521,7 @@ fn split_flat_text_unescaped_delim(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                values_with_blank_keys.push(value.to_vec().into());
-                blank_key_errors.push(BlankKeyError(tk));
+                values_with_blank_keys.push(StringOrBytes::from(value.to_vec()));
             } else {
                 // if everything is correct, we should exit here since the
                 // last token will be the blank slice after the final delim
@@ -1563,9 +1536,7 @@ fn split_flat_text_unescaped_delim(
                 // delimiter, and the "value" is the blank after the last
                 // delimiter
                 if it.peek().is_some() {
-                    keys_with_blank_values.push(key.to_vec().into());
-                    // TODO collect these errors from the blank key buffer in prev line
-                    blank_val_errors.push(BlankValueError(key.to_vec()));
+                    keys_with_blank_values.push(StringOrBytes::from(key.to_vec()));
                 }
             } else {
                 let e = kws
@@ -1616,6 +1587,19 @@ fn split_flat_text_unescaped_delim(
             .switchable_into_commutative()
     });
 
+    let blank_key_errors = keys_with_blank_values
+        .iter()
+        .map(|k| BlankKeyError::new(tk, k.clone()));
+
+    // TODO its a bit weird that only this error doesn't mention the TEXT from
+    // which is came
+    let blank_value_errors = values_with_blank_keys
+        .iter()
+        .map(|k| BlankValueError(k.clone()));
+
+    // blank_key_errors.push(BlankKeyError(tk));
+    // blank_val_errors.push(BlankValueError(key.to_vec()));
+
     let blank_key_res = SwitchableErrorsResult::new_switchable_iter(
         (),
         (),
@@ -1626,7 +1610,7 @@ fn split_flat_text_unescaped_delim(
     .switchable_into_commutative();
 
     let blank_val_succ = Success::new_non_switchable(())
-        .set_warnings(blank_val_errors)
+        .set_warnings(blank_value_errors.collect::<Vec<_>>())
         .map_warnings(ParseKeywordsIssue::from);
     let blank_val_res = LogResult::Succ(blank_val_succ);
 
@@ -1947,18 +1931,6 @@ fn lookup_nextdata(
             }
         })
     })
-}
-
-fn non_ascii_errors(
-    non_ascii: &NonAsciiPairs,
-    conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredErrors<(), NonAsciiKeyError> {
-    if conf.allow_non_ascii_keywords.is_set() {
-        LogResult::new_ok(())
-    } else {
-        let es = non_ascii.iter().map(|(k, _)| NonAsciiKeyError(k.clone()));
-        LogResult::new_err_from_iter(es, ())
-    }
 }
 
 fn byte_errors(

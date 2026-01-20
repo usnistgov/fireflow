@@ -1874,8 +1874,7 @@ class FlatTEXTParseData:
         supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
-        non_ascii: list[tuple[str, str]],
-        byte_pairs: list[tuple[bytes, bytes]],
+        byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
         ignored_standard_keywords: list[tuple[str, bytes | str]],
@@ -1896,9 +1895,7 @@ class FlatTEXTParseData:
     @property
     def delimiter(self) -> int: ...
     @property
-    def non_ascii(self) -> list[tuple[str, str]]: ...
-    @property
-    def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
+    def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
     def non_unique_std_keywords(self) -> list[tuple[str, str]]: ...
     @property

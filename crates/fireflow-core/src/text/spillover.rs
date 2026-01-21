@@ -4,7 +4,7 @@ use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
-use super::lookup::FromStrWith;
+use super::lookup::{FromStrWith, DiagnosedOutput};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
@@ -183,7 +183,11 @@ impl<T> GenericSpillover<T> {
         }
     }
 
-    fn from_str<E, F, EM>(s: &str, trim: TrimIntraValueWhitespace, parse_meas: F) -> Result<Self, E>
+    fn from_str<E, F, EM>(
+        s: &str,
+        trim: TrimIntraValueWhitespace,
+        parse_meas: F,
+    ) -> Result<(Self, bool), E>
     where
         E: From<ParseGenericSpilloverError> + From<EM>,
         F: Fn(&str) -> Result<T, EM>,
@@ -191,9 +195,18 @@ impl<T> GenericSpillover<T> {
     {
         let it = s.split(',');
         if trim.is_set() {
-            Self::from_iter(it.map(str::trim), parse_meas)
+            let mut was_trimmed = false;
+            Self::from_iter(
+                it.map(|x| {
+                    let y = str::trim(x);
+                    was_trimmed = was_trimmed || y.len() < x.len();
+                    y
+                }),
+                parse_meas,
+            )
+            .map(|x| (x, was_trimmed))
         } else {
-            Self::from_iter(it, parse_meas)
+            Self::from_iter(it, parse_meas).map(|x| (x, false))
         }
     }
 }
@@ -212,24 +225,28 @@ impl fmt::Display for Spillover {
 impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
+    type Diagnostic = bool;
 
     fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, Self::Err> {
+    ) -> Result<DiagnosedOutput<Self, bool>, Self::Err> {
         if conf.parse_indexed_spillover.is_set() {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
-            let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
+            let (m, was_trimmed) = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
                 s,
                 conf.trim_intra_value_whitespace,
                 go,
             )?;
-            Ok(m.try_into_named(ordered_names)?)
+            Ok(DiagnosedOutput::new(
+                m.try_into_named(ordered_names)?,
+                was_trimmed,
+            ))
         } else {
             let m = s.parse::<Self>()?;
             // m.check_link(names)?;
-            Ok(m)
+            Ok(DiagnosedOutput::new(m, false))
         }
     }
 }
@@ -238,7 +255,8 @@ impl FromStr for Spillover {
     type Err = ParseGenericSpilloverError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s, false.into(), |m| Ok(Shortname::new_unchecked(m)))
+        // throw away trimmed flag since we hardcode trimming to false
+        Self::from_str(s, false.into(), |m| Ok(Shortname::new_unchecked(m))).map(|x| x.0)
     }
 }
 

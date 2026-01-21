@@ -7360,7 +7360,8 @@ impl LookupTemporal for InnerTemporal3_0 {
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let es =
             TemporalOpticalKey::remove_keys_3_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        // TODO use diagnostic here
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
@@ -7372,7 +7373,7 @@ impl LookupTemporal for InnerTemporal3_0 {
                 |_| (),
                 |()| (),
             )
-            .map_ok_value(|((_, p), ((), t))| Self::new(t, p))
+            .map_ok_value(|((_, p), (_, t))| Self::new(t, p))
     }
 }
 
@@ -7398,7 +7399,8 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let es =
             TemporalOpticalKey::remove_keys_3_1(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        // TODO use diagnostic here
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
@@ -7410,7 +7412,7 @@ impl LookupTemporal for InnerTemporal3_1 {
                 |_| (),
                 |()| (),
             )
-            .map_ok_value(|((_, d, p), ((), t))| Self::new(t, d, p))
+            .map_ok_value(|((_, d, p), (_, t))| Self::new(t, d, p))
     }
 }
 
@@ -7438,7 +7440,8 @@ impl LookupTemporal for InnerTemporal3_2 {
             .into_semigroup();
         let es =
             TemporalOpticalKey::remove_keys_3_2(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        // TODO use diagnostic here
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
@@ -7450,7 +7453,7 @@ impl LookupTemporal for InnerTemporal3_2 {
                 |_| (),
                 |()| (),
             )
-            .map_ok_value(|((_, d, m), ((), t))| Self::new(t, d, m))
+            .map_ok_value(|((_, d, m), (_, t))| Self::new(t, d, m))
     }
 }
 

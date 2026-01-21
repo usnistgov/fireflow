@@ -13,6 +13,7 @@ use super::index::IndexFromOne;
 use derive_more::{Display, From};
 use derive_new::new;
 use thiserror::Error;
+use type_families::{BifunctorOnce, Sibling2, impl_functor_once, impl_kind1, impl_kind2};
 
 use std::convert::Infallible;
 use std::fmt;
@@ -79,6 +80,63 @@ pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
+/// Return value for string converted to native type that has delimiters.
+#[derive(new)]
+pub struct StrDelimOutput<T> {
+    /// Native rust type
+    pub native: T,
+
+    /// `true` if serialized string had to be trimmed in between commas.
+    pub was_trimmed: bool,
+}
+
+impl<T> StrDelimOutput<T> {
+    pub(crate) fn lift(self) -> DiagnosedOutput<T, bool> {
+        DiagnosedOutput::new(self.native, self.was_trimmed)
+    }
+}
+
+impl_kind1!(StrDelimOutputFamily, StrDelimOutput);
+
+impl_functor_once!(
+    StrDelimOutput,
+    self,
+    mut f,
+    StrDelimOutput::new(f(self.native), self.was_trimmed)
+);
+
+/// Return value for string that was converted with a configuration and state.
+#[derive(Default, new)]
+pub struct DiagnosedOutput<T, D> {
+    /// Native rust type
+    pub native: T,
+
+    /// Diagnostic info associated with this type.
+    pub diagnostic: D,
+}
+
+impl<T> DiagnosedOutput<T, ()> {
+    pub(crate) fn new1(t: T) -> Self {
+        Self::new(t, ())
+    }
+
+    pub(crate) fn into_native(self) -> T {
+        self.native
+    }
+}
+
+impl_kind2!(DiagnosedOutputFamily, DiagnosedOutput);
+
+impl<A, B> BifunctorOnce<A, B> for DiagnosedOutput<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        DiagnosedOutput::new(f(self.native), self.diagnostic)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        DiagnosedOutput::new(self.native, f(self.diagnostic))
+    }
+}
+
 /// Parse a string that includes delimiters
 pub trait FromStrDelim: Sized {
     type Err;
@@ -89,26 +147,36 @@ pub trait FromStrDelim: Sized {
     fn from_str_delim(
         s: &str,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<Self, Self::Err> {
+    ) -> Result<StrDelimOutput<Self>, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace.is_set() {
-            Self::from_iter(it.map(str::trim))
+            let mut was_trimmed = false;
+            Self::from_iter(it.map(|x| {
+                let y = str::trim(x);
+                was_trimmed = was_trimmed || y.len() < x.len();
+                y
+            }))
+            .map(|x| StrDelimOutput::new(x, was_trimmed))
         } else {
-            Self::from_iter(it)
+            Self::from_iter(it).map(|x| StrDelimOutput::new(x, false))
         }
     }
 }
+
+pub type FromStrWithResult<T> =
+    Result<DiagnosedOutput<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 /// Parse a string based on external data and config
 pub trait FromStrWith: Sized {
     type Err;
     type Payload<'a>;
+    type Diagnostic;
 
     fn from_str_with(
         _: &str,
         _: Self::Payload<'_>,
         _: &ReadStdKeywordsConfig,
-    ) -> Result<Self, Self::Err>;
+    ) -> FromStrWithResult<Self>;
 }
 
 // this won't be necessary once rust gets specialization
@@ -117,13 +185,15 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
+            type Diagnostic = bool;
 
             fn from_str_with(
                 s: &str,
                 (): (),
                 conf: &crate::config::ReadStdKeywordsConfig,
-            ) -> Result<Self, Self::Err> {
+            ) -> Result<crate::text::lookup::DiagnosedOutput<Self, bool>, Self::Err> {
                 Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+                    .map(|x| crate::text::lookup::DiagnosedOutput::new(x.native, x.was_trimmed))
             }
         }
     };
@@ -166,7 +236,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<DiagnosedOutput<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -246,9 +316,10 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey,
         Self: FromStr,
     {
-        Self::remove_opt_inner(kws, k, |k_, v| {
-            v.parse().map_err(|e| ParseKeyError::new(e, k_, v))
-        })
+        kws.remove(&k.as_std())
+            .map(|v| v.parse().map_err(|e| ParseKeyError::new(e, k, v)))
+            .transpose()
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
     fn remove_opt_with<I>(
@@ -256,14 +327,22 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
     {
-        Self::remove_opt_inner(kws, k, |k_, v| {
-            Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k_, v))
-        })
+        kws.remove(&k.as_std())
+            .map(|v| {
+                Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k, v))
+            })
+            .transpose()
+            .map(|x| {
+                x.map_or(DiagnosedOutput::default(), |y| {
+                    y.first_once(Self::Outer::from)
+                })
+            })
     }
 
     fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
@@ -304,10 +383,11 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
@@ -320,7 +400,7 @@ pub(crate) trait Optional: Sized {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
                     Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
+                ProcessKeywordFailure::DropSilent => Ok(DiagnosedOutput::default()),
             },
         }
     }
@@ -352,19 +432,20 @@ pub(crate) trait Optional: Sized {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        Self::Outer,
+        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
         ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self, I>,
     >
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
-            .set_err_value(Self::Outer::default())
+            .set_err_value(DiagnosedOutput::default())
             .nowarn_into_switchable(rconf.process_optional_failure)
     }
 
@@ -447,9 +528,10 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, ReqIndexedStKeyError<Self>>
+    ) -> Result<DiagnosedOutput<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
+        Self::Diagnostic: Default,
     {
         Self::remove_req_with(kws, SpecificKey::new_i1(i.into()), data, conf)
     }
@@ -523,9 +605,10 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<Self::Outer, OptKeyStError<Self>>
+    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, OptKeyStError<Self>>
     where
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
@@ -547,9 +630,14 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyStError<Self>>
+    ) -> DeferredSwitchableError<
+        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
+        ProcessOptionalFailure,
+        OptKeyStError<Self>,
+    >
     where
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
@@ -630,10 +718,15 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         i: impl Into<IndexFromOne> + Copy,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyStError<Self>>
+    ) -> DeferredSwitchableError<
+        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
+        ProcessOptionalFailure,
+        OptIndexedKeyStError<Self>,
+    >
     where
         Self::Outer: PartialEq,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)

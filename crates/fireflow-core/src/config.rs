@@ -886,7 +886,6 @@ pub struct ReadDataKeywordsConfig {
     /// override those values as well.
     pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
-    // TODO return which ranges were truncated and their original values
     /// If `true`, disallow bitmask to be truncated when converting from native type.
     ///
     /// This only applies to integer columns (ie DATATYPE=I and/or

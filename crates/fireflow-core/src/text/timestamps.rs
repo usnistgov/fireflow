@@ -25,6 +25,8 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
+use super::lookup::DiagnosedOutput;
+
 /// The $DATE/$BTIM/$ETIM keywords
 ///
 /// The generic type parameter is meant to account for the fact that the time
@@ -72,14 +74,19 @@ where
 {
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
+    type Diagnostic = ();
 
-    fn from_str_with<'a>(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+    fn from_str_with<'a>(
+        s: &str,
+        (): (),
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
             s.parse::<T>().map_err(FCSFixedTimeError::Native)?
         };
-        Ok(Self(ret))
+        Ok(DiagnosedOutput::new1(Self(ret)))
     }
 }
 
@@ -189,7 +196,7 @@ impl<X> Timestamps<X> {
         go!(b)
             .zip_f3_once(go!(e), go!(d))
             .and_then_deferred(|(btim, etim, date)| {
-                Self::try_new(btim, etim, date)
+                Self::try_new(btim.into_native(), etim.into_native(), date.into_native())
                     .map_errors(LookupTimestampsError::Reversed)
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
@@ -255,13 +262,19 @@ const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
+    type Diagnostic = ();
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        if let Some(pattern) = &conf.date_pattern {
+    fn from_str_with(
+        s: &str,
+        (): (),
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+        let ret = if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
             s.parse::<Self>()
-        }
+        };
+        ret.map(DiagnosedOutput::new1)
     }
 }
 

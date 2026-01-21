@@ -1,7 +1,7 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::config::DisallowRangeTrunc;
-use crate::data::{IndexedError, IndexedRangeToAsciiError, RangeToAsciiError};
+use crate::data::{ConvertedRange, FromRange as _, IndexedError, IndexedRangeToAsciiError};
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::index::MeasIndex;
@@ -114,14 +114,15 @@ impl AsciiRange {
         range: Range,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<Self, (), IndexedRangeToAsciiError, AsciiRangeFromKeywordsError>
-    {
-        let rng_res = range
-            .into_ascii_uint()
-            .map_errors(RangeToAsciiError::from)
-            .map_errors(|e| IndexedError::new(i, e))
-            .map_errors(IndexedRangeToAsciiError)
-            .nowarn_into_switchable(flag)
+    ) -> WarningsAndErrorsResult<
+        ConvertedRange<Self>,
+        (),
+        IndexedRangeToAsciiError,
+        AsciiRangeFromKeywordsError,
+    > {
+        let rng_res = Self::from_range(range, flag)
+            .map_switchable_errors(|e| IndexedError::new(i, e))
+            .map_switchable_errors(IndexedRangeToAsciiError)
             .switchable_into_commutative()
             .map_errors(AsciiRangeFromKeywordsError::from)
             .into_semigroup();
@@ -132,12 +133,13 @@ impl AsciiRange {
             .into_log();
         rng_res
             .zip_commutative(chars_res)
-            .and_then_commutative(|(rng, chars)| {
-                Self::try_new_from_chars(rng, chars)
+            .and_then_commutative(|(cr, chars)| {
+                Self::try_new_from_chars(cr.native.value, chars)
                     .map_err(|e| IndexedError::new(i, e))
                     .map_err(IndexedNotEnoughCharsError)
                     .map_err(AsciiRangeFromKeywordsError::from)
                     .into_log()
+                    .map_ok_value(|ar| ConvertedRange::new(ar, cr.non_truncated))
             })
     }
 

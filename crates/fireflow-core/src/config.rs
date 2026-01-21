@@ -615,7 +615,7 @@ pub struct ReadStdKeywordsConfig {
     /// `"0,0"`.
     pub trim_intra_value_whitespace: TrimIntraValueWhitespace,
 
-    /// If `true`, a pattern to find/match the $PnN of the time measurement.
+    /// A pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
@@ -639,6 +639,7 @@ pub struct ReadStdKeywordsConfig {
     /// equates to a no-op.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
+    // TODO make this guess if this is needed
     /// If `true`, parse $SPILLOVER with indices rather than names.
     ///
     /// Indices will then be used to look up the names that should have been

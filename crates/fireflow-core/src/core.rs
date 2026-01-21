@@ -1471,11 +1471,12 @@ pub(crate) trait PrivVersioned: Versioned {
             .zip_commutative(offset_res)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(layout, offsets)| {
+            .and_then_commutative(|(layout_out, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
-                layout
+                layout_out
+                    .layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -4295,8 +4296,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
                     root_res.zip3_commutative(meas_res, layout_res)
                 })
-                .and_then_commutative(|(metaroot, meas, layout)| {
-                    Self::try_new(metaroot, meas, layout, conf)
+                .and_then_commutative(|(metaroot, meas, layout_out)| {
+                    Self::try_new(metaroot, meas, layout_out.layout, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
                 });

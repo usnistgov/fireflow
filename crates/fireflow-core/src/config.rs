@@ -626,8 +626,8 @@ pub struct ReadStdKeywordsConfig {
     pub allow_missing_time: AllowMissingTime,
 
     // TODO return something that indicates this was used
-    /// If `true` force, force scale to be linear for temporal measurement.
-    pub force_time_linear: ForceTimeLinear,
+    /// If `true` force, force $PnE to be linear (`"0.0"`).
+    pub force_linear_scale: ForceLinearScale,
 
     // TODO control if these should be dropped/demoted/returned in extra
     /// Ignore optical keywords in time channel.
@@ -775,7 +775,7 @@ impl Default for ReadStdKeywordsConfig {
             trim_intra_value_whitespace: TrimIntraValueWhitespace::default(),
             time_meas_pattern: None,
             allow_missing_time: AllowMissingTime::default(),
-            force_time_linear: ForceTimeLinear::default(),
+            force_linear_scale: ForceLinearScale::default(),
             ignore_time_optical_keys: HashSet::default(),
             parse_indexed_spillover: ParseIndexedSpillover::default(),
             date_pattern: None,
@@ -885,6 +885,7 @@ pub struct ReadDataKeywordsConfig {
     /// override those values as well.
     pub integer_byteord_override: Option<kws::ByteOrd2_0>,
 
+    // TODO return which ranges were truncated and their original values
     /// If `true`, disallow bitmask to be truncated when converting from native type.
     ///
     /// This only applies to integer columns (ie DATATYPE=I and/or
@@ -1100,6 +1101,42 @@ impl FromStr for DelimEscapeMode {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct DelimEscapeModeError;
 
+/// Choose which $PnE to force as linear.
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum ForceLinearScale {
+    #[default]
+    None,
+    TimeOnly,
+    All,
+}
+
+impl FromStr for ForceLinearScale {
+    type Err = ForceLinearScaleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "time_only" => Ok(Self::TimeOnly),
+            "all" => Ok(Self::All),
+            "none" => Ok(Self::None),
+            _ => Err(ForceLinearScaleError),
+        }
+    }
+}
+
+/// Error when parsing [`TruncateEventValues`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'time_only', 'all', or 'none'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct ForceLinearScaleError;
+
+impl ForceLinearScale {
+    pub(crate) fn time_selected(self) -> bool {
+        matches!(self, Self::TimeOnly | Self::All)
+    }
+}
+
 /// Choose which event types are truncated.
 ///
 /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
@@ -1216,7 +1253,6 @@ impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
 impl_error_flag!(false_is_error AllowMissingTime);
-impl_config_flag!(ForceTimeLinear);
 impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
 impl_config_flag!(IntegerWidthsFromByteord);

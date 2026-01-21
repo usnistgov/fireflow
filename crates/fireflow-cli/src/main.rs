@@ -1,20 +1,12 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{
-    self, AllowOverlappingSuppTEXT, DatasetOffset, DelimEscapeMode, DisallowOverRange,
-    ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion,
-    ProcessPseudostandard, TruncateEventValues, VersionOverride,
-};
+use fireflow_core::config::{self, DatasetOffset, VersionOverride};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
-use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{
-    KeyOrStringPatterns, KeyOrStringPatternsError, KeyString, NonStdMeasPattern,
-};
+use fireflow_core::validated::keys::{KeyOrStringPatterns, KeyOrStringPatternsError, KeyString};
 use fireflow_core::validated::sub_pattern::SubPattern;
-use fireflow_core::validated::timepattern::TimePattern;
 use regex::Regex;
 
 use ansi_term::{ANSIString, Style};
@@ -24,9 +16,10 @@ use clap::{
 use itertools::Itertools as _;
 use serde::ser::Serialize;
 use std::collections::HashMap;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::iter::once;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 #[allow(clippy::too_many_lines)]
 fn main() -> Result<(), ()> {
@@ -451,13 +444,15 @@ fn main() -> Result<(), ()> {
 
     let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
 
-    let force_time_linear = flag_arg(
-        FORCE_TIME_LINEAR,
-        format!(
-            "Force {} for time measurement to be linear.",
+    let force_linear_scale = Arg::new(FORCE_LINEAR_SCALE)
+        .long(FORCE_LINEAR_SCALE)
+        .value_name("WHICH")
+        .help(format!(
+            "Force {} keywords to be linear. Pass 'time_only' to only set the \
+             temporal measurement, 'all' to set all measurements, and 'none' \
+             for no measurements.",
             kw_style.paint("$PnE")
-        ),
-    );
+        ));
 
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
         .long(IGNORE_TIME_OPTICAL_KEYS)
@@ -587,7 +582,7 @@ fn main() -> Result<(), ()> {
         trim_intra_value_whitespace,
         time_meas_pattern,
         allow_missing_time,
-        force_time_linear,
+        force_linear_scale,
         ignore_time_optical_keys,
         parse_indexed_spillover,
         date_pattern,
@@ -1022,17 +1017,11 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
     let supp_text_correction = (stext0, stext1).into();
 
-    let delim_escape_mode = sargs
-        .get_one::<String>(DELIM_ESCAPE_MODE)
-        .map(|s| s.parse::<DelimEscapeMode>().unwrap())
-        .unwrap_or_default();
+    let delim_escape_mode = parse_string_type(sargs, DELIM_ESCAPE_MODE);
 
     let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
 
-    let allow_overlapping_supp_text = sargs
-        .get_one::<String>(ALLOW_OVERLAPPING_SUPP_TEXT)
-        .map(|s| s.parse::<AllowOverlappingSuppTEXT>().unwrap())
-        .unwrap_or_default();
+    let allow_overlapping_supp_text = parse_string_type(sargs, ALLOW_OVERLAPPING_SUPP_TEXT);
 
     let to_blank = |s: &str| (s.to_owned(), ());
 
@@ -1104,52 +1093,31 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         Some(config::TimeMeasNamePattern::default())
     };
 
-    let nonstandard_measurement_pattern = sargs
-        .get_one::<String>(NS_MEAS_PATTERN)
-        .cloned()
-        .map(|s| s.parse::<NonStdMeasPattern>().unwrap());
     let ignore_time_optical_keys = sargs
         .get_one::<String>(IGNORE_TIME_OPTICAL_KEYS)
         .into_iter()
         .flat_map(|s| s.split(','))
         .map(|s| s.parse::<config::TemporalOpticalKey>().unwrap())
         .collect();
-    let date_pattern = sargs
-        .get_one::<String>(DATE_PATTERN)
-        .cloned()
-        .map(|d| d.parse::<DatePattern>().unwrap());
-    let time_pattern = sargs
-        .get_one::<String>(TIME_PATTERN)
-        .cloned()
-        .map(|d| d.parse::<TimePattern>().unwrap());
+
+    let nonstandard_measurement_pattern = parse_opt_string_type(sargs, NS_MEAS_PATTERN);
+    let date_pattern = parse_opt_string_type(sargs, DATE_PATTERN);
+    let time_pattern = parse_opt_string_type(sargs, TIME_PATTERN);
+
     let datetime_pattern = sargs.get_one::<String>(DATETIME_PATTERN).cloned();
     let last_modified_pattern = sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned();
 
-    let process_pseudostandard = sargs
-        .get_one::<String>(PROCESS_PSEUDOSTANDARD)
-        .map(|s| s.parse::<ProcessPseudostandard>().unwrap())
-        .unwrap_or_default();
-
-    let process_hyper_par = sargs
-        .get_one::<String>(PROCESS_HYPER_PAR)
-        .map(|s| s.parse::<ProcessHyperPar>().unwrap())
-        .unwrap_or_default();
-
-    let process_other_version = sargs
-        .get_one::<String>(PROCESS_OTHER_VERSION)
-        .map(|s| s.parse::<ProcessOtherVersion>().unwrap())
-        .unwrap_or_default();
-
-    let process_extra_timestep = sargs
-        .get_one::<String>(PROCESS_EXTRA_TIMESTEP)
-        .map(|s| s.parse::<ProcessExtraTimestep>().unwrap())
-        .unwrap_or_default();
+    let process_pseudostandard = parse_string_type(sargs, PROCESS_PSEUDOSTANDARD);
+    let process_hyper_par = parse_string_type(sargs, PROCESS_HYPER_PAR);
+    let process_other_version = parse_string_type(sargs, PROCESS_OTHER_VERSION);
+    let process_extra_timestep = parse_string_type(sargs, PROCESS_EXTRA_TIMESTEP);
+    let force_linear_scale = parse_string_type(sargs, FORCE_LINEAR_SCALE);
 
     config::ReadStdKeywordsConfig {
         dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
         time_meas_pattern,
-        force_time_linear: sargs.get_flag(FORCE_TIME_LINEAR).into(),
+        force_linear_scale,
         ignore_time_optical_keys,
         allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME).into(),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
@@ -1213,14 +1181,12 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
-    let process_optional_failure = sargs
-        .get_one::<String>(PROCESS_OPTIONAL_FAILURE)
-        .map(|s| s.parse::<ProcessOptionalFailure>().unwrap())
-        .unwrap_or_default();
+    let process_optional_failure = parse_string_type(sargs, PROCESS_OPTIONAL_FAILURE);
 
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
+
     config::ReadDataKeywordsConfig {
         text_data_correction,
         text_analysis_correction,
@@ -1237,14 +1203,8 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
-    let truncate_event_values = sargs
-        .get_one::<String>(TRUNCATE_EVENT_VALUES)
-        .map(|s| s.parse::<TruncateEventValues>().unwrap())
-        .unwrap_or_default();
-    let disallow_over_range = sargs
-        .get_one::<String>(DISALLOW_OVER_RANGE)
-        .map(|s| s.parse::<DisallowOverRange>().unwrap())
-        .unwrap_or_default();
+    let truncate_event_values = parse_string_type(sargs, TRUNCATE_EVENT_VALUES);
+    let disallow_over_range = parse_string_type(sargs, DISALLOW_OVER_RANGE);
     config::ReadEventsConfig {
         allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
         allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
@@ -1335,6 +1295,28 @@ fn parse_limit(sargs: &ArgMatches) -> Option<usize> {
 
 fn parse_delim(sargs: &ArgMatches) -> &String {
     sargs.get_one::<String>(DELIM).unwrap()
+}
+
+fn parse_string_type<T>(sargs: &ArgMatches, name: &str) -> T
+where
+    T: FromStr + Default,
+    T::Err: Debug,
+{
+    sargs
+        .get_one::<String>(name)
+        .map(|s| s.parse::<T>().unwrap())
+        .unwrap_or_default()
+}
+
+fn parse_opt_string_type<T>(sargs: &ArgMatches, name: &str) -> Option<T>
+where
+    T: FromStr,
+    T::Err: Debug,
+{
+    sargs
+        .get_one::<String>(name)
+        .cloned()
+        .map(|s| s.parse::<T>().unwrap())
 }
 
 fn print_json<T: Serialize>(j: &T) {
@@ -1491,7 +1473,7 @@ const ALLOW_MISSING_TIME: &str = "allow-missing-time";
 
 const PARSE_INDEXED_SPILLOVER: &str = "parse-indexed-spillover";
 
-const FORCE_TIME_LINEAR: &str = "force-time-linear";
+const FORCE_LINEAR_SCALE: &str = "force-time-linear";
 
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
 

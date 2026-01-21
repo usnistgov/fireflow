@@ -1,6 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-    TemporalOpticalKey, TrimIntraValueWhitespace,
+    ConfigFlag as _, ForceLinearScale, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ReadStdKeywordsConfig, TemporalOpticalKey, TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -616,11 +616,13 @@ impl FromStrWith for Scale {
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-        if conf.fix_log_scale_offsets.is_set() {
+        if matches!(conf.force_linear_scale, ForceLinearScale::All) {
+            Ok(Self::Linear)
+        } else if conf.fix_log_scale_offsets.is_set() {
             res.or_else(|e| {
                 if let ScaleError::LogRange(le) = e {
                     le.try_fix_offset()
-                        .map(Scale::Log)
+                        .map(Self::Log)
                         .map_err(ScaleError::LogRange)
                 } else {
                     Err(e)
@@ -1289,7 +1291,7 @@ impl TemporalScale3_0 {
         nonstd: &mut NonStdKeywords,
         conf: &ReadStdKeywordsConfig,
     ) -> Result<(), ReqIndexedStKeyError<Self>> {
-        if conf.force_time_linear.is_set() {
+        if conf.force_linear_scale.time_selected() {
             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
             Ok(())
         } else {

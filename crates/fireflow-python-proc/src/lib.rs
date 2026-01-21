@@ -7599,7 +7599,7 @@ impl DocArgParam {
             Self::new_trim_intra_value_whitespace_param(),
             Self::new_time_meas_pattern_param(),
             Self::new_allow_missing_time_param(),
-            Self::new_force_time_linear_param(),
+            Self::new_force_linear_scale_param(),
             Self::new_ignore_time_optical_keys_param(),
             Self::new_date_pattern_param(),
             Self::new_time_pattern_param(version),
@@ -7733,9 +7733,13 @@ impl DocArgParam {
         Self::new_bool_param("allow_missing_time", d)
     }
 
-    fn new_force_time_linear_param() -> Self {
-        let d = "If ``True`` force time measurement to be linear independent of *$PnE*.";
-        Self::new_bool_param("force_time_linear", d)
+    fn new_force_linear_scale_param() -> Self {
+        let path = config_path("ForceLinearScale");
+        let pt = PyLiteral::new2(["none", "time_only", "all"], path);
+        let d = "Force *$PnE* to be linear. Use ``\"time_only\"`` to only \
+                 change the temporal measurement, ``\"all\"`` to change all \
+                 measurements, and ``\"none\"`` to change no measurements.";
+        Self::new_param("force_linear_scale", pt, d).def_auto()
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {

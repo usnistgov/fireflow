@@ -7316,7 +7316,7 @@ impl LookupTemporal for InnerTemporal2_0 {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-        let scale = if sconf.force_time_linear.is_set() {
+        let scale = if sconf.force_linear_scale.time_selected() {
             nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
             LogResult::new_ok(true.into())
         } else {

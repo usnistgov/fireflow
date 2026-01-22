@@ -4,7 +4,7 @@ use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
-use super::lookup::{FromStrWith, DiagnosedKeyword};
+use super::lookup::{DiagnosedKeyword, FromStrWith, FromStrWithResult, Trimmed};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
@@ -225,13 +225,13 @@ impl fmt::Display for Spillover {
 impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
-    type Diagnostic = bool;
+    type Diagnostic = Trimmed;
 
     fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedKeyword<Self, bool>, Self::Err> {
+    ) -> FromStrWithResult<Self> {
         if conf.parse_indexed_spillover.is_set() {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
             let (m, was_trimmed) = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
@@ -239,14 +239,12 @@ impl FromStrWith for Spillover {
                 conf.trim_intra_value_whitespace,
                 go,
             )?;
-            Ok(DiagnosedKeyword::new(
-                m.try_into_named(ordered_names)?,
-                was_trimmed,
-            ))
+            let d = was_trimmed.then(|| s.to_owned());
+            Ok(DiagnosedKeyword::new(m.try_into_named(ordered_names)?, d))
         } else {
             let m = s.parse::<Self>()?;
             // m.check_link(names)?;
-            Ok(DiagnosedKeyword::new(m, false))
+            Ok(DiagnosedKeyword::new(m, None))
         }
     }
 }

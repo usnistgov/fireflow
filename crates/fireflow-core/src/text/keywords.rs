@@ -583,7 +583,7 @@ pub enum Scale {
 }
 
 /// Diagnostic data from parsing $PnE
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq)]
 pub enum ScaleDiagnostic {
     /// Nothing happend
     #[default]
@@ -1286,12 +1286,19 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScaleInner;
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq)]
 pub enum TemporalScaleDiagnostic {
     #[default]
     None,
     Forced(String),
     Trimmed(String),
+}
+
+#[derive(From, Clone, PartialEq)]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+pub enum AnyScaleDiagnostic {
+    Optical(ScaleDiagnostic),
+    Temporal(TemporalScaleDiagnostic),
 }
 
 impl FromStrDelim for TemporalScaleInner {
@@ -2155,9 +2162,10 @@ impl FromStrDelim for RegionWindow {
         }
     }
 
-    // this function should never be used, it normally is supposed to be called
-    // by Self::from_str_delim but it is overridden above to get the nested
-    // behavior to work
+    // TODO this function should never be used, it normally is supposed to be
+    // called by Self::from_str_delim but it is overridden above to get the
+    // nested behavior to work
+    #[allow(clippy::unimplemented)]
     fn from_iter<'a>(_: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         unimplemented!()
     }
@@ -3749,6 +3757,7 @@ mod tests {
         assert_eq!(
             Wavelengths::from_str_with(v, (), &conf)
                 .unwrap()
+                .native
                 .display_maybe(),
             Some("1,2".into())
         );
@@ -3930,6 +3939,7 @@ mod tests {
         assert_eq!(
             UnstainedCenters::from_str_with(v, (), &conf)
                 .unwrap()
+                .native
                 .display_maybe(),
             Some("1,X,0".into())
         );
@@ -4118,11 +4128,12 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, Scale, Trigger, UniGate,
-        Unicode, Vertex,
+        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, Scale, ScaleDiagnostic,
+        TemporalScaleDiagnostic, Trigger, UniGate, Unicode, Vertex,
     };
 
     use pyo3::conversion::IntoPyObjectExt as _;
+    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
     use std::num::NonZeroU8;
@@ -4332,6 +4343,73 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             (self.x, self.y).into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for ScaleDiagnostic {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
+                match y.as_str() {
+                    "forced" => Ok(Self::Forced(x)),
+                    "log" => Ok(Self::LogFixed(x)),
+                    "trimmed" => Ok(Self::Trimmed(x)),
+                    "trimmed_log" => Ok(Self::TrimmedLogFixed(x)),
+                    _ => Err(PyValueError::new_err(
+                        "second string must be 'forced', 'log', 'trimmed', \
+                         or 'trimmed_log'",
+                    )),
+                }
+            } else {
+                Ok(Self::None)
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for TemporalScaleDiagnostic {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
+                match y.as_str() {
+                    "forced" => Ok(Self::Forced(x)),
+                    "trimmed" => Ok(Self::Trimmed(x)),
+                    _ => Err(PyValueError::new_err(
+                        "second string must be 'forced' or 'trimmed'",
+                    )),
+                }
+            } else {
+                Ok(Self::None)
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ScaleDiagnostic {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ret = match self {
+                Self::None => None,
+                Self::Forced(x) => Some((x, "forced")),
+                Self::LogFixed(x) => Some((x, "log")),
+                Self::Trimmed(x) => Some((x, "trimmed")),
+                Self::TrimmedLogFixed(x) => Some((x, "trimmed_log")),
+            };
+            ret.into_bound_py_any(py)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TemporalScaleDiagnostic {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ret = match self {
+                Self::None => None,
+                Self::Forced(x) => Some((x, "forced")),
+                Self::Trimmed(x) => Some((x, "trimmed")),
+            };
+            ret.into_bound_py_any(py)
         }
     }
 }

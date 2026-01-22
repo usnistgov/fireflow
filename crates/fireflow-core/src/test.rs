@@ -31,7 +31,7 @@ pub fn assert_from_to_str_with<T>(
 {
     match T::from_str_with(s, payload, conf) {
         Ok(x) => {
-            let ss = x.to_string();
+            let ss = x.native.to_string();
             assert_eq!(s, ss.as_str());
         }
         Err(e) => panic!("could not parse {s}, got error: {e}"),
@@ -64,7 +64,7 @@ pub fn assert_from_to_str_maybe_with<T>(
 {
     match T::from_str_with(s, payload, conf) {
         Ok(x) => {
-            let ss = x.display_maybe();
+            let ss = x.native.display_maybe();
             assert_eq!(Some(s.to_owned()), ss);
         }
         Err(e) => panic!("could not parse {s}, got error: {e}"),
@@ -98,7 +98,7 @@ pub fn assert_from_to_str_almost_with<T>(
 {
     match T::from_str_with(s0, payload, conf) {
         Ok(x) => {
-            let ss = x.to_string();
+            let ss = x.native.to_string();
             assert_eq!(s1, ss.as_str());
         }
         Err(e) => panic!("could not parse {s0}, got error: {e}"),

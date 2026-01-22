@@ -56,6 +56,7 @@ from pyreflow.typing import (
     ProcessKeywordFailure,
     TriFlag,
     ForceLinearScale,
+    ScaleDiagnostic,
 )
 import pyreflow._defaults as pfd
 
@@ -1798,7 +1799,7 @@ class ValidKeywords:
     def nonstd(self) -> NonStdKeywords: ...
 
 @final
-class ExtraStdKeywords:
+class StdTEXTDiagnosticOutput:
     def __new__(
         cls,
         pseudostandard: StdKeywords,
@@ -1806,6 +1807,8 @@ class ExtraStdKeywords:
         hyper_gate: StdKeywords,
         other_version: StdKeywords,
         timestep: str | None,
+        scale: list[ScaleDiagnostic],
+        trimmed: list[tuple[str, str]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1818,6 +1821,10 @@ class ExtraStdKeywords:
     def other_version(self) -> StdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
+    @property
+    def scale(self) -> list[ScaleDiagnostic]: ...
+    @property
+    def trimmed(self) -> list[tuple[str, str]]: ...
 
 @final
 class DatasetSegments:
@@ -1918,7 +1925,7 @@ class FlatTEXTOutput:
         cls,
         version: FCSVersion,
         kws: ValidKeywords,
-        parse: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1926,7 +1933,7 @@ class FlatTEXTOutput:
     @property
     def kws(self) -> ValidKeywords: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTParseData: ...
 
 @final
 class ReadEventsOutput:
@@ -1955,7 +1962,7 @@ class FlatDatasetWithKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_segs: DatasetSegments,
-        events_output: ReadEventsOutput,
+        events_diagnostics: ReadEventsOutput,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1967,7 +1974,7 @@ class FlatDatasetWithKwsOutput:
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def events_output(self) -> ReadEventsOutput: ...
+    def events_diagnostics(self) -> ReadEventsOutput: ...
 
 @final
 class FlatDatasetOutput:
@@ -1988,8 +1995,8 @@ class StdTEXTOutput:
         cls,
         tot: int | None,
         dataset_segs: DatasetSegments,
-        extra: ExtraStdKeywords,
-        parse: FlatTEXTParseData,
+        std_diagnostics: StdTEXTDiagnosticOutput,
+        flat_diagnostics: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1997,38 +2004,38 @@ class StdTEXTOutput:
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def extra(self) -> ExtraStdKeywords: ...
+    def std_diagnostics(self) -> StdTEXTDiagnosticOutput: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTParseData: ...
 
 @final
 class StdDatasetWithKwsOutput:
     def __new__(
         cls,
         dataset_segs: DatasetSegments,
-        extra: ExtraStdKeywords,
-        events_output: ReadEventsOutput,
+        std_diagnostics: StdTEXTDiagnosticOutput,
+        events_diagnostics: ReadEventsOutput,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def extra(self) -> ExtraStdKeywords: ...
+    def std_diagnostics(self) -> StdTEXTDiagnosticOutput: ...
     @property
-    def events_output(self) -> ReadEventsOutput: ...
+    def events_diagnostics(self) -> ReadEventsOutput: ...
 
 @final
 class StdDatasetOutput:
     def __new__(
         cls,
         dataset: StdDatasetWithKwsOutput,
-        parse: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTParseData,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTParseData: ...
 
 @final
 class DatasetSummary:
@@ -2805,7 +2812,7 @@ __all__ = [
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
-    "ExtraStdKeywords",
+    "StdTEXTDiagnosticOutput",
     "ValidKeywords",
     "DatasetSegments",
     "SplitTEXTOutput",

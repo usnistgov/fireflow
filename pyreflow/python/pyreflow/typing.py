@@ -163,3 +163,7 @@ ProcessKeywordFailure: TypeAlias = Literal["error", "demote", "drop", "drop_sile
 TriFlag: TypeAlias = bool | Literal["silent"]
 
 ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]
+
+ScaleDiagnostic: TypeAlias = (
+    tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
+)

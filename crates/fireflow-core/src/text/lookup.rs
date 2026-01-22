@@ -8,7 +8,7 @@ use crate::validated::keys::{
     StdKey, StdKeywords,
 };
 
-use super::index::IndexFromOne;
+use super::index::{IndexFromOne, MeasIndex};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -133,6 +133,38 @@ impl<T> DiagnosedKeyword<T, ()> {
     }
 }
 
+impl<T> DiagnosedKeyword<T, Trimmed> {
+    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, String)>)
+    where
+        T: Key,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+    }
+
+    pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, String)>)
+    where
+        T: IndexedKey,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+    }
+}
+
+impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, String)>)
+    where
+        T: Key,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+    }
+
+    pub(crate) fn into_opt_indexed_pair(self, i: MeasIndex) -> (Option<T>, Option<(StdKey, String)>)
+    where
+        T: IndexedKey,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+    }
+}
+
 impl_kind2!(DiagnosedOutputFamily, DiagnosedKeyword);
 
 impl<A, B> BifunctorOnce<A, B> for DiagnosedKeyword<A, B> {
@@ -239,6 +271,7 @@ pub(crate) trait Required: Sized {
             .map_err(ReqKeyErrorInner::from)
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_req_with<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
@@ -330,6 +363,7 @@ pub(crate) trait Optional: Sized {
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_opt_with<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
@@ -385,6 +419,7 @@ pub(crate) trait Optional: Sized {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_or_transfer_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -433,6 +468,7 @@ pub(crate) trait Optional: Sized {
             .nowarn_into_switchable(conf.process_optional_failure)
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_or_drop_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -467,21 +503,6 @@ pub(crate) trait Optional: Sized {
         F: FnOnce(SpecificKey<Self, I>, &str) -> Result<Self, E>,
     {
         kws.get(&k.as_std())
-            .map(|v| f(k, v))
-            .transpose()
-            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
-    }
-
-    fn remove_opt_inner<F, E, I>(
-        kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-        f: F,
-    ) -> Result<Self::Outer, E>
-    where
-        SpecificKey<Self, I>: AnyKey,
-        F: FnOnce(SpecificKey<Self, I>, String) -> Result<Self, E>,
-    {
-        kws.remove(&k.as_std())
             .map(|v| f(k, v))
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())

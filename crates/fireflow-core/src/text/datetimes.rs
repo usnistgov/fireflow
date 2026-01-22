@@ -272,7 +272,7 @@ mod tests {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let conf = ReadStdKeywordsConfig::default();
-            Self::from_str_with(s, (), &conf)
+            Self::from_str_with(s, (), &conf).map(|x| x.native)
         }
     }
 

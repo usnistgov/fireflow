@@ -11,7 +11,7 @@ use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
     StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
-    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
+    StdTEXTDiagnosticOutput, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::data::ReadEventsOutput;
 use crate::header::{
@@ -32,7 +32,7 @@ use crate::segment::{
     ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::keywords::{
-    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, ExtraStdKeywords, Nextdata, Tot,
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
 };
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
@@ -156,7 +156,7 @@ pub fn fcs_read_flat_dataset(
                 .into_log()
         })
         .and_then_commutative(|(flat, mut h, st)| {
-            let segs = flat.parse.non_data_segments();
+            let segs = flat.flat_diagnostics.non_data_segments();
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
                 .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
                 .map_commutative_warnings(FlatDatasetWarning::from)
@@ -263,7 +263,7 @@ pub fn fcs_read_flat_texts(
         let succ = split_log!(res);
         let nextdata_res = succ.fmap_once(|ret| {
             dataset_offset = ret
-                .parse
+                .flat_diagnostics
                 .nextdata
                 .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
             ret
@@ -298,7 +298,7 @@ pub fn fcs_read_std_texts(
         conf,
         StdTEXTSummary,
         fcs_read_std_text,
-        |ret| ret.1.parse.nextdata,
+        |ret| ret.1.flat_diagnostics.nextdata,
     )
 }
 
@@ -322,7 +322,7 @@ pub fn fcs_read_flat_datasets(
         conf,
         FlatDatasetSummary,
         fcs_read_flat_dataset,
-        |ret| ret.text.parse.nextdata,
+        |ret| ret.text.flat_diagnostics.nextdata,
     )
 }
 
@@ -346,7 +346,7 @@ pub fn fcs_read_std_datasets(
         conf,
         StdDatasetSummary,
         fcs_read_std_dataset,
-        |ret| ret.1.parse.nextdata,
+        |ret| ret.1.flat_diagnostics.nextdata,
     )
 }
 
@@ -402,7 +402,7 @@ where
             let succ = split_log!(res);
             succ.fmap_once(|ret| {
                 dataset_offset = ret
-                    .parse
+                    .flat_diagnostics
                     .nextdata
                     .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
                 None
@@ -439,7 +439,7 @@ pub struct FlatTEXTOutput {
     pub keywords: ValidKeywords,
 
     /// Miscellaneous data from parsing TEXT
-    pub parse: FlatTEXTParseData,
+    pub flat_diagnostics: FlatTEXTParseData,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -453,11 +453,11 @@ pub struct StdTEXTOutput {
     /// Segments for DATA and ANALYSIS
     pub dataset_segments: DatasetSegments,
 
-    /// Keywords that start with '$' that are not part of the standard
-    pub extra: ExtraStdKeywords,
+    /// Diagnostic output from TEXT standardization
+    pub std_diagnostics: StdTEXTDiagnosticOutput,
 
-    /// Miscellaneous data from parsing TEXT
-    pub parse: FlatTEXTParseData,
+    /// Diagnostic output from flat TEXT parsing
+    pub flat_diagnostics: FlatTEXTParseData,
 }
 
 /// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
@@ -477,7 +477,7 @@ pub struct StdDatasetOutput {
     pub dataset: StdDatasetWithKwsOutput,
 
     /// Miscellaneous data from parsing TEXT
-    pub parse: FlatTEXTParseData,
+    pub flat_diagnostics: FlatTEXTParseData,
 }
 
 /// Output of using keywords to read flat TEXT+DATA
@@ -496,7 +496,7 @@ pub struct FlatDatasetWithKwsOutput {
     pub dataset_segments: DatasetSegments,
 
     /// Diagnostic output from parsing DATA segment
-    pub events_output: ReadEventsOutput,
+    pub events_diagnostics: ReadEventsOutput,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -633,7 +633,7 @@ impl FlatDatasetOutput {
     fn summarize(self) -> DatasetSummary {
         DatasetSummary {
             version: self.text.version,
-            text_len: self.text.parse.header_segments.text.len(),
+            text_len: self.text.flat_diagnostics.header_segments.text.len(),
             data_len: self.dataset.dataset_segments.data.len(),
             analysis_len: self.dataset.dataset_segments.analysis.len(),
             n_events: self.dataset.data.nrows(),
@@ -1104,10 +1104,15 @@ impl FlatTEXTOutput {
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
     {
-        let segs = self.parse.non_data_segments();
+        let segs = self.flat_diagnostics.non_data_segments();
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
             |(standardized, extra, offsets)| {
-                let out = StdTEXTOutput::new(offsets.tot, *offsets.as_ref(), extra, self.parse);
+                let out = StdTEXTOutput::new(
+                    offsets.tot,
+                    *offsets.as_ref(),
+                    extra,
+                    self.flat_diagnostics,
+                );
                 (standardized, out)
             },
         )
@@ -1130,12 +1135,12 @@ impl FlatTEXTOutput {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let hs = &self.parse.header_segments;
+        let hs = &self.flat_diagnostics.header_segments;
         let d = hs.data;
         let a = hs.analysis;
         let o = &hs.other[..];
         AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
-            .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.parse)))
+            .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.flat_diagnostics)))
     }
 }
 

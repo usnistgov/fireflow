@@ -630,17 +630,17 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let kws =
         DocArg::new_valid_keywords_param().into_ro(|_, _| quote!(self.0.keywords.clone().into()));
 
-    let parse =
-        DocArg::new_parse_output_param().into_ro(|_, _| quote!(self.0.parse.clone().into()));
+    let flat = DocArg::new_flat_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [version, kws, parse];
+    let args = [version, kws, flat];
 
     let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(version, kws.into(), parse.into()).into()
+                #path::new(version, kws.into(), flat_diagnostics.into()).into()
             }
         }
     };
@@ -691,13 +691,8 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
     let dataset_segs =
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
-
-    let event = DocArgROIvar::new_ivar_ro(
-        "events_output",
-        PyClass::new_py(["api"], "ReadEventsOutput"),
-        "Diagnostic output from parsing DATA segment.",
-        |_, _| quote!(self.0.events_output.clone().into()),
-    );
+    let event = DocArg::new_event_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
     let args = [data, analysis, others, dataset_segs, event];
     let doc = DocString::new_class("Dataset from parsing flat *TEXT*.").args(args);
@@ -705,7 +700,13 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(data, analysis, others, dataset_segs.into(), events_output.into()).into()
+                #path::new(
+                    data,
+                    analysis,
+                    others,
+                    dataset_segs.into(),
+                    events_diagnostics.into()
+                ).into()
             }
         }
     };
@@ -713,34 +714,34 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_read_events_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
     let event_width = DocArgROIvar::new_ivar_ro(
         "event_width",
-        PyOpt::new(RsInt::U64),
+        PyOpt::new1(RsInt::U64),
         "The width of one event in bytes (if not ASCII delimited).",
         |_, _| quote!(self.0.event_width.clone()),
     );
 
     let event_data_remainder = DocArgROIvar::new_ivar_ro(
         "event_data_remainder",
-        PyOpt::new(RsInt::U64),
+        PyOpt::new1(RsInt::U64),
         "The remainder after dividing length of DATA by event width.",
         |_, _| quote!(self.0.event_data_remainder.clone()),
     );
 
     let tot_event_mismatch = DocArgROIvar::new_ivar_ro(
         "tot_event_mismatch",
-        PyOpt::new(PyBool::default()),
+        PyOpt::new1(PyBool::default()),
         "``True`` if *$TOT* does not match the number of events computed via event width.",
         |_, _| quote!(self.0.tot_event_mismatch.clone()),
     );
 
     let truncated_columns = DocArgROIvar::new_ivar_ro(
         "truncated_columns",
-        PyList::new1(PyOpt::new(RsInt::Usize)),
+        PyList::new1(PyOpt::new1(RsInt::Usize)),
         "Columns for which at least one event was truncated to fit *$PnR*.",
         |_, _| quote!(self.0.truncated_columns.clone()),
     );
@@ -765,7 +766,7 @@ pub fn impl_py_read_events_output(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
+pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -799,23 +800,40 @@ pub fn impl_py_extra_std_keywords(input: TokenStream) -> TokenStream {
 
     let timestep = DocArgROIvar::new_ivar_ro(
         "timestep",
-        PyOpt::new(PyStr::default()),
+        PyOpt::new1(PyStr::default()),
         "Unused *$TIMESTEP* keyword",
         |_, _| quote!(self.0.timestep.clone()),
     );
 
-    let doc = DocString::new_class("Extra keywords from *TEXT* standardization.").args([
+    let scale = DocArgROIvar::new_ivar_ro(
+        "scale",
+        PyList::new1(PyOpt::new_scale_diagnostic()),
+        "Diagnostic data from parsing *$PnE* keywords.",
+        |_, _| quote!(self.0.scale.clone()),
+    );
+
+    let trimmed = DocArgROIvar::new_ivar_ro(
+        "trimmed",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        "Keywords which had whitespace between commas trimmed.",
+        |_, _| quote!(self.0.trimmed.clone()),
+    );
+
+    let doc = DocString::new_class("Diagnostic output from *TEXT* standardization.").args([
         pseudostandard,
         hyper_par,
         hyper_gate,
         other_version,
         timestep,
+        scale,
+        trimmed,
     ]);
+    let inner_args = doc.idents_into();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(pseudostandard, hyper_par, hyper_gate, other_version, timestep).into()
+                #path::new(#inner_args).into()
             }
         }
     };
@@ -856,7 +874,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let tot = DocArgROIvar::new_ivar_ro(
         "tot",
-        PyOpt::new(PyInt::new_int(RsInt::Usize).rstype(keyword_path("Tot"))),
+        PyOpt::new1(PyInt::new_int(RsInt::Usize).rstype(keyword_path("Tot"))),
         "Value of *$TOT* from *TEXT*.",
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
@@ -864,23 +882,24 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let dataset_segs =
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
 
-    let extra =
-        DocArg::new_extra_std_keywords_param().into_ro(|_, _| quote!(self.0.extra.clone().into()));
+    let std = DocArg::new_std_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
 
-    let parse = DocArgROIvar::new_ivar_ro(
-        "parse",
-        PyClass::new_py(["api"], "FlatTEXTParseData"),
-        "Miscellaneous data when parsing *TEXT*.",
-        |_, _| quote!(self.0.parse.clone().into()),
-    );
+    let flat = DocArg::new_flat_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [tot, dataset_segs, extra, parse];
+    let args = [tot, dataset_segs, std, flat];
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(tot, dataset_segs.into(), extra.into(), parse.into()).into()
+                #path::new(
+                    tot,
+                    dataset_segs.into(),
+                    std_diagnostics.into(),
+                    flat_diagnostics.into()
+                ).into()
             }
         }
     };
@@ -899,21 +918,17 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.dataset.clone().into()),
     );
 
-    let parse = DocArgROIvar::new_ivar_ro(
-        "parse",
-        PyClass::new_py(["api"], "FlatTEXTParseData"),
-        "Miscellaneous data when parsing *TEXT*.",
-        |_, _| quote!(self.0.parse.clone().into()),
-    );
+    let flat = DocArg::new_flat_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [dataset, parse];
+    let args = [dataset, flat];
 
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(dataset.into(), parse.into()).into()
+                #path::new(dataset.into(), flat_diagnostics.into()).into()
             }
         }
     };
@@ -927,24 +942,22 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 
     let dataset_segs =
         DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
-
-    let extra =
-        DocArg::new_extra_std_keywords_param().into_ro(|_, _| quote!(self.0.extra.clone().into()));
-
-    let event = DocArgROIvar::new_ivar_ro(
-        "events_output",
-        PyClass::new_py(["api"], "ReadEventsOutput"),
-        "Diagnostic output from parsing DATA segment.",
-        |_, _| quote!(self.0.events_output.clone().into()),
-    );
+    let std = DocArg::new_std_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
+    let event = DocArg::new_event_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT* from keywords.")
-        .args([dataset_segs, extra, event]);
+        .args([dataset_segs, std, event]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(dataset_segs.into(), extra.into(), events_output.into()).into()
+                #path::new(
+                    dataset_segs.into(),
+                    std_diagnostics.into(),
+                    events_diagnostics.into()
+                ).into()
             }
         }
     };
@@ -973,14 +986,16 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
-        PyOpt::new(PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_raw_segment())),
+        PyOpt::new1(
+            PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_raw_segment()),
+        ),
         "Supplemental *TEXT* offsets if given (corrected and uncorrected).",
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
     );
 
     let nextdata = DocArgROIvar::new_ivar_ro(
         "nextdata",
-        PyOpt::new(RsInt::U64),
+        PyOpt::new1(RsInt::U64),
         "The value of *$NEXTDATA*.",
         |_, _| quote!(self.0.nextdata),
     );
@@ -1052,7 +1067,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let supp_split = DocArgROIvar::new_ivar_ro(
         "supp_split",
-        PyOpt::new(PyClass::new_py(["api"], "SplitTEXTOutput")),
+        PyOpt::new1(PyClass::new_py(["api"], "SplitTEXTOutput")),
         "Additional parsing diagnostics for supplemental *TEXT*.",
         |_, _| quote!(self.0.supp_split.as_ref().map(|x| x.clone().into())),
     );
@@ -1222,7 +1237,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
 
     let datatype = DocArgROIvar::new_ivar_ro(
         "datatype",
-        PyOpt::new(PyLiteral::new_datatype()),
+        PyOpt::new1(PyLiteral::new_datatype()),
         "The value of *$DATATYPE*",
         |_, _| quote!(self.0.datatype),
     );
@@ -1701,7 +1716,7 @@ pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
 
     let go = |k: &str, kw: &str, name: &str| {
         let p = keyword_path(kw);
-        let pt = PyOpt::new(PyInt::new_u32().rstype(p));
+        let pt = PyOpt::new1(PyInt::new_u32().rstype(p));
         let inner = pt.as_rust_type();
         let doc = DocString::new_ivar(
             format!("The value of *$P{k}n* for all measurements."),
@@ -1762,7 +1777,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_ivar(
         "The possibly-empty values of *$PnN* for all measurements.",
-        PyList::new1(PyOpt::new(PyStr::new_shortname())),
+        PyList::new1(PyOpt::new1(PyStr::new_shortname())),
     )
     .para("*$PnN* is optional for this FCS version so values may be ``None``.");
 
@@ -1781,7 +1796,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let t = PyOpt::new(PyFloat::new_timestep());
+    let t = PyOpt::new1(PyFloat::new_timestep());
     let get_doc = DocString::new_ivar("The value of *$TIMESTEP*", t.clone());
 
     let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
@@ -1918,7 +1933,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             .into_iter();
         let (rt, rd) = if has_timestep {
             (
-                PyOpt::new(PyFloat::new_timestep()).into(),
+                PyOpt::new1(PyFloat::new_timestep()).into(),
                 "Value of *$TIMESTEP* if time measurement was present.",
             )
         } else {
@@ -1979,7 +1994,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new_method("Rename temporal measurement if present.")
         .arg(DocArg::new_name_param("New name to assign."))
         .returns(
-            DocReturn::new(PyOpt::new(PyStr::new_shortname())).desc("Previous name if present."),
+            DocReturn::new(PyOpt::new1(PyStr::new_shortname())).desc("Previous name if present."),
         );
 
     let fun_args = doc.fun_args();
@@ -2013,7 +2028,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         );
         let doc = DocString::new_ivar(
             "The value for *$PnE* for all measurements.",
-            PyList::new1(PyOpt::new(PyUnion::new_scale(false))),
+            PyList::new1(PyOpt::new1(PyUnion::new_scale(false))),
         )
         .paras([s0.into(), s1]);
 
@@ -2097,7 +2112,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_ivar(
         "The temporal measurement if it exists.",
-        PyOpt::new(
+        PyOpt::new1(
             PyTuple::new1(PyInt::new_meas_index())
                 .add(PyStr::new_shortname())
                 .add(PyClass::new_temporal(version)),
@@ -2634,7 +2649,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         .returns(
             DocReturn::new(PyTuple::new2([
                 PyClass::new_coretext(version),
-                PyClass::new_py(["api"], "ExtraStdKeywords"),
+                PyClass::new_py(["api"], "StdTEXTDiagnosticOutput"),
             ]))
             .exc(xs),
         );
@@ -2798,7 +2813,7 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1];
 
-    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+    let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
         .desc("the value of *$NEXTDATA* as written in the last dataset")
         .exc(xs);
 
@@ -2846,7 +2861,7 @@ pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
 
     let xs = [exc0, exc1];
 
-    let ret = DocReturn::new(PyOpt::new(PyInt::new_nextdata()))
+    let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
         .desc("the value of *$NEXTDATA* as written in the last dataset if written")
         .exc(xs);
 
@@ -3183,14 +3198,14 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let bin = DocArg::new_meas_kw_ivar(
         "PeakBin",
         "bin",
-        |p| PyOpt::new(PyInt::new_u32().rstype(p)),
+        |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
         "Value of *$PKn*.".into(),
         true,
     );
     let size = DocArg::new_meas_kw_ivar(
         "PeakIndex",
         "size",
-        |p| PyOpt::new(PyInt::new_u32().rstype(p)),
+        |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
         "Value of *$PKNn*.".into(),
         true,
     );
@@ -3222,7 +3237,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_1 = DocArg::new_meas_kw_ivar(
         "Calibration3_1",
         "calibration",
-        |_| PyOpt::new(PyTuple::new_calibration3_1()),
+        |_| PyOpt::new1(PyTuple::new_calibration3_1()),
         Some("Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."),
         true,
     );
@@ -3230,7 +3245,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let calibration3_2 = DocArg::new_meas_kw_ivar(
         "Calibration3_2",
         "calibration",
-        |_| PyOpt::new(PyTuple::new_calibration3_2()),
+        |_| PyOpt::new1(PyTuple::new_calibration3_2()),
         Some(
             "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, \
              and calibration units.",
@@ -3241,7 +3256,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let display = DocArg::new_meas_kw_ivar(
         "Display",
         "display",
-        |_| PyOpt::new(PyTuple::new_display()),
+        |_| PyOpt::new1(PyTuple::new_display()),
         Some(
             "Value of *$PnD*. First member of tuple encodes linear or log display \
              (``False`` and ``True`` respectively). The float members encode \
@@ -3523,7 +3538,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
 pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
-    let inner_pytype = PyOpt::new(PyLiteral::new_awh_feature());
+    let inner_pytype = PyOpt::new1(PyLiteral::new_awh_feature());
 
     let inner_rstype = inner_pytype.as_rust_type();
 
@@ -3554,7 +3569,7 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
 pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
-    let inner_pytype = PyOpt::new(PyStr::default());
+    let inner_pytype = PyOpt::new1(PyStr::default());
     let inner_rstype = inner_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnFEATURE* (not area/width/height) for all measurements.";
@@ -3605,7 +3620,7 @@ pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
 pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
 
-    let pytype = PyOpt::new(PyLiteral::new_awh_feature());
+    let pytype = PyOpt::new1(PyLiteral::new_awh_feature());
 
     let doc_summary = "Value of *$PnFEATURE* (area/width/height).";
     let p = "This should be the preferred way to get and set this keyword if \
@@ -4750,6 +4765,8 @@ struct PyLiteral {
 struct PyOpt<R> {
     #[new(into)]
     inner: PyType<R>,
+    #[new(into)]
+    rstype: Option<Path>,
 }
 
 /// A Python 'dict[X, Y]'
@@ -4966,8 +4983,12 @@ impl_has_rust_path!(PyDatetime, chrono::DateTime<chrono::FixedOffset>);
 
 impl<E> HasRustPath for PyOpt<E> {
     fn as_rust_type(&self) -> Type {
-        let i = self.inner.as_rust_type();
-        parse_quote!(Option<#i>)
+        if let Some(x) = self.rstype.as_ref() {
+            parse_quote!(#x)
+        } else {
+            let i = self.inner.as_rust_type();
+            parse_quote!(Option<#i>)
+        }
     }
 }
 
@@ -6139,23 +6160,43 @@ impl PyLiteral {
         let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
         Self::new2(["little", "big"], endian)
     }
+
+    fn new_scale_diagnostic() -> Self {
+        Self::new1(["trimmed", "log", "trimmed_log", "forced"])
+    }
 }
 
 impl<E> PyOpt<E> {
+    fn new1(x: impl Into<PyType<E>>) -> Self {
+        Self::new(x, None)
+    }
+
+    // fn rstype(self, rstype: Path) -> Self {
+    //     Self::new(self.inner, Some(rstype))
+    // }
+
     fn doc_default() -> (String, TokenStream2) {
         ("None".into(), quote!(None))
     }
 
     fn wrap_if(inner: impl Into<PyType<E>>, test: bool) -> PyType<E> {
         if test {
-            Self::new(inner).into()
+            Self::new1(inner).into()
         } else {
             inner.into()
         }
     }
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
-        PyOpt::new(self.inner.map_exc(f))
+        PyOpt::new(self.inner.map_exc(f), self.rstype)
+    }
+}
+
+impl<E: From<PyException>> PyOpt<E> {
+    fn new_scale_diagnostic() -> Self {
+        let path = keyword_path("AnyScaleDiagnostic");
+        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_diagnostic());
+        Self::new(inner, path)
     }
 }
 
@@ -6564,7 +6605,7 @@ impl<E> PyType<E> {
 impl<E: From<PyException>> PyType<E> {
     fn new_versioned_shortname(version: Version) -> Self {
         if version < Version::FCS3_1 {
-            PyOpt::new(PyStr::new_shortname()).into()
+            PyOpt::new1(PyStr::new_shortname()).into()
         } else {
             let inner = quote!(fireflow_core::validated::shortname::Shortname);
             let outer = parse_quote!(fireflow_core::text::optional::Identity<#inner>);
@@ -6686,7 +6727,7 @@ impl DocArgRWIvar {
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        let pt = PyOpt::new(pytype.into());
+        let pt = PyOpt::new1(pytype.into());
         Self::new_ivar_rw(argname, pt, desc, fallible, f, g).def_auto()
     }
 
@@ -6749,7 +6790,7 @@ impl DocArgRWIvar {
         F: FnOnce(Path) -> T,
         T: Into<ArgPyType>,
     {
-        Self::new_kw_ivar(kw, name, |p| PyOpt::new(f(p)), None, true)
+        Self::new_kw_ivar(kw, name, |p| PyOpt::new1(f(p)), None, true)
     }
 
     fn new_meas_kw_ivar1<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
@@ -6766,7 +6807,7 @@ impl DocArgRWIvar {
         F: FnOnce(Path) -> T,
         T: Into<ArgPyType>,
     {
-        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyOpt::new(f(p)))
+        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyOpt::new1(f(p)))
     }
 
     fn new_meas_kw_str(kw: &str, name: &str, abbr: &str) -> Self {
@@ -6964,7 +7005,7 @@ impl DocArgRWIvar {
         let path: Path = parse_quote!(fireflow_core::core::CSVFlags);
         Self::new_ivar_rw(
             "csvflags",
-            PyList::new(PyOpt::new(PyInt::new_u32()), path.clone(), None),
+            PyList::new(PyOpt::new1(PyInt::new_u32()), path.clone(), None),
             "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
              the length of the list corresponds to *$CSMODE*.",
             false,
@@ -7024,7 +7065,7 @@ impl DocArgRWIvar {
             None,
         )
         .into();
-        let gtype = PyType::from(PyOpt::new(PyStr::default()));
+        let gtype = PyType::from(PyOpt::new1(PyStr::default()));
         let pytype = PyTuple::new2(gm_pytype.into_iter().chain([reg_pytype, gtype]))
             .rstype(parse_quote!(#rstype));
 
@@ -7250,7 +7291,7 @@ impl DocArgParam {
         pytype: impl Into<ArgPyType>,
         desc: impl fmt::Display,
     ) -> Self {
-        Self::new_param(name, PyOpt::new(pytype), desc).def_auto()
+        Self::new_param(name, PyOpt::new1(pytype), desc).def_auto()
     }
 
     fn into_ro(self, f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2) -> DocArgROIvar {
@@ -7275,12 +7316,12 @@ impl DocArgParam {
     }
 
     fn new_skip_param(desc: &str) -> Self {
-        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
         Self::new_param("skip", pt, desc).def_auto()
     }
 
     fn new_limit_param(desc: &str) -> Self {
-        let pt = PyOpt::new(PyInt::new_int(RsInt::Usize));
+        let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
         Self::new_param("limit", pt, desc).def_auto()
     }
 
@@ -7309,9 +7350,13 @@ impl DocArgParam {
         Self::new_param("kws", PyClass::new_py(["api"], "ValidKeywords"), desc)
     }
 
-    fn new_extra_std_keywords_param() -> Self {
-        let desc = "Extra keywords from *TEXT* standardization";
-        Self::new_param("extra", PyClass::new_py(["api"], "ExtraStdKeywords"), desc)
+    fn new_std_diagnostics_param() -> Self {
+        let desc = "Diagnostic output from *TEXT* standardization";
+        Self::new_param(
+            "std_diagnostics",
+            PyClass::new_py(["api"], "StdTEXTDiagnosticOutput"),
+            desc,
+        )
     }
 
     fn new_dataset_segments_param() -> Self {
@@ -7323,16 +7368,28 @@ impl DocArgParam {
         )
     }
 
-    fn new_parse_output_param() -> Self {
-        let desc = "Miscellaneous data obtained when parsing *TEXT*.";
-        Self::new_param("parse", PyClass::new_py(["api"], "FlatTEXTParseData"), desc)
+    fn new_flat_diagnostics_param() -> Self {
+        let desc = "Diagnostic data obtained when parsing *TEXT*.";
+        Self::new_param(
+            "flat_diagnostics",
+            PyClass::new_py(["api"], "FlatTEXTParseData"),
+            desc,
+        )
+    }
+
+    fn new_event_diagnostics_param() -> Self {
+        Self::new_param(
+            "events_diagnostics",
+            PyClass::new_py(["api"], "ReadEventsOutput"),
+            "Diagnostic output from parsing DATA segment.",
+        )
     }
 
     fn new_raw_seg_param(argname: &str, which: impl fmt::Display, src: RawSegmentSrc) -> Self {
         let optional = matches!(src, RawSegmentSrc::Text);
         let (pt, end) = if optional {
             (
-                PyType::from(PyOpt::new(PyTuple::new_raw_segment())),
+                PyType::from(PyOpt::new1(PyTuple::new_raw_segment())),
                 " (if found)",
             )
         } else {
@@ -7722,7 +7779,7 @@ impl DocArgParam {
 
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
-        let pytype = PyOpt::new(PyStr::new_regexp().rstype(path));
+        let pytype = PyOpt::new1(PyStr::new_regexp().rstype(path));
         let d = "A pattern to match the *$PnN* of the time measurement. \
                  If ``None``, do not try to find a time measurement.";
         Self::new_param("time_meas_pattern", pytype, d).def(DocDefault::Str("^(TIME|Time)$".into()))
@@ -7906,7 +7963,7 @@ impl DocArgParam {
              Otherwise should be a normal regular expression as defined in \
              {REGEXP_REF}."
         );
-        Self::new_param("nonstandard_measurement_pattern", PyOpt::new(pytype), d)
+        Self::new_param("nonstandard_measurement_pattern", PyOpt::new1(pytype), d)
             .def(DocDefault::Str("^P%n".into()))
     }
 

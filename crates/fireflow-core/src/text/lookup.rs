@@ -80,34 +80,42 @@ pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
+pub type Trimmed = Option<String>;
+
 /// Return value for string converted to native type that has delimiters.
 #[derive(new)]
-pub struct StrDelimOutput<T> {
+pub struct TrimmedKeyword<T> {
     /// Native rust type
     pub native: T,
 
-    /// `true` if serialized string had to be trimmed in between commas.
-    pub was_trimmed: bool,
+    /// The original value if it was trimmed
+    pub trimmed: Trimmed,
 }
 
-impl<T> StrDelimOutput<T> {
-    pub(crate) fn lift(self) -> DiagnosedOutput<T, bool> {
-        DiagnosedOutput::new(self.native, self.was_trimmed)
+impl<T> TrimmedKeyword<T> {
+    pub(crate) fn new1(t: T) -> Self {
+        Self::new(t, None)
     }
 }
 
-impl_kind1!(StrDelimOutputFamily, StrDelimOutput);
+impl<T> TrimmedKeyword<T> {
+    pub(crate) fn lift(self) -> DiagnosedKeyword<T, Trimmed> {
+        DiagnosedKeyword::new(self.native, self.trimmed)
+    }
+}
+
+impl_kind1!(StrDelimOutputFamily, TrimmedKeyword);
 
 impl_functor_once!(
-    StrDelimOutput,
+    TrimmedKeyword,
     self,
     mut f,
-    StrDelimOutput::new(f(self.native), self.was_trimmed)
+    TrimmedKeyword::new(f(self.native), self.trimmed)
 );
 
 /// Return value for string that was converted with a configuration and state.
 #[derive(Default, new)]
-pub struct DiagnosedOutput<T, D> {
+pub struct DiagnosedKeyword<T, D> {
     /// Native rust type
     pub native: T,
 
@@ -115,7 +123,7 @@ pub struct DiagnosedOutput<T, D> {
     pub diagnostic: D,
 }
 
-impl<T> DiagnosedOutput<T, ()> {
+impl<T> DiagnosedKeyword<T, ()> {
     pub(crate) fn new1(t: T) -> Self {
         Self::new(t, ())
     }
@@ -125,15 +133,15 @@ impl<T> DiagnosedOutput<T, ()> {
     }
 }
 
-impl_kind2!(DiagnosedOutputFamily, DiagnosedOutput);
+impl_kind2!(DiagnosedOutputFamily, DiagnosedKeyword);
 
-impl<A, B> BifunctorOnce<A, B> for DiagnosedOutput<A, B> {
+impl<A, B> BifunctorOnce<A, B> for DiagnosedKeyword<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
-        DiagnosedOutput::new(f(self.native), self.diagnostic)
+        DiagnosedKeyword::new(f(self.native), self.diagnostic)
     }
 
     fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
-        DiagnosedOutput::new(self.native, f(self.diagnostic))
+        DiagnosedKeyword::new(self.native, f(self.diagnostic))
     }
 }
 
@@ -147,7 +155,7 @@ pub trait FromStrDelim: Sized {
     fn from_str_delim(
         s: &str,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<StrDelimOutput<Self>, Self::Err> {
+    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace.is_set() {
             let mut was_trimmed = false;
@@ -156,15 +164,15 @@ pub trait FromStrDelim: Sized {
                 was_trimmed = was_trimmed || y.len() < x.len();
                 y
             }))
-            .map(|x| StrDelimOutput::new(x, was_trimmed))
+            .map(|x| TrimmedKeyword::new(x, was_trimmed.then(|| s.to_owned())))
         } else {
-            Self::from_iter(it).map(|x| StrDelimOutput::new(x, false))
+            Self::from_iter(it).map(TrimmedKeyword::new1)
         }
     }
 }
 
 pub type FromStrWithResult<T> =
-    Result<DiagnosedOutput<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
+    Result<DiagnosedKeyword<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 /// Parse a string based on external data and config
 pub trait FromStrWith: Sized {
@@ -185,15 +193,15 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
-            type Diagnostic = bool;
+            type Diagnostic = Option<String>;
 
             fn from_str_with(
                 s: &str,
                 (): (),
                 conf: &crate::config::ReadStdKeywordsConfig,
-            ) -> Result<crate::text::lookup::DiagnosedOutput<Self, bool>, Self::Err> {
-                Self::from_str_delim(s, conf.trim_intra_value_whitespace)
-                    .map(|x| crate::text::lookup::DiagnosedOutput::new(x.native, x.was_trimmed))
+            ) -> Result<crate::text::lookup::DiagnosedKeyword<Self, Option<String>>, Self::Err>
+            {
+                Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(|x| x.lift())
             }
         }
     };
@@ -236,7 +244,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -327,7 +335,7 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
         Self: FromStrWith,
@@ -339,7 +347,7 @@ pub(crate) trait Optional: Sized {
             })
             .transpose()
             .map(|x| {
-                x.map_or(DiagnosedOutput::default(), |y| {
+                x.map_or(DiagnosedKeyword::default(), |y| {
                     y.first_once(Self::Outer::from)
                 })
             })
@@ -383,7 +391,7 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -400,7 +408,7 @@ pub(crate) trait Optional: Sized {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
                     Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(DiagnosedOutput::default()),
+                ProcessKeywordFailure::DropSilent => Ok(DiagnosedKeyword::default()),
             },
         }
     }
@@ -432,7 +440,7 @@ pub(crate) trait Optional: Sized {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
         ProcessOptionalFailure,
         ParseKeyError<Self::Err, Self, I>,
     >
@@ -445,7 +453,7 @@ pub(crate) trait Optional: Sized {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
             .into_nowarn1()
-            .set_err_value(DiagnosedOutput::default())
+            .set_err_value(DiagnosedKeyword::default())
             .nowarn_into_switchable(rconf.process_optional_failure)
     }
 
@@ -528,7 +536,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
+    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
@@ -605,7 +613,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<DiagnosedOutput<Self::Outer, Self::Diagnostic>, OptKeyStError<Self>>
+    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, OptKeyStError<Self>>
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
@@ -631,7 +639,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
         ProcessOptionalFailure,
         OptKeyStError<Self>,
     >
@@ -719,7 +727,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedOutput<Self::Outer, Self::Diagnostic>,
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
         ProcessOptionalFailure,
         OptIndexedKeyStError<Self>,
     >

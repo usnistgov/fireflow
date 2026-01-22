@@ -3,7 +3,7 @@ use crate::config::{
 };
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::text::lookup::{DiagnosedOutput, FromStrWith, OptKeyStError, OptMetarootKey as _};
+use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
@@ -157,7 +157,7 @@ macro_rules! impl_from_str_with {
                 s: &str,
                 (): (),
                 conf: &ReadStdKeywordsConfig,
-            ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+            ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
                 FCSDateTime::from_str_with(s, (), conf).map(|x| x.first_once(Self))
             }
         }
@@ -176,12 +176,12 @@ impl FromStrWith for FCSDateTime {
         s: &str,
         (): (),
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists
             DateTime::parse_from_str(s, pat.as_str())
                 .map(Self)
-                .map(DiagnosedOutput::new1)
+                .map(DiagnosedKeyword::new1)
                 .map_err(|_| FCSDateTimeError::AltFormat(pat.to_owned()))
         } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
             // next, try to parse without a timezone, defaulting to localtime and
@@ -190,7 +190,9 @@ impl FromStrWith for FCSDateTime {
                 Err(FCSDateTimeError::Localtime)
             } else {
                 match Local::now().timezone().from_local_datetime(&naive) {
-                    MappedLocalTime::Single(t) => Ok(DiagnosedOutput::new1(Self(t.fixed_offset()))),
+                    MappedLocalTime::Single(t) => {
+                        Ok(DiagnosedKeyword::new1(Self(t.fixed_offset())))
+                    }
                     MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
                     MappedLocalTime::None => Err(FCSDateTimeError::Gap),
                 }
@@ -206,7 +208,7 @@ impl FromStrWith for FCSDateTime {
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s, f) {
-                    return Ok(DiagnosedOutput::new1(Self(t)));
+                    return Ok(DiagnosedKeyword::new1(Self(t)));
                 }
             }
             Err(FCSDateTimeError::Format)

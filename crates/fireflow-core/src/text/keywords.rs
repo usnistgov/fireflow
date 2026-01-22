@@ -66,7 +66,7 @@ use unicase::Ascii;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::{DiagnosedOutput, FromStrWithResult, StrDelimOutput};
+use super::lookup::{DiagnosedKeyword, FromStrWithResult, Trimmed, TrimmedKeyword};
 
 #[cfg(feature = "python")]
 use {
@@ -583,24 +583,19 @@ pub enum Scale {
 }
 
 /// Diagnostic data from parsing $PnE
+#[derive(Default)]
 pub enum ScaleDiagnostic {
+    /// Nothing happend
+    #[default]
+    None,
     /// Was forced to be linear (which overrides everything else)
-    Forced,
-    Parsed {
-        /// Space between commas was trimmed
-        was_trimmed: bool,
-        /// Log offset was fixed
-        was_fixed: bool,
-    },
-}
-
-impl Default for ScaleDiagnostic {
-    fn default() -> Self {
-        Self::Parsed {
-            was_trimmed: false,
-            was_fixed: false,
-        }
-    }
+    Forced(String),
+    /// Whitespace was trimmed
+    Trimmed(String),
+    /// Zero log offset was corrected
+    LogFixed(String),
+    /// Trimmed and zero log offset was corrected
+    TrimmedLogFixed(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Display, new)]
@@ -638,19 +633,18 @@ impl FromStrWith for Scale {
     type Diagnostic = ScaleDiagnostic;
 
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+        let go = |x: TrimmedKeyword<_>| {
+            let d = x.trimmed.map(ScaleDiagnostic::Trimmed).unwrap_or_default();
+            DiagnosedKeyword::new(x.native, d)
+        };
         if matches!(conf.force_linear_scale, ForceLinearScale::All) {
-            Ok(DiagnosedOutput::new(Self::Linear, ScaleDiagnostic::Forced))
+            let d = ScaleDiagnostic::Forced(s.to_owned());
+            Ok(DiagnosedKeyword::new(Self::Linear, d))
         } else {
             let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
             if conf.fix_log_scale_offsets.is_set() {
                 match res {
-                    Ok(x) => {
-                        let diag = ScaleDiagnostic::Parsed {
-                            was_trimmed: x.was_trimmed,
-                            was_fixed: false,
-                        };
-                        Ok(DiagnosedOutput::new(x.native, diag))
-                    }
+                    Ok(x) => Ok(go(x)),
                     Err(e) => {
                         if let ScaleError::LogRange(le) = e {
                             le.try_fix_offset()
@@ -658,13 +652,8 @@ impl FromStrWith for Scale {
                                 .map(|x| {
                                     // TODO there is no way to tell if the
                                     // previous value was trimmed
-                                    DiagnosedOutput::new(
-                                        x,
-                                        ScaleDiagnostic::Parsed {
-                                            was_trimmed: false,
-                                            was_fixed: true,
-                                        },
-                                    )
+                                    let d = ScaleDiagnostic::LogFixed(s.to_owned());
+                                    DiagnosedKeyword::new(x, d)
                                 })
                                 .map_err(ScaleError::LogRange)
                         } else {
@@ -673,15 +662,7 @@ impl FromStrWith for Scale {
                     }
                 }
             } else {
-                res.map(|x| {
-                    DiagnosedOutput::new(
-                        x.native,
-                        ScaleDiagnostic::Parsed {
-                            was_trimmed: x.was_trimmed,
-                            was_fixed: false,
-                        },
-                    )
-                })
+                res.map(go)
             }
         }
     }
@@ -1309,8 +1290,8 @@ pub struct TemporalScaleInner;
 pub enum TemporalScaleDiagnostic {
     #[default]
     None,
-    Forced,
-    Trimmed,
+    Forced(String),
+    Trimmed(String),
 }
 
 impl FromStrDelim for TemporalScaleInner {
@@ -1341,25 +1322,18 @@ impl FromStrWith for TemporalScale3_0 {
     type Payload<'a> = ();
     type Diagnostic = TemporalScaleDiagnostic;
 
-    fn from_str_with(
-        s: &str,
-        (): (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, TemporalScaleDiagnostic>, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
         if conf.force_linear_scale.time_selected() {
-            Ok(DiagnosedOutput::new(
-                Self(TemporalScaleInner),
-                TemporalScaleDiagnostic::Forced,
-            ))
+            let d = TemporalScaleDiagnostic::Forced(s.to_owned());
+            Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
             TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let diag = if x.was_trimmed {
-                    TemporalScaleDiagnostic::Trimmed
-                } else {
-                    TemporalScaleDiagnostic::None
-                };
-                DiagnosedOutput::new(Self(x.native), diag)
+                let d = x
+                    .trimmed
+                    .map(TemporalScaleDiagnostic::Trimmed)
+                    .unwrap_or_default();
+                DiagnosedKeyword::new(Self(x.native), d)
             })
         }
     }
@@ -1628,15 +1602,11 @@ impl FromStrWith for LastModified {
     type Payload<'a> = ();
     type Diagnostic = ();
 
-    fn from_str_with(
-        s: &str,
-        (): (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
             return NaiveDateTime::parse_from_str(s, pat.as_str())
                 .map(Self)
-                .map(DiagnosedOutput::new1)
+                .map(DiagnosedKeyword::new1)
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
         let (t, cc) = match &s.split('.').collect::<Vec<_>>()[..] {
@@ -1660,7 +1630,7 @@ impl FromStrWith for LastModified {
                 }
             })
             .map(Self)
-            .map(DiagnosedOutput::new1)
+            .map(DiagnosedKeyword::new1)
     }
 }
 
@@ -1719,14 +1689,10 @@ pub struct Compensation3_0(pub Compensation);
 impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
-    type Diagnostic = bool;
+    type Diagnostic = Trimmed;
 
-    fn from_str_with(
-        s: &str,
-        (): (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, bool>, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(StrDelimOutput::lift)
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
 
@@ -1917,17 +1883,13 @@ impl FromStrWith for Feature {
     type Payload<'a> = ();
     type Diagnostic = bool;
 
-    fn from_str_with(
-        s: &str,
-        (): (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, bool>, Self::Err> {
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
-            Ok(f) => Ok(DiagnosedOutput::new(Self::Optical(f), false)),
+            Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
             Err(e) => {
                 if conf.allow_other_feature.is_set() {
                     let out = Self::Other(s.parse().map_err(|_| FeatureError::Other)?);
-                    Ok(DiagnosedOutput::new(out, true))
+                    Ok(DiagnosedKeyword::new(out, true))
                 } else {
                     Err(FeatureError::Optical(e))
                 }
@@ -2017,14 +1979,10 @@ impl<I> IndexPair<I> {
 impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
-    type Diagnostic = bool;
+    type Diagnostic = Trimmed;
 
-    fn from_str_with(
-        s: &str,
-        (): (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, bool>, Self::Err> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(StrDelimOutput::lift)
+    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
 
@@ -2175,11 +2133,12 @@ impl FromStrDelim for RegionWindow {
     fn from_str_delim(
         s: &str,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<StrDelimOutput<Self>, Self::Err> {
+    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace.is_set() {
             let mut was_trimmed = false;
             Self::from_iter_inner(
+                s,
                 it.map(|x| {
                     let y = str::trim(x);
                     was_trimmed = was_trimmed || y.len() < x.len();
@@ -2187,17 +2146,20 @@ impl FromStrDelim for RegionWindow {
                 }),
                 trim_whitespace,
             )
-            .map(|x| StrDelimOutput::new(x.native, x.was_trimmed || was_trimmed))
+            .map(|x| {
+                let d = (x.trimmed.is_some() || was_trimmed).then(|| s.to_owned());
+                TrimmedKeyword::new(x.native, d)
+            })
         } else {
-            Self::from_iter_inner(it, false.into())
+            Self::from_iter_inner(s, it, false.into())
         }
     }
 
-    // this function probably will never really be used, it normally is supposed
-    // to be called by Self::from_str_delim but it is overridden above to get
-    // the nested behavior to work
-    fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        Self::from_iter_inner(iter, false.into()).map(|x| x.native)
+    // this function should never be used, it normally is supposed to be called
+    // by Self::from_str_delim but it is overridden above to get the nested
+    // behavior to work
+    fn from_iter<'a>(_: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
+        unimplemented!()
     }
 }
 
@@ -2205,9 +2167,10 @@ impl_from_str_with_delim!(RegionWindow, RegionWindowError);
 
 impl RegionWindow {
     fn from_iter_inner<'a>(
+        original: &str,
         ss: impl Iterator<Item = &'a str>,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<StrDelimOutput<Self>, RegionWindowError> {
+    ) -> Result<TrimmedKeyword<Self>, RegionWindowError> {
         if let Some(xs) = NonEmpty::collect(ss) {
             if xs.tail.is_empty() {
                 UniGate::from_str_delim(xs.head, trim_whitespace)
@@ -2216,10 +2179,11 @@ impl RegionWindow {
                 let mut was_trimmed = false;
                 let ys = xs.try_map(|x| Vertex::from_str_delim(x, trim_whitespace))?;
                 let zs = ys.map(|x| {
-                    was_trimmed = was_trimmed || x.was_trimmed;
+                    was_trimmed = was_trimmed || x.trimmed.is_some();
                     x.native
                 });
-                Ok(StrDelimOutput::new(Self::Bivariate(zs), was_trimmed))
+                let d = was_trimmed.then(|| original.to_owned());
+                Ok(TrimmedKeyword::new(Self::Bivariate(zs), d))
             }
         } else {
             // this will happen if the input string is empty
@@ -2698,11 +2662,7 @@ impl FromStrWith for GateScale {
     type Payload<'a> = ();
     type Diagnostic = ScaleDiagnostic;
 
-    fn from_str_with(
-        s: &str,
-        data: (),
-        conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, ScaleDiagnostic>, Self::Err> {
+    fn from_str_with(s: &str, data: (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
         Scale::from_str_with(s, data, conf).map(|x| x.first_once(Self))
     }
 }
@@ -3501,19 +3461,16 @@ impl FromStrWith for TemporalScale2_0 {
     fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
         if conf.force_linear_scale.time_selected() {
-            Ok(DiagnosedOutput::new(
-                go(TemporalScaleInner),
-                TemporalScaleDiagnostic::Forced,
-            ))
+            let d = TemporalScaleDiagnostic::Forced(s.to_owned());
+            Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
             TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let diag = if x.was_trimmed {
-                    TemporalScaleDiagnostic::Trimmed
-                } else {
-                    TemporalScaleDiagnostic::None
-                };
-                DiagnosedOutput::new(go(x.native), diag)
+                let d = x
+                    .trimmed
+                    .map(TemporalScaleDiagnostic::Trimmed)
+                    .unwrap_or_default();
+                DiagnosedKeyword::new(go(x.native), d)
             })
         }
     }

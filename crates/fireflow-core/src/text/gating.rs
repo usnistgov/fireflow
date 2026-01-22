@@ -27,8 +27,7 @@ use crate::validated::keys::{
     IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 use type_families::{
-    ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
-    impl_functor_once, impl_kind1,
+    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -48,7 +47,6 @@ use serde::Serialize;
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
 
 use super::keywords::ScaleDiagnostic;
-use super::lookup::DiagnosedOutput;
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 #[derive(Clone, PartialEq, Default, AsRef)]
@@ -322,8 +320,7 @@ impl AppliedGates2_0 {
         ag.zip_f2_once(gm)
             .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
                 // TODO use diagnostic output
-                Self::try_new(gated_measurements.native.0, scheme)
-                    .map_err(LookupAppliedGatesError::Link)
+                Self::try_new(gated_measurements.0.0, scheme).map_err(LookupAppliedGatesError::Link)
             })
             .map_err_value(|ret| {
                 if rconf.process_optional_failure.is_demote() {
@@ -462,7 +459,7 @@ impl AppliedGates3_0 {
         s.zip_f2_once(ms)
             .and_then_deferred(|(scheme, gated_measurements)| {
                 // TODO use diagnostic output
-                let succ = Self::try_new(gated_measurements.native.0, scheme)
+                let succ = Self::try_new(gated_measurements.0.0, scheme)
                     .map_err(LookupAppliedGatesError::Link)
                     .into_succ();
                 LogResult::Succ(succ)
@@ -611,7 +608,7 @@ impl GatedMeasurement {
         i: GateIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        DiagnosedOutput<Self, ScaleDiagnostic>,
+        (Self, ScaleDiagnostic),
         LookupGatedMeasError,
         LookupGatedMeasError,
     >
@@ -638,7 +635,12 @@ impl GatedMeasurement {
             go!(pemit),
             go!(range),
             go!(dvolt),
-            |s, n, p, r, v| s.first_once(|ss| Self::new(ss, filter, n, p, r, lname, dtype, v)),
+            |s, n, p, r, v| {
+                (
+                    Self::new(s.native, filter, n, p, r, lname, dtype, v),
+                    s.diagnostic,
+                )
+            },
         )
     }
 
@@ -1132,7 +1134,7 @@ impl GatedMeasurements {
         nonstd: &mut NonStdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        DiagnosedOutput<Self, Vec<ScaleDiagnostic>>,
+        (Self, Vec<ScaleDiagnostic>),
         LookupGatedMeasurementsError,
         LookupGatedMeasurementsError,
     >
@@ -1153,8 +1155,8 @@ impl GatedMeasurements {
                         })
                         .sequence_def()
                         .map_deferred_value(|xs| {
-                            let (gs, ds) = xs.into_iter().map(|x| (x.native, x.diagnostic)).unzip();
-                            DiagnosedOutput::new(Self(gs), ds)
+                            let (gs, ds) = xs.into_iter().unzip();
+                            (Self(gs), ds)
                         })
                 } else {
                     LogResult::new_ok_default()

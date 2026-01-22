@@ -25,7 +25,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-use super::lookup::DiagnosedOutput;
+use super::lookup::DiagnosedKeyword;
 
 /// The $DATE/$BTIM/$ETIM keywords
 ///
@@ -80,13 +80,13 @@ where
         s: &str,
         (): (),
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
             s.parse::<T>().map_err(FCSFixedTimeError::Native)?
         };
-        Ok(DiagnosedOutput::new1(Self(ret)))
+        Ok(DiagnosedKeyword::new1(Self(ret)))
     }
 }
 
@@ -268,13 +268,13 @@ impl FromStrWith for FCSDate {
         s: &str,
         (): (),
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, ()>, Self::Err> {
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
             s.parse::<Self>()
         };
-        ret.map(DiagnosedOutput::new1)
+        ret.map(DiagnosedKeyword::new1)
     }
 }
 

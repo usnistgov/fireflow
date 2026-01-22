@@ -4,7 +4,7 @@ use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
-use super::lookup::{FromStrWith, DiagnosedOutput};
+use super::lookup::{FromStrWith, DiagnosedKeyword};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
@@ -231,7 +231,7 @@ impl FromStrWith for Spillover {
         s: &str,
         ordered_names: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedOutput<Self, bool>, Self::Err> {
+    ) -> Result<DiagnosedKeyword<Self, bool>, Self::Err> {
         if conf.parse_indexed_spillover.is_set() {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
             let (m, was_trimmed) = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
@@ -239,14 +239,14 @@ impl FromStrWith for Spillover {
                 conf.trim_intra_value_whitespace,
                 go,
             )?;
-            Ok(DiagnosedOutput::new(
+            Ok(DiagnosedKeyword::new(
                 m.try_into_named(ordered_names)?,
                 was_trimmed,
             ))
         } else {
             let m = s.parse::<Self>()?;
             // m.check_link(names)?;
-            Ok(DiagnosedOutput::new(m, false))
+            Ok(DiagnosedKeyword::new(m, false))
         }
     }
 }

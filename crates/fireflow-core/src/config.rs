@@ -607,7 +607,6 @@ pub struct ReadStdKeywordsConfig {
     /// "X0" and "X1".
     pub dedup_measurement_names: DedupMeasNames,
 
-    // TODO return values that were changed
     /// If `true`, remove whitespace between commas where applicable.
     ///
     /// This will only affect keywords that are given as comma-separated lists,
@@ -625,7 +624,6 @@ pub struct ReadStdKeywordsConfig {
     /// If `true`, allow time to be absent even if we specify `time_meas_pattern`.
     pub allow_missing_time: AllowMissingTime,
 
-    // TODO return something that indicates this was used
     /// If `true` force, force $PnE to be linear (`"0.0"`).
     pub force_linear_scale: ForceLinearScale,
 
@@ -732,7 +730,6 @@ pub struct ReadStdKeywordsConfig {
     /// If `false`, merely throw a warning.
     pub disallow_deprecated: DisallowDeprecated,
 
-    // TODO return vector showing values that were fixed
     /// If `true`, try to fix log-scale $PnE and $GnE keywords.
     ///
     /// These keywords are both formatted like `"X,Y"` where `X` and `Y` are
@@ -744,8 +741,6 @@ pub struct ReadStdKeywordsConfig {
     /// becomes `"X,1.0"`.
     pub fix_log_scale_offsets: FixLogScaleOffsets,
 
-    // TODO add flag to force all scales to be linear since some files use log
-    // for float values
     /// If `true`, require that $BEGINDATETIME and $ENDDATETIME have a timezone.
     ///
     /// The standards do not require that these keys use a timezone. However, it

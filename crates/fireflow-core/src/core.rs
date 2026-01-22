@@ -10,10 +10,10 @@ use crate::config::{
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
-    LayoutOps as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
-    ReadEventsOutput, ScaleDatatypeMismatchError, VersionedDataLayout,
+    EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot,
+    LayoutConvertError, LayoutOps as _, LookupLayoutError, LookupLayoutWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
+    ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1,
@@ -32,8 +32,8 @@ use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId,
-    PrimaryTextSegment, RawSegment, RelativeSegment, RelativeToAbsSegmentError,
-    ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    PrimaryTextSegment, RelativeSegment, RelativeToAbsSegmentError, ReqSegmentWithDefaultError,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -492,7 +492,7 @@ impl AnyCoreTEXT {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (Self, StdTEXTDiagnosticOutput, TEXTOffsets<Option<Tot>>),
+        (Self, StdTEXTDiagnostics, TEXTOffsets<Option<Tot>>),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTError,
@@ -1311,10 +1311,10 @@ pub struct StdDatasetWithKwsOutput {
     pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub std_diagnostics: StdTEXTDiagnosticOutput,
+    pub std_diagnostics: StdTEXTDiagnostics,
 
     /// Diagnostic output from parsing DATA segment
-    pub events_diagnostics: ReadEventsOutput,
+    pub events_diagnostics: EventsDiagnostics,
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
@@ -1327,11 +1327,11 @@ pub struct DatasetSegments {
     /// offsets used to parse ANALYSIS
     pub analysis: AnyAnalysisSegment,
 
-    /// Raw offsets for DATA if from TEXT
-    pub data_raw: Option<RawSegment>,
+    /// Uncorrected offsets for DATA if from TEXT
+    pub data_uncorrected: Option<UncorrectedSegment>,
 
-    /// Raw offsets for ANALYSIS if from TEXT
-    pub analysis_raw: Option<RawSegment>,
+    /// Uncorrected offsets for ANALYSIS if from TEXT
+    pub analysis_uncorrected: Option<UncorrectedSegment>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -1381,7 +1381,7 @@ struct DiagnosedUnstainedData {
 }
 
 #[derive(Clone, PartialEq, new)]
-pub struct StdTEXTDiagnosticOutput {
+pub struct StdTEXTDiagnostics {
     pub pseudostandard: StdKeywords,
     pub hyper_par: StdKeywords,
     pub hyper_gate: StdKeywords,
@@ -1391,7 +1391,7 @@ pub struct StdTEXTDiagnosticOutput {
     pub trimmed: Vec<(StdKey, String)>,
 }
 
-impl StdTEXTDiagnosticOutput {
+impl StdTEXTDiagnostics {
     fn from_extra(
         extra: ExtraStdKeywords,
         scale: Vec<AnyScaleDiagnostic>,
@@ -1498,7 +1498,7 @@ pub(crate) trait PrivVersioned: Versioned {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, Analysis, DatasetSegments, ReadEventsOutput),
+        (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -4262,11 +4262,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (
-            Self,
-            StdTEXTDiagnosticOutput,
-            <M::Ver as Versioned>::Offsets,
-        ),
+        (Self, StdTEXTDiagnostics, <M::Ver as Versioned>::Offsets),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -4303,7 +4299,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         kws: ValidKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
-        (Self, StdTEXTDiagnosticOutput),
+        (Self, StdTEXTDiagnostics),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
@@ -4325,7 +4321,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         mut kws: ValidKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        (Self, StdTEXTDiagnosticOutput),
+        (Self, StdTEXTDiagnostics),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -4452,7 +4448,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_other_version, other_version, other_version);
 
             core_res.map_ok_value(|(ret, scale, trimmed)| {
-                let d = StdTEXTDiagnosticOutput::from_extra(extra, scale, trimmed);
+                let d = StdTEXTDiagnostics::from_extra(extra, scale, trimmed);
                 (ret, d)
             })
         })

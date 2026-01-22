@@ -11,9 +11,9 @@ use crate::logging::{
 };
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, RawSegment, Segment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
     SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
-    TEXTSegment,
+    TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -103,11 +103,11 @@ pub struct HeaderSegments<T> {
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct RawHeaderSegments {
-    pub text: RawSegment,
-    pub data: RawSegment,
-    pub analysis: RawSegment,
-    pub other: Vec<RawSegment>,
+pub struct UncorrectedHeaderSegments {
+    pub text: UncorrectedSegment,
+    pub data: UncorrectedSegment,
+    pub analysis: UncorrectedSegment,
+    pub other: Vec<UncorrectedSegment>,
 }
 
 impl<T> HeaderSegments<T> {
@@ -295,7 +295,7 @@ impl<T> HeaderSegments<T> {
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments<UintSpacePad20>,
-    pub raw: RawHeaderSegments,
+    pub uncorrected_segments: UncorrectedHeaderSegments,
 }
 
 impl Header {
@@ -326,7 +326,7 @@ impl Header {
                 Self::new(
                     req.version,
                     HeaderSegments::new(text, data, analysis, os),
-                    RawHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw),
+                    UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw),
                 )
             })
             .ungroup()
@@ -346,9 +346,9 @@ impl Header {
 #[derive(new)]
 struct ReqHeader {
     version: Version,
-    text: (PrimaryTextSegment, RawSegment),
-    data: (HeaderDataSegment, RawSegment),
-    analysis: (HeaderAnalysisSegment, RawSegment),
+    text: (PrimaryTextSegment, UncorrectedSegment),
+    data: (HeaderDataSegment, UncorrectedSegment),
+    analysis: (HeaderAnalysisSegment, UncorrectedSegment),
 }
 
 fn h_read_required_header<C, R>(

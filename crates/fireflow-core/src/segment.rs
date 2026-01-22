@@ -71,7 +71,7 @@ pub struct OffsetSegment<I, S, T, O> {
 /// Useful for diagnostics.
 #[derive(Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct RawSegment {
+pub struct UncorrectedSegment {
     pub begin: i128,
     pub end: i128,
 }
@@ -186,14 +186,14 @@ pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
 pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
-    (AnySegment<T>, Option<RawSegment>),
+    (AnySegment<T>, Option<UncorrectedSegment>),
     (),
     ReqSegmentWithDefaultWarning<T>,
     ReqSegmentWithDefaultError<T>,
 >;
 
 pub(crate) type OptSegTentative<T> = DeferredWarningsAndErrors<
-    (AnySegment<T>, Option<RawSegment>),
+    (AnySegment<T>, Option<UncorrectedSegment>),
     OptSegmentWithDefaultWarning<T>,
     OptSegmentWithDefaultWarning<T>,
 >;
@@ -309,7 +309,10 @@ where
         pair: ReqPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
-        (Segment<Self, SegmentFromTEXT, UintZeroPad20>, RawSegment),
+        (
+            Segment<Self, SegmentFromTEXT, UintZeroPad20>,
+            UncorrectedSegment,
+        ),
         (
             ReqSegmentError<Self::B, Self::E>,
             Option<ReqSegmentError<Self::B, Self::E>>,
@@ -324,7 +327,7 @@ where
         match pair {
             (Ok(x0), Ok(x1)) => {
                 let new_conf = Self::segment_conf(st);
-                let raw = RawSegment::new(i128::from(x0), i128::from(x1));
+                let raw = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
                 Segment::try_new(x0, x1, &new_conf)
                     .map(|x| (x, raw))
                     .map_err(ReqSegmentError::Segment)
@@ -474,7 +477,10 @@ where
         pair: OptPair<Self::B, Self::E>,
         st: &ReadState<C>,
     ) -> Result<
-        Option<(Segment<Self, SegmentFromTEXT, UintZeroPad20>, RawSegment)>,
+        Option<(
+            Segment<Self, SegmentFromTEXT, UintZeroPad20>,
+            UncorrectedSegment,
+        )>,
         (
             OptSegmentError<Self::B, Self::E>,
             Option<OptSegmentError<Self::B, Self::E>>,
@@ -491,7 +497,7 @@ where
                 let new_conf = Self::segment_conf(st);
                 x0.zip(x1)
                     .map(|(y0, y1)| {
-                        let raw = RawSegment::new(i128::from(y0), i128::from(y1));
+                        let raw = UncorrectedSegment::new(i128::from(y0), i128::from(y1));
                         Segment::try_new(y0, y1, &new_conf).map(|x| (x, raw))
                     })
                     .transpose()
@@ -1035,7 +1041,7 @@ impl<I: Copy> HeaderSegment<I> {
         corr: HeaderCorrection<I>,
         version: Version,
         st: &ReadState<C>,
-    ) -> Result<(Self, RawSegment), IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> Result<(Self, UncorrectedSegment), IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig>,
@@ -1075,7 +1081,7 @@ impl<I: Copy> HeaderSegment<I> {
                 // TEXT segment is not squishable
                 let allow_squish = !is_text;
                 let squish = conf.squish_offsets.is_set() && allow_squish;
-                let raw = RawSegment::new(begin_raw, end_raw);
+                let raw = UncorrectedSegment::new(begin_raw, end_raw);
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
@@ -1136,7 +1142,7 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> Result<Vec<(Self, RawSegment)>, IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> Result<Vec<(Self, UncorrectedSegment)>, IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig>,
@@ -1205,7 +1211,7 @@ impl OtherSegment20 {
         bs1: &[u8],
         allow_negative: AllowNegative,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
-    ) -> ErrorsResult<(Self, RawSegment), (), HeaderSegmentError> {
+    ) -> ErrorsResult<(Self, UncorrectedSegment), (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
@@ -1216,7 +1222,7 @@ impl OtherSegment20 {
         let end_res = parse_one(bs1, false).into_nowarn();
         begin_res.zip_commutative(end_res).and_then_commutative(
             |((begin, begin_raw), (end, end_raw))| {
-                let raw = RawSegment::new(begin_raw, end_raw);
+                let raw = UncorrectedSegment::new(begin_raw, end_raw);
                 Self::try_new(begin, end, conf)
                     .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
@@ -1656,7 +1662,8 @@ mod python {
     use crate::python::ConfigError;
 
     use super::{
-        HasRegion, InnerSegment, NonEmptySegment, RawSegment, RelativeSegment, Segment, Zero,
+        HasRegion, InnerSegment, NonEmptySegment, RelativeSegment, Segment, UncorrectedSegment,
+        Zero,
     };
 
     use pyo3::prelude::*;
@@ -1721,14 +1728,14 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for RawSegment {
+    impl<'py> FromPyObject<'py> for UncorrectedSegment {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (i128, i128) = ob.extract()?;
             Ok(Self::new(begin, end))
         }
     }
 
-    impl<'py> IntoPyObject<'py> for RawSegment {
+    impl<'py> IntoPyObject<'py> for UncorrectedSegment {
         type Target = PyTuple;
         type Output = Bound<'py, <(i128, i128) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;

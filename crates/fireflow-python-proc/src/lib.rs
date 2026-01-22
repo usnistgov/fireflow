@@ -512,14 +512,14 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.segments.clone().into()),
     );
 
-    let raw = DocArgROIvar::new_ivar_ro(
-        "raw",
-        PyClass::new_py(["api"], "RawHeaderSegments"),
+    let uncorrected_segments = DocArgROIvar::new_ivar_ro(
+        "uncorrected_segments",
+        PyClass::new_py(["api"], "UncorrectedHeaderSegments"),
         "The uncorrected segments from *HEADER*.",
-        |_, _| quote!(self.0.raw.clone().into()),
+        |_, _| quote!(self.0.uncorrected_segments.clone().into()),
     );
 
-    let args = [version, segments, raw];
+    let args = [version, segments, uncorrected_segments];
 
     let doc = DocString::new_class("The *HEADER* segment from an FCS dataset.").args(args);
     let inner_args = doc.idents_into();
@@ -586,22 +586,23 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_raw_header_segments(input: TokenStream) -> TokenStream {
+pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_raw_seg_param("text_seg", "TEXT", RawSegmentSrc::Header)
+    let text = DocArg::new_uncorrected_seg_param("text_seg", "TEXT", UncorrSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_raw_seg_param("data_seg", "DATA", RawSegmentSrc::Header)
+    let data = DocArg::new_uncorrected_seg_param("data_seg", "DATA", UncorrSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_raw_seg_param("analysis_seg", "ANALYSIS", RawSegmentSrc::Header)
-        .into_ro(|_, _| quote!(self.0.analysis));
+    let analysis =
+        DocArg::new_uncorrected_seg_param("analysis_seg", "ANALYSIS", UncorrSegmentSrc::Header)
+            .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
         "other_segs",
-        PyList::new1(PyTuple::new_raw_segment()),
-        "The raw *OTHER* segments from *HEADER*.",
+        PyList::new1(PyTuple::new_uncorrected_segment()),
+        "The uncorrected *OTHER* segments from *HEADER*.",
     )
     .into_ro(|_, _| quote!(self.0.other.clone()));
 
@@ -848,19 +849,24 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
     let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
         .into_ro(|_, _| quote!(self.0.analysis));
-    let data_raw = DocArg::new_raw_seg_param("data_seg_raw", "DATA", RawSegmentSrc::Text)
-        .into_ro(|_, _| quote!(self.0.data_raw));
-    let analysis_raw =
-        DocArg::new_raw_seg_param("analysis_seg_raw", "ANALYSIS", RawSegmentSrc::Text)
-            .into_ro(|_, _| quote!(self.0.analysis_raw));
+    let data_uncorrected =
+        DocArg::new_uncorrected_seg_param("data_seg_uncorrected", "DATA", UncorrSegmentSrc::Text)
+            .into_ro(|_, _| quote!(self.0.data_uncorrected));
+    let analysis_uncorrected = DocArg::new_uncorrected_seg_param(
+        "analysis_seg_uncorrected",
+        "ANALYSIS",
+        UncorrSegmentSrc::Text,
+    )
+    .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
 
-    let args = [data, analysis, data_raw, analysis_raw];
+    let args = [data, analysis, data_uncorrected, analysis_uncorrected];
     let doc = DocString::new_class("Segments used to parse *DATA* and *ANALYSIS*").args(args);
+    let inner_args = doc.idents_into();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(data_seg, analysis_seg, data_seg_raw, analysis_seg_raw).into()
+                #path::new(#inner_args).into()
             }
         }
     };
@@ -977,17 +983,17 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.header_segments.clone().into()),
     );
 
-    let raw_segments = DocArgROIvar::new_ivar_ro(
-        "raw_header_segments",
-        PyClass::new_py(["api"], "RawHeaderSegments"),
+    let uncorrected_segments = DocArgROIvar::new_ivar_ro(
+        "uncorrected_header_segments",
+        PyClass::new_py(["api"], "UncorrectedHeaderSegments"),
         "Uncorrected segments from *HEADER*.",
-        |_, _| quote!(self.0.raw_header_segments.clone().into()),
+        |_, _| quote!(self.0.uncorrected_header_segments.clone().into()),
     );
 
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
         PyOpt::new1(
-            PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_raw_segment()),
+            PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_uncorrected_segment()),
         ),
         "Supplemental *TEXT* offsets if given (corrected and uncorrected).",
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
@@ -1060,21 +1066,21 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 
     let primary_split = DocArgROIvar::new_ivar_ro(
         "primary_split",
-        PyClass::new_py(["api"], "SplitTEXTOutput"),
+        PyClass::new_py(["api"], "SplitTEXTDiagnostics"),
         "Additional parsing diagnostics for primary *TEXT*.",
         |_, _| quote!(self.0.primary_split.clone().into()),
     );
 
     let supp_split = DocArgROIvar::new_ivar_ro(
         "supp_split",
-        PyOpt::new1(PyClass::new_py(["api"], "SplitTEXTOutput")),
+        PyOpt::new1(PyClass::new_py(["api"], "SplitTEXTDiagnostics")),
         "Additional parsing diagnostics for supplemental *TEXT*.",
         |_, _| quote!(self.0.supp_split.as_ref().map(|x| x.clone().into())),
     );
 
     let args = [
         segments,
-        raw_segments,
+        uncorrected_segments,
         supp,
         nextdata,
         delim,
@@ -1102,7 +1108,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_split_text_output(input: TokenStream) -> TokenStream {
+pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -2649,7 +2655,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         .returns(
             DocReturn::new(PyTuple::new2([
                 PyClass::new_coretext(version),
-                PyClass::new_py(["api"], "StdTEXTDiagnosticOutput"),
+                PyClass::new_py(["api"], "StdTEXTDiagnostics"),
             ]))
             .exc(xs),
         );
@@ -4460,9 +4466,9 @@ enum SegmentSrc {
     Any,
 }
 
-/// The origin of a raw segment
+/// The origin of a uncorrected segment
 #[derive(Clone, Copy)]
-enum RawSegmentSrc {
+enum UncorrSegmentSrc {
     Header,
     Text,
 }
@@ -6292,8 +6298,8 @@ impl<E: From<PyException>> PyTuple<E> {
         Self::new2(vec![RsInt::U64; 2]).exc(exc).rstype(p)
     }
 
-    fn new_raw_segment() -> Self {
-        let p = parse_quote!(fireflow_core::segment::RawSegment);
+    fn new_uncorrected_segment() -> Self {
+        let p = parse_quote!(fireflow_core::segment::UncorrectedSegment);
         Self::new2(vec![RsInt::I128; 2]).rstype(p)
     }
 
@@ -7354,7 +7360,7 @@ impl DocArgParam {
         let desc = "Diagnostic output from *TEXT* standardization";
         Self::new_param(
             "std_diagnostics",
-            PyClass::new_py(["api"], "StdTEXTDiagnosticOutput"),
+            PyClass::new_py(["api"], "StdTEXTDiagnostics"),
             desc,
         )
     }
@@ -7372,7 +7378,7 @@ impl DocArgParam {
         let desc = "Diagnostic data obtained when parsing *TEXT*.";
         Self::new_param(
             "flat_diagnostics",
-            PyClass::new_py(["api"], "FlatTEXTParseData"),
+            PyClass::new_py(["api"], "FlatTEXTDiagnostics"),
             desc,
         )
     }
@@ -7380,20 +7386,24 @@ impl DocArgParam {
     fn new_event_diagnostics_param() -> Self {
         Self::new_param(
             "events_diagnostics",
-            PyClass::new_py(["api"], "ReadEventsOutput"),
+            PyClass::new_py(["api"], "EventsDiagnostics"),
             "Diagnostic output from parsing DATA segment.",
         )
     }
 
-    fn new_raw_seg_param(argname: &str, which: impl fmt::Display, src: RawSegmentSrc) -> Self {
-        let optional = matches!(src, RawSegmentSrc::Text);
+    fn new_uncorrected_seg_param(
+        argname: &str,
+        which: impl fmt::Display,
+        src: UncorrSegmentSrc,
+    ) -> Self {
+        let optional = matches!(src, UncorrSegmentSrc::Text);
         let (pt, end) = if optional {
             (
-                PyType::from(PyOpt::new1(PyTuple::new_raw_segment())),
+                PyType::from(PyOpt::new1(PyTuple::new_uncorrected_segment())),
                 " (if found)",
             )
         } else {
-            (PyTuple::new_raw_segment().into(), "")
+            (PyTuple::new_uncorrected_segment().into(), "")
         };
         let desc = format!("The uncorrected *{which}* segment from {src}{end}.");
         Self::new_param(argname, pt, desc)
@@ -9005,7 +9015,7 @@ impl fmt::Display for SegmentSrc {
     }
 }
 
-impl fmt::Display for RawSegmentSrc {
+impl fmt::Display for UncorrSegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::Header => "*HEADER*",

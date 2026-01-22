@@ -11,12 +11,12 @@ use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
     StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
-    StdTEXTDiagnosticOutput, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
+    StdTEXTDiagnostics, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
-use crate::data::ReadEventsOutput;
+use crate::data::EventsDiagnostics;
 use crate::header::{
     GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError,
-    RawHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    UncorrectedHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
@@ -28,8 +28,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
-    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RawSegment, RelativeSegment,
-    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection,
+    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
+    SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -439,7 +439,7 @@ pub struct FlatTEXTOutput {
     pub keywords: ValidKeywords,
 
     /// Miscellaneous data from parsing TEXT
-    pub flat_diagnostics: FlatTEXTParseData,
+    pub flat_diagnostics: FlatTEXTDiagnostics,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -454,10 +454,10 @@ pub struct StdTEXTOutput {
     pub dataset_segments: DatasetSegments,
 
     /// Diagnostic output from TEXT standardization
-    pub std_diagnostics: StdTEXTDiagnosticOutput,
+    pub std_diagnostics: StdTEXTDiagnostics,
 
     /// Diagnostic output from flat TEXT parsing
-    pub flat_diagnostics: FlatTEXTParseData,
+    pub flat_diagnostics: FlatTEXTDiagnostics,
 }
 
 /// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
@@ -477,7 +477,7 @@ pub struct StdDatasetOutput {
     pub dataset: StdDatasetWithKwsOutput,
 
     /// Miscellaneous data from parsing TEXT
-    pub flat_diagnostics: FlatTEXTParseData,
+    pub flat_diagnostics: FlatTEXTDiagnostics,
 }
 
 /// Output of using keywords to read flat TEXT+DATA
@@ -496,25 +496,25 @@ pub struct FlatDatasetWithKwsOutput {
     pub dataset_segments: DatasetSegments,
 
     /// Diagnostic output from parsing DATA segment
-    pub events_diagnostics: ReadEventsOutput,
+    pub events_diagnostics: EventsDiagnostics,
 }
 
 /// Data pertaining to parsing the TEXT segment.
 #[allow(clippy::too_many_arguments)]
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct FlatTEXTParseData {
+pub struct FlatTEXTDiagnostics {
     /// Corrected offsets read from HEADER
     pub header_segments: HeaderSegments<UintSpacePad20>,
 
     /// Uncorrected offsets read from HEADER
-    pub raw_header_segments: RawHeaderSegments,
+    pub uncorrected_header_segments: UncorrectedHeaderSegments,
 
-    /// Supplemental TEXT offsets (corrected and raw)
+    /// Supplemental TEXT offsets (corrected and uncorrected)
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
-    pub supp_text: Option<(SupplementalTextSegment, RawSegment)>,
+    pub supp_text: Option<(SupplementalTextSegment, UncorrectedSegment)>,
 
     /// NEXTDATA offset
     ///
@@ -551,16 +551,16 @@ pub struct FlatTEXTParseData {
     pub keys_with_trimmed_values: Vec<(StringOrBytes, StringOrBytes)>,
 
     /// Output from splitting primary TEXT
-    pub primary_split: SplitTEXTOutput,
+    pub primary_split: SplitTEXTDiagnostics,
 
     /// Output from splitting supplemental TEXT
-    pub supp_split: Option<SplitTEXTOutput>,
+    pub supp_split: Option<SplitTEXTDiagnostics>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct SplitTEXTOutput {
+pub struct SplitTEXTDiagnostics {
     /// `true` if TEXT delimiters were escaped
     pub escaped: bool,
 
@@ -1151,7 +1151,7 @@ fn kws_to_df_analysis<C, R>(
     segs: &NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (FCSDataFrame, Analysis, DatasetSegments, ReadEventsOutput),
+    (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),
@@ -1245,9 +1245,9 @@ where
                 .group()
                 .map_error(IOErrorGroup::Pure)
                 .map_ok_value(|(nextdata, (), ())| {
-                    let parse = FlatTEXTParseData {
+                    let parse = FlatTEXTDiagnostics {
                         header_segments: header.segments,
-                        raw_header_segments: header.raw,
+                        uncorrected_header_segments: header.uncorrected_segments,
                         supp_text: supp_text_seg,
                         nextdata,
                         delimiter: delim,
@@ -1273,7 +1273,7 @@ fn h_read_flat_supp_text<R: Read + Seek>(
     delim: u8,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndIOGroupResult<
-    Option<SplitTEXTOutput>,
+    Option<SplitTEXTDiagnostics>,
     ParseSupplementalTEXTError,
     ParseSupplementalTEXTError,
     (),
@@ -1309,7 +1309,7 @@ fn split_flat_primary_text(
     delim: u8,
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<SplitTEXTOutput, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
+) -> WarningsAndErrorsResult<SplitTEXTDiagnostics, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
         LogResult::new_err(NoTEXTWordsError.into())
     } else {
@@ -1324,7 +1324,7 @@ fn split_flat_supp_text(
     bytes: &[u8],
     conf: &ReadHeaderAndTEXTConfig,
 ) -> WarningsAndErrorsResult<
-    Option<SplitTEXTOutput>,
+    Option<SplitTEXTDiagnostics>,
     (),
     ParseSupplementalTEXTError,
     ParseSupplementalTEXTError,
@@ -1352,7 +1352,7 @@ fn split_flat_text_inner(
     bytes: &[u8],
     tk: TEXTKind,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningsAndErrorsResult<SplitTEXTOutput, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+) -> WarningsAndErrorsResult<SplitTEXTDiagnostics, (), ParseKeywordsIssue, ParseKeywordsIssue> {
     let escape_res = match conf.delim_escape_mode {
         DelimEscapeMode::Unescaped => Ok(false),
         DelimEscapeMode::Escaped => Ok(true),
@@ -1372,7 +1372,7 @@ fn split_flat_text_inner(
     } else {
         split_flat_text_unescaped_delim(kws, delim, bytes, tk, conf)
     };
-    res.map_ok_value(|inner| SplitTEXTOutput {
+    res.map_ok_value(|inner| SplitTEXTDiagnostics {
         keys_with_blank_values: inner.keys_with_blank_values,
         values_with_blank_keys: inner.values_with_blank_keys,
         tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
@@ -1823,7 +1823,7 @@ fn lookup_stext_offsets<C>(
     header: &Header,
     st: &ReadState<C>,
 ) -> DeferredWarningsAndErrors<
-    Option<(SupplementalTextSegment, RawSegment)>,
+    Option<(SupplementalTextSegment, UncorrectedSegment)>,
     STextSegmentWarning,
     STextSegmentError,
 >
@@ -1963,7 +1963,7 @@ fn byte_errors(
     }
 }
 
-impl FlatTEXTParseData {
+impl FlatTEXTDiagnostics {
     fn non_data_segments(&self) -> NonDataSegments<'_> {
         let hs = &self.header_segments;
         NonDataSegments::new(

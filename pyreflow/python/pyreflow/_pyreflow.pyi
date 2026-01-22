@@ -1758,7 +1758,7 @@ class HeaderSegments:
     def other_segs(self) -> list[Segment]: ...
 
 @final
-class RawHeaderSegments:
+class UncorrectedHeaderSegments:
     def __new__(
         cls,
         text_seg: Segment,
@@ -1779,7 +1779,10 @@ class RawHeaderSegments:
 @final
 class Header:
     def __new__(
-        cls, version: FCSVersion, segments: HeaderSegments, raw: RawHeaderSegments
+        cls,
+        version: FCSVersion,
+        segments: HeaderSegments,
+        uncorrected_segments: UncorrectedHeaderSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1787,7 +1790,7 @@ class Header:
     @property
     def segments(self) -> HeaderSegments: ...
     @property
-    def raw(self) -> RawHeaderSegments: ...
+    def uncorrected_segments(self) -> UncorrectedHeaderSegments: ...
 
 @final
 class ValidKeywords:
@@ -1799,7 +1802,7 @@ class ValidKeywords:
     def nonstd(self) -> NonStdKeywords: ...
 
 @final
-class StdTEXTDiagnosticOutput:
+class StdTEXTDiagnostics:
     def __new__(
         cls,
         pseudostandard: StdKeywords,
@@ -1832,8 +1835,8 @@ class DatasetSegments:
         cls,
         data_seg: Segment,
         analysis_seg: Segment,
-        data_seg_raw: Segment | None,
-        analysis_seg_raw: Segment | None,
+        data_seg_uncorrected: Segment | None,
+        analysis_seg_uncorrected: Segment | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1841,12 +1844,12 @@ class DatasetSegments:
     @property
     def analysis_seg(self) -> Segment: ...
     @property
-    def data_seg_raw(self) -> Segment | None: ...
+    def data_seg_uncorrected(self) -> Segment | None: ...
     @property
-    def analysis_seg_raw(self) -> Segment | None: ...
+    def analysis_seg_uncorrected(self) -> Segment | None: ...
 
 @final
-class SplitTEXTOutput:
+class SplitTEXTDiagnostics:
     def __new__(
         cls,
         escaped: bool,
@@ -1874,11 +1877,11 @@ class SplitTEXTOutput:
     def trailing_whitespace_length(self) -> int: ...
 
 @final
-class FlatTEXTParseData:
+class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_segments: HeaderSegments,
-        raw_header_segments: RawHeaderSegments,
+        uncorrected_header_segments: UncorrectedHeaderSegments,
         supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
@@ -1888,14 +1891,14 @@ class FlatTEXTParseData:
         ignored_standard_keywords: list[tuple[str, bytes | str]],
         keys_with_empty_trimmed_values: list[bytes | str],
         keys_with_trimmed_values: list[tuple[bytes | str, bytes | str]],
-        primary_split: SplitTEXTOutput,
-        supp_split: SplitTEXTOutput | None,
+        primary_split: SplitTEXTDiagnostics,
+        supp_split: SplitTEXTDiagnostics | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_segments(self) -> HeaderSegments: ...
     @property
-    def raw_header_segments(self) -> RawHeaderSegments: ...
+    def uncorrected_header_segments(self) -> UncorrectedHeaderSegments: ...
     @property
     def supp_text(self) -> Segment | None: ...
     @property
@@ -1915,9 +1918,9 @@ class FlatTEXTParseData:
     @property
     def keys_with_trimmed_values(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
-    def primary_split(self) -> SplitTEXTOutput: ...
+    def primary_split(self) -> SplitTEXTDiagnostics: ...
     @property
-    def supp_split(self) -> SplitTEXTOutput | None: ...
+    def supp_split(self) -> SplitTEXTDiagnostics | None: ...
 
 @final
 class FlatTEXTOutput:
@@ -1925,7 +1928,7 @@ class FlatTEXTOutput:
         cls,
         version: FCSVersion,
         kws: ValidKeywords,
-        flat_diagnostics: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1933,10 +1936,10 @@ class FlatTEXTOutput:
     @property
     def kws(self) -> ValidKeywords: ...
     @property
-    def flat_diagnostics(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
 
 @final
-class ReadEventsOutput:
+class EventsDiagnostics:
     def __new__(
         cls,
         event_width: int | None,
@@ -1962,7 +1965,7 @@ class FlatDatasetWithKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_segs: DatasetSegments,
-        events_diagnostics: ReadEventsOutput,
+        events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1974,7 +1977,7 @@ class FlatDatasetWithKwsOutput:
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def events_diagnostics(self) -> ReadEventsOutput: ...
+    def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
 class FlatDatasetOutput:
@@ -1995,8 +1998,8 @@ class StdTEXTOutput:
         cls,
         tot: int | None,
         dataset_segs: DatasetSegments,
-        std_diagnostics: StdTEXTDiagnosticOutput,
-        flat_diagnostics: FlatTEXTParseData,
+        std_diagnostics: StdTEXTDiagnostics,
+        flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2004,38 +2007,38 @@ class StdTEXTOutput:
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def std_diagnostics(self) -> StdTEXTDiagnosticOutput: ...
+    def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
-    def flat_diagnostics(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
 
 @final
 class StdDatasetWithKwsOutput:
     def __new__(
         cls,
         dataset_segs: DatasetSegments,
-        std_diagnostics: StdTEXTDiagnosticOutput,
-        events_diagnostics: ReadEventsOutput,
+        std_diagnostics: StdTEXTDiagnostics,
+        events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def std_diagnostics(self) -> StdTEXTDiagnosticOutput: ...
+    def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
-    def events_diagnostics(self) -> ReadEventsOutput: ...
+    def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
 class StdDatasetOutput:
     def __new__(
         cls,
         dataset: StdDatasetWithKwsOutput,
-        flat_diagnostics: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def flat_diagnostics(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
 
 @final
 class DatasetSummary:
@@ -2804,19 +2807,19 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
-    "RawHeaderSegments",
+    "UncorrectedHeaderSegments",
     "FlatTEXTOutput",
     "FlatDatasetOutput",
     "FlatDatasetWithKwsOutput",
-    "FlatTEXTParseData",
+    "FlatTEXTDiagnostics",
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
-    "StdTEXTDiagnosticOutput",
+    "StdTEXTDiagnostics",
     "ValidKeywords",
     "DatasetSegments",
-    "SplitTEXTOutput",
-    "ReadEventsOutput",
+    "SplitTEXTDiagnostics",
+    "EventsDiagnostics",
     "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",

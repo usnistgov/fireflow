@@ -75,7 +75,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyHeader>()?;
     m.add_class::<ff::PyHeaderSegments>()?;
-    m.add_class::<ff::PyRawHeaderSegments>()?;
+    m.add_class::<ff::PyUncorrectedHeaderSegments>()?;
 
     m.add_class::<ff::PyFlatTEXTOutput>()?;
     m.add_class::<ff::PyFlatDatasetOutput>()?;
@@ -84,11 +84,11 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyStdTEXTOutput>()?;
     m.add_class::<ff::PyStdDatasetOutput>()?;
     m.add_class::<ff::PyStdDatasetWithKwsOutput>()?;
-    m.add_class::<ff::PyReadEventsOutput>()?;
+    m.add_class::<ff::PyEventsDiagnostics>()?;
 
-    m.add_class::<ff::PyFlatTEXTParseData>()?;
-    m.add_class::<ff::PySplitTEXTOutput>()?;
-    m.add_class::<ff::PyStdTEXTDiagnosticOutput>()?;
+    m.add_class::<ff::PyFlatTEXTDiagnostics>()?;
+    m.add_class::<ff::PySplitTEXTDiagnostics>()?;
+    m.add_class::<ff::PyStdTEXTDiagnostics>()?;
     m.add_class::<ff::PyValidKeywords>()?;
     m.add_class::<ff::PyDatasetSegments>()?;
     m.add_class::<ff::PyDatasetSummary>()?;

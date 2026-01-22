@@ -103,9 +103,9 @@ use fireflow_python_proc::{
     impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
     impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
     impl_py_flat_text_output, impl_py_flat_text_parse_data, impl_py_header,
-    impl_py_header_segments, impl_py_raw_header_segments, impl_py_read_events_diagnostics,
-    impl_py_split_text_output, impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output,
-    impl_py_std_diagnostics, impl_py_std_text_output, impl_py_valid_keywords,
+    impl_py_header_segments, impl_py_read_events_diagnostics, impl_py_split_text_diagnostics,
+    impl_py_std_dataset_output, impl_py_std_dataset_with_kws_output, impl_py_std_diagnostics,
+    impl_py_std_text_output, impl_py_uncorrected_header_segments, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -127,17 +127,17 @@ def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keyword
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
-impl_py_raw_header_segments!(header::RawHeaderSegments);
+impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
 impl_py_valid_keywords!(keys::ValidKeywords);
-impl_py_std_diagnostics!(core::StdTEXTDiagnosticOutput);
+impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_flat_text_output!(api::FlatTEXTOutput);
 impl_py_flat_dataset_output!(api::FlatDatasetOutput);
-impl_py_flat_text_parse_data!(api::FlatTEXTParseData);
-impl_py_split_text_output!(api::SplitTEXTOutput);
+impl_py_flat_text_parse_data!(api::FlatTEXTDiagnostics);
+impl_py_split_text_diagnostics!(api::SplitTEXTDiagnostics);
 impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
-impl_py_read_events_diagnostics!(data::ReadEventsOutput);
+impl_py_read_events_diagnostics!(data::EventsDiagnostics);
 
 impl_py_std_text_output!(api::StdTEXTOutput);
 impl_py_std_dataset_output!(api::StdDatasetOutput);

@@ -402,7 +402,7 @@ impl_functor_once!(
 
 /// Diagnostic output from reading DATA segment
 #[derive(Clone, PartialEq, Default, new)]
-pub struct ReadEventsOutput {
+pub struct EventsDiagnostics {
     /// The width of one event in bytes (if not ASCII delimited).
     pub event_width: Option<u64>,
 
@@ -601,7 +601,7 @@ pub trait LayoutOps<'a, T>: Sized {
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, ReadEventsOutput),
+        (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -738,7 +738,7 @@ where
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, ReadEventsOutput),
+        (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -753,7 +753,7 @@ where
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            None => LogResult::new_ok((FCSDataFrame::default(), ReadEventsOutput::default())),
+            None => LogResult::new_ok((FCSDataFrame::default(), EventsDiagnostics::default())),
             Some((begin, _)) => h
                 .seek(SeekFrom::Start(begin))
                 .map_err(IOErrorGroup::from)
@@ -2400,7 +2400,7 @@ where
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, ReadEventsOutput),
+        (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -2479,7 +2479,7 @@ where
                         .into_iter()
                         .map(FCSColumn::from)
                         .map(AnyFCSColumn::from);
-                    let out = ReadEventsOutput::new(None, None, None, truncated);
+                    let out = EventsDiagnostics::new(None, None, None, truncated);
                     let df = FCSDataFrame::try_new(cs).unwrap();
                     (df, out)
                 })
@@ -2811,7 +2811,7 @@ where
         seg: AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, ReadEventsOutput),
+        (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -2843,7 +2843,7 @@ where
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .repack_warnings()
                     .map_ok_value(|(df, trunc)| {
-                        let out = ReadEventsOutput::new(
+                        let out = EventsDiagnostics::new(
                             Some(nrow_out.event_width),
                             Some(nrow_out.remainder),
                             tot_not_eq,

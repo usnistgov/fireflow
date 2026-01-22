@@ -24,9 +24,11 @@ from ._pyreflow import StdTEXTOutput as StdTEXTOutput
 from ._pyreflow import StdDatasetOutput as StdDatasetOutput
 from ._pyreflow import StdDatasetWithKwsOutput as StdDatasetWithKwsOutput
 
-from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
-from ._pyreflow import SplitTEXTDiagnostics as SplitTEXTDiagnostics
 from ._pyreflow import ValidKeywords as ValidKeywords
-from ._pyreflow import StdTEXTDiagnostics as StdTEXTDiagnostics
 from ._pyreflow import DatasetSegments as DatasetSegments
 from ._pyreflow import DatasetSummary as DatasetSummary
+
+from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
+from ._pyreflow import SplitTEXTDiagnostics as SplitTEXTDiagnostics
+from ._pyreflow import StdTEXTDiagnostics as StdTEXTDiagnostics
+from ._pyreflow import EventsDiagnostics as EventsDiagnostics

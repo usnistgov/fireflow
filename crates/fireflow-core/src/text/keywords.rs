@@ -584,6 +584,7 @@ pub enum Scale {
 
 /// Diagnostic data from parsing $PnE
 #[derive(Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleDiagnostic {
     /// Nothing happend
     #[default]
@@ -1287,6 +1288,7 @@ impl TryFrom<AlphaNumType> for NumType {
 pub struct TemporalScaleInner;
 
 #[derive(Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TemporalScaleDiagnostic {
     #[default]
     None,
@@ -1296,6 +1298,7 @@ pub enum TemporalScaleDiagnostic {
 
 #[derive(From, Clone, PartialEq)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyScaleDiagnostic {
     Optical(ScaleDiagnostic),
     Temporal(TemporalScaleDiagnostic),

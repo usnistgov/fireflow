@@ -444,6 +444,7 @@ pub struct FlatTEXTOutput {
 
 /// Output of parsing the TEXT segment and standardizing keywords.
 #[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdTEXTOutput {
     /// TEXT value for $TOT
     ///

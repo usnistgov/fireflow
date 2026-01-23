@@ -15,6 +15,7 @@ use clap::{
 };
 use itertools::Itertools as _;
 use serde::ser::Serialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::iter::once;
@@ -912,8 +913,10 @@ fn main() -> Result<(), ()> {
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| print_errors(&s));
             // ASSUME this won't fail because we ask for one dataset
-            res.map(|mut cores| cores.remove(0))
-                .map(|(core, _)| print_json(&core))
+            res.map(|mut cores| cores.remove(0)).map(|(core, uncore)| {
+                let obj = json!({"core": core, "uncore": uncore});
+                print_json(&obj)
+            })
         }
 
         Some((SUBCMD_DATA, sargs)) => {

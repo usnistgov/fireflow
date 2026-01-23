@@ -1320,6 +1320,7 @@ pub struct StdDatasetWithKwsOutput {
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
 #[derive(Clone, Copy, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatasetSegments {
     /// offsets used to parse DATA
     pub data: AnyDataSegment,
@@ -1361,6 +1362,7 @@ pub enum IncludeRootOrMeas {
 /// Diagnostic output from standardizing TEXT
 #[derive(Clone, PartialEq, new)]
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdTEXTDiagnostics {
     /// Keys which start with `"$"` but are not part of the standard.
     pub pseudostandard: StdKeywords,

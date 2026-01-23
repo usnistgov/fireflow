@@ -595,7 +595,6 @@ pub struct ReadHeaderAndTEXTConfig {
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone)]
 pub struct ReadStdKeywordsConfig {
-    // TODO return vector of names that were changed
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
     /// All versions of the standards requires that all $PnN be unique.
@@ -671,7 +670,6 @@ pub struct ReadStdKeywordsConfig {
     /// format which is `"%d-%b-%Y %H:%M:%S"` possibly with centiseconds after.
     pub last_modified_pattern: Option<String>,
 
-    // TODO return something indicating this happened
     /// If `true`, capture other values for $PnFEATURE not mentioned in the standard.
     ///
     /// $PnFEATURE as described in the standard only explicitly mentions

@@ -1810,6 +1810,7 @@ class StdTEXTDiagnostics:
         hyper_gate: StdKeywords,
         other_version: StdKeywords,
         timestep: str | None,
+        original_names: list[Shortname | None],
         scale: list[ScaleDiagnostic],
         trimmed: list[tuple[str, str]],
     ) -> Self: ...
@@ -1824,6 +1825,8 @@ class StdTEXTDiagnostics:
     def other_version(self) -> StdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
+    @property
+    def original_names(self) -> list[Shortname | None]: ...
     @property
     def scale(self) -> list[ScaleDiagnostic]: ...
     @property

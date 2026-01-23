@@ -1358,6 +1358,48 @@ pub enum IncludeRootOrMeas {
     Both,
 }
 
+/// Diagnostic output from standardizing TEXT
+#[derive(Clone, PartialEq, new)]
+#[allow(clippy::too_many_arguments)]
+pub struct StdTEXTDiagnostics {
+    /// Keys which start with `"$"` but are not part of the standard.
+    pub pseudostandard: StdKeywords,
+    /// Standard $Pn* keys where `n` is higher than $PAR
+    pub hyper_par: StdKeywords,
+    /// Standard $Gn* keys where `n` is higher than $GATE
+    pub hyper_gate: StdKeywords,
+    /// Keys which do not belong in this version but are valid in another.
+    pub other_version: StdKeywords,
+    /// $TIMESTEP if it is given but not used.
+    pub timestep: Option<String>,
+    /// Original $PnN if they are renamed.
+    pub original_names: Vec<Option<Shortname>>,
+    /// Diagnostic outcomes from fixing $PnE keys.
+    pub scale: Vec<AnyScaleDiagnostic>,
+    /// Original keyword values that were trimmed for whitespace between commas.
+    pub trimmed: Vec<(StdKey, String)>,
+}
+
+impl StdTEXTDiagnostics {
+    fn from_extra(
+        extra: ExtraStdKeywords,
+        original_names: Vec<Option<Shortname>>,
+        scale: Vec<AnyScaleDiagnostic>,
+        trimmed: Vec<(StdKey, String)>,
+    ) -> Self {
+        Self {
+            pseudostandard: extra.pseudostandard,
+            hyper_par: extra.hyper_par,
+            hyper_gate: extra.hyper_gate,
+            other_version: extra.other_version,
+            timestep: extra.timestep,
+            original_names,
+            scale,
+            trimmed,
+        }
+    }
+}
+
 #[derive(new)]
 pub struct DiagnosedMetaroot<M> {
     this: M,
@@ -1378,35 +1420,6 @@ pub type DiagnosedTemporal<M> = DiagnosedMeas<M, TemporalScaleDiagnostic>;
 struct DiagnosedUnstainedData {
     this: UnstainedData,
     trimmed: Option<(StdKey, String)>,
-}
-
-#[derive(Clone, PartialEq, new)]
-pub struct StdTEXTDiagnostics {
-    pub pseudostandard: StdKeywords,
-    pub hyper_par: StdKeywords,
-    pub hyper_gate: StdKeywords,
-    pub other_version: StdKeywords,
-    pub timestep: Option<String>,
-    pub scale: Vec<AnyScaleDiagnostic>,
-    pub trimmed: Vec<(StdKey, String)>,
-}
-
-impl StdTEXTDiagnostics {
-    fn from_extra(
-        extra: ExtraStdKeywords,
-        scale: Vec<AnyScaleDiagnostic>,
-        trimmed: Vec<(StdKey, String)>,
-    ) -> Self {
-        Self {
-            pseudostandard: extra.pseudostandard,
-            hyper_par: extra.hyper_par,
-            hyper_gate: extra.hyper_gate,
-            other_version: extra.other_version,
-            timestep: extra.timestep,
-            scale,
-            trimmed,
-        }
-    }
 }
 
 impl WriteHeaderAndTextConfig<'_> {
@@ -4053,7 +4066,7 @@ where
         nonstd: &mut [NonStdKeywords],
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        Vec<M::Name>,
+        (Vec<M::Name>, Vec<Option<Shortname>>),
         (),
         OptIndexedKeyError<Shortname>,
         LookupShortnameError,
@@ -4075,9 +4088,13 @@ where
             .map_ok_value(|mut names| {
                 let sconf: &ReadStdKeywordsConfig = conf.as_ref();
                 if sconf.dedup_measurement_names.is_set() {
-                    uniquify_names(&mut names[..]);
+                    let original = uniquify_names(&mut names[..]);
+                    (names, original)
+                } else {
+                    let mut original = vec![];
+                    original.resize_with(names.len(), || None);
+                    (names, original)
                 }
-                names
             })
     }
 
@@ -4317,6 +4334,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .group()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
         mut kws: ValidKeywords,
         conf: &C,
@@ -4360,31 +4378,38 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 })
                 // Lookup root and measurement keywords (which depend on $PnN)
                 // and layout
-                .and_then_commutative(|(names, mut meas_nonstd)| {
+                .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
                         <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                             .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-                    let root_res = Metaroot::lookup_metaroot(std, &names[..], kws.nonstd, conf)
+                    let root_res =
+                        Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+
+                    let meas_res = Self::lookup_measurements(std, dedup_names, meas_nonstd, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-                    let meas_res = Self::lookup_measurements(std, names, meas_nonstd, conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
-
-                    root_res.zip3_commutative(meas_res, layout_res)
+                    root_res
+                        .zip3_commutative(meas_res, layout_res)
+                        .map_ok_value(|x| (x, original_names))
                 })
-                .and_then_commutative(|(mut metaroot_out, meas_out, layout_out)| {
-                    let (meas, meas_scale, meas_trimmed) = meas_out;
-                    metaroot_out.trimmed.extend(meas_trimmed);
-                    Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                        .map_ok_value(|ret| (ret, meas_scale, metaroot_out.trimmed))
-                });
+                .and_then_commutative(
+                    |((mut metaroot_out, meas_out, layout_out), original_names)| {
+                        let (meas, meas_scale, meas_trimmed) = meas_out;
+                        metaroot_out.trimmed.extend(meas_trimmed);
+                        Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+                            .map_ok_value(|ret| {
+                                (ret, original_names, meas_scale, metaroot_out.trimmed)
+                            })
+                    },
+                );
 
             // Push pseudostandard/unused warnings/errors
             // TODO fix gate arg
@@ -4447,8 +4472,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, scale, trimmed)| {
-                let d = StdTEXTDiagnostics::from_extra(extra, scale, trimmed);
+            core_res.map_ok_value(|(ret, original_names, scale, trimmed)| {
+                let d = StdTEXTDiagnostics::from_extra(extra, original_names, scale, trimmed);
                 (ret, d)
             })
         })

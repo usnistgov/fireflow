@@ -806,6 +806,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.timestep.clone()),
     );
 
+    let original_names = DocArgROIvar::new_ivar_ro(
+        "original_names",
+        PyList::new1(PyOpt::new1(PyStr::new_shortname())),
+        "Original *$PnN* if they were renamed.",
+        |_, _| quote!(self.0.original_names.clone()),
+    );
+
     let scale = DocArgROIvar::new_ivar_ro(
         "scale",
         PyList::new1(PyOpt::new_scale_diagnostic()),
@@ -826,6 +833,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         hyper_gate,
         other_version,
         timestep,
+        original_names,
         scale,
         trimmed,
     ]);

@@ -1,11 +1,10 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, DummyFalseErrorFlag,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
-    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
-    ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState, ReadStdDatasetConfig,
-    ReadStdKeywordsConfig, ReadStdTEXTConfig, TrimTrailingWhitespace, TruncateOffsets,
-    VersionOverride,
+    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
+    ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
+    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TrimTrailingWhitespace,
+    TruncateOffsets, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -1892,21 +1891,16 @@ where
     };
     res.and_then_deferred(|x| {
         x.map_or(LogResult::new_ok(None), |(seg, raw)| {
-            if let Some(flag) =
-                Option::<DummyFalseErrorFlag<_>>::from(conf.allow_overlapping_supp_text)
-            {
-                header
-                    .segments
-                    .validate_text(&seg, conf.header.other_width)
-                    .set_ok_value(Some((seg, raw)))
-                    .set_err_value(None)
-                    .nowarn_into_switchable(flag)
-                    .map_switchable_errors(STextSegmentError::from)
-                    .switchable_into_commutative()
-                    .map_commutative_warnings(STextSegmentWarning::from)
-            } else {
-                LogResult::new_ok(None)
-            }
+            let flag = conf.allow_overlapping_supp_text;
+            header
+                .segments
+                .validate_text(&seg, conf.header.other_width)
+                .set_ok_value(Some((seg, raw)))
+                .set_err_value(None)
+                .nowarn_into_switchable3(flag, None)
+                .map_switchable_errors(STextSegmentError::from)
+                .switchable_into_commutative()
+                .map_commutative_warnings(STextSegmentWarning::from)
         })
     })
 }

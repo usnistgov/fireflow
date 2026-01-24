@@ -27,7 +27,7 @@
 //! like a transformer stack where pure errors are handled on one layer and
 //! an IO error is handled on a different layer.
 
-use crate::config::{ErrorFlag, ReadSharedConfig};
+use crate::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
 use crate::text::optional::Nothing;
 
 use type_families::{
@@ -2181,6 +2181,29 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
             }
         }
     }
+
+    pub(crate) fn nowarn_into_switchable3<X>(
+        self,
+        flag: X,
+        default: V,
+    ) -> SwitchableResult<V, V, X, E, EC>
+    where
+        X: TriErrorFlag,
+        EC: SwitchableErrorContainer<Inner = E> + Default,
+        EC::Warn: Default,
+    {
+        match self {
+            Succ(x) => SwitchableResult::new_switchable_ok(x.value, flag),
+            Fail(x) => match flag.is_error() {
+                None => SwitchableResult::new_switchable_ok(default, flag),
+                Some(true) => Fail(Failure::new_from_many(x.errors, x.value)),
+                Some(false) => {
+                    let ws = EC::errors_to_warnings(x.errors);
+                    Succ(Success::new(x.value, flag, ws))
+                }
+            },
+        }
+    }
 }
 
 //
@@ -2296,7 +2319,6 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     where
         EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
         EC::Warn: Default,
-        X: ErrorFlag,
     {
         Succ(Success::new_flagged(value, flag))
     }

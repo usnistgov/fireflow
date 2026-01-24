@@ -311,6 +311,7 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TruncateOffsets)]
     pub header: ReadHeaderInnerConfig,
 
+    // TODO this belongs in one of the keyword configs
     /// Use a different version than what is given in the HEADER.
     ///
     /// If [`VersionOverride::Force`], force the version to be the supplied
@@ -1179,6 +1180,10 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
+pub trait TriErrorFlag {
+    fn is_error(&self) -> Option<bool>;
+}
+
 macro_rules! impl_config_flag {
     ($n:ident) => {
         #[derive(From, Clone, Copy, Default)]
@@ -1265,23 +1270,38 @@ impl_config_flag!(AppendFlag);
 
 macro_rules! impl_tri_error_flag {
     (true_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, DummyTrueErrorFlag);
+        impl_tri_error_flag!(_common $n);
+
+        impl TriErrorFlag for $n {
+            fn is_error(&self) -> Option<bool> {
+                match self.0 {
+                    TriFlag::Noop => None,
+                    TriFlag::False => Some(false),
+                    TriFlag::True => Some(true),
+                }
+            }
+        }
     };
 
     (false_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, DummyFalseErrorFlag);
-    };
+        impl_tri_error_flag!(_common $n);
 
-    (_common $n:ident, $d:ident) => {
-        #[derive(From, Clone, Copy, Default, FromStr)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        pub struct $n(pub TriFlag);
-
-        impl From<$n> for Option<$d<$n>> {
-            fn from(value: $n) -> Self {
-                Option::<bool>::from(value.0).map($d::<$n>::new)
+        impl TriErrorFlag for $n {
+            fn is_error(&self) -> Option<bool> {
+                match self.0 {
+                    TriFlag::Noop => None,
+                    TriFlag::False => Some(true),
+                    TriFlag::True => Some(false),
+                }
             }
         }
+    };
+
+    (_common $n:ident) => {
+        #[derive(From, Clone, Copy, Default, FromStr)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[from(Option<bool>, TriFlag)]
+        pub struct $n(pub TriFlag);
     };
 }
 
@@ -1338,31 +1358,31 @@ impl From<Option<bool>> for TriFlag {
     }
 }
 
-/// Fake flag to use for non-public switchable errors (false = error)
-#[derive(From, Clone, Copy, new)]
-pub(crate) struct DummyFalseErrorFlag<T> {
-    pub inner: bool,
-    pub _id: PhantomData<T>,
-}
+// /// Fake flag to use for non-public switchable errors (false = error)
+// #[derive(From, Clone, Copy, new)]
+// pub(crate) struct DummyFalseErrorFlag<T> {
+//     pub inner: bool,
+//     pub _id: PhantomData<T>,
+// }
 
-impl<T> ErrorFlag for DummyFalseErrorFlag<T> {
-    fn is_error(&self) -> bool {
-        !self.inner
-    }
-}
+// impl<T> ErrorFlag for DummyFalseErrorFlag<T> {
+//     fn is_error(&self) -> bool {
+//         !self.inner
+//     }
+// }
 
-/// Fake flag to use for non-public switchable errors (true = error)
-#[derive(From, Clone, Copy, new)]
-pub(crate) struct DummyTrueErrorFlag<T> {
-    pub inner: bool,
-    pub _id: PhantomData<T>,
-}
+// /// Fake flag to use for non-public switchable errors (true = error)
+// #[derive(From, Clone, Copy, new)]
+// pub(crate) struct DummyTrueErrorFlag<T> {
+//     pub inner: bool,
+//     pub _id: PhantomData<T>,
+// }
 
-impl<T> ErrorFlag for DummyTrueErrorFlag<T> {
-    fn is_error(&self) -> bool {
-        self.inner
-    }
-}
+// impl<T> ErrorFlag for DummyTrueErrorFlag<T> {
+//     fn is_error(&self) -> bool {
+//         self.inner
+//     }
+// }
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {

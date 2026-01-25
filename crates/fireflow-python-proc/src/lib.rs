@@ -8417,8 +8417,8 @@ impl DocArgParam {
     }
 
     fn new_disallow_over_range() -> Self {
-        let d = "Forbid event values in *DATA* to exceed *$PnR*. \
-                 This flag only has an effect if the column is not truncated \
+        let d = "Choose how to handle event values in *DATA* which exceed *$PnR*. \
+                 This only has an effect if the column is not truncated \
                  according to ``truncate_event_values``.";
         Self::new_tri_flag_param("disallow_over_range", false, "DisallowOverRange", d)
     }

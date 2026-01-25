@@ -1193,8 +1193,6 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
-    let process_optional_failure = parse_string_type(sargs, PROCESS_OPTIONAL_FAILURE);
-
     let integer_byteord_override = sargs
         .get_one::<String>(INT_BYTEORD_OVERRIDE)
         .map(|s| s.parse::<ByteOrd2_0>().unwrap());
@@ -1207,7 +1205,7 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
         allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
-        process_optional_failure,
+        process_optional_failure: parse_string_type(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override,
         disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
@@ -1215,13 +1213,11 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
-    let truncate_event_values = parse_string_type(sargs, TRUNCATE_EVENT_VALUES);
-    let disallow_over_range = parse_string_type(sargs, DISALLOW_OVER_RANGE);
     config::ReadEventsConfig {
         allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
         allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
-        truncate_event_values,
-        disallow_over_range,
+        truncate_event_values: parse_string_type(sargs, TRUNCATE_EVENT_VALUES),
+        disallow_over_range: parse_tri_flag(sargs, DISALLOW_OVER_RANGE, false),
     }
 }
 

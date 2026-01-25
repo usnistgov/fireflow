@@ -923,7 +923,7 @@ fn run() -> AppResult<()> {
     match args.subcommand() {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = parse_header_config(sargs);
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let h = fcs_read_header(filepath, DatasetOffset(0), &conf.into())?;
             print_json(&h);
             Ok(())
@@ -931,7 +931,7 @@ fn run() -> AppResult<()> {
 
         Some((SUBCMD_FLAT, sargs)) => {
             let conf = parse_flat_config(sargs)?;
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
@@ -943,7 +943,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_SPILL, sargs)) => {
             let conf = parse_std_config(sargs)?;
             let delim = parse_delim(sargs);
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
@@ -956,7 +956,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_MEAS, sargs)) => {
             let conf = parse_std_config(sargs)?;
             let delim = parse_delim(sargs);
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
@@ -968,7 +968,7 @@ fn run() -> AppResult<()> {
 
         Some((SUBCMD_STD, sargs)) => {
             let conf = parse_std_config(sargs)?;
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
@@ -982,7 +982,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_DATA, sargs)) => {
             let conf = parse_std_dataset_config(sargs)?;
             let delim = parse_delim(sargs);
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
@@ -994,7 +994,7 @@ fn run() -> AppResult<()> {
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
             let conf = parse_flat_dataset_config(sargs)?;
-            let filepath = parse_input_path(sargs)?;
+            let filepath = parse_input_path(sargs);
             let skip = parse_skip(sargs);
             let limit = parse_limit(sargs);
             let ((), res) = fcs_summarize(filepath, skip, limit, &conf)
@@ -1327,10 +1327,10 @@ fn parse_sub_pattern(s: &str) -> AppResult<SubPattern> {
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
-fn parse_input_path(sargs: &ArgMatches) -> Result<&PathBuf, String> {
+fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
     sargs
         .get_one::<PathBuf>(INPUT_PATH)
-        .ok_or(fmt_arg_error(INPUT_PATH, "path is required"))
+        .expect("path is required")
 }
 
 fn parse_dataset_index(sargs: &ArgMatches) -> Option<usize> {
@@ -1428,24 +1428,6 @@ fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
         eprintln!("WARNING: {w}");
     }
 }
-
-// #[derive(Clone, Copy)]
-// struct TriFlagParser<T>(PhantomData<T>);
-
-// impl<T> TypedValueParser for TriFlagParser<T>
-// where
-//     T: Clone + Send + Sync + 'static,
-// {
-//     type Value = T;
-
-//     fn parse_ref(
-//         &self,
-//         cmd: &crate::Command,
-//         arg: Option<&crate::Arg>,
-//         value: &std::ffi::OsStr,
-//     ) -> Result<Self::Value, clap::Error> {
-//     }
-// }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
 

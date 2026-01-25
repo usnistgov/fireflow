@@ -3,10 +3,9 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ParseTemporalOpticalKeyError,
-    ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion,
-    ProcessPseudostandard, TemporalOpticalKey, TimeMeasNamePattern, TriFlag, TruncateEventValues,
-    VersionOverride,
+    self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TemporalOpticalKey,
+    TimeMeasNamePattern, TriFlag, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -519,7 +518,8 @@ fn run() -> AppResult<()> {
              comma-separated list of strings like the X in {}.",
             kw_style.paint("$PnX")
         ))
-        .value_parser(ValueParser::new(parse_time_optical_keys));
+        .value_delimiter(',')
+        .value_parser(value_parser!(TemporalOpticalKey));
 
     let parse_indexed_spillover = flag_arg(
         PARSE_INDEXED_SPILLOVER,
@@ -1182,9 +1182,8 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .unwrap_or_default();
 
     let ignore_time_optical_keys = sargs
-        .get_many::<Vec<TemporalOpticalKey>>(IGNORE_TIME_OPTICAL_KEYS)
+        .get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS)
         .unwrap_or_default()
-        .flatten()
         .copied()
         .collect();
 
@@ -1345,14 +1344,6 @@ fn parse_time_meas_pattern(s: &str) -> Result<Option<TimeMeasNamePattern>, regex
     } else {
         Ok(Some(s.parse::<config::TimeMeasNamePattern>()?))
     }
-}
-
-fn parse_time_optical_keys(
-    s: &str,
-) -> Result<Vec<TemporalOpticalKey>, ParseTemporalOpticalKeyError> {
-    s.split(',')
-        .map(str::parse::<config::TemporalOpticalKey>)
-        .collect()
 }
 
 fn parse_keystring_literal(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {

@@ -639,16 +639,51 @@ pub(crate) trait ResultExt: Sized {
         }
     }
 
-    fn into_deferred_switchable_opt<X, EC>(
+    fn into_deferred_switchable3<X, EC>(
+        self,
+        flag: X,
+    ) -> DeferredSwitchable<Self::Ok, X, Self::Error, EC>
+    where
+        Self::Ok: Default,
+        EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
+        EC::Warn: Default,
+        X: TriErrorFlag,
+    {
+        match self.into_result() {
+            Ok(s) => Succ(Success::new_flagged(s, flag)),
+            Err(e) => match flag.is_error() {
+                None => Succ(Success::new_flagged(Self::Ok::default(), flag)),
+                Some(true) => Fail(Failure::new_from_one(e, Self::Ok::default())),
+                Some(false) => {
+                    let ws = EC::error_to_warning(e);
+                    Succ(Success::new(Self::Ok::default(), flag, ws))
+                }
+            },
+        }
+    }
+
+    // fn into_deferred_switchable_opt<X, EC>(
+    //     self,
+    //     flag: X,
+    // ) -> DeferredSwitchable<Option<Self::Ok>, X, Self::Error, EC>
+    // where
+    //     EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     self.into_result().map(Some).into_deferred_switchable(flag)
+    // }
+
+    fn into_deferred_switchable_opt3<X, EC>(
         self,
         flag: X,
     ) -> DeferredSwitchable<Option<Self::Ok>, X, Self::Error, EC>
     where
         EC: SwitchableErrorContainer<Inner = Self::Error> + Default,
         EC::Warn: Default,
-        X: ErrorFlag,
+        X: TriErrorFlag,
     {
-        self.into_result().map(Some).into_deferred_switchable(flag)
+        self.into_result().map(Some).into_deferred_switchable3(flag)
     }
 
     fn into_succ<LWC>(self) -> Success<Self::Ok, (), LWC>
@@ -2427,24 +2462,24 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
-    where
-        I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match GenNonEmpty::collect(errors) {
-            Some(es) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_many(es, default))
-                } else {
-                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
-                }
-            }
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
+    // where
+    //     I: IntoIterator<Item = E>,
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match GenNonEmpty::collect(errors) {
+    //         Some(es) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_many(es, default))
+    //             } else {
+    //                 Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+    //             }
+    //         }
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_switchable_iter3<I>(value: V, default: P, errors: I, flag: X) -> Self
     where
@@ -2542,17 +2577,17 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_maybe(value: T, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_deferred_switchable(value, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_deferred_switchable_maybe(value: T, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_deferred_switchable(value, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
     where
@@ -2566,21 +2601,38 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
+    // pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
+    // where
+    //     I: IntoIterator<Item = E>,
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match GenNonEmpty::collect(errors) {
+    //         Some(es) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_many(es, value))
+    //             } else {
+    //                 Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+    //             }
+    //         }
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
+
+    pub(crate) fn new_deferred_switchable_iter3<I>(value: T, errors: I, flag: X) -> Self
     where
         I: IntoIterator<Item = E>,
         EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
         EC::Warn: Default,
-        X: ErrorFlag,
+        X: TriErrorFlag,
     {
         match GenNonEmpty::collect(errors) {
-            Some(es) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_many(es, value))
-                } else {
-                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
-                }
-            }
+            Some(es) => match flag.is_error() {
+                None => Self::new_switchable_ok(value, flag),
+                Some(true) => Fail(Failure::new_from_many(es, value)),
+                Some(false) => Succ(Success::new(value, flag, EC::errors_to_warnings(es))),
+            },
             None => Self::new_switchable_ok(value, flag),
         }
     }

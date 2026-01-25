@@ -567,8 +567,12 @@ class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, allow_loss: bool = False) -> bool: ...
-    def set_temporal_at(self, index: MeasIndex, allow_loss: bool = False) -> bool: ...
+    def set_temporal(
+        self, name: Shortname, allow_loss: bool | None = False
+    ) -> bool: ...
+    def set_temporal_at(
+        self, index: MeasIndex, allow_loss: bool | None = False
+    ) -> bool: ...
     def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
@@ -576,13 +580,13 @@ class _CoreTemporal3_0:
         self,
         name: Shortname,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: bool | None = False,
     ) -> bool: ...
     def set_temporal_at(
         self,
         index: MeasIndex,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: bool | None = False,
     ) -> bool: ...
     def unset_temporal(self) -> float | None: ...
 
@@ -591,12 +595,12 @@ class _CoreTemporal3_2:
         self,
         name: Shortname,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: bool | None = False,
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, allow_loss: bool = False
+        self, index: MeasIndex, timestep: Timestep, allow_loss: bool | None = False
     ) -> bool: ...
-    def unset_temporal(self, allow_loss: bool = False) -> float | None: ...
+    def unset_temporal(self, allow_loss: bool | None = False) -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
@@ -634,13 +638,13 @@ class _CoreReplaceTemporal3_2:
         self,
         index: MeasIndex,
         meas: Temporal3_2,
-        allow_loss: bool = False,
+        allow_loss: bool | None = False,
     ) -> Optical3_2 | Temporal3_2: ...
     def replace_temporal_named(
         self,
         name: Shortname,
         meas: Temporal3_2,
-        allow_loss: bool = False,
+        allow_loss: bool | None = False,
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
@@ -897,16 +901,16 @@ class _CoreToDataset(Generic[_X]):
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def to_version_2_0(self, allow_loss: bool = False) -> _X: ...
+    def to_version_2_0(self, allow_loss: bool | None = False) -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def to_version_3_0(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_0(self, allow_loss: bool | None = False) -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def to_version_3_1(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_1(self, allow_loss: bool | None = False) -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def to_version_3_2(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_2(self, allow_loss: bool | None = False) -> _X: ...
 
 @final
 class CoreTEXT2_0(

@@ -515,7 +515,7 @@ impl AppliedGates3_0 {
         self.scheme
             .convert_indices(flag)
             .map_switchable_errors(AppliedGates3_0To3_2Error::from)
-            .extend_deferred_switchable_errors(gs)
+            .extend_deferred_switchable_errors3(gs)
             .map_deferred_value(AppliedGates3_2)
     }
 
@@ -911,7 +911,7 @@ impl<I> GatingScheme<I> {
             })
             .map(ConvertIndexForRegionError)
             .map(ConvertSchemeError::from);
-        SwitchableErrorsResult::new_switchable_iter((), (), es, flag).and_then_switchable(|()| {
+        SwitchableErrorsResult::new_switchable_iter3((), (), es, flag).and_then_switchable(|()| {
             GatingScheme::try_new(self.gating, regions)
                 .map_err(ConvertSchemeError::from)
                 .into_nowarn()

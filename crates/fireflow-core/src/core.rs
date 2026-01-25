@@ -1726,7 +1726,7 @@ pub trait VersionedMetaroot: Sized {
         let s = SwapOpticalTemporalSummary::new(opt_index, tmp_index);
 
         ErrorGroup::try_new_with(s, es)
-            .into_deferred_switchable(flag)
+            .into_deferred_switchable3(flag)
             .set_deferred_value((tmp, opt))
             .map_ok_value(|(t, o)| go(t, o))
     }
@@ -1802,7 +1802,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
 
         let s = OpticalToTemporalSummary::new(i);
         ErrorGroup::try_new_with(s, es)
-            .into_deferred_switchable::<_, Nothing<_>>(flag)
+            .into_deferred_switchable3::<_, Nothing<_>>(flag)
             .set_deferred_value((opt, data))
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
             .map_err_value(|(o, _)| o)
@@ -2628,12 +2628,12 @@ where
         &mut self,
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss(allow_loss);
+        let flag = AllowLoss::from(allow_loss);
         self.measurements.set_center_by_name(
             n,
             |old, new| {
@@ -2656,12 +2656,12 @@ where
         &mut self,
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss(allow_loss);
+        let flag = AllowLoss::from(allow_loss);
         self.measurements.set_center_by_index(
             index,
             |old, new| {
@@ -2702,7 +2702,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn unset_temporal_lossy(
         &mut self,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningOrErrorResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         (),
@@ -2717,7 +2717,7 @@ where
             >,
     {
         self.measurements.unset_center(|i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
+            M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
                 .switchable_into_non_commutative()
         })
     }
@@ -2791,7 +2791,7 @@ where
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2806,7 +2806,7 @@ where
             >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
+            M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
                 .map_errors(ReplaceTemporalErrorByIndex::from)
@@ -2837,7 +2837,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2853,7 +2853,7 @@ where
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
+                M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
                     .switchable_into_non_commutative()
                     .map_ok_value(|(x, _)| x)
                     .map_errors(ReplaceTemporalErrorByName::from)
@@ -3498,7 +3498,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
-        allow_loss: bool,
+        allow_loss: Option<bool>,
     ) -> WarningsAndGroupResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
@@ -3513,7 +3513,7 @@ where
         ToM::Name: MightHave<Shortname> + Clone + ConvertFromShortname<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
     {
-        let flag = AllowLoss(allow_loss);
+        let flag = AllowLoss::from(allow_loss);
         let root_res = self
             .metaroot
             .try_convert(flag)
@@ -5925,7 +5925,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         ScaleTransform::try_convert_to_scale(value.scale, i)
             .map_errors(AnyOpticalKeyLossError::from)
             .map_error(OpticalConvertWarning::from)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_error(OpticalConvertError::from)
             .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
@@ -5958,7 +5958,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, value.peak))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -5996,7 +5996,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, PeakData::default()))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -6036,7 +6036,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -6069,7 +6069,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -6124,14 +6124,14 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .calibration
             .map(|c| {
                 c.into_3_1(i)
-                    .nowarn_into_switchable(flag)
+                    .nowarn_into_switchable3(flag)
                     .map_switchable_errors(OpticalConvertWarning::from)
                     .switchable_into_commutative()
                     .into_semigroup()
             })
             .transpose_log_result();
 
-        SwitchableErrorsResult::new_deferred_switchable_iter((), check_errs, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), check_errs, flag)
             .switchable_into_commutative()
             .zip_commutative(cal_res)
             .map_errors(OpticalConvertError::from)
@@ -6160,7 +6160,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .zip_commutative(scale_res)
@@ -6192,7 +6192,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -6222,7 +6222,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -6516,7 +6516,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [c, u].into_iter().flatten().chain(s);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6560,7 +6560,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .chain(plate)
             .chain(subset)
             .chain(modi);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6607,7 +6607,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .chain(carrier)
             .chain(us)
             .chain(ag);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6652,7 +6652,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         let modi = loss_errors!(value.modification);
         let vol = value.vol.root_key_loss_error();
         let es = vol.into_iter().chain(plate).chain(modi);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6696,7 +6696,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .chain(dt)
             .chain(carrier)
             .chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6726,7 +6726,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             .into_iter()
             .flat_map(Compensation2_0::loss_errors)
             .map(AnyMetarootKeyLossError::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6755,7 +6755,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         let comp = value.comp.root_key_loss_error();
         let us = value.unicode.root_key_loss_error();
         let es = [comp, us].into_iter().flatten();
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
@@ -6795,7 +6795,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             .map(AnyMetarootKeyLossError::from);
         let flow = value.flowrate.root_key_loss_error();
         let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
@@ -6832,13 +6832,13 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = comp.chain(ag);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6883,7 +6883,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [uni, comp].into_iter().flatten().chain(subset);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6895,7 +6895,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6936,7 +6936,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .subset
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6948,7 +6948,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -7104,7 +7104,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
             .loss_error()
             .map(AnyTemporalKeyLossError::from);
         let v = Self::new(true, value.peak);
-        SwitchableErrorsResult::new_deferred_switchable_maybe(v, e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -7121,7 +7121,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         let d = value.display.indexed_key_loss_error(i);
         let es = [t, d].into_iter().flatten();
         let v = Self::new(true, value.peak);
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7139,7 +7139,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
             .map(AnyTemporalKeyLossError::from);
         let es = [di, m, t].into_iter().flatten();
         let v = Self::new(true, PeakData::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7161,7 +7161,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
     ) -> TemporalConvertResult<Self> {
         let e = value.display.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.peak);
-        LogResult::new_deferred_switchable_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -7175,7 +7175,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         let m = value.measurement_type.indexed_key_loss_error(i);
         let es = [di, m].into_iter().flatten();
         let v = Self::new(value.timestep, PeakData::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7207,7 +7207,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
     ) -> TemporalConvertResult<Self> {
         let e = value.measurement_type.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.display, PeakData::default());
-        LogResult::new_deferred_switchable_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -7219,7 +7219,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(Timestep::default(), None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7231,7 +7231,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7243,7 +7243,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, value.display, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -8182,7 +8182,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     > {
         tmp.specific
             .can_convert_to_optical(i)
-            .into_deferred_switchable::<_, Nothing<_>>(flag)
+            .into_deferred_switchable3::<_, Nothing<_>>(flag)
             .set_deferred_value(tmp)
             .map_ok_value(Self::from_temporal_unchecked)
     }

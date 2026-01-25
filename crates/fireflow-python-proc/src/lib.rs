@@ -1862,14 +1862,17 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             "The value of *$TIMESTEP* to use.",
         ));
         let exc = PyreflowError::Conversion.fmt_ref();
-        let allow_loss = DocArg::new_bool_param(
+        let allow_loss = DocArg::new_param(
             "allow_loss",
+            PyOpt::new1(PyBool::default()).default_from_inner(),
             format!(
                 "If ``True`` remove any optical-specific metadata (detectors, \
                  lasers, etc) without raising an {exc} if an optical measurement \
-                 must be converted."
+                 must be converted; raise a warning instead. If ``None``, silence \
+                 the warning."
             ),
-        );
+        )
+        .def_auto();
         DocString::new_method(format!("Set the temporal measurement to a given {i}."))
             .args(once(p).chain(timestep).chain([allow_loss]))
             .returns(DocReturn::new(PyBool::default()).desc(format!(
@@ -1936,14 +1939,18 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let make_doc = |has_timestep: bool, has_allow_loss: bool| {
         let s = "Convert the temporal measurement to an optical measurement.";
         let p = has_allow_loss
-            .then_some(DocArg::new_bool_param(
-                "allow_loss",
-                format!(
-                    "If ``True`` and current time measurement has data which cannot \
-                     be converted to optical, force the conversion anyways. \
-                     Otherwise raise {exc}."
-                ),
-            ))
+            .then_some(
+                DocArg::new_param(
+                    "allow_loss",
+                    PyOpt::new1(PyBool::default()).default_from_inner(),
+                    format!(
+                        "If ``True`` and current time measurement has data which cannot \
+                     be converted to optical, force the conversion anyways with a warning. \
+                     Pass ``None`` to silence the warning. Otherwise raise {exc}."
+                    ),
+                )
+                .def_auto(),
+            )
             .into_iter();
         let (rt, rd) = if has_timestep {
             (
@@ -1985,7 +1992,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let ret = doc.ret_path();
         quote! {
             #doc
-            fn unset_temporal(&mut self, allow_loss: bool) -> PyResult<#ret> {
+            fn unset_temporal(&mut self, allow_loss: Option<bool>) -> PyResult<#ret> {
                 self.0.unset_temporal_lossy(allow_loss).py_resolve_non_commutative()
             }
         }
@@ -2522,14 +2529,17 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     // can fail if $PnTYPE is set
     let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
         let exc = PyreflowError::Conversion.fmt_ref();
-        let allow_loss_param = DocArg::new_bool_param(
+        let allow_loss_param = DocArg::new_param(
             "allow_loss",
+            PyOpt::new1(PyBool::default()).default_from_inner(),
             format!(
                 "If ``False``, raise {exc} if conversion from temporal \
-                     measurement to optical measurement is necessary and data \
-                     keywords must be dropped."
+                 measurement to optical measurement is necessary and data \
+                 keywords must be dropped. If ``True``, throw a warning for the \
+                 same situation. If ``None`` silence the warning."
             ),
-        );
+        )
+        .def_auto();
         let go =
             |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_resolve_non_commutative()?);
         (
@@ -3760,8 +3770,8 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                       keywords from the later version may not exist in the \
                       earlier version. There is no place to keep these values so \
                       they must be discarded. Set to ``True`` to perform the \
-                      conversion with such discarding; otherwise, remove the \
-                      keywords manually before converting.";
+                      conversion with such discarding and a warning. Set to \
+                      ``None`` to silence the warning.";
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -3783,7 +3793,12 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                  version are required in FCS {vs}"
             ));
             let target_pytype = target_type.as_rust_type();
-            let param = DocArg::new_bool_param("allow_loss", param_desc);
+            let param = DocArg::new_param(
+                "allow_loss",
+                PyOpt::new1(PyBool::default()).default_from_inner(),
+                param_desc,
+            )
+            .def_auto();
             let doc = DocString::new_method(format!("Convert to FCS {vs}."))
                 .arg(param)
                 .returns(
@@ -3793,7 +3808,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 );
             quote! {
                 #doc
-                fn #fn_name(&self, allow_loss: bool) -> PyResult<#target_pytype> {
+                fn #fn_name(&self, allow_loss: Option<bool>) -> PyResult<#target_pytype> {
                     self.0.clone().try_convert(allow_loss).py_resolve_commutative().map(Into::into)
                 }
             }

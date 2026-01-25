@@ -1202,27 +1202,27 @@ macro_rules! impl_config_flag {
     };
 }
 
-macro_rules! impl_error_flag {
-    (true_is_error $n:ident) => {
-        impl_config_flag!($n);
+// macro_rules! impl_error_flag {
+//     (true_is_error $n:ident) => {
+//         impl_config_flag!($n);
 
-        impl ErrorFlag for $n {
-            fn is_error(&self) -> bool {
-                self.0 == true
-            }
-        }
-    };
+//         impl ErrorFlag for $n {
+//             fn is_error(&self) -> bool {
+//                 self.0 == true
+//             }
+//         }
+//     };
 
-    (false_is_error $n:ident) => {
-        impl_config_flag!($n);
+//     (false_is_error $n:ident) => {
+//         impl_config_flag!($n);
 
-        impl ErrorFlag for $n {
-            fn is_error(&self) -> bool {
-                self.0 == false
-            }
-        }
-    };
-}
+//         impl ErrorFlag for $n {
+//             fn is_error(&self) -> bool {
+//                 self.0 == false
+//             }
+//         }
+//     };
+// }
 
 impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
@@ -1243,8 +1243,6 @@ impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_config_flag!(FixLogScaleOffsets);
 impl_config_flag!(DisallowLocaltime);
-
-impl_error_flag!(false_is_error AllowLoss);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);
@@ -1297,6 +1295,8 @@ impl_tri_error_flag!(false_is_error AllowTotMismatch);
 impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
+
+impl_tri_error_flag!(false_is_error AllowLoss);
 
 impl_tri_error_flag!(true_is_error DisallowDeprecated);
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);

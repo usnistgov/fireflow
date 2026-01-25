@@ -1,7 +1,7 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
-use fireflow_core::config::{self, DatasetOffset, VersionOverride};
+use fireflow_core::config::{self, DatasetOffset, TriFlag, VersionOverride};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
@@ -972,14 +972,14 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
 }
 
 fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Display) -> Arg {
-    let (false_action, true_action) = if false_is_error {
-        ("throw error", "throw warning")
+    let (x, y) = if false_is_error {
+        ("warn", "warning")
     } else {
-        ("throw warning", "throw error")
+        ("error", "error")
     };
     Arg::new(long).long(long).help(format!(
-        "{help_front} Must be one of 'false', ({false_action}) 'true', \
-         ({true_action}) 'silent' (do nothing)."
+        "{help_front} Must be either '{x}', (throw {y}) or \
+         'silent' (do nothing)."
     ))
 }
 
@@ -1069,19 +1069,19 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         allow_overlapping_supp_text: parse_string_type(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode,
-        allow_non_ascii_delim: parse_string_type(sargs, ALLOW_NON_ASCII_DELIM),
-        allow_missing_final_delim: parse_string_type(sargs, ALLOW_MISSING_FINAL_DELIM),
-        allow_nonunique: parse_string_type(sargs, ALLOW_NON_UNIQUE),
-        allow_odd: parse_string_type(sargs, ALLOW_ODD),
-        allow_empty_keys: parse_string_type(sargs, ALLOW_EMPTY_KEYS),
-        allow_empty_values: parse_string_type(sargs, ALLOW_EMPTY_VALUES),
-        allow_delim_at_boundary: parse_string_type(sargs, ALLOW_DELIM_AT_BOUNDARY),
-        allow_non_utf8: parse_string_type(sargs, ALLOW_NON_UTF8),
+        allow_non_ascii_delim: parse_tri_flag(sargs, ALLOW_NON_ASCII_DELIM, true),
+        allow_missing_final_delim: parse_tri_flag(sargs, ALLOW_MISSING_FINAL_DELIM, true),
+        allow_nonunique: parse_tri_flag(sargs, ALLOW_NON_UNIQUE, true),
+        allow_odd: parse_tri_flag(sargs, ALLOW_ODD, true),
+        allow_empty_keys: parse_tri_flag(sargs, ALLOW_EMPTY_KEYS, true),
+        allow_empty_values: parse_tri_flag(sargs, ALLOW_EMPTY_VALUES, true),
+        allow_delim_at_boundary: parse_tri_flag(sargs, ALLOW_DELIM_AT_BOUNDARY, true),
+        allow_non_utf8: parse_tri_flag(sargs, ALLOW_NON_UTF8, true),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
-        allow_non_ascii_keywords: parse_string_type(sargs, ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_supp_text: parse_string_type(sargs, ALLOW_MISSING_SUPP_TEXT),
-        allow_supp_text_own_delim: parse_string_type(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
-        allow_missing_nextdata: parse_string_type(sargs, ALLOW_MISSING_NEXTDATA),
+        allow_non_ascii_keywords: parse_tri_flag(sargs, ALLOW_NON_ASCII_KEYWORDS, true),
+        allow_missing_supp_text: parse_tri_flag(sargs, ALLOW_MISSING_SUPP_TEXT, true),
+        allow_supp_text_own_delim: parse_tri_flag(sargs, ALLOW_SUPP_TEXT_OWN_DELIM, true),
+        allow_missing_nextdata: parse_tri_flag(sargs, ALLOW_MISSING_NEXTDATA, true),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
@@ -1329,6 +1329,25 @@ where
         .get_one::<String>(name)
         .cloned()
         .map(|s| s.parse::<T>().unwrap())
+}
+
+fn parse_tri_flag<T>(sargs: &ArgMatches, name: &str, false_is_error: bool) -> T
+where
+    T: From<TriFlag>,
+{
+    let flag = if let Some(s) = sargs.get_one::<String>(name) {
+        match (s.as_str(), false_is_error) {
+            ("silent", _) => TriFlag::Noop,
+            ("warn", true) => TriFlag::True,
+            ("error", false) => TriFlag::False,
+            _ => panic!("could not parse flag for {name}"),
+        }
+    } else if false_is_error {
+        TriFlag::False
+    } else {
+        TriFlag::True
+    };
+    flag.into()
 }
 
 fn print_json<T: Serialize>(j: &T) {

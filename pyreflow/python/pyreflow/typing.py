@@ -160,7 +160,7 @@ RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
 
 ProcessKeywordFailure: TypeAlias = Literal["error", "demote", "drop", "drop_silent"]
 
-TriFlag: TypeAlias = bool | Literal["silent"]
+TriFlag: TypeAlias = bool | None
 
 ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]
 

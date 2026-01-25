@@ -2647,10 +2647,7 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=(["wood"], []))
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["lawnmower+spike"]))
-        # TODO make this an error? This is apparently a valid regexp but it
-        # only should match an empty string, but keys by definition are not
-        # blank, so this is useless and confusing
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], [""]))
+        # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([""], []))
         with pytest.raises(pf.ConfigError):

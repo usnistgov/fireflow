@@ -831,7 +831,7 @@ impl ParsedKeywords {
                 let sb = StringOrBytes::from(k.to_vec());
                 this.keys_with_empty_trimmed_values.push(sb.clone());
                 let e = BlankValueError(sb);
-                SwitchableErrorResult::new_switchable(None, (), e, conf.allow_empty_values)
+                SwitchableErrorResult::new_switchable3(None, (), e, conf.allow_empty_values)
                     .switchable_into_commutative()
             } else {
                 if v.len() < tr.len() {
@@ -961,7 +961,7 @@ impl ParsedKeywords {
                     None
                 }
             });
-        LogResult::new_switchable_ok((), flag).extend_deferred_switchable_errors(es)
+        LogResult::new_switchable_iter3((), (), es, flag)
     }
 }
 
@@ -1104,7 +1104,7 @@ where
                 key: key.clone(),
                 value: value.clone(),
             };
-            LogResult::new_deferred_switchable(Some((key, value)), err.into(), flag)
+            LogResult::new_deferred_switchable3(Some((key, value)), err.into(), flag)
         }
         Entry::Vacant(ent) => {
             let v = conf

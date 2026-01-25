@@ -234,43 +234,50 @@ fn main() -> Result<(), ()> {
              See {delim_header} for details."
         ));
 
-    let non_ascii_delim = flag_arg(
+    let non_ascii_delim = tri_flag_arg(
         ALLOW_NON_ASCII_DELIM,
+        true,
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = flag_arg(
+    let missing_final_delim = tri_flag_arg(
         ALLOW_MISSING_FINAL_DELIM,
+        true,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
-    let allow_non_unique = flag_arg(
+    let allow_non_unique = tri_flag_arg(
         ALLOW_NON_UNIQUE,
+        true,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = flag_arg(ALLOW_ODD, "Allow odd number of tokens.");
+    let allow_odd = tri_flag_arg(ALLOW_ODD, true, "Allow odd number of tokens.");
 
-    let allow_empty_keys = flag_arg(
+    let allow_empty_keys = tri_flag_arg(
         ALLOW_EMPTY_KEYS,
+        true,
         "Allow keys to be blank (relatively rare).",
     );
 
-    let allow_empty_values = flag_arg(
+    let allow_empty_values = tri_flag_arg(
         ALLOW_EMPTY_VALUES,
+        true,
         format!(
             "Allow values to be blank if --{TRIM_VALUE_WHITESPACE} is set \
              and values are entirely whitespace (relatively common)."
         ),
     );
 
-    let allow_delim_at_bound = flag_arg(
+    let allow_delim_at_bound = tri_flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
+        true,
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
-    let allow_non_utf8 = flag_arg(
+    let allow_non_utf8 = tri_flag_arg(
         ALLOW_NON_UTF8,
+        true,
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
@@ -279,23 +286,27 @@ fn main() -> Result<(), ()> {
         format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
     );
 
-    let allow_non_ascii_keywords = flag_arg(
+    let allow_non_ascii_keywords = tri_flag_arg(
         ALLOW_NON_ASCII_KEYWORDS,
+        true,
         "Allow non-ASCII characters in keys.",
     );
 
-    let allow_missing_supp_text = flag_arg(
+    let allow_missing_supp_text = tri_flag_arg(
         ALLOW_MISSING_SUPP_TEXT,
+        true,
         format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
-    let allow_supp_text_own_delim = flag_arg(
+    let allow_supp_text_own_delim = tri_flag_arg(
         ALLOW_SUPP_TEXT_OWN_DELIM,
+        true,
         format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
-    let allow_missing_nextdata = flag_arg(
+    let allow_missing_nextdata = tri_flag_arg(
         ALLOW_MISSING_NEXTDATA,
+        true,
         format!("Allow {} to be missing.", kw_style.paint("$NEXTDATA")),
     );
 
@@ -915,7 +926,7 @@ fn main() -> Result<(), ()> {
             // ASSUME this won't fail because we ask for one dataset
             res.map(|mut cores| cores.remove(0)).map(|(core, uncore)| {
                 let obj = json!({"core": core, "uncore": uncore});
-                print_json(&obj)
+                print_json(&obj);
             })
         }
 
@@ -1024,8 +1035,6 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
 
     let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
 
-    let allow_overlapping_supp_text = parse_string_type(sargs, ALLOW_OVERLAPPING_SUPP_TEXT);
-
     let to_blank = |s: &str| (s.to_owned(), ());
 
     let ignore_standard_keys =
@@ -1057,22 +1066,22 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> config::ReadHeaderAndTEXT
         version_override,
         supp_text_correction,
         nextdata_correction,
-        allow_overlapping_supp_text,
+        allow_overlapping_supp_text: parse_string_type(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode,
-        allow_non_ascii_delim: sargs.get_flag(ALLOW_NON_ASCII_DELIM).into(),
-        allow_missing_final_delim: sargs.get_flag(ALLOW_MISSING_FINAL_DELIM).into(),
-        allow_nonunique: sargs.get_flag(ALLOW_NON_UNIQUE).into(),
-        allow_odd: sargs.get_flag(ALLOW_ODD).into(),
-        allow_empty_keys: sargs.get_flag(ALLOW_EMPTY_KEYS).into(),
-        allow_empty_values: sargs.get_flag(ALLOW_EMPTY_VALUES).into(),
-        allow_delim_at_boundary: sargs.get_flag(ALLOW_DELIM_AT_BOUNDARY).into(),
-        allow_non_utf8: sargs.get_flag(ALLOW_NON_UTF8).into(),
+        allow_non_ascii_delim: parse_string_type(sargs, ALLOW_NON_ASCII_DELIM),
+        allow_missing_final_delim: parse_string_type(sargs, ALLOW_MISSING_FINAL_DELIM),
+        allow_nonunique: parse_string_type(sargs, ALLOW_NON_UNIQUE),
+        allow_odd: parse_string_type(sargs, ALLOW_ODD),
+        allow_empty_keys: parse_string_type(sargs, ALLOW_EMPTY_KEYS),
+        allow_empty_values: parse_string_type(sargs, ALLOW_EMPTY_VALUES),
+        allow_delim_at_boundary: parse_string_type(sargs, ALLOW_DELIM_AT_BOUNDARY),
+        allow_non_utf8: parse_string_type(sargs, ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
-        allow_non_ascii_keywords: sargs.get_flag(ALLOW_NON_ASCII_KEYWORDS).into(),
-        allow_missing_supp_text: sargs.get_flag(ALLOW_MISSING_SUPP_TEXT).into(),
-        allow_supp_text_own_delim: sargs.get_flag(ALLOW_SUPP_TEXT_OWN_DELIM).into(),
-        allow_missing_nextdata: sargs.get_flag(ALLOW_MISSING_NEXTDATA).into(),
+        allow_non_ascii_keywords: parse_string_type(sargs, ALLOW_NON_ASCII_KEYWORDS),
+        allow_missing_supp_text: parse_string_type(sargs, ALLOW_MISSING_SUPP_TEXT),
+        allow_supp_text_own_delim: parse_string_type(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
+        allow_missing_nextdata: parse_string_type(sargs, ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,

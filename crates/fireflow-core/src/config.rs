@@ -34,7 +34,6 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
-use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::str::FromStr;
 use thiserror::Error;
@@ -430,6 +429,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
 
+    // TODO combine with trim_value_whitespace
     /// If `true`, allow blank values.
     ///
     /// These can arise if delimiters are escaped,
@@ -1228,19 +1228,7 @@ impl_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_error_flag!(false_is_error AllowTotMismatch);
 
 impl_config_flag!(IgnoreSuppTEXT);
-impl_error_flag!(false_is_error AllowNonAsciiDelim);
-impl_error_flag!(false_is_error AllowMissingFinalDelim);
-impl_error_flag!(false_is_error AllowNonunique);
-impl_error_flag!(false_is_error AllowOdd);
-impl_error_flag!(false_is_error AllowEmptyKeys);
-impl_error_flag!(false_is_error AllowEmptyValues);
-impl_error_flag!(false_is_error AllowDelimAtBoundary);
-impl_error_flag!(false_is_error AllowNonUtf8);
 impl_config_flag!(UseLatin1);
-impl_error_flag!(false_is_error AllowNonAsciiKeywords);
-impl_error_flag!(false_is_error AllowMissingSuppTEXT);
-impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
-impl_error_flag!(false_is_error AllowMissingNextdata);
 impl_config_flag!(TrimValueWhitespace);
 impl_config_flag!(TrimTrailingWhitespace);
 impl_config_flag!(IgnoreTEXTDataOffsets);
@@ -1270,42 +1258,45 @@ impl_config_flag!(AppendFlag);
 
 macro_rules! impl_tri_error_flag {
     (true_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n);
-
-        impl TriErrorFlag for $n {
-            fn is_error(&self) -> Option<bool> {
-                match self.0 {
-                    TriFlag::Noop => None,
-                    TriFlag::False => Some(false),
-                    TriFlag::True => Some(true),
-                }
-            }
-        }
+        impl_tri_error_flag!(_common $n, false);
     };
 
     (false_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n);
+        impl_tri_error_flag!(_common $n, true);
 
-        impl TriErrorFlag for $n {
-            fn is_error(&self) -> Option<bool> {
-                match self.0 {
-                    TriFlag::Noop => None,
-                    TriFlag::False => Some(true),
-                    TriFlag::True => Some(false),
-                }
-            }
-        }
     };
 
-    (_common $n:ident) => {
+    (_common $n:ident, $false_is_err:expr) => {
         #[derive(From, Clone, Copy, Default, FromStr)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[from(Option<bool>, TriFlag)]
         pub struct $n(pub TriFlag);
+
+        impl TriErrorFlag for $n {
+            fn is_error(&self) -> Option<bool> {
+                match self.0 {
+                    TriFlag::Noop => None,
+                    TriFlag::False => Some($false_is_err),
+                    TriFlag::True => Some(!$false_is_err),
+                }
+            }
+        }
     };
 }
 
 impl_tri_error_flag!(false_is_error AllowOverlappingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_tri_error_flag!(false_is_error AllowNonunique);
+impl_tri_error_flag!(false_is_error AllowOdd);
+impl_tri_error_flag!(false_is_error AllowEmptyKeys);
+impl_tri_error_flag!(false_is_error AllowEmptyValues);
+impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_tri_error_flag!(false_is_error AllowNonUtf8);
+impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);
+impl_tri_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+impl_tri_error_flag!(false_is_error AllowMissingNextdata);
 
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
@@ -1357,32 +1348,6 @@ impl From<Option<bool>> for TriFlag {
         }
     }
 }
-
-// /// Fake flag to use for non-public switchable errors (false = error)
-// #[derive(From, Clone, Copy, new)]
-// pub(crate) struct DummyFalseErrorFlag<T> {
-//     pub inner: bool,
-//     pub _id: PhantomData<T>,
-// }
-
-// impl<T> ErrorFlag for DummyFalseErrorFlag<T> {
-//     fn is_error(&self) -> bool {
-//         !self.inner
-//     }
-// }
-
-// /// Fake flag to use for non-public switchable errors (true = error)
-// #[derive(From, Clone, Copy, new)]
-// pub(crate) struct DummyTrueErrorFlag<T> {
-//     pub inner: bool,
-//     pub _id: PhantomData<T>,
-// }
-
-// impl<T> ErrorFlag for DummyTrueErrorFlag<T> {
-//     fn is_error(&self) -> bool {
-//         self.inner
-//     }
-// }
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {

@@ -4781,6 +4781,9 @@ struct PyOpt<R> {
     inner: PyType<R>,
     #[new(into)]
     rstype: Option<Path>,
+    // hack to get the inner default if the rust type above defaults to it
+    // rather than None
+    default_from_inner: bool,
 }
 
 /// A Python 'dict[X, Y]'
@@ -6182,15 +6185,24 @@ impl PyLiteral {
 
 impl<E> PyOpt<E> {
     fn new1(x: impl Into<PyType<E>>) -> Self {
-        Self::new(x, None)
+        Self::new(x, None, false)
     }
 
-    // fn rstype(self, rstype: Path) -> Self {
-    //     Self::new(self.inner, Some(rstype))
-    // }
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.inner, Some(rstype), self.default_from_inner)
+    }
 
-    fn doc_default() -> (String, TokenStream2) {
-        ("None".into(), quote!(None))
+    fn doc_default(&self) -> (String, TokenStream2) {
+        match self.rstype.as_ref() {
+            None => ("None".into(), quote!(None)),
+            Some(rs) => {
+                if self.default_from_inner {
+                    (self.inner.doc_default().0, quote!(#rs::default()))
+                } else {
+                    ("None".into(), quote!(None))
+                }
+            }
+        }
     }
 
     fn wrap_if(inner: impl Into<PyType<E>>, test: bool) -> PyType<E> {
@@ -6202,7 +6214,7 @@ impl<E> PyOpt<E> {
     }
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
-        PyOpt::new(self.inner.map_exc(f), self.rstype)
+        PyOpt::new(self.inner.map_exc(f), self.rstype, self.default_from_inner)
     }
 }
 
@@ -6210,7 +6222,7 @@ impl<E: From<PyException>> PyOpt<E> {
     fn new_scale_diagnostic() -> Self {
         let path = keyword_path("AnyScaleDiagnostic");
         let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_diagnostic());
-        Self::new(inner, path)
+        Self::new1(inner).rstype(path)
     }
 }
 
@@ -6588,7 +6600,7 @@ impl<E> PyType<E> {
             Self::Decimal(x) => x.doc_default(),
             Self::List(x) => x.doc_default(),
             Self::Dict(x) => x.doc_default(),
-            Self::Option(_) => PyOpt::<E>::doc_default(),
+            Self::Option(x) => x.doc_default(),
             Self::Literal(x) => {
                 let rt = &x.rstype;
                 (format!("\"{}\"", x.head), quote!(#rt::default()))
@@ -7279,9 +7291,9 @@ impl DocArgParam {
         };
         let d = format!(
             "{desc} If ``False``, {false_action}. If ``True``, \
-             {true_action}. If ``\"silent\"``, do nothing."
+             {true_action}. If ``None``, do nothing."
         );
-        let pt = PyUnion::new2(PyBool::default(), PyLiteral::new1(["silent"]), path);
+        let pt = PyOpt::new(PyBool::default(), path, true);
         Self::new_param(name, pt, d).def_auto()
     }
 
@@ -8157,57 +8169,62 @@ impl DocArgParam {
     }
 
     fn new_allow_non_ascii_delim() -> Self {
-        Self::new_bool_param(
+        Self::new_tri_flag_param(
             "allow_non_ascii_delim",
-            "If ``True`` allow non-ASCII delimiters (outside 1-126).",
+            true,
+            "AllowNonAsciiDelim",
+            "Allow non-ASCII delimiters (outside 1-126).",
         )
     }
 
     fn new_allow_missing_final_delim() -> Self {
-        let d = "If ``True`` allow *TEXT* to not end with a delimiter.";
-        Self::new_bool_param("allow_missing_final_delim", d)
+        let d = "Allow *TEXT* to not end with a delimiter.";
+        Self::new_tri_flag_param(
+            "allow_missing_final_delim",
+            true,
+            "AllowMissingFinalDelim",
+            d,
+        )
     }
 
     fn new_allow_nonunique() -> Self {
-        let d = "If ``True`` allow non-unique keys in *TEXT*. In such cases, \
+        let d = "Allow non-unique keys in *TEXT*. In such cases, \
                  only the first key will be used regardless of this setting; ";
-        Self::new_bool_param("allow_nonunique", d)
+        Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d)
     }
 
     fn new_allow_odd() -> Self {
-        let d = "If ``True``, allow *TEXT* to contain odd number of tokens. \
+        let d = "Allow *TEXT* to contain odd number of tokens. \
                  The last 'dangling' token will be dropped independent of this flag.";
-        Self::new_bool_param("allow_odd", d)
+        Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d)
     }
 
     fn new_allow_empty_keys() -> Self {
-        let d = "If ``True`` allow keys to be blank. Only relevant if \
+        let d = "Allow keys to be blank. Only relevant if \
                  if delimiters are unescaped.";
-        Self::new_bool_param("allow_empty_keys", d)
+        Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d)
     }
 
     fn new_allow_empty_values() -> Self {
-        let d = "If ``True`` allow values to be blank. Only relevant if \
+        let d = "Allow values to be blank. Only relevant if \
                  ``trim_value_whitespace`` is ``True`` and value is \
                  entirely whitespace.";
-        Self::new_bool_param("allow_empty_values", d)
+        Self::new_tri_flag_param("allow_empty_values", true, "AllowEmptyValues", d)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
-        let d = "If ``True`` allow delimiters at token boundaries. The FCS standard \
+        let d = "Allow delimiters at token boundaries. The FCS standard \
                  forbids this because it is impossible to tell if such delimiters \
                  belong to the previous or the next token. Consequently, delimiters \
-                 at boundaries will be dropped regardless of this flag. Setting \
-                 this to ``True`` will turn this into a warning not an error. Only \
+                 at boundaries will be dropped regardless of this flag. Only \
                  relevant if delimiters are escaped.";
-        Self::new_bool_param("allow_delim_at_boundary", d)
+        Self::new_tri_flag_param("allow_delim_at_boundary", true, "AllowDelimAtBoundary", d)
     }
 
     fn new_allow_non_utf8() -> Self {
-        let d = "If ``True`` allow non-UTF8 characters in *TEXT*. Tokens with such \
-             characters will be dropped regardless; setting this to ``True`` \
-             will turn these cases into warnings not errors.";
-        Self::new_bool_param("allow_non_utf8", d)
+        let d = "Allow non-UTF8 characters in *TEXT*. Tokens with such \
+                 characters will be dropped regardless.";
+        Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d)
     }
 
     fn new_use_latin1() -> Self {
@@ -8217,32 +8234,37 @@ impl DocArgParam {
     }
 
     fn new_allow_non_ascii_keywords() -> Self {
-        let d = "If ``True`` allow non-ASCII keys. This only applies to \
+        let d = "Allow non-ASCII keys. This only applies to \
                  non-standard keywords, as all standardized keywords may only \
                  contain letters, numbers, and start with *$*. Regardless, all \
                  compliant keys must only have ASCII. Setting this to true will \
                  emit an error when encountering such a key. If false, the key will \
                  be kept as a non-standard key.";
-        Self::new_bool_param("allow_non_ascii_keywords", d)
+        Self::new_tri_flag_param("allow_non_ascii_keywords", true, "AllowNonAsciiKeywords", d)
     }
 
     fn new_allow_missing_supp_text() -> Self {
-        let d = "If ``True`` allow supplemental *TEXT* offsets to be missing from \
+        let d = "Allow supplemental *TEXT* offsets to be missing from \
                  primary *TEXT*.";
-        Self::new_bool_param("allow_missing_supp_text", d)
+        Self::new_tri_flag_param("allow_missing_supp_text", true, "AllowMissingSuppTEXT", d)
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
-        let d = "If ``True`` allow supplemental *TEXT* offsets to have a different \
+        let d = "Allow supplemental *TEXT* offsets to have a different \
                  delimiter compared to primary *TEXT*.";
-        Self::new_bool_param("allow_supp_text_own_delim", d)
+        Self::new_tri_flag_param(
+            "allow_supp_text_own_delim",
+            true,
+            "AllowSuppTEXTOwnDelim",
+            d,
+        )
     }
 
     fn new_allow_missing_nextdata() -> Self {
-        let d = "If ``True`` allow *$NEXTDATA* to be missing. This is a required \
+        let d = "Allow *$NEXTDATA* to be missing. This is a required \
                  keyword in all versions. However, most files only have one dataset \
                  in which case this keyword is meaningless.";
-        Self::new_bool_param("allow_missing_nextdata", d)
+        Self::new_tri_flag_param("allow_missing_nextdata", true, "AllowMissingNextdata", d)
     }
 
     fn new_trim_value_whitespace() -> Self {

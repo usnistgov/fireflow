@@ -3,8 +3,8 @@ use crate::config::{
     ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
     ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
     ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TrimTrailingWhitespace,
-    TruncateOffsets, VersionOverride,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag,
+    TrimTrailingWhitespace, TruncateOffsets, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -18,7 +18,7 @@ use crate::header::{
     UncorrectedHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredIter as _, DeferredWarningAndError,
+    CommutativeResultIter as _, DeferredIter as _, DeferredWarningAndError,
     DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
     ResultExt as _, Success, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
     WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
@@ -788,6 +788,7 @@ pub enum ParseFlatTEXTWarning {
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentWarning),
     Nextdata(OptKeyError<Nextdata>),
+    NonUtf8(NonUtf8KeywordError),
     AppendSupp(StdPresent),
 }
 
@@ -1236,8 +1237,8 @@ where
             let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
             let be_res = byte_errors(&kws.byte_pairs, conf)
-                .map_errors(ParseFlatTEXTError::from)
-                .nowarn_into_warn();
+                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                .map_errors(ParseFlatTEXTError::from);
 
             nextdata_res
                 .zip_f3_once(repair_res, be_res)
@@ -1296,7 +1297,7 @@ fn split_first_delim<'a>(
         let is_ok = (1..=126).contains(delim);
         let e = DelimCharError(*delim);
         let flag = conf.allow_non_ascii_delim;
-        SwitchableErrorResult::new_switchable_ok_if(is_ok, (*delim, rest), (), e, flag)
+        SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
             .switchable_into_commutative()
             .map_errors(DelimVerifyError::from)
     } else {
@@ -1333,7 +1334,7 @@ fn split_flat_supp_text(
         let flag = conf.allow_supp_text_own_delim;
         split_flat_text_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
             .map_warnings_and_errors(ParseSupplementalTEXTError::from)
-            .eval_warning_or_error(
+            .eval_warning_or_error3(
                 flag,
                 |_| (),
                 |()| (),
@@ -1580,8 +1581,9 @@ fn split_flat_text_unescaped_delim(
     // the "odd token" in that case is entirely whitespace and therefore can be
     // ignored
     let uneven_err = UnevenTokensError(tk).into();
-    let uneven_res = LogResult::new_switchable_ok_if(uneven_ok, (), (), uneven_err, conf.allow_odd)
-        .switchable_into_commutative();
+    let uneven_res =
+        LogResult::new_switchable_ok_if3(uneven_ok, (), (), uneven_err, conf.allow_odd)
+            .switchable_into_commutative();
     let last_odd_token = if uneven_ok {
         StringOrBytes::default()
     } else {
@@ -1598,7 +1600,7 @@ fn split_flat_text_unescaped_delim(
         .map(ParseKeywordsIssue::from);
     let missing_final_delim = !trim_trailing && final_delim_err.is_some();
     let final_delim_res = missing_final_delim.then(|| {
-        LogResult::new_switchable_maybe((), (), final_delim_err, delim_flag)
+        LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
             .switchable_into_commutative()
     });
 
@@ -1615,7 +1617,7 @@ fn split_flat_text_unescaped_delim(
     // blank_key_errors.push(BlankKeyError(tk));
     // blank_val_errors.push(BlankValueError(key.to_vec()));
 
-    let blank_key_res = SwitchableErrorsResult::new_switchable_iter(
+    let blank_key_res = SwitchableErrorsResult::new_switchable_iter3(
         (),
         (),
         blank_key_errors,
@@ -1773,14 +1775,14 @@ fn split_flat_text_escaped_delim(
         (None, None)
     };
 
-    let uneven_res = LogResult::new_switchable_maybe((), (), uneven_err, conf.allow_odd)
+    let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
         .switchable_into_commutative();
 
     // NOTE this is the same flag used for when the delimiter is missing
     // entirely since this is the net result of escaping an even number of
     // delimiters
     let delim_flag = conf.allow_missing_final_delim;
-    let even_delim_res = LogResult::new_switchable_maybe((), (), even_delim_err, delim_flag)
+    let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
         .switchable_into_commutative();
     // Don't emit this error if we are trimming whitespace off the end because
     // the thing immediately before the whitespace is a delimiter in this case
@@ -1789,7 +1791,7 @@ fn split_flat_text_escaped_delim(
         .map(ParseKeywordsIssue::from);
     let missing_final_delim = !trim_trailing && final_delim_err.is_some();
     let final_delim_res = missing_final_delim.then(|| {
-        LogResult::new_switchable_maybe((), (), final_delim_err, delim_flag)
+        LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
             .switchable_into_commutative()
     });
 
@@ -1797,7 +1799,7 @@ fn split_flat_text_escaped_delim(
         .iter()
         .map(|token| DelimBoundError::new(token.clone(), tk).into());
     let boundary_res =
-        LogResult::new_switchable_iter((), (), bound_iter, conf.allow_delim_at_boundary)
+        LogResult::new_switchable_iter3((), (), bound_iter, conf.allow_delim_at_boundary)
             .switchable_into_commutative();
 
     let ret = SplitTEXTOutputInner {
@@ -1869,8 +1871,8 @@ where
                 Ok(seg) => LogResult::new_ok(Some(seg)),
                 Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
-                    SwitchableErrorsResult::new_deferred_switchable(None, e0, flag)
-                        .extend_deferred_switchable_errors(e1)
+                    SwitchableErrorsResult::new_deferred_switchable3(None, e0, flag)
+                        .extend_deferred_switchable_errors3(e1)
                         .map_switchable_errors(STextSegmentError::from)
                         .switchable_into_commutative()
                         .map_commutative_warnings(STextSegmentWarning::from)
@@ -1922,13 +1924,16 @@ fn lookup_nextdata(
     kws: &StdKeywords,
     conf: &ReadHeaderAndTEXTConfig,
 ) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
-    let ret = if conf.allow_missing_nextdata.is_set() {
-        Nextdata::get_metaroot_req(kws)
+    let ret = match conf.allow_missing_nextdata.0 {
+        TriFlag::True => LogResult::Succ(Nextdata::get_root_opt(kws).into_succ()),
+        TriFlag::False => Nextdata::get_metaroot_req(kws)
             .map(Some)
             .into_log()
-            .set_err_value(None)
-    } else {
-        LogResult::Succ(Nextdata::get_root_opt(kws).into_succ())
+            .set_err_value(None),
+        TriFlag::Noop => LogResult::new_ok(
+            kws.get(&Nextdata::std())
+                .and_then(|s| s.parse::<Nextdata>().ok()),
+        ),
     };
     ret.map_deferred_value(|x| {
         x.map(|y| {
@@ -1946,16 +1951,12 @@ fn lookup_nextdata(
 fn byte_errors(
     byte_pairs: &BytesPairs,
     conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredErrors<(), NonUtf8KeywordError> {
-    if conf.allow_non_utf8.is_set() {
-        LogResult::new_ok(())
-    } else {
-        let es = byte_pairs
-            .iter()
-            .cloned()
-            .map(|(key, value)| NonUtf8KeywordError { key, value });
-        LogResult::new_err_from_iter(es, ())
-    }
+) -> DeferredWarningsAndErrors<(), NonUtf8KeywordError, NonUtf8KeywordError> {
+    let es = byte_pairs
+        .iter()
+        .cloned()
+        .map(|(key, value)| NonUtf8KeywordError { key, value });
+    LogResult::new_switchable_iter3((), (), es, conf.allow_non_utf8).switchable_into_commutative()
 }
 
 impl FlatTEXTDiagnostics {

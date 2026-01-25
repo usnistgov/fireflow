@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::string::ToString;
@@ -94,15 +94,15 @@ impl Default for NonStdMeasPattern {
 }
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
-pub type KeyPatterns = KeyOrStringPatterns<()>;
+pub type KeyPatterns = KeyStringsOrPatterns<()>;
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
-pub struct KeyOrStringPatterns<T>(Vec<(KeyStringOrPattern, T)>);
+pub struct KeyStringsOrPatterns<T>(HashMap<KeyStringOrPattern, T>);
 
-impl<T> Default for KeyOrStringPatterns<T> {
+impl<T> Default for KeyStringsOrPatterns<T> {
     fn default() -> Self {
-        Self(vec![])
+        Self(HashMap::default())
     }
 }
 
@@ -111,7 +111,7 @@ impl<T> Default for KeyOrStringPatterns<T> {
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum KeyStringOrPattern {
     Literal(KeyString),
     Pattern(CaseInsRegex),
@@ -181,7 +181,32 @@ pub(crate) struct NonStdMeasRegex(CaseInsRegex);
 
 /// A regex which ignores case when matching
 #[derive(Clone, AsRef)]
-pub struct CaseInsRegex(Regex);
+pub struct CaseInsRegex {
+    /// Keep the original string used to make the pattern for Eq/Hash impls.
+    ///
+    /// Assume they will always match
+    src: String,
+    /// The pattern, validated to ignore case.
+    #[as_ref(Regex)]
+    pattern: Regex,
+}
+
+impl PartialEq<Self> for CaseInsRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.src == other.src
+    }
+}
+
+impl Eq for CaseInsRegex {}
+
+impl Hash for CaseInsRegex {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        self.src.hash(state);
+    }
+}
 
 /// A "compiled" object to match keys efficiently.
 pub(crate) struct KeyMatcher<'a, T> {
@@ -320,7 +345,9 @@ pub trait IndexedKey {
 
     fn matches(other: &StdKey) -> bool {
         static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-        RE.get_or_init(|| Self::regexp()).0.is_match(other.as_ref())
+        RE.get_or_init(|| Self::regexp())
+            .as_ref()
+            .is_match(other.as_ref())
     }
 }
 
@@ -388,7 +415,7 @@ pub trait BiIndexedKey {
         static RE: OnceLock<CaseInsRegex> = OnceLock::new();
         let c = RE
             .get_or_init(|| Self::regexp())
-            .0
+            .as_ref()
             .captures(other.as_ref())?;
         let (_, [m, n]) = c.extract();
         // ASSUME these won't fail because we match only digits
@@ -709,11 +736,23 @@ impl FromStr for CaseInsRegex {
         regex::RegexBuilder::new(s)
             .case_insensitive(true)
             .build()
-            .map(Self)
+            .map(|pattern| Self {
+                src: s.to_owned(),
+                pattern,
+            })
     }
 }
 
-impl<T> KeyOrStringPatterns<T> {
+// impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
+//     fn from_iter<I>(iter: I) -> Self
+//     where
+//         I: IntoIterator<Item = (KeyStringOrPattern, T)>,
+//     {
+//         Self(iter.into_iter().collect())
+//     }
+// }
+
+impl<T> KeyStringsOrPatterns<T> {
     pub fn try_from_literals_and_patterns(
         lits: impl IntoIterator<Item = (String, T)>,
         pats: impl IntoIterator<Item = (String, T)>,
@@ -733,10 +772,8 @@ impl<T> KeyOrStringPatterns<T> {
         F: Fn(&str) -> Result<KeyStringOrPattern, E>,
     {
         xs.into_iter()
-            .collect::<HashMap<_, _>>()
-            .into_iter()
             .map(|(k, v)| f(k.as_str()).map(|x| (x, v)))
-            .collect::<Result<Vec<_>, _>>()
+            .collect::<Result<HashMap<_, _>, _>>()
             .map(Self)
     }
 
@@ -757,7 +794,7 @@ impl<T> KeyOrStringPatterns<T> {
     }
 
     pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
-        self.0.iter().map(|(k, v)| (k, v)).collect()
+        self.0.iter().collect()
     }
 }
 

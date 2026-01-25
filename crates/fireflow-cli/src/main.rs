@@ -14,7 +14,7 @@ use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{
-    KeyOrStringPatterns, KeyString, KeyStringPairs, NonStdMeasPattern,
+    KeyStringsOrPatterns, KeyString, KeyStringPairs, NonStdMeasPattern,
 };
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
@@ -1269,7 +1269,7 @@ fn parse_key_or_pat<'a, 'b, 'c, T, F: Fn(&'a str) -> AppResult<(String, T)>>(
     lit_flag: &'b str,
     pat_flag: &'c str,
     f: F,
-) -> AppResult<KeyOrStringPatterns<T>> {
+) -> AppResult<KeyStringsOrPatterns<T>> {
     let ignore_std_lit_keys = sargs
         .get_many::<String>(lit_flag)
         .unwrap_or_default()
@@ -1280,7 +1280,7 @@ fn parse_key_or_pat<'a, 'b, 'c, T, F: Fn(&'a str) -> AppResult<(String, T)>>(
         .unwrap_or_default()
         .map(|s| f(s.as_str()).map_err(|e| fmt_arg_error(pat_flag, e)))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(KeyOrStringPatterns::try_from_literals_and_patterns(
+    Ok(KeyStringsOrPatterns::try_from_literals_and_patterns(
         ignore_std_lit_keys,
         ignore_std_pat_keys,
     )?)

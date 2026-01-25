@@ -1,4 +1,4 @@
-use super::keys::KeyOrStringPatterns;
+use super::keys::KeyStringsOrPatterns;
 
 use regex::Regex;
 use thiserror::Error;
@@ -14,7 +14,7 @@ pub struct SubPattern {
     global: bool,
 }
 
-pub type SubPatterns = KeyOrStringPatterns<SubPattern>;
+pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 
 impl SubPattern {
     pub fn try_new(from: Regex, to: String, global: bool) -> Result<Self, SubPatternError> {

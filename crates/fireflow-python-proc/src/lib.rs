@@ -7820,7 +7820,7 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_time_param() -> Self {
-        let d = "If ``True`` allow time measurement to be missing.";
+        let d = "Choose what to do when time measurement is be missing.";
         Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d)
     }
 

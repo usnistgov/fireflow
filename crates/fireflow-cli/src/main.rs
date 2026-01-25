@@ -454,7 +454,11 @@ fn main() -> Result<(), ()> {
              '^Time|TIME$', pass 'NoTime' to not look for a time channel).",
         );
 
-    let allow_missing_time = flag_arg(ALLOW_MISSING_TIME, "allow time measurement to be missing");
+    let allow_missing_time = tri_flag_arg(
+        ALLOW_MISSING_TIME,
+        true,
+        "Allow time measurement to be missing.",
+    );
 
     let force_linear_scale = Arg::new(FORCE_LINEAR_SCALE)
         .long(FORCE_LINEAR_SCALE)
@@ -1136,7 +1140,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         time_meas_pattern,
         force_linear_scale,
         ignore_time_optical_keys,
-        allow_missing_time: sargs.get_flag(ALLOW_MISSING_TIME).into(),
+        allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME, true),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
         date_pattern,
         time_pattern,

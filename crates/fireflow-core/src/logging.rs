@@ -1609,30 +1609,30 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         }
     }
 
-    #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn eval_warning_or_error<Pf, Fe, Fv, Fp, W, M, X>(
-        mut self,
-        flag: X,
-        fv: Fv,
-        fp: Fp,
-        fe: Fe,
-    ) -> CommutativeResult<V, Pf, WC, E, EC>
-    where
-        X: ErrorFlag,
-        Fv: FnOnce(V) -> Pf,
-        Fp: FnOnce(P) -> Pf,
-        Fe: FnOnce(&V) -> Option<M>,
-        EC: Extend<E> + Default,
-        WC: Extend<W>,
-        M: Into<W> + Into<E>,
-    {
-        if flag.is_error() {
-            self.eval_error(fv, fp, |v| fe(v).map(Into::into))
-        } else {
-            self.eval_warning(|v| fe(v).map(Into::into));
-            self.map_err_value(fp)
-        }
-    }
+    // #[allow(clippy::needless_pass_by_value)]
+    // pub(crate) fn eval_warning_or_error<Pf, Fe, Fv, Fp, W, M, X>(
+    //     mut self,
+    //     flag: X,
+    //     fv: Fv,
+    //     fp: Fp,
+    //     fe: Fe,
+    // ) -> CommutativeResult<V, Pf, WC, E, EC>
+    // where
+    //     X: ErrorFlag,
+    //     Fv: FnOnce(V) -> Pf,
+    //     Fp: FnOnce(P) -> Pf,
+    //     Fe: FnOnce(&V) -> Option<M>,
+    //     EC: Extend<E> + Default,
+    //     WC: Extend<W>,
+    //     M: Into<W> + Into<E>,
+    // {
+    //     if flag.is_error() {
+    //         self.eval_error(fv, fp, |v| fe(v).map(Into::into))
+    //     } else {
+    //         self.eval_warning(|v| fe(v).map(Into::into));
+    //         self.map_err_value(fp)
+    //     }
+    // }
 
     #[allow(clippy::needless_pass_by_value)]
     pub(crate) fn eval_warning_or_error3<Pf, Fe, Fv, Fp, W, M, X>(

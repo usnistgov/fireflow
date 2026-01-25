@@ -7821,7 +7821,7 @@ impl DocArgParam {
 
     fn new_allow_missing_time_param() -> Self {
         let d = "If ``True`` allow time measurement to be missing.";
-        Self::new_bool_param("allow_missing_time", d)
+        Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d)
     }
 
     fn new_force_linear_scale_param() -> Self {

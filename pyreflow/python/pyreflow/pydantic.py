@@ -77,7 +77,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN
-    allow_missing_time: bool = False
+    allow_missing_time: pft.TriFlag = False
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
     date_pattern: str | None = None

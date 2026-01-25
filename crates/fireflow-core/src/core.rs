@@ -4682,7 +4682,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(LookupCoreError::from)
             .into_log()
-            .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
+            .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|ms| {
                 layout
                     .check_measurement_vector_nolen(&ms)

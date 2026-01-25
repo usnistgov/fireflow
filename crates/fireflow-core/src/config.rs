@@ -1237,13 +1237,12 @@ impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 
 impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
-impl_error_flag!(false_is_error AllowMissingTime);
 impl_config_flag!(ParseIndexedSpillover);
-impl_error_flag!(false_is_error AllowOtherFeature);
+impl_config_flag!(AllowOtherFeature);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_config_flag!(FixLogScaleOffsets);
-impl_error_flag!(true_is_error DisallowLocaltime);
+impl_config_flag!(DisallowLocaltime);
 
 impl_error_flag!(false_is_error AllowLoss);
 
@@ -1297,6 +1296,7 @@ impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_tri_error_flag!(false_is_error AllowTotMismatch);
 impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
+impl_tri_error_flag!(false_is_error AllowMissingTime);
 
 impl_tri_error_flag!(true_is_error DisallowDeprecated);
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);

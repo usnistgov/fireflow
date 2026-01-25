@@ -13,7 +13,7 @@ use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{KeyString, KeyStringsOrPatterns};
+use fireflow_core::validated::keys::{AsciiStringError, KeyString, KeyStringsOrPatterns};
 use fireflow_core::validated::keystring_pairs::KeyStringPairs;
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
@@ -22,7 +22,10 @@ use regex::Regex;
 
 use ansi_term::{ANSIString, Style};
 use clap::{
-    Arg, ArgAction, ArgMatches, Command, builder::IntoResettable, builder::StyledStr, value_parser,
+    Arg, ArgAction, ArgMatches, Command,
+    builder::{IntoResettable, StyledStr},
+    error::ErrorKind,
+    value_parser,
 };
 use itertools::Itertools as _;
 use serde::ser::Serialize;
@@ -383,6 +386,7 @@ fn run() -> AppResult<()> {
         .long(RENAME_STD_KEYS)
         .action(ArgAction::Append)
         .value_name("OLD,NEW")
+        .value_parser(ValueParser::new(parse_rename_std_keys))
         .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
 
     let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
@@ -832,93 +836,93 @@ fn run() -> AppResult<()> {
         .help("Path to FCS file to parse.")
         .required(true);
 
-    let cmd = Command::new("fireflow")
+    let header_cmd = Command::new(SUBCMD_HEADER)
+        .about("Show header as JSON.")
+        .arg(&input_arg)
+        .args(&all_header_args);
+
+    let flat_cmd = Command::new(SUBCMD_FLAT)
+        .about("Show flat keywords as JSON.")
+        .arg(&input_arg)
+        .arg(&dataset_index_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_shared_args)
+        .after_long_help(flat_long_help);
+
+    let std_cmd = Command::new(SUBCMD_STD)
+        .about("Dump standardized keywords as JSON.")
+        .arg(&input_arg)
+        .arg(&dataset_index_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_std_args)
+        .args(&all_layout_args)
+        .args(&all_shared_args)
+        .after_long_help(&std_long_help);
+
+    let meas_cmd = Command::new(SUBCMD_MEAS)
+        .about("Show a table of standardized measurement values.")
+        .arg(&input_arg)
+        .arg(&dataset_index_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_std_args)
+        .args(&all_layout_args)
+        .args(&all_shared_args)
+        .arg(&delim_arg)
+        .after_long_help(&std_long_help);
+
+    let spill_cmd = Command::new(SUBCMD_SPILL)
+        .about("Dump the spillover matrix if present.")
+        .arg(&input_arg)
+        .arg(&dataset_index_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_std_args)
+        .args(&all_layout_args)
+        .args(&all_shared_args)
+        .arg(&delim_arg)
+        .after_long_help(&std_long_help);
+
+    let data_cmd = Command::new(SUBCMD_DATA)
+        .about(format!("Show a table of the {data_seg} segment."))
+        .arg(&input_arg)
+        .arg(&dataset_index_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_std_args)
+        .args(&all_layout_args)
+        .args(&all_dataset_args)
+        .args(&all_shared_args)
+        .arg(&delim_arg)
+        .after_long_help(&std_long_help);
+
+    let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
+        .about("Summarize datasets in FCS file")
+        .arg(&input_arg)
+        .args(&all_header_args)
+        .args(&all_flat_args)
+        .args(&all_layout_args)
+        .args(&all_dataset_args)
+        .args(&all_shared_args)
+        .arg(&skip_arg)
+        .arg(&limit_arg);
+
+    let mut cmd = Command::new("fireflow")
         .about("read and write FCS files")
         .arg_required_else_help(true)
         .next_line_help(true)
         .max_term_width(80)
-        .subcommand(
-            Command::new(SUBCMD_HEADER)
-                .about("Show header as JSON.")
-                .arg(&input_arg)
-                .args(&all_header_args),
-        )
-        .subcommand(
-            Command::new(SUBCMD_FLAT)
-                .about("Show flat keywords as JSON.")
-                .arg(&input_arg)
-                .arg(&dataset_index_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_shared_args)
-                .after_long_help(flat_long_help),
-        )
-        .subcommand(
-            Command::new(SUBCMD_STD)
-                .about("Dump standardized keywords as JSON.")
-                .arg(&input_arg)
-                .arg(&dataset_index_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_std_args)
-                .args(&all_layout_args)
-                .args(&all_shared_args)
-                .after_long_help(&std_long_help),
-        )
-        .subcommand(
-            Command::new(SUBCMD_MEAS)
-                .about("Show a table of standardized measurement values.")
-                .arg(&input_arg)
-                .arg(&dataset_index_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_std_args)
-                .args(&all_layout_args)
-                .args(&all_shared_args)
-                .arg(&delim_arg)
-                .after_long_help(&std_long_help),
-        )
-        .subcommand(
-            Command::new(SUBCMD_SPILL)
-                .about("Dump the spillover matrix if present.")
-                .arg(&input_arg)
-                .arg(&dataset_index_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_std_args)
-                .args(&all_layout_args)
-                .args(&all_shared_args)
-                .arg(&delim_arg)
-                .after_long_help(&std_long_help),
-        )
-        .subcommand(
-            Command::new(SUBCMD_DATA)
-                .about(format!("Show a table of the {data_seg} segment."))
-                .arg(&input_arg)
-                .arg(&dataset_index_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_std_args)
-                .args(&all_layout_args)
-                .args(&all_dataset_args)
-                .args(&all_shared_args)
-                .arg(&delim_arg)
-                .after_long_help(&std_long_help),
-        )
-        .subcommand(
-            Command::new(SUBCMD_SUMMARIZE)
-                .about("Summarize datasets in FCS file")
-                .arg(&input_arg)
-                .args(&all_header_args)
-                .args(&all_flat_args)
-                .args(&all_layout_args)
-                .args(&all_dataset_args)
-                .args(&all_shared_args)
-                .arg(&skip_arg)
-                .arg(&limit_arg),
-        );
+        .subcommand(header_cmd)
+        .subcommand(flat_cmd)
+        .subcommand(std_cmd)
+        .subcommand(meas_cmd)
+        .subcommand(spill_cmd)
+        .subcommand(data_cmd)
+        .subcommand(summarize_cmd);
 
-    let args = cmd.get_matches();
+    let args = cmd.clone().get_matches();
 
     match args.subcommand() {
         Some((SUBCMD_HEADER, sargs)) => {
@@ -930,7 +934,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            let conf = parse_flat_config(sargs)?;
+            let conf = parse_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs)?;
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
@@ -941,7 +945,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
-            let conf = parse_std_config(sargs)?;
+            let conf = parse_std_config(&cmd, sargs)?;
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -954,7 +958,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
-            let conf = parse_std_config(sargs)?;
+            let conf = parse_std_config(&cmd, sargs)?;
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -967,7 +971,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_STD, sargs)) => {
-            let conf = parse_std_config(sargs)?;
+            let conf = parse_std_config(&cmd, sargs)?;
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
@@ -980,7 +984,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
-            let conf = parse_std_dataset_config(sargs)?;
+            let conf = parse_std_dataset_config(&cmd, sargs)?;
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -993,7 +997,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
-            let conf = parse_flat_dataset_config(sargs)?;
+            let conf = parse_flat_dataset_config(&cmd, sargs)?;
             let filepath = parse_input_path(sargs);
             let skip = parse_skip(sargs);
             let limit = parse_limit(sargs);
@@ -1080,7 +1084,10 @@ fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
     }
 }
 
-fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHeaderAndTEXTConfig> {
+fn parse_header_and_text_config(
+    cmd: &Command,
+    sargs: &ArgMatches,
+) -> AppResult<config::ReadHeaderAndTEXTConfig> {
     let version_override = sargs.get_one(VERSION_OVERRIDE).copied();
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
@@ -1098,8 +1105,14 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHea
     let demote_from_standard =
         parse_key_or_pat(sargs, DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD, to_blank)?;
 
-    let rename_standard_keys =
-        parse_hashmap(sargs, RENAME_STD_KEYS, |s| Ok(s.parse::<KeyString>()?))?;
+    let rename_standard_keys: KeyStringPairs = sargs
+        .get_many::<(KeyString, KeyString)>(RENAME_STD_KEYS)
+        .unwrap_or_default()
+        .cloned()
+        .collect::<HashMap<_, _>>()
+        .try_into()
+        .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit())?;
+    // parse_hashmap(sargs, RENAME_STD_KEYS, |s| Ok(s.parse::<KeyString>()?))?;
 
     let replace_standard_key_values =
         parse_hashmap(sargs, REPLACE_STD_KEY_VALS, |x| Ok(Into::into(x)))?;
@@ -1138,7 +1151,7 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHea
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
-        rename_standard_keys: KeyStringPairs::try_from(rename_standard_keys)?,
+        rename_standard_keys,
         promote_to_standard,
         demote_from_standard,
         replace_standard_key_values,
@@ -1185,17 +1198,17 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     }
 }
 
-fn parse_flat_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatTEXTConfig> {
+fn parse_flat_config(cmd: &Command, sargs: &ArgMatches) -> AppResult<config::ReadFlatTEXTConfig> {
     let ret = config::ReadFlatTEXTConfig {
-        flat: parse_header_and_text_config(sargs)?,
+        flat: parse_header_and_text_config(cmd, sargs)?,
         shared: parse_shared_config(sargs),
     };
     Ok(ret)
 }
 
-fn parse_std_config(sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> {
+fn parse_std_config(cmd: &Command, sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> {
     let ret = config::ReadStdTEXTConfig {
-        flat: parse_header_and_text_config(sargs)?,
+        flat: parse_header_and_text_config(cmd, sargs)?,
         standard: parse_std_inner_config(sargs),
         layout: parse_layout_config(sargs),
         shared: parse_shared_config(sargs),
@@ -1203,9 +1216,12 @@ fn parse_std_config(sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> 
     Ok(ret)
 }
 
-fn parse_flat_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatDatasetConfig> {
+fn parse_flat_dataset_config(
+    cmd: &Command,
+    sargs: &ArgMatches,
+) -> AppResult<config::ReadFlatDatasetConfig> {
     let ret = config::ReadFlatDatasetConfig {
-        flat: parse_header_and_text_config(sargs)?,
+        flat: parse_header_and_text_config(cmd, sargs)?,
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
@@ -1213,9 +1229,12 @@ fn parse_flat_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatDa
     Ok(ret)
 }
 
-fn parse_std_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadStdDatasetConfig> {
+fn parse_std_dataset_config(
+    cmd: &Command,
+    sargs: &ArgMatches,
+) -> AppResult<config::ReadStdDatasetConfig> {
     let ret = config::ReadStdDatasetConfig {
-        flat: parse_header_and_text_config(sargs)?,
+        flat: parse_header_and_text_config(cmd, sargs)?,
         standard: parse_std_inner_config(sargs),
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
@@ -1395,6 +1414,14 @@ fn parse_time_optical_keys(
         .collect()
 }
 
+fn parse_rename_std_keys(s: &str) -> Result<(KeyString, KeyString), AsciiStringError> {
+    // NOTE we can get away with this because we know that keys in FCS
+    // cannot contain commas, and we are only using these as the keys
+    // in this particular hash table
+    let (k, v) = s.split_once(',').unwrap();
+    Ok((k.parse::<KeyString>()?, v.parse::<KeyString>()?))
+}
+
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
@@ -1427,6 +1454,15 @@ fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
     for w in ws {
         eprintln!("WARNING: {w}");
     }
+}
+
+fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> clap::Error {
+    let lit = cmd.get_styles().get_literal();
+    clap::Error::raw(
+        ErrorKind::ValueValidation,
+        format!("validation failed for '{lit}--{arg_name}{lit:#}': {msg}\n"),
+    )
+    .with_cmd(cmd)
 }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;

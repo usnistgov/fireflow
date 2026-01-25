@@ -1899,7 +1899,7 @@ where
                 .validate_text(&seg, conf.header.other_width)
                 .set_ok_value(Some((seg, raw)))
                 .set_err_value(None)
-                .nowarn_into_switchable3(flag, None)
+                .nowarn_into_switchable3(flag)
                 .map_switchable_errors(STextSegmentError::from)
                 .switchable_into_commutative()
                 .map_commutative_warnings(STextSegmentWarning::from)

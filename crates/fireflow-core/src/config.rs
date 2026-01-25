@@ -746,6 +746,10 @@ pub struct ReadStdKeywordsConfig {
     /// is ambiguous to not provide one. Without a timezone, timestamps will be
     /// parsed using localtime, which is location-dependent.
     ///
+    /// If `true` timestamps with missing timezones will cause the key to error
+    /// and be dropped or demoted depending on the value of
+    /// [`ReadDataKeywordsConfig::process_optional_failure`].
+    ///
     /// This only affects FCS 3.2
     pub disallow_localtime: DisallowLocaltime,
 
@@ -1224,17 +1228,12 @@ impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
 impl_config_flag!(TruncateOffsets);
 
-impl_error_flag!(false_is_error AllowUnevenEventWidth);
-impl_error_flag!(false_is_error AllowTotMismatch);
-
 impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);
 impl_config_flag!(TrimValueWhitespace);
 impl_config_flag!(TrimTrailingWhitespace);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
-impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
-impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
 impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
@@ -1243,11 +1242,8 @@ impl_config_flag!(ParseIndexedSpillover);
 impl_error_flag!(false_is_error AllowOtherFeature);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
-impl_error_flag!(true_is_error DisallowDeprecated);
 impl_config_flag!(FixLogScaleOffsets);
 impl_error_flag!(true_is_error DisallowLocaltime);
-
-impl_error_flag!(true_is_error DisallowRangeTrunc);
 
 impl_error_flag!(false_is_error AllowLoss);
 
@@ -1297,7 +1293,13 @@ impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);
 impl_tri_error_flag!(false_is_error AllowMissingSuppTEXT);
 impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
 impl_tri_error_flag!(false_is_error AllowMissingNextdata);
+impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
+impl_tri_error_flag!(false_is_error AllowTotMismatch);
+impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
+impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
+impl_tri_error_flag!(true_is_error DisallowDeprecated);
+impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
 /// Tri-state flag to throw warning, throw error, or do nothing

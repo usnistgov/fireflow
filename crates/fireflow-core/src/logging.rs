@@ -2209,11 +2209,7 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
         }
     }
 
-    pub(crate) fn nowarn_into_switchable3<X>(
-        self,
-        flag: X,
-        default: V,
-    ) -> SwitchableResult<V, V, X, E, EC>
+    pub(crate) fn nowarn_into_switchable3<X>(self, flag: X) -> SwitchableResult<V, V, X, E, EC>
     where
         X: TriErrorFlag,
         EC: SwitchableErrorContainer<Inner = E> + Default,
@@ -2222,7 +2218,7 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
         match self {
             Succ(x) => SwitchableResult::new_switchable_ok(x.value, flag),
             Fail(x) => match flag.is_error() {
-                None => SwitchableResult::new_switchable_ok(default, flag),
+                None => SwitchableResult::new_switchable_ok(x.value, flag),
                 Some(true) => Fail(Failure::new_from_many(x.errors, x.value)),
                 Some(false) => {
                     let ws = EC::errors_to_warnings(x.errors);
@@ -2350,17 +2346,17 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         Succ(Success::new_flagged(value, flag))
     }
 
-    pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        X: ErrorFlag,
-    {
-        if flag.is_error() {
-            Fail(Failure::new_from_one(error, default))
-        } else {
-            Succ(Success::new(value, flag, EC::error_to_warning(error)))
-        }
-    }
+    // pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         Fail(Failure::new_from_one(error, default))
+    //     } else {
+    //         Succ(Success::new(value, flag, EC::error_to_warning(error)))
+    //     }
+    // }
 
     pub(crate) fn new_switchable3(value: V, default: P, error: E, flag: X) -> Self
     where
@@ -2375,18 +2371,18 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn new_switchable_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        if is_ok {
-            Self::new_switchable_ok(value, flag)
-        } else {
-            Self::new_switchable(value, default, error, flag)
-        }
-    }
+    // pub(crate) fn new_switchable_ok_if(is_ok: bool, value: V, default: P, error: E, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     if is_ok {
+    //         Self::new_switchable_ok(value, flag)
+    //     } else {
+    //         Self::new_switchable(value, default, error, flag)
+    //     }
+    // }
 
     pub(crate) fn new_switchable_ok_if3(
         is_ok: bool,
@@ -2407,17 +2403,17 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn new_switchable_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_switchable(value, default, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_switchable_maybe(value: V, default: P, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_switchable(value, default, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_switchable_maybe3(value: V, default: P, error: Option<E>, flag: X) -> Self
     where
@@ -2554,6 +2550,18 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
     {
         match error {
             Some(e) => Self::new_deferred_switchable(value, e, flag),
+            None => Self::new_switchable_ok(value, flag),
+        }
+    }
+
+    pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
+    where
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+        EC::Warn: Default,
+        X: TriErrorFlag,
+    {
+        match error {
+            Some(e) => Self::new_deferred_switchable3(value, e, flag),
             None => Self::new_switchable_ok(value, flag),
         }
     }

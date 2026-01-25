@@ -6192,16 +6192,18 @@ impl<E> PyOpt<E> {
         Self::new(self.inner, Some(rstype), self.default_from_inner)
     }
 
+    fn default_from_inner(self) -> Self {
+        Self::new(self.inner, self.rstype, true)
+    }
+
     fn doc_default(&self) -> (String, TokenStream2) {
-        match self.rstype.as_ref() {
-            None => ("None".into(), quote!(None)),
-            Some(rs) => {
-                if self.default_from_inner {
-                    (self.inner.doc_default().0, quote!(#rs::default()))
-                } else {
-                    ("None".into(), quote!(None))
-                }
+        if self.default_from_inner {
+            match self.rstype.as_ref() {
+                None => self.inner.doc_default(),
+                Some(rs) => (self.inner.doc_default().0, quote!(#rs::default())),
             }
+        } else {
+            ("None".into(), quote!(None))
         }
     }
 
@@ -7593,10 +7595,12 @@ impl DocArgParam {
     fn new_notrunc_param() -> Self {
         let exc = PyreflowError::Relational.fmt_ref();
         let desc = format!(
-            "If ``False``, raise {exc} if ``range`` must be \
-             truncated to fit into measurement type."
+            "If ``False``, raise {exc} if ``range`` must be truncated to fit \
+             into measurement type. If ``True``, throw warning. If ``None``, \
+             do nothing."
         );
-        Self::new_bool_param("disallow_trunc", desc)
+        let pt = PyOpt::new1(PyBool::default()).default_from_inner();
+        Self::new_param("disallow_trunc", pt, desc).def_auto()
     }
 
     fn new_data_param(polars_type: bool) -> Self {
@@ -7963,8 +7967,8 @@ impl DocArgParam {
     }
 
     fn new_disallow_deprecated_param() -> Self {
-        let d = "If ``True`` throw error if a deprecated key is encountered.";
-        Self::new_bool_param("disallow_deprecated", d)
+        let d = "Choose how to handle deprecated key if encountered.";
+        Self::new_tri_flag_param("disallow_deprecated", false, "DisallowDeprecated", d)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
@@ -8017,9 +8021,9 @@ impl DocArgParam {
     }
 
     fn new_disallow_range_truncation_param() -> Self {
-        let d = "If ``True`` throw error if *$PnR* values need to be truncated \
+        let d = "Choose how to handle *$PnR* values that need to be truncated \
                  to match the number of bytes specified by *$PnB* and *$DATATYPE*.";
-        Self::new_bool_param("disallow_range_truncation", d)
+        Self::new_tri_flag_param("disallow_range_truncation", false, "DisallowRangeTrunc", d)
     }
 
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
@@ -8372,8 +8376,13 @@ impl DocArgParam {
     }
 
     fn new_allow_header_text_offset_mismatch_param() -> Self {
-        let d = "If ``True`` allow *TEXT* and *HEADER* offsets to mismatch.";
-        Self::new_bool_param("allow_header_text_offset_mismatch", d)
+        let d = "Choose what happens when *TEXT* and *HEADER* offsets to mismatch.";
+        Self::new_tri_flag_param(
+            "allow_header_text_offset_mismatch",
+            true,
+            "AllowHeaderTEXTOffsetMismatch",
+            d,
+        )
     }
 
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
@@ -8382,12 +8391,15 @@ impl DocArgParam {
             Some(_) => "*DATA* and *ANALYSIS*",
             None => "*DATA* and *ANALYSIS* (3.1 or lower)",
         };
-        Self::new_bool_param(
-            "allow_missing_required_offsets",
-            format!(
-                "If ``True`` allow required {s} offsets in *TEXT* to be missing. \
+        let d = format!(
+            "Choose what happens when required {s} offsets in *TEXT* are be missing. \
                  If missing, fall back to offsets from *HEADER*."
-            ),
+        );
+        Self::new_tri_flag_param(
+            "allow_missing_required_offsets",
+            true,
+            "AllowMissingRequiredOffsets",
+            d,
         )
     }
 
@@ -8397,16 +8409,16 @@ impl DocArgParam {
     }
 
     fn new_allow_uneven_event_width_param() -> Self {
-        let d = "If ``True`` allow event width to not perfectly divide length \
-                 of *DATA*. Does not apply to delimited ASCII layouts. ";
-        Self::new_bool_param("allow_uneven_event_width", d)
+        let d = "Choose what to do when event width does not perfectly divide length \
+                 of *DATA*. Does not apply to delimited ASCII layouts.";
+        Self::new_tri_flag_param("allow_uneven_event_width", true, "AllowUnevenEventWidth", d)
     }
 
     fn new_allow_tot_mismatch_param() -> Self {
-        let d = "If ``True`` allow *$TOT* to not match number of events as \
+        let d = "Choose what happens when *$TOT* does not match number of events as \
                  computed by the event width and length of *DATA*. \
                  Does not apply to delimited ASCII layouts.";
-        Self::new_bool_param("allow_tot_mismatch", d)
+        Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d)
     }
 
     fn new_truncate_event_values() -> Self {

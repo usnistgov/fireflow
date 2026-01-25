@@ -566,7 +566,7 @@ pub trait IsTot: Sized {
             .expect("event count exceeded maximum platform pointer size");
         let i = TotEventMismatchError { tot, total_events };
         let tot_eq = tot.0 == count;
-        LogResult::new_switchable_ok_if(tot_eq, !tot_eq, (), i, flag)
+        LogResult::new_switchable_ok_if3(tot_eq, !tot_eq, (), i, flag)
     }
 }
 
@@ -2599,7 +2599,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .map_ok_value(|r| self.ranges.insert(index.into(), r))
             .set_err_value(())
     }
@@ -2613,7 +2613,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .into_ascii_uint()
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .map_ok_value(|r| self.ranges.push(r))
             .set_err_value(())
     }
@@ -3166,7 +3166,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             let e = UnevenEventWidthError::new(w, n, remainder);
             let flag = conf.allow_uneven_event_width;
             let out = ComputedRowsResult::new(total_events, w, remainder);
-            SwitchableErrorResult::new_switchable_ok_if(is_ok, out, (), e, flag)
+            SwitchableErrorResult::new_switchable_ok_if3(is_ok, out, (), e, flag)
                 .switchable_into_non_commutative()
                 .map_errors(EventWidthError::from)
         }
@@ -3367,7 +3367,7 @@ where
                     .map_ok_value(|n| ConvertedRange::new(n, None))
                     .map_err_value(|n| ConvertedRange::new(n, Some(range)))
             })
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
     }
 }
 
@@ -3387,7 +3387,7 @@ where
             .map_deferred_value(Self::new)
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
     }
 }
 
@@ -3409,7 +3409,7 @@ impl FromRange for AsciiRange {
             .map_errors(RangeToAsciiError::from)
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
     }
 }
 
@@ -3431,7 +3431,7 @@ impl FromRange for AnyNullBitmask {
             .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
     }
 }
 
@@ -3469,7 +3469,7 @@ impl FromRange for NullMixedType {
                             f64::min_decimal()
                         };
                         let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
-                        SwitchableErrorResult::new_deferred_switchable(f, ee, flag)
+                        SwitchableErrorResult::new_deferred_switchable3(f, ee, flag)
                             .map_switchable_errors(InsertRangeError::from)
                     }
                 },

@@ -89,7 +89,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     process_hyper_par: pft.ProcessKeywordFailure = "error"
     process_other_version: pft.ProcessKeywordFailure = "error"
     process_extra_timestep: pft.ProcessKeywordFailure = "error"
-    disallow_deprecated: bool = False
+    disallow_deprecated: pft.TriFlag = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
     parse_indexed_spillover: bool = False
@@ -101,18 +101,18 @@ class _ReadDataKeywordsConfig(BaseModel):
     text_analysis_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False
     ignore_text_analysis_offsets: bool = False
-    allow_header_text_offset_mismatch: bool = False
-    allow_missing_required_offsets: bool = False
+    allow_header_text_offset_mismatch: pft.TriFlag = False
+    allow_missing_required_offsets: pft.TriFlag = False
     truncate_text_offsets: bool = False
     process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
-    disallow_range_truncation: bool = False
+    disallow_range_truncation: pft.TriFlag = False
 
 
 class _ReadEventsConfig(BaseModel):
-    allow_uneven_event_width: bool = False
-    allow_tot_mismatch: bool = False
+    allow_uneven_event_width: pft.TriFlag = False
+    allow_tot_mismatch: pft.TriFlag = False
     truncate_event_values: pft.TruncateEventValues = "int_only"
     disallow_over_range: pft.TriFlag = False
 

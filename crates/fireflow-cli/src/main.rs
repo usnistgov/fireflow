@@ -517,9 +517,10 @@ fn main() -> Result<(), ()> {
         ),
     );
 
-    let disallow_deprecated = flag_arg(
+    let disallow_deprecated = tri_flag_arg(
         DISALLOW_DEPRECATED,
-        "Throw error if any deprecated keywords are present.",
+        false,
+        "Disallow any deprecated keywords are present.",
     );
 
     let fix_log_scale_offset = flag_arg(
@@ -631,16 +632,18 @@ fn main() -> Result<(), ()> {
         format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
 
-    let allow_header_text_offset_mismatch = flag_arg(
+    let allow_header_text_offset_mismatch = tri_flag_arg(
         ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
+        true,
         format!(
             "Allow {header_seg} and {text_seg} offsets to be different, \
              in which case {header_seg} will be used."
         ),
     );
 
-    let allow_missing_required_offsets = flag_arg(
+    let allow_missing_required_offsets = tri_flag_arg(
         ALLOW_MISSING_REQUIRED_OFFSETS,
+        true,
         format!(
             "Allow required offsets to be missing from {text_seg}. \
              Only applies to FCS 3.0/3.1."
@@ -676,10 +679,11 @@ fn main() -> Result<(), ()> {
             kw_style.paint("$BYTEORD"),
         ));
 
-    let disallow_range_truncation = flag_arg(
+    let disallow_range_truncation = tri_flag_arg(
         DISALLOW_RANGE_TRUNCATION,
+        false,
         format!(
-            "Throw error if {} values need to be truncated to fit in type \
+            "Disallow {} values which need to be truncated to fit in type \
              dictated by {} (and {} for FCS 3.2) and {} for a given measurement.",
             kw_style.paint("$PnR"),
             kw_style.paint("$DATATYPE"),
@@ -706,13 +710,15 @@ fn main() -> Result<(), ()> {
 
     // dataset args
 
-    let allow_uneven_event_width = flag_arg(
+    let allow_uneven_event_width = tri_flag_arg(
         ALLOW_UNEVEN_EVENT_WIDTH,
+        true,
         format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
-    let allow_tot_mismatch = flag_arg(
+    let allow_tot_mismatch = tri_flag_arg(
         ALLOW_TOT_MISMATCH,
+        true,
         format!(
             "Allow {} to mismatch the number of events that are actually in {data_seg}.",
             kw_style.paint("$TOT")
@@ -1141,7 +1147,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         process_hyper_par,
         process_other_version,
         process_extra_timestep,
-        disallow_deprecated: sargs.get_flag(DISALLOW_DEPRECATED).into(),
+        disallow_deprecated: parse_tri_flag(sargs, DISALLOW_DEPRECATED, false),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
         nonstandard_measurement_pattern,
@@ -1201,20 +1207,24 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         text_analysis_correction,
         ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
         ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
-        allow_header_text_offset_mismatch: sargs.get_flag(ALLOW_HEADER_TEXT_OFFSET_MISMATCH).into(),
-        allow_missing_required_offsets: sargs.get_flag(ALLOW_MISSING_REQUIRED_OFFSETS).into(),
+        allow_header_text_offset_mismatch: parse_tri_flag(
+            sargs,
+            ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
+            true,
+        ),
+        allow_missing_required_offsets: parse_tri_flag(sargs, ALLOW_MISSING_REQUIRED_OFFSETS, true),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
         process_optional_failure: parse_string_type(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override,
-        disallow_range_truncation: sargs.get_flag(DISALLOW_RANGE_TRUNCATION).into(),
+        disallow_range_truncation: parse_tri_flag(sargs, DISALLOW_RANGE_TRUNCATION, false),
     }
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
     config::ReadEventsConfig {
-        allow_tot_mismatch: sargs.get_flag(ALLOW_TOT_MISMATCH).into(),
-        allow_uneven_event_width: sargs.get_flag(ALLOW_UNEVEN_EVENT_WIDTH).into(),
+        allow_tot_mismatch: parse_tri_flag(sargs, ALLOW_TOT_MISMATCH, true),
+        allow_uneven_event_width: parse_tri_flag(sargs, ALLOW_UNEVEN_EVENT_WIDTH, true),
         truncate_event_values: parse_string_type(sargs, TRUNCATE_EVENT_VALUES),
         disallow_over_range: parse_tri_flag(sargs, DISALLOW_OVER_RANGE, false),
     }

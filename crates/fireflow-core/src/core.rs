@@ -5,8 +5,8 @@ use crate::config::{
     DisallowDeprecated, DisallowRangeTrunc, ProcessKeywordFailure, ProcessOptionalFailure,
     ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState,
     ReadStdKeywordsConfig, TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    WriteTEXTInnerConfig,
+    TriFlag, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -4509,9 +4509,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalError, PushTemporalSummary> {
-        self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.push_temporal_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
             .group()
     }
 
@@ -4525,10 +4525,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<(), InsertRangeError, InsertTemporalError, InsertTemporalSummary>
     {
-        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
             .group()
     }
 
@@ -4540,10 +4540,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, PushOpticalError, PushOpticalSummary>
     {
-        self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.push_optical_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
             .group()
     }
 
@@ -4556,10 +4556,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, InsertOpticalError, InsertOpticalSummary>
     {
-        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
             .group()
     }
 
@@ -4622,7 +4622,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // set, the we consider it an error to be deprecated, thus dropping a
         // keyval is not relevant (error = crash).
         let keep = xfer_flag.is_demote();
-        let do_demote = dep_flag.is_set() && xfer_flag.is_demote();
+        let disallow_dep = matches!(dep_flag.0, TriFlag::True | TriFlag::Noop);
+        let do_demote = disallow_dep && xfer_flag.is_demote();
         for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {
                 d.demote(&mut self.metaroot.nonstandard_keywords, keep);
@@ -4642,7 +4643,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 Element::NonCenter(o) => o.deprecated(i.into(), &mut es, keep, do_demote),
             }
         }
-        LogResult::new_switchable_iter((), (), es, dep_flag)
+        LogResult::new_switchable_iter3((), (), es, dep_flag)
     }
 
     // only meant to be called during lookup when keywords are being read from
@@ -5087,7 +5088,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
         self.data
@@ -5095,7 +5096,7 @@ where
             .map_err(PushTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.push_temporal_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
                     .map_errors(PushTemporalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -5113,7 +5114,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<
         (),
         InsertRangeError,
@@ -5125,7 +5126,7 @@ where
             .map_err(InsertTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
                     .map_errors(InsertTemporalToDatasetError::from)
             })
             .when_ok(|| {
@@ -5143,7 +5144,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5155,7 +5156,7 @@ where
             .map_err(PushOpticalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.push_optical_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
                     .map_errors(PushOpticalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -5172,7 +5173,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: Option<bool>,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5184,7 +5185,7 @@ where
             .map_err(InsertOpticalInDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
                     .map_errors(InsertOpticalInDatasetError::from)
             })
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
@@ -8378,7 +8379,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             };
             let sconf: &ReadStdKeywordsConfig = conf.as_ref();
             let flag = sconf.disallow_deprecated;
-            SwitchableErrorsResult::new_switchable_iter(mode, (), err, flag)
+            SwitchableErrorsResult::new_switchable_iter3(mode, (), err, flag)
                 .map_switchable_errors(LookupMetarootWarning::from)
                 .switchable_into_commutative()
                 .map_errors(LookupMetarootError::from)

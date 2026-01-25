@@ -438,12 +438,12 @@ where
             Ok((text_seg, raw)) => {
                 let val_res = segs
                     .validate::<_, Self::OtherDataId>(&text_seg)
-                    .nowarn_into_switchable(*missing_flag)
+                    .nowarn_into_switchable3(*missing_flag)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative();
                 let (seg, warn) = default.unless(text_seg);
                 let mismatch_res =
-                    SwitchableErrorsResult::new_switchable_maybe(seg, (), warn, *mismatch_flag)
+                    SwitchableErrorsResult::new_switchable_maybe3(seg, (), warn, *mismatch_flag)
                         .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                         .switchable_into_commutative();
                 val_res
@@ -452,8 +452,8 @@ where
                     .map_ok_value(|((), ret)| (ret, Some(raw)))
             }
             Err((e0, e1)) => {
-                let mut res = SwitchableErrorsResult::new_switchable((), (), e0, *missing_flag)
-                    .extend_deferred_switchable_errors(e1)
+                let mut res = SwitchableErrorsResult::new_switchable3((), (), e0, *missing_flag)
+                    .extend_deferred_switchable_errors3(e1)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
@@ -614,7 +614,7 @@ where
                         .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                         .switchable_into_commutative();
                     let (seg, warn) = default.unless(text_seg);
-                    let mismatch_res = SwitchableErrorsResult::new_deferred_switchable_maybe(
+                    let mismatch_res = SwitchableErrorsResult::new_deferred_switchable_maybe3(
                         seg,
                         warn,
                         *mismatch_flag,

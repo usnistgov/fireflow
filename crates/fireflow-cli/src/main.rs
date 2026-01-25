@@ -13,9 +13,9 @@ use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{
-    KeyStringsOrPatterns, KeyString, KeyStringPairs, NonStdMeasPattern,
-};
+use fireflow_core::validated::keys::{KeyString, KeyStringsOrPatterns};
+use fireflow_core::validated::keystring_pairs::KeyStringPairs;
+use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
 use regex::Regex;

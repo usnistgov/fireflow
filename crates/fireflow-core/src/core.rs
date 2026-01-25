@@ -95,8 +95,9 @@ use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::keys::{
     BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, MeasHeader, NonStdKey, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasRegexError, StdKey, StdKeywords, ValidKeywords,
+    NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
+use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 

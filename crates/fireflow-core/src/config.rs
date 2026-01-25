@@ -21,16 +21,19 @@ use crate::text::keywords::{self as kws, AlphaNumType};
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
+    IndexedKey as _, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKey, StdKeywords,
 };
-use crate::validated::sub_pattern::SubPatterns;
+use crate::validated::keystring_pairs::KeyStringPairs;
+use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
+use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use regex::Regex;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
@@ -1574,6 +1577,17 @@ pub struct TemporalHasOpticalKeyError {
     key: TemporalOpticalKey,
 }
 
+/// A map of [`KeyString`]/[`String`] pairs.
+///
+/// The main use case for this is to replace or add key values.
+pub type KeyStringValues = HashMap<KeyString, String>;
+
+/// A list of patterns that match [`crate::validated::keys::StdKey`]s or
+/// [`crate::validated::keys::NonStdKey`]s.
+pub type KeyPatterns = KeyStringsOrPatterns<()>;
+
+pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
+
 impl Default for TimeMeasNamePattern {
     fn default() -> Self {
         Self(Regex::new("^(TIME|Time)$").unwrap())
@@ -1644,10 +1658,12 @@ pub struct DatasetOffsetError(DatasetOffset, FileLen);
 mod python {
     use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
+    use crate::validated::sub_pattern::SubPattern;
 
-    use super::{TimeMeasNamePattern, TriFlag};
+    use super::{KeyPatterns, SubPatterns, TimeMeasNamePattern, TriFlag};
 
     use pyo3::prelude::*;
+    use std::collections::HashMap;
     use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for TriFlag {
@@ -1682,6 +1698,31 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let t: (i32, i32) = ob.extract()?;
             Ok(Self::from(t))
+        }
+    }
+
+    // pass keypatterns via config as a tuple like ([String], [String]) where the
+    // first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for KeyPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+            let ret = Self::try_from_literals_and_patterns(
+                lits.into_iter().map(|x| (x, ())),
+                pats.into_iter().map(|x| (x, ())),
+            )?;
+            Ok(ret)
+        }
+    }
+
+    type _SubPattern = HashMap<String, SubPattern>;
+
+    // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
+    // where the first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for SubPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
+            let ret = Self::try_from_literals_and_patterns(lits, pats)?;
+            Ok(ret)
         }
     }
 }

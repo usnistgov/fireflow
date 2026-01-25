@@ -6076,7 +6076,7 @@ impl<E> PyDict<E> {
 
 impl<E: From<PyException>> PyDict<E> {
     fn new_keystring_pairs() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringPairs);
+        let path: Path = parse_quote!(fireflow_core::validated::keystring_pairs::KeyStringPairs);
         // TODO exception if dict keys are not unique
         Self::new(PyStr::new_keystring(), PyStr::new_keystring(), path, None)
     }
@@ -6285,7 +6285,7 @@ impl<E> PyTuple<E> {
 
 impl<E: From<PyException>> PyTuple<E> {
     fn new_sub_patterns() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::sub_pattern::SubPatterns);
+        let path = config_path("SubPatterns");
         let lit = PyDict::new1(PyStr::new_keystring(), Self::new_sub_pattern());
         let pat = PyDict::new1(PyStr::new_regexp(), Self::new_sub_pattern());
         Self::new2([lit, pat]).rstype(path)
@@ -6409,7 +6409,7 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_key_patterns() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyPatterns);
+        let path = config_path("KeyPatterns");
         Self::new2([
             PyList::new1(PyStr::new_keystring()),
             PyList::new1(PyStr::new_regexp()),
@@ -8002,7 +8002,7 @@ impl DocArgParam {
     }
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NonStdMeasPattern);
+        let path = parse_quote!(fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern);
         let exc = PyException::new_config().desc("if %x does not have ``\"%n\"``");
         let pytype = PyStr::default().rstype(path).exc(exc);
         let d = format!(

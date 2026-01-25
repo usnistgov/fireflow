@@ -978,8 +978,7 @@ fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Displ
         ("error", "error")
     };
     Arg::new(long).long(long).help(format!(
-        "{help_front} Must be either '{x}', (throw {y}) or \
-         'silent' (do nothing)."
+        "{help_front} If '{x}', throw {y}. If 'silent', ignore completely."
     ))
 }
 

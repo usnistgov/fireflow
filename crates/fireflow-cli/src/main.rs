@@ -34,6 +34,7 @@ use itertools::Itertools as _;
 use serde::ser::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Display;
 use std::iter::once;
@@ -919,7 +920,7 @@ fn run() -> AppResult<()> {
         .arg(&limit_arg);
 
     let mut cmd = Command::new("fireflow")
-        .about("read and write FCS files")
+        .about("Read FCS files in standards-compliant manner")
         .arg_required_else_help(true)
         .next_line_help(true)
         .max_term_width(80)
@@ -943,7 +944,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            let conf = parse_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs)?;
+            let conf = parse_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
@@ -954,7 +955,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
-            let conf = parse_std_config(&cmd, sargs)?;
+            let conf = parse_std_config(&cmd, sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -967,7 +968,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
-            let conf = parse_std_config(&cmd, sargs)?;
+            let conf = parse_std_config(&cmd, sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -980,7 +981,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_STD, sargs)) => {
-            let conf = parse_std_config(&cmd, sargs)?;
+            let conf = parse_std_config(&cmd, sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
@@ -993,7 +994,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
-            let conf = parse_std_dataset_config(&cmd, sargs)?;
+            let conf = parse_std_dataset_config(&cmd, sargs);
             let delim = parse_delim(sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_dataset_index(sargs);
@@ -1006,7 +1007,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
-            let conf = parse_flat_dataset_config(&cmd, sargs)?;
+            let conf = parse_flat_dataset_config(&cmd, sargs);
             let filepath = parse_input_path(sargs);
             let skip = parse_skip(sargs);
             let limit = parse_limit(sargs);
@@ -1096,7 +1097,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
 fn parse_header_and_text_config(
     cmd: &Command,
     sargs: &ArgMatches,
-) -> AppResult<config::ReadHeaderAndTEXTConfig> {
+) -> config::ReadHeaderAndTEXTConfig {
     let version_override = sargs.get_one(VERSION_OVERRIDE).copied();
     let stext0 = sargs.get_one(SUPP_TEXT_COR_BEGIN).copied();
     let stext1 = sargs.get_one(SUPP_TEXT_COR_END).copied();
@@ -1118,13 +1119,13 @@ fn parse_header_and_text_config(
     let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD);
     let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD);
 
-    let rename_standard_keys: KeyStringPairs = sargs
+    let Ok(rename_standard_keys): Result<KeyStringPairs, Infallible> = sargs
         .get_many::<BiKeystringPair>(RENAME_STD_KEYS)
         .unwrap_or_default()
         .cloned()
         .collect::<HashMap<_, _>>()
         .try_into()
-        .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit())?;
+        .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
 
     let parse_keystring_pair = |name: &str| {
         sargs
@@ -1134,16 +1135,14 @@ fn parse_header_and_text_config(
             .collect()
     };
 
-    let sub_lits = sargs
-        .get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS)
-        .unwrap_or_default();
-    let sub_pats = sargs
-        .get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS)
-        .unwrap_or_default();
+    let parse_subpattern = |name: &str| sargs.get_many::<SubPatternPair>(name).unwrap_or_default();
+
+    let sub_lits = parse_subpattern(SUB_STD_LIT_KEY_VALS);
+    let sub_pats = parse_subpattern(SUB_STD_PAT_KEY_VALS);
 
     let substitute_standard_key_values = sub_lits.chain(sub_pats).cloned().collect();
 
-    let ret = config::ReadHeaderAndTEXTConfig {
+    config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
@@ -1173,8 +1172,7 @@ fn parse_header_and_text_config(
         replace_standard_key_values: parse_keystring_pair(REPLACE_STD_KEY_VALS),
         append_standard_keywords: parse_keystring_pair(APPEND_STD_KEY_VALS),
         substitute_standard_key_values,
-    };
-    Ok(ret)
+    }
 }
 
 fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
@@ -1214,49 +1212,39 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     }
 }
 
-fn parse_flat_config(cmd: &Command, sargs: &ArgMatches) -> AppResult<config::ReadFlatTEXTConfig> {
-    let ret = config::ReadFlatTEXTConfig {
-        flat: parse_header_and_text_config(cmd, sargs)?,
+fn parse_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
+    config::ReadFlatTEXTConfig {
+        flat: parse_header_and_text_config(cmd, sargs),
         shared: parse_shared_config(sargs),
-    };
-    Ok(ret)
+    }
 }
 
-fn parse_std_config(cmd: &Command, sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> {
-    let ret = config::ReadStdTEXTConfig {
-        flat: parse_header_and_text_config(cmd, sargs)?,
+fn parse_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
+    config::ReadStdTEXTConfig {
+        flat: parse_header_and_text_config(cmd, sargs),
         standard: parse_std_inner_config(sargs),
         layout: parse_layout_config(sargs),
         shared: parse_shared_config(sargs),
-    };
-    Ok(ret)
+    }
 }
 
-fn parse_flat_dataset_config(
-    cmd: &Command,
-    sargs: &ArgMatches,
-) -> AppResult<config::ReadFlatDatasetConfig> {
-    let ret = config::ReadFlatDatasetConfig {
-        flat: parse_header_and_text_config(cmd, sargs)?,
+fn parse_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
+    config::ReadFlatDatasetConfig {
+        flat: parse_header_and_text_config(cmd, sargs),
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
-    };
-    Ok(ret)
+    }
 }
 
-fn parse_std_dataset_config(
-    cmd: &Command,
-    sargs: &ArgMatches,
-) -> AppResult<config::ReadStdDatasetConfig> {
-    let ret = config::ReadStdDatasetConfig {
-        flat: parse_header_and_text_config(cmd, sargs)?,
+fn parse_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
+    config::ReadStdDatasetConfig {
+        flat: parse_header_and_text_config(cmd, sargs),
         standard: parse_std_inner_config(sargs),
         layout: parse_layout_config(sargs),
         data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
-    };
-    Ok(ret)
+    }
 }
 
 fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {

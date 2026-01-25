@@ -612,14 +612,14 @@ impl FromStr for NonStdKey {
     }
 }
 
-// impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
-//     fn from_iter<I>(iter: I) -> Self
-//     where
-//         I: IntoIterator<Item = (KeyStringOrPattern, T)>,
-//     {
-//         Self(iter.into_iter().collect())
-//     }
-// }
+impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (KeyStringOrPattern, T)>,
+    {
+        Self(iter.into_iter().collect())
+    }
+}
 
 impl<T> KeyStringsOrPatterns<T> {
     pub fn try_from_literals_and_patterns(

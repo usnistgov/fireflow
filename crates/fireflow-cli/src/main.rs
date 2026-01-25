@@ -12,8 +12,11 @@ use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
+use fireflow_core::validated::case_ins_regex::CaseInsRegex;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{AsciiStringError, KeyString, KeyStringsOrPatterns};
+use fireflow_core::validated::keys::{
+    AsciiStringError, KeyRegexError, KeyString, KeyStringOrPattern,
+};
 use fireflow_core::validated::keystring_pairs::KeyStringPairs;
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
@@ -352,12 +355,14 @@ fn run() -> AppResult<()> {
             .long(lit_flag)
             .action(ArgAction::Append)
             .value_name("KEY")
-            .help(lit_help);
+            .help(lit_help)
+            .value_parser(ValueParser::new(parse_keystring_literal));
         let pat_arg = Arg::new(pat_flag)
             .long(pat_flag)
             .action(ArgAction::Append)
             .value_name("REGEXP")
-            .help(pat_help);
+            .help(pat_help)
+            .value_parser(ValueParser::new(parse_keystring_pattern));
         (lit_arg, pat_arg)
     };
 
@@ -386,7 +391,7 @@ fn run() -> AppResult<()> {
         .long(RENAME_STD_KEYS)
         .action(ArgAction::Append)
         .value_name("OLD,NEW")
-        .value_parser(ValueParser::new(parse_rename_std_keys))
+        .value_parser(ValueParser::new(parse_two_keystring_pair))
         .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
 
     let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
@@ -396,7 +401,8 @@ fn run() -> AppResult<()> {
         .help(
             "Replace values of standard keys matching KEY with VAl. \
              The leading '$' is implied for the key.",
-        );
+        )
+        .value_parser(ValueParser::new(parse_keystring_string_pair));
 
     let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
         .long(APPEND_STD_KEY_VALS)
@@ -405,7 +411,8 @@ fn run() -> AppResult<()> {
         .help(
             "Append standard keys with KEY and VAL to list of existing standard \
              keys. The leading '$' is implied for KEY.",
-        );
+        )
+        .value_parser(ValueParser::new(parse_keystring_string_pair));
 
     let sub_std_lit_key_vals = Arg::new(SUB_STD_LIT_KEY_VALS)
         .long(SUB_STD_LIT_KEY_VALS)
@@ -414,7 +421,8 @@ fn run() -> AppResult<()> {
         .help(format!(
             "Edit standard key values using KEY and SUB. The leading '$' \
              is implied for KEY. See {sub_header} for details."
-        ));
+        ))
+        .value_parser(ValueParser::new(parse_sub_pattern_literal));
 
     let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
         .long(SUB_STD_PAT_KEY_VALS)
@@ -423,7 +431,8 @@ fn run() -> AppResult<()> {
         .help(format!(
             "Edit standard keys matching REGEXP with SUB. The leading '$' is \
              implied for KEY. See {sub_header} for details."
-        ));
+        ))
+        .value_parser(ValueParser::new(parse_sub_pattern_pattern));
 
     let all_flat_args = vec![
         version_override,
@@ -1095,37 +1104,44 @@ fn parse_header_and_text_config(
 
     let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
 
-    let to_blank = |s: &str| Ok((s.to_owned(), ()));
+    let parse_key_or_pat = |lit_flag: &str, pat_flag: &str| {
+        let lits = sargs
+            .get_many::<KeyStringOrPattern>(lit_flag)
+            .unwrap_or_default();
+        let pats = sargs
+            .get_many::<KeyStringOrPattern>(pat_flag)
+            .unwrap_or_default();
+        lits.chain(pats).cloned().map(|x| (x, ())).collect()
+    };
 
-    let ignore_standard_keys =
-        parse_key_or_pat(sargs, IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY, to_blank)?;
-
-    let promote_to_standard =
-        parse_key_or_pat(sargs, PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD, to_blank)?;
-    let demote_from_standard =
-        parse_key_or_pat(sargs, DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD, to_blank)?;
+    let ignore_standard_keys = parse_key_or_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY);
+    let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD);
+    let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD);
 
     let rename_standard_keys: KeyStringPairs = sargs
-        .get_many::<(KeyString, KeyString)>(RENAME_STD_KEYS)
+        .get_many::<BiKeystringPair>(RENAME_STD_KEYS)
         .unwrap_or_default()
         .cloned()
         .collect::<HashMap<_, _>>()
         .try_into()
         .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit())?;
-    // parse_hashmap(sargs, RENAME_STD_KEYS, |s| Ok(s.parse::<KeyString>()?))?;
 
-    let replace_standard_key_values =
-        parse_hashmap(sargs, REPLACE_STD_KEY_VALS, |x| Ok(Into::into(x)))?;
-    let append_standard_keywords =
-        parse_hashmap(sargs, APPEND_STD_KEY_VALS, |x| Ok(Into::into(x)))?;
-
-    let to_sub = |s: &str| {
-        let (k, v) = s.split_once(',').unwrap();
-        Ok((k.to_owned(), parse_sub_pattern(v)?))
+    let parse_keystring_pair = |name: &str| {
+        sargs
+            .get_many::<KeystringStringPair>(name)
+            .unwrap_or_default()
+            .cloned()
+            .collect()
     };
 
-    let substitute_standard_key_values =
-        parse_key_or_pat(sargs, SUB_STD_LIT_KEY_VALS, SUB_STD_PAT_KEY_VALS, to_sub)?;
+    let sub_lits = sargs
+        .get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS)
+        .unwrap_or_default();
+    let sub_pats = sargs
+        .get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS)
+        .unwrap_or_default();
+
+    let substitute_standard_key_values = sub_lits.chain(sub_pats).cloned().collect();
 
     let ret = config::ReadHeaderAndTEXTConfig {
         header: parse_header_config(sargs),
@@ -1154,8 +1170,8 @@ fn parse_header_and_text_config(
         rename_standard_keys,
         promote_to_standard,
         demote_from_standard,
-        replace_standard_key_values,
-        append_standard_keywords,
+        replace_standard_key_values: parse_keystring_pair(REPLACE_STD_KEY_VALS),
+        append_standard_keywords: parse_keystring_pair(APPEND_STD_KEY_VALS),
         substitute_standard_key_values,
     };
     Ok(ret)
@@ -1283,69 +1299,6 @@ fn parse_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
     }
 }
 
-fn parse_key_or_pat<'a, 'b, 'c, T, F: Fn(&'a str) -> AppResult<(String, T)>>(
-    sargs: &'a ArgMatches,
-    lit_flag: &'b str,
-    pat_flag: &'c str,
-    f: F,
-) -> AppResult<KeyStringsOrPatterns<T>> {
-    let ignore_std_lit_keys = sargs
-        .get_many::<String>(lit_flag)
-        .unwrap_or_default()
-        .map(|s| f(s.as_str()).map_err(|e| fmt_arg_error(lit_flag, e)))
-        .collect::<Result<Vec<_>, _>>()?;
-    let ignore_std_pat_keys = sargs
-        .get_many::<String>(pat_flag)
-        .unwrap_or_default()
-        .map(|s| f(s.as_str()).map_err(|e| fmt_arg_error(pat_flag, e)))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(KeyStringsOrPatterns::try_from_literals_and_patterns(
-        ignore_std_lit_keys,
-        ignore_std_pat_keys,
-    )?)
-}
-
-fn parse_hashmap<'a, 'b, T, F: Fn(&'a str) -> AppResult<T>>(
-    sargs: &'a ArgMatches,
-    flag: &'b str,
-    f: F,
-) -> Result<HashMap<KeyString, T>, String> {
-    sargs
-        .get_many::<String>(flag)
-        .unwrap_or_default()
-        .map(|s| {
-            // NOTE we can get away with this because we know that keys in FCS
-            // cannot contain commas, and we are only using these as the keys
-            // in this particular hash table
-            let (k, v) = s.split_once(',').unwrap();
-            f(v).map(|x| (k.parse::<KeyString>().unwrap(), x))
-        })
-        .collect::<Result<HashMap<_, _>, _>>()
-        .map_err(|e| fmt_arg_error(flag, e))
-}
-
-fn parse_sub_pattern(s: &str) -> AppResult<SubPattern> {
-    let (op, r0) = s
-        .split_at_checked(1)
-        .expect("sub pattern string must start with 's'");
-    assert!(op == "s", "sub pattern string must start with 's'");
-    let (delim, r1) = r0
-        .split_at_checked(1)
-        .expect("sub pattern delimiter is not a valid UTF-8 byte");
-    let parts: Vec<_> = r1.split(delim).collect();
-    let (from, to, global) = match &parts[..] {
-        [x, y] | [x, y, ""] => (*x, *y, false),
-        [x, y, "g"] => (*x, *y, true),
-        _ => panic!(
-            "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
-             where 'D' is a delimiter (any character), FROM is a \
-             regular expression and TO is a replacement pattern"
-        ),
-    };
-    let r = Regex::new(from)?;
-    Ok(SubPattern::try_new(r, to.to_owned(), global)?)
-}
-
 fn parse_input_path(sargs: &ArgMatches) -> &PathBuf {
     sargs
         .get_one::<PathBuf>(INPUT_PATH)
@@ -1393,7 +1346,7 @@ where
         .into()
 }
 
-fn parse_other_width(s: &str) -> Result<OtherWidth, String> {
+fn parse_other_width(s: &str) -> StrResult<OtherWidth> {
     let x = s.parse::<u8>().map_err(|e| e.to_string())?;
     OtherWidth::try_from(x).map_err(|e| e.to_string())
 }
@@ -1414,20 +1367,75 @@ fn parse_time_optical_keys(
         .collect()
 }
 
-fn parse_rename_std_keys(s: &str) -> Result<(KeyString, KeyString), AsciiStringError> {
-    // NOTE we can get away with this because we know that keys in FCS
-    // cannot contain commas, and we are only using these as the keys
-    // in this particular hash table
-    let (k, v) = s.split_once(',').unwrap();
-    Ok((k.parse::<KeyString>()?, v.parse::<KeyString>()?))
+fn parse_keystring_literal(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {
+    s.parse::<KeyString>().map(KeyStringOrPattern::Literal)
+}
+
+fn parse_keystring_pattern(s: &str) -> Result<KeyStringOrPattern, KeyRegexError> {
+    Ok(s.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)?)
+}
+
+fn parse_sub_pattern_literal(s: &str) -> Result<SubPatternPair, String> {
+    parse_sub_pattern_pair(s, |k| Ok(parse_keystring_literal(k)?))
+}
+
+fn parse_sub_pattern_pattern(s: &str) -> Result<SubPatternPair, String> {
+    parse_sub_pattern_pair(s, |k| Ok(parse_keystring_pattern(k)?))
+}
+
+fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
+    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
+    let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
+    let vf = v.parse::<KeyString>().map_err(|e| e.to_string())?;
+    Ok((kf, vf))
+}
+
+fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
+    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
+    let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
+    Ok((kf, v.to_owned()))
+}
+
+fn parse_sub_pattern_pair<F>(s: &str, f: F) -> Result<SubPatternPair, String>
+where
+    F: FnOnce(&str) -> AppResult<KeyStringOrPattern>,
+{
+    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
+    let kf = f(k).map_err(|e| e.to_string())?;
+    let vf = parse_sub_pattern_inner(v).map_err(|e| e.to_string())?;
+    Ok((kf, vf))
+}
+
+fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
+    let (op, r0) = s
+        .split_at_checked(1)
+        .ok_or("sub pattern must not be empty")?;
+    if op != "s" {
+        return Err(format!("sub pattern must start with 's', got {op}").into());
+    }
+    if r0.is_empty() {
+        return Err("no delimiter found".into());
+    }
+    let (delim, r1) = r0
+        .split_at_checked(1)
+        .ok_or("sub pattern delimiter is not a valid UTF-8 byte")?;
+    let parts: Vec<_> = r1.split(delim).collect();
+    let (from, to, global) = match &parts[..] {
+        [x, y] | [x, y, ""] => (*x, *y, false),
+        [x, y, "g"] => (*x, *y, true),
+        _ => {
+            let msg = "sub pattern string must be like 's<D><FROM><D><TO>[<D>g]' \
+                       where 'D' is a delimiter (any character), FROM is a \
+                       regular expression and TO is a replacement pattern";
+            return Err(msg.into());
+        }
+    };
+    let r = Regex::new(from)?;
+    Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
-}
-
-fn fmt_arg_error(name: &str, e: impl Display) -> String {
-    format!("ERROR [{name}] {e}")
 }
 
 pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
@@ -1466,6 +1474,14 @@ fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> cl
 }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
+
+type StrResult<T> = Result<T, String>;
+
+type BiKeystringPair = (KeyString, KeyString);
+
+type KeystringStringPair = (KeyString, String);
+
+type SubPatternPair = (KeyStringOrPattern, SubPattern);
 
 const SUBCMD_HEADER: &str = "header";
 

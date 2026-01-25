@@ -1184,8 +1184,16 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
-pub trait TriErrorFlag {
-    fn is_error(&self) -> Option<bool>;
+pub trait TriErrorFlag: Into<TriFlag> + Copy {
+    const FALSE_IS_ERROR: bool;
+
+    fn is_error(&self) -> Option<bool> {
+        match (*self).into() {
+            TriFlag::Noop => None,
+            TriFlag::False => Some(Self::FALSE_IS_ERROR),
+            TriFlag::True => Some(!Self::FALSE_IS_ERROR),
+        }
+    }
 }
 
 macro_rules! impl_config_flag {
@@ -1260,19 +1268,13 @@ macro_rules! impl_tri_error_flag {
     };
 
     (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Clone, Copy, Default, FromStr)]
+        #[derive(From, Into, Clone, Copy, Default, FromStr)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[from(Option<bool>, TriFlag)]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
-            fn is_error(&self) -> Option<bool> {
-                match self.0 {
-                    TriFlag::Noop => None,
-                    TriFlag::False => Some($false_is_err),
-                    TriFlag::True => Some(!$false_is_err),
-                }
-            }
+            const FALSE_IS_ERROR: bool = $false_is_err;
         }
     };
 }

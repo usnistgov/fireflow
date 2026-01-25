@@ -1,10 +1,12 @@
+use clap::builder::ValueParser;
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TriFlag,
-    TruncateEventValues, VersionOverride,
+    self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ParseTemporalOpticalKeyError,
+    ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion,
+    ProcessPseudostandard, TemporalOpticalKey, TimeMeasNamePattern, TriFlag, TruncateEventValues,
+    VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -25,7 +27,7 @@ use clap::{
 use itertools::Itertools as _;
 use serde::ser::Serialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Display;
 use std::iter::once;
@@ -182,7 +184,7 @@ fn run() -> AppResult<()> {
         .long(OTHER_WIDTH)
         .value_name("WIDTH")
         .help(format!("Width of {other_seg} segments."))
-        .value_parser(value_parser!(u8));
+        .value_parser(ValueParser::new(parse_other_width));
 
     let squish_offsets = flag_arg(
         SQUISH_OFFSETS,
@@ -474,7 +476,8 @@ fn run() -> AppResult<()> {
         .help(
             "Use REGEXP when matching time measurement (defaults to \
              '^Time|TIME$', pass 'NoTime' to not look for a time channel).",
-        );
+        )
+        .value_parser(ValueParser::new(parse_time_meas_pattern));
 
     let allow_missing_time = tri_flag_arg(
         ALLOW_MISSING_TIME,
@@ -501,7 +504,8 @@ fn run() -> AppResult<()> {
             "Ignore optical keywords for temporal measurement. Must be a \
              comma-separated list of strings like the X in {}.",
             kw_style.paint("$PnX")
-        ));
+        ))
+        .value_parser(ValueParser::new(parse_time_optical_keys));
 
     let parse_indexed_spillover = flag_arg(
         PARSE_INDEXED_SPILLOVER,
@@ -918,7 +922,7 @@ fn run() -> AppResult<()> {
 
     match args.subcommand() {
         Some((SUBCMD_HEADER, sargs)) => {
-            let conf = parse_header_config(sargs)?;
+            let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs)?;
             let h = fcs_read_header(filepath, DatasetOffset(0), &conf.into())?;
             print_json(&h);
@@ -1019,12 +1023,24 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
 }
 
 fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Display) -> Arg {
-    let (x, y) = if false_is_error {
-        ("warn", "warning")
-    } else {
-        ("error", "error")
+    let parse_false_is_err = |s: &str| match s {
+        "silent" => Ok(TriFlag::Noop),
+        "warn" => Ok(TriFlag::True),
+        _ => Err("Must be one of 'silent' or 'warn'"),
     };
-    Arg::new(long).long(long).help(format!(
+
+    let parse_true_is_err = |s: &str| match s {
+        "silent" => Ok(TriFlag::Noop),
+        "error" => Ok(TriFlag::True),
+        _ => Err("Must be one of 'silent' or 'error'"),
+    };
+
+    let (x, y, p) = if false_is_error {
+        ("warn", "warning", ValueParser::new(parse_false_is_err))
+    } else {
+        ("error", "error", ValueParser::new(parse_true_is_err))
+    };
+    Arg::new(long).long(long).value_parser(p).help(format!(
         "{help_front} If '{x}', throw {y}. If 'silent', ignore completely."
     ))
 }
@@ -1041,7 +1057,7 @@ fn format_section(
     (h, s)
 }
 
-fn parse_header_config(sargs: &ArgMatches) -> AppResult<config::ReadHeaderInnerConfig> {
+fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
     fn get_correction<I>(am: &ArgMatches, x0: &str, x1: &str) -> HeaderCorrection<I> {
         let y0 = am.get_one(x0).copied();
         let y1 = am.get_one(x1).copied();
@@ -1050,26 +1066,18 @@ fn parse_header_config(sargs: &ArgMatches) -> AppResult<config::ReadHeaderInnerC
     let text_correction = get_correction(sargs, TEXT_COR_BEGIN, TEXT_COR_END);
     let data_correction = get_correction(sargs, DATA_COR_BEGIN, DATA_COR_END);
     let analysis_correction = get_correction(sargs, ANALYSIS_COR_BEGIN, ANALYSIS_COR_END);
-    // TODO make custom parser
-    let other_width = sargs
-        .get_one::<u8>(OTHER_WIDTH)
-        .copied()
-        .map(OtherWidth::try_from)
-        .transpose()?
-        .unwrap_or_default();
-    let ret = config::ReadHeaderInnerConfig {
+    config::ReadHeaderInnerConfig {
         text_correction,
         data_correction,
         analysis_correction,
         // don't add other corrections since these aren't used in this api (yet)
         other_corrections: vec![],
         max_other: sargs.get_one::<usize>(MAX_OTHER).copied(),
-        other_width,
+        other_width: parse_def(sargs, OTHER_WIDTH),
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
         truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
-    };
-    Ok(ret)
+    }
 }
 
 fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHeaderAndTEXTConfig> {
@@ -1107,26 +1115,26 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHea
         parse_key_or_pat(sargs, SUB_STD_LIT_KEY_VALS, SUB_STD_PAT_KEY_VALS, to_sub)?;
 
     let ret = config::ReadHeaderAndTEXTConfig {
-        header: parse_header_config(sargs)?,
+        header: parse_header_config(sargs),
         version_override,
         supp_text_correction,
         nextdata_correction,
-        allow_overlapping_supp_text: parse_tri_flag(sargs, ALLOW_OVERLAPPING_SUPP_TEXT, true)?,
+        allow_overlapping_supp_text: parse_tri_flag(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode: parse_def(sargs, DELIM_ESCAPE_MODE),
-        allow_non_ascii_delim: parse_tri_flag(sargs, ALLOW_NON_ASCII_DELIM, true)?,
-        allow_missing_final_delim: parse_tri_flag(sargs, ALLOW_MISSING_FINAL_DELIM, true)?,
-        allow_nonunique: parse_tri_flag(sargs, ALLOW_NON_UNIQUE, true)?,
-        allow_odd: parse_tri_flag(sargs, ALLOW_ODD, true)?,
-        allow_empty_keys: parse_tri_flag(sargs, ALLOW_EMPTY_KEYS, true)?,
-        allow_empty_values: parse_tri_flag(sargs, ALLOW_EMPTY_VALUES, true)?,
-        allow_delim_at_boundary: parse_tri_flag(sargs, ALLOW_DELIM_AT_BOUNDARY, true)?,
-        allow_non_utf8: parse_tri_flag(sargs, ALLOW_NON_UTF8, true)?,
+        allow_non_ascii_delim: parse_tri_flag(sargs, ALLOW_NON_ASCII_DELIM),
+        allow_missing_final_delim: parse_tri_flag(sargs, ALLOW_MISSING_FINAL_DELIM),
+        allow_nonunique: parse_tri_flag(sargs, ALLOW_NON_UNIQUE),
+        allow_odd: parse_tri_flag(sargs, ALLOW_ODD),
+        allow_empty_keys: parse_tri_flag(sargs, ALLOW_EMPTY_KEYS),
+        allow_empty_values: parse_tri_flag(sargs, ALLOW_EMPTY_VALUES),
+        allow_delim_at_boundary: parse_tri_flag(sargs, ALLOW_DELIM_AT_BOUNDARY),
+        allow_non_utf8: parse_tri_flag(sargs, ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
-        allow_non_ascii_keywords: parse_tri_flag(sargs, ALLOW_NON_ASCII_KEYWORDS, true)?,
-        allow_missing_supp_text: parse_tri_flag(sargs, ALLOW_MISSING_SUPP_TEXT, true)?,
-        allow_supp_text_own_delim: parse_tri_flag(sargs, ALLOW_SUPP_TEXT_OWN_DELIM, true)?,
-        allow_missing_nextdata: parse_tri_flag(sargs, ALLOW_MISSING_NEXTDATA, true)?,
+        allow_non_ascii_keywords: parse_tri_flag(sargs, ALLOW_NON_ASCII_KEYWORDS),
+        allow_missing_supp_text: parse_tri_flag(sargs, ALLOW_MISSING_SUPP_TEXT),
+        allow_supp_text_own_delim: parse_tri_flag(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
+        allow_missing_nextdata: parse_tri_flag(sargs, ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
@@ -1140,34 +1148,26 @@ fn parse_header_and_text_config(sargs: &ArgMatches) -> AppResult<config::ReadHea
     Ok(ret)
 }
 
-fn parse_std_inner_config(sargs: &ArgMatches) -> AppResult<config::ReadStdKeywordsConfig> {
-    // TODO custom parser
-    let time_meas_pattern = if let Some(t) = sargs.get_one::<String>(TIME_MEAS_PATTERN) {
-        if t.as_str() == "NoTime" {
-            None
-        } else {
-            Some(t.parse::<config::TimeMeasNamePattern>()?)
-        }
-    } else {
-        Some(config::TimeMeasNamePattern::default())
-    };
+fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
+    let time_meas_pattern = sargs
+        .get_one::<Option<TimeMeasNamePattern>>(TIME_MEAS_PATTERN)
+        .cloned()
+        .unwrap_or_default();
 
-    // TODO custom parser
     let ignore_time_optical_keys = sargs
-        .get_one::<String>(IGNORE_TIME_OPTICAL_KEYS)
-        .into_iter()
-        .flat_map(|s| s.split(','))
-        .map(str::parse::<config::TemporalOpticalKey>)
-        .collect::<Result<HashSet<_>, _>>()
-        .map_err(|e| fmt_arg_error(IGNORE_TIME_OPTICAL_KEYS, e))?;
+        .get_many::<Vec<TemporalOpticalKey>>(IGNORE_TIME_OPTICAL_KEYS)
+        .unwrap_or_default()
+        .flatten()
+        .copied()
+        .collect();
 
-    let ret = config::ReadStdKeywordsConfig {
+    config::ReadStdKeywordsConfig {
         dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
         time_meas_pattern,
         force_linear_scale: parse_def(sargs, FORCE_LINEAR_SCALE),
         ignore_time_optical_keys,
-        allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME, true)?,
+        allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME),
         parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
         date_pattern: sargs.get_one(DATE_PATTERN).cloned(),
         time_pattern: sargs.get_one(TIME_PATTERN).cloned(),
@@ -1178,12 +1178,11 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> AppResult<config::ReadStdKeywor
         process_hyper_par: parse_def(sargs, PROCESS_HYPER_PAR),
         process_other_version: parse_def(sargs, PROCESS_OTHER_VERSION),
         process_extra_timestep: parse_def(sargs, PROCESS_EXTRA_TIMESTEP),
-        disallow_deprecated: parse_tri_flag(sargs, DISALLOW_DEPRECATED, false)?,
+        disallow_deprecated: parse_tri_flag(sargs, DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
         nonstandard_measurement_pattern: sargs.get_one(NS_MEAS_PATTERN).cloned(),
-    };
-    Ok(ret)
+    }
 }
 
 fn parse_flat_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatTEXTConfig> {
@@ -1197,8 +1196,8 @@ fn parse_flat_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatTEXTConfig
 fn parse_std_config(sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> {
     let ret = config::ReadStdTEXTConfig {
         flat: parse_header_and_text_config(sargs)?,
-        standard: parse_std_inner_config(sargs)?,
-        layout: parse_layout_config(sargs)?,
+        standard: parse_std_inner_config(sargs),
+        layout: parse_layout_config(sargs),
         shared: parse_shared_config(sargs),
     };
     Ok(ret)
@@ -1207,8 +1206,8 @@ fn parse_std_config(sargs: &ArgMatches) -> AppResult<config::ReadStdTEXTConfig> 
 fn parse_flat_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatDatasetConfig> {
     let ret = config::ReadFlatDatasetConfig {
         flat: parse_header_and_text_config(sargs)?,
-        layout: parse_layout_config(sargs)?,
-        data: parse_dataset_inner_config(sargs)?,
+        layout: parse_layout_config(sargs),
+        data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
     };
     Ok(ret)
@@ -1217,15 +1216,15 @@ fn parse_flat_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadFlatDa
 fn parse_std_dataset_config(sargs: &ArgMatches) -> AppResult<config::ReadStdDatasetConfig> {
     let ret = config::ReadStdDatasetConfig {
         flat: parse_header_and_text_config(sargs)?,
-        standard: parse_std_inner_config(sargs)?,
-        layout: parse_layout_config(sargs)?,
-        data: parse_dataset_inner_config(sargs)?,
+        standard: parse_std_inner_config(sargs),
+        layout: parse_layout_config(sargs),
+        data: parse_dataset_inner_config(sargs),
         shared: parse_shared_config(sargs),
     };
     Ok(ret)
 }
 
-fn parse_layout_config(sargs: &ArgMatches) -> AppResult<config::ReadDataKeywordsConfig> {
+fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let data_corr0 = sargs.get_one(TEXT_DATA_COR_BEGIN).copied();
     let data_corr1 = sargs.get_one(TEXT_DATA_COR_END).copied();
     let text_data_correction = (data_corr0, data_corr1).into();
@@ -1234,38 +1233,28 @@ fn parse_layout_config(sargs: &ArgMatches) -> AppResult<config::ReadDataKeywords
     let anal_corr1 = sargs.get_one(TEXT_ANALYSIS_COR_END).copied();
     let text_analysis_correction = (anal_corr0, anal_corr1).into();
 
-    let ret = config::ReadDataKeywordsConfig {
+    config::ReadDataKeywordsConfig {
         text_data_correction,
         text_analysis_correction,
         ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
         ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
-        allow_header_text_offset_mismatch: parse_tri_flag(
-            sargs,
-            ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
-            true,
-        )?,
-        allow_missing_required_offsets: parse_tri_flag(
-            sargs,
-            ALLOW_MISSING_REQUIRED_OFFSETS,
-            true,
-        )?,
+        allow_header_text_offset_mismatch: parse_tri_flag(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
+        allow_missing_required_offsets: parse_tri_flag(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
         process_optional_failure: parse_def(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override: parse_opt(sargs, INT_BYTEORD_OVERRIDE),
-        disallow_range_truncation: parse_tri_flag(sargs, DISALLOW_RANGE_TRUNCATION, false)?,
-    };
-    Ok(ret)
+        disallow_range_truncation: parse_tri_flag(sargs, DISALLOW_RANGE_TRUNCATION),
+    }
 }
 
-fn parse_dataset_inner_config(sargs: &ArgMatches) -> AppResult<config::ReadEventsConfig> {
-    let ret = config::ReadEventsConfig {
-        allow_tot_mismatch: parse_tri_flag(sargs, ALLOW_TOT_MISMATCH, true)?,
-        allow_uneven_event_width: parse_tri_flag(sargs, ALLOW_UNEVEN_EVENT_WIDTH, true)?,
+fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
+    config::ReadEventsConfig {
+        allow_tot_mismatch: parse_tri_flag(sargs, ALLOW_TOT_MISMATCH),
+        allow_uneven_event_width: parse_tri_flag(sargs, ALLOW_UNEVEN_EVENT_WIDTH),
         truncate_event_values: parse_def(sargs, TRUNCATE_EVENT_VALUES),
-        disallow_over_range: parse_tri_flag(sargs, DISALLOW_OVER_RANGE, false)?,
-    };
-    Ok(ret)
+        disallow_over_range: parse_tri_flag(sargs, DISALLOW_OVER_RANGE),
+    }
 }
 
 fn parse_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
@@ -1289,7 +1278,7 @@ fn parse_key_or_pat<'a, 'b, 'c, T, F: Fn(&'a str) -> AppResult<(String, T)>>(
     let ignore_std_pat_keys = sargs
         .get_many::<String>(pat_flag)
         .unwrap_or_default()
-        .map(|s| f(s.as_str()).map_err(|e| fmt_arg_error(lit_flag, e)))
+        .map(|s| f(s.as_str()).map_err(|e| fmt_arg_error(pat_flag, e)))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(KeyOrStringPatterns::try_from_literals_and_patterns(
         ignore_std_lit_keys,
@@ -1374,25 +1363,36 @@ where
     sargs.get_one(name).copied()
 }
 
-fn parse_tri_flag<T>(sargs: &ArgMatches, name: &str, false_is_error: bool) -> Result<T, String>
+fn parse_tri_flag<T>(sargs: &ArgMatches, name: &str) -> T
 where
     T: From<TriFlag>,
 {
-    let flag = if let Some(s) = sargs.get_one::<String>(name) {
-        match (s.as_str(), false_is_error) {
-            ("silent", _) => TriFlag::Noop,
-            ("warn", true) => TriFlag::True,
-            ("error", false) => TriFlag::False,
-            _ => {
-                return Err(format!("could not parse flag for {name}"));
-            }
-        }
-    } else if false_is_error {
-        TriFlag::False
+    sargs
+        .get_one::<TriFlag>(name)
+        .copied()
+        .unwrap_or_default()
+        .into()
+}
+
+fn parse_other_width(s: &str) -> Result<OtherWidth, String> {
+    let x = s.parse::<u8>().map_err(|e| e.to_string())?;
+    OtherWidth::try_from(x).map_err(|e| e.to_string())
+}
+
+fn parse_time_meas_pattern(s: &str) -> Result<Option<TimeMeasNamePattern>, regex::Error> {
+    if s == "NoTime" {
+        Ok(None)
     } else {
-        TriFlag::True
-    };
-    Ok(flag.into())
+        Ok(Some(s.parse::<config::TimeMeasNamePattern>()?))
+    }
+}
+
+fn parse_time_optical_keys(
+    s: &str,
+) -> Result<Vec<TemporalOpticalKey>, ParseTemporalOpticalKeyError> {
+    s.split(',')
+        .map(str::parse::<config::TemporalOpticalKey>)
+        .collect()
 }
 
 fn print_json<T: Serialize>(j: &T) {
@@ -1428,6 +1428,24 @@ fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
         eprintln!("WARNING: {w}");
     }
 }
+
+// #[derive(Clone, Copy)]
+// struct TriFlagParser<T>(PhantomData<T>);
+
+// impl<T> TypedValueParser for TriFlagParser<T>
+// where
+//     T: Clone + Send + Sync + 'static,
+// {
+//     type Value = T;
+
+//     fn parse_ref(
+//         &self,
+//         cmd: &crate::Command,
+//         arg: Option<&crate::Arg>,
+//         value: &std::ffi::OsStr,
+//     ) -> Result<Self::Value, clap::Error> {
+//     }
+// }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;
 

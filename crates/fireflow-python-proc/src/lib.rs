@@ -8136,10 +8136,10 @@ impl DocArgParam {
     fn new_allow_overlapping_supp_text() -> Self {
         let exc = PyreflowError::FileLayout.fmt_ref();
         let d = format!(
-            "If ``True`` allow supplemental *TEXT* offsets to overlap the \
-             primary *TEXT* offsets from *HEADER* or *HEADER* itself and raise \
-             a warning if such an overlap is found. Otherwise raise a {exc}. \
-             The offsets will not be used if an overlap is found in either case."
+            "Choose what happens if supplemental *TEXT* offsets overlap the \
+             primary *TEXT* offsets from *HEADER* or *HEADER*. If exception is \
+             raise it will be a {exc}. The offsets will not be used if an \
+             overlap is found."
         );
         Self::new_tri_flag_param(
             "allow_overlapping_supp_text",
@@ -8169,16 +8169,12 @@ impl DocArgParam {
     }
 
     fn new_allow_non_ascii_delim() -> Self {
-        Self::new_tri_flag_param(
-            "allow_non_ascii_delim",
-            true,
-            "AllowNonAsciiDelim",
-            "Allow non-ASCII delimiters (outside 1-126).",
-        )
+        let d = "Choose how to handle non-ASCII delimiters (outside 1-126).";
+        Self::new_tri_flag_param("allow_non_ascii_delim", true, "AllowNonAsciiDelim", d)
     }
 
     fn new_allow_missing_final_delim() -> Self {
-        let d = "Allow *TEXT* to not end with a delimiter.";
+        let d = "Choose what happens if *TEXT* does not end with a delimiter.";
         Self::new_tri_flag_param(
             "allow_missing_final_delim",
             true,
@@ -8188,42 +8184,42 @@ impl DocArgParam {
     }
 
     fn new_allow_nonunique() -> Self {
-        let d = "Allow non-unique keys in *TEXT*. In such cases, \
-                 only the first key will be used regardless of this setting; ";
+        let d = "Choose how to handle non-unique keys in *TEXT*. In such cases, \
+                 only the first will be used regardless of this setting.";
         Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d)
     }
 
     fn new_allow_odd() -> Self {
-        let d = "Allow *TEXT* to contain odd number of tokens. \
-                 The last 'dangling' token will be dropped independent of this flag.";
+        let d = "Choose what happens if *TEXT* contains an odd number of tokens. \
+                 The last 'dangling' token will be dropped regardless.";
         Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d)
     }
 
     fn new_allow_empty_keys() -> Self {
-        let d = "Allow keys to be blank. Only relevant if \
+        let d = "Choose what happens if any keys are blank. Only relevant if \
                  if delimiters are unescaped.";
         Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d)
     }
 
     fn new_allow_empty_values() -> Self {
-        let d = "Allow values to be blank. Only relevant if \
+        let d = "Choose what happens if any values are blank. Only relevant if \
                  ``trim_value_whitespace`` is ``True`` and value is \
                  entirely whitespace.";
         Self::new_tri_flag_param("allow_empty_values", true, "AllowEmptyValues", d)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
-        let d = "Allow delimiters at token boundaries. The FCS standard \
-                 forbids this because it is impossible to tell if such delimiters \
-                 belong to the previous or the next token. Consequently, delimiters \
-                 at boundaries will be dropped regardless of this flag. Only \
-                 relevant if delimiters are escaped.";
+        let d = "Choose what happens if there are delimiters at token boundaries. \
+                 The FCS standard forbids this because it is impossible to tell \
+                 if such delimiters belong to the previous or the next token. \
+                 Consequently, delimiters at boundaries will be dropped regardless \
+                 of this flag. Only relevant if delimiters are escaped.";
         Self::new_tri_flag_param("allow_delim_at_boundary", true, "AllowDelimAtBoundary", d)
     }
 
     fn new_allow_non_utf8() -> Self {
-        let d = "Allow non-UTF8 characters in *TEXT*. Tokens with such \
-                 characters will be dropped regardless.";
+        let d = "Choose what happens if non-UTF8 characters are in *TEXT*. \
+                 Tokens with such characters will be dropped regardless.";
         Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d)
     }
 
@@ -8234,23 +8230,21 @@ impl DocArgParam {
     }
 
     fn new_allow_non_ascii_keywords() -> Self {
-        let d = "Allow non-ASCII keys. This only applies to \
+        let d = "Choose how to handle non-ASCII keys. This only applies to \
                  non-standard keywords, as all standardized keywords may only \
                  contain letters, numbers, and start with *$*. Regardless, all \
-                 compliant keys must only have ASCII. Setting this to true will \
-                 emit an error when encountering such a key. If false, the key will \
-                 be kept as a non-standard key.";
+                 compliant keys must only have ASCII.";
         Self::new_tri_flag_param("allow_non_ascii_keywords", true, "AllowNonAsciiKeywords", d)
     }
 
     fn new_allow_missing_supp_text() -> Self {
-        let d = "Allow supplemental *TEXT* offsets to be missing from \
+        let d = "Choose how to handle supplemental missing *TEXT* offsets in \
                  primary *TEXT*.";
         Self::new_tri_flag_param("allow_missing_supp_text", true, "AllowMissingSuppTEXT", d)
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
-        let d = "Allow supplemental *TEXT* offsets to have a different \
+        let d = "Choose what happens if supplemental *TEXT* has a different \
                  delimiter compared to primary *TEXT*.";
         Self::new_tri_flag_param(
             "allow_supp_text_own_delim",
@@ -8261,7 +8255,7 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_nextdata() -> Self {
-        let d = "Allow *$NEXTDATA* to be missing. This is a required \
+        let d = "Choose how to handle missing *$NEXTDATA*. This is a required \
                  keyword in all versions. However, most files only have one dataset \
                  in which case this keyword is meaningless.";
         Self::new_tri_flag_param("allow_missing_nextdata", true, "AllowMissingNextdata", d)

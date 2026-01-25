@@ -2246,13 +2246,13 @@ where
 
         go!(abrt_res)
             .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
-            .map_ok_value(|(abrt, lost, tr, (specific, trimmed))| {
-                let (tro, trd) = tr.into_opt_root_pair();
+            .map_ok_value(|(abrt, lost, tr_out, (specific, trimmed))| {
+                let (tr, tr_trimmed) = tr_out.into_opt_root_pair();
                 let ret = Self::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tro,
-                    specific, nonstd,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
+                    nonstd,
                 );
-                let trimmed2 = trimmed.into_iter().chain(trd).collect();
+                let trimmed2 = trimmed.into_iter().chain(tr_trimmed).collect();
                 DiagnosedMetaroot::new(ret, trimmed2)
             })
     }

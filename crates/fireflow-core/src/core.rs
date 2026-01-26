@@ -4420,53 +4420,47 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
             if let Some(t) = mem::take(&mut extra.timestep) {
-                match sconf.process_extra_timestep.0 {
-                    ProcessKeywordFailure::Demote => {
-                        core_res = core_res.map_ok_value(|mut core| {
+                let flag = sconf.process_extra_timestep.0;
+                core_res = core_res
+                    .map_ok_value(|mut core| {
+                        if flag.is_demote() {
                             core.0
                                 .metaroot
                                 .nonstandard_keywords
                                 .insert_demoted(Timestep::std(), t);
-                            core
-                        });
-                    }
-                    ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
-                        core_res = core_res.extend_warnings_or_errors(
-                            Some(TimestepFoundError),
-                            |_v| (),
-                            |_p| (),
-                            StdTEXTFromFlatTEXTWarning::from,
-                            StdTEXTFromFlatTEXTErrorInner::from,
-                            sconf.process_extra_timestep,
-                        );
-                    }
-                    ProcessKeywordFailure::DropSilent => (),
-                }
+                        }
+                        core
+                    })
+                    .extend_warnings_or_errors3(
+                        Some(TimestepFoundError),
+                        |_v| (),
+                        |_p| (),
+                        StdTEXTFromFlatTEXTWarning::from,
+                        StdTEXTFromFlatTEXTErrorInner::from,
+                        flag.as_flag(),
+                    );
             }
 
             macro_rules! go_extra {
                 ($proc:ident, $keyvals:ident, $errors:ident) => {
-                    match sconf.$proc.into() {
-                        ProcessKeywordFailure::Demote => {
-                            core_res = core_res.map_ok_value(|mut core| {
+                    let flag: ProcessKeywordFailure = sconf.$proc.into();
+                    core_res = core_res
+                        .map_ok_value(|mut core| {
+                            if flag.is_demote() {
                                 for (k, v) in mem::take(&mut extra.$keyvals) {
                                     core.0.metaroot.nonstandard_keywords.insert_demoted(k, v);
                                 }
-                                core
-                            })
-                        }
-                        ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
-                            core_res = core_res.extend_warnings_or_errors(
-                                errors.$errors,
-                                |_v| (),
-                                |_p| (),
-                                StdTEXTFromFlatTEXTWarning::from,
-                                StdTEXTFromFlatTEXTErrorInner::from,
-                                sconf.$proc,
-                            )
-                        }
-                        ProcessKeywordFailure::DropSilent => (),
-                    };
+                            }
+                            core
+                        })
+                        .extend_warnings_or_errors3(
+                            errors.$errors,
+                            |_v| (),
+                            |_p| (),
+                            StdTEXTFromFlatTEXTWarning::from,
+                            StdTEXTFromFlatTEXTErrorInner::from,
+                            flag.as_flag(),
+                        );
                 };
             }
 

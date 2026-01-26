@@ -964,7 +964,6 @@ fn run() -> AppResult<()> {
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            // ASSUME this won't fail because we ask for one dataset
             print_json(&res?[0]);
             Ok(())
         }
@@ -976,7 +975,6 @@ fn run() -> AppResult<()> {
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            // ASSUME this won't fail because we ask for one dataset
             let (core, _) = &res?[0];
             core.print_comp_or_spillover_table(delim);
             Ok(())
@@ -989,7 +987,6 @@ fn run() -> AppResult<()> {
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            // ASSUME this won't fail because we ask for one dataset
             let (core, _) = &res?[0];
             core.print_meas_table(delim);
             Ok(())
@@ -1001,7 +998,6 @@ fn run() -> AppResult<()> {
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            // ASSUME this won't fail because we ask for one dataset
             let (core, uncore) = &res?[0];
             let obj = json!({"core": core, "uncore": uncore});
             print_json(&obj);
@@ -1015,7 +1011,6 @@ fn run() -> AppResult<()> {
             let skip = parse_dataset_index(sargs);
             let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            // ASSUME this won't fail because we ask for one dataset
             let (core, _) = &res?[0];
             print_parsed_data(core, delim);
             Ok(())
@@ -1028,7 +1023,7 @@ fn run() -> AppResult<()> {
             let limit = parse_limit(sargs);
             let ((), res) = fcs_summarize(filepath, skip, limit, &conf)
                 .resolve_commutative(print_warnings, |s| s);
-            let _: () = print_json(&res?);
+            print_json(&res?);
             Ok(())
         }
 

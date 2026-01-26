@@ -1726,8 +1726,35 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         }
     }
 
+    // #[allow(clippy::needless_pass_by_value)]
+    // pub(crate) fn extend_warnings_or_errors<X, M, W, Fv, Fp, Fw, Fe>(
+    //     mut self,
+    //     errors: impl IntoIterator<Item = M>,
+    //     fv: Fv,
+    //     fp: Fp,
+    //     fw: Fw,
+    //     fe: Fe,
+    //     flag: X,
+    // ) -> Self
+    // where
+    //     Fv: FnOnce(V) -> P,
+    //     Fp: FnOnce(P) -> P,
+    //     Fe: Fn(M) -> E,
+    //     Fw: Fn(M) -> W,
+    //     WC: Extend<W>,
+    //     EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         self.extend_errors(errors.into_iter().map(fe), fv, fp)
+    //     } else {
+    //         self.extend_commutative_warnings(errors.into_iter().map(fw));
+    //         self.map_err_value(fp)
+    //     }
+    // }
+
     #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn extend_warnings_or_errors<X, M, W, Fv, Fp, Fw, Fe>(
+    pub(crate) fn extend_warnings_or_errors3<X, M, W, Fv, Fp, Fw, Fe>(
         mut self,
         errors: impl IntoIterator<Item = M>,
         fv: Fv,
@@ -1743,13 +1770,15 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         Fw: Fn(M) -> W,
         WC: Extend<W>,
         EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
-        X: ErrorFlag,
+        X: TriErrorFlag,
     {
-        if flag.is_error() {
-            self.extend_errors(errors.into_iter().map(fe), fv, fp)
-        } else {
-            self.extend_commutative_warnings(errors.into_iter().map(fw));
-            self.map_err_value(fp)
+        match flag.is_error() {
+            None => {
+                self.extend_commutative_warnings(errors.into_iter().map(fw));
+                self.map_err_value(fp)
+            }
+            Some(true) => self.extend_errors(errors.into_iter().map(fe), fv, fp),
+            Some(false) => self.map_err_value(fp),
         }
     }
 

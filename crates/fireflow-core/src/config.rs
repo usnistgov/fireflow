@@ -1014,12 +1014,29 @@ pub enum ProcessKeywordFailure {
     /// Throw an error
     #[default]
     Error,
-    /// Demote to nonstandard
+    /// Demote to nonstandard with warning
     Demote,
+    /// Demote to nonstandard with no warning
+    DemoteSilent,
     /// Drop with warning
     Drop,
     /// Drop with no warning
     DropSilent,
+}
+
+impl ProcessKeywordFailure {
+    pub(crate) fn as_flag(self) -> DummyTriFlag {
+        let flag = match self {
+            Self::Error => TriFlag::False,
+            Self::Demote | Self::Drop => TriFlag::True,
+            Self::DemoteSilent | Self::DropSilent => TriFlag::Noop,
+        };
+        flag.into()
+    }
+
+    pub(crate) fn is_demote(self) -> bool {
+        matches!(self, Self::Demote | Self::DemoteSilent)
+    }
 }
 
 impl FromStr for ProcessKeywordFailure {
@@ -1029,6 +1046,7 @@ impl FromStr for ProcessKeywordFailure {
         match s {
             "error" => Ok(Self::Error),
             "demote" => Ok(Self::Demote),
+            "demote_silent" => Ok(Self::DemoteSilent),
             "drop" => Ok(Self::Drop),
             "drop_silent" => Ok(Self::DropSilent),
             _ => Err(ProcessKeywordFailureError),
@@ -1187,7 +1205,7 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
-pub trait TriErrorFlag: Into<TriFlag> + Copy {
+pub(crate) trait TriErrorFlag: Into<TriFlag> + Copy {
     const FALSE_IS_ERROR: bool;
 
     fn is_error(&self) -> Option<bool> {
@@ -1301,11 +1319,20 @@ impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
 
-impl_tri_error_flag!(false_is_error AllowLoss);
-
 impl_tri_error_flag!(true_is_error DisallowDeprecated);
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
+
+// flag for controlling imperfect downgrades and upgrades
+impl_tri_error_flag!(false_is_error AllowLoss);
+
+/// Fake flag to use for non-public switchable errors
+#[derive(From, Into, Clone, Copy)]
+pub(crate) struct DummyTriFlag(pub(crate) TriFlag);
+
+impl TriErrorFlag for DummyTriFlag {
+    const FALSE_IS_ERROR: bool = true;
+}
 
 /// Tri-state flag to throw warning, throw error, or do nothing
 #[derive(Clone, Copy, Default)]

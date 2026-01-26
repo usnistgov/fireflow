@@ -406,16 +406,26 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
+        // TODO error state should be handled here rather than trusting the
+        // caller to do it correctly
         match Self::remove_opt(kws, k) {
             Ok(ret) => Ok(ret),
-            Err(e) => match conf.process_optional_failure.0 {
-                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
-                ProcessKeywordFailure::Demote => {
+            Err(e) => {
+                let (return_err, demote) = match conf.process_optional_failure.0 {
+                    ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
+                    ProcessKeywordFailure::Demote => (true, true),
+                    ProcessKeywordFailure::DemoteSilent => (false, true),
+                    ProcessKeywordFailure::DropSilent => (false, false),
+                };
+                if demote {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
-                    Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
-            },
+                if return_err {
+                    Err(e)
+                } else {
+                    Ok(Self::Outer::default())
+                }
+            }
         }
     }
 
@@ -437,14 +447,22 @@ pub(crate) trait Optional: Sized {
         match Self::remove_opt_with(std, k, data, conf.as_ref()) {
             Ok(ret) => Ok(ret),
             // TODO not dry
-            Err(e) => match rconf.process_optional_failure.0 {
-                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
-                ProcessKeywordFailure::Demote => {
+            Err(e) => {
+                let (return_err, demote) = match rconf.process_optional_failure.0 {
+                    ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
+                    ProcessKeywordFailure::Demote => (true, true),
+                    ProcessKeywordFailure::DemoteSilent => (false, true),
+                    ProcessKeywordFailure::DropSilent => (false, false),
+                };
+                if demote {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
-                    Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(DiagnosedKeyword::default()),
-            },
+                if return_err {
+                    Err(e)
+                } else {
+                    Ok(DiagnosedKeyword::default())
+                }
+            }
         }
     }
 

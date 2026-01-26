@@ -54,6 +54,7 @@ fn main() {
 fn run() -> AppResult<()> {
     let kw_style = Style::new().italic();
     let seg_style = Style::new().italic();
+    let arg_style = Style::new().bold();
 
     let header_seg = seg_style.paint("HEADER");
     let text_seg = seg_style.paint("TEXT");
@@ -63,6 +64,9 @@ fn run() -> AppResult<()> {
     let analysis_seg = seg_style.paint("ANALYSIS");
     let other_seg = seg_style.paint("OTHER");
 
+    let fmt_arg = |arg| arg_style.paint(format!("--{arg}"));
+
+    // TODO format args in bold
     let (delim_header, delim_help) = format_section(
         "DELIMITER ESCAPING",
         [
@@ -100,15 +104,17 @@ fn run() -> AppResult<()> {
                  unescaped mode since `\"\"` is almost never a sensible key value."
             ),
             format!(
-                "The guessing algorithm is independent of \
-                 --{TRIM_TRAILING_WHITESPACE} since it will ignore everything \
-                 after the last delimiter. It is also independent of --{ALLOW_ODD} \
-                 and --{ALLOW_MISSING_FINAL_DELIM} which will trigger as normal if \
-                 their respective violations are found."
+                "The guessing algorithm is independent of {trim} since it will ignore \
+                 everything after the last delimiter. It is also independent of {odd} \
+                 and {final} which will trigger as normal if their respective violations \
+                 are found.",
+                trim = fmt_arg(TRIM_TRAILING_WHITESPACE),
+                odd = fmt_arg(ALLOW_ODD),
+                final = fmt_arg(ALLOW_MISSING_FINAL_DELIM),
             ),
             format!(
-                "If unescaped mode ends up be used, then --{ALLOW_EMPTY_VALUES} is \
-                 implied to be set."
+                "If unescaped mode ends up be used, then {} is implied to be set.",
+                fmt_arg(ALLOW_EMPTY_VALUES),
             ),
         ],
     );
@@ -116,24 +122,27 @@ fn run() -> AppResult<()> {
     let (sub_header, sub_help) = format_section(
         "SUBSTITUTION",
         [format!(
-            "The SUB part in --{SUB_STD_LIT_KEY_VALS} and --{SUB_STD_PAT_KEY_VALS} \
-             is a sed-like pattern which will be used to edit the value of KEY. \
-             It must be a string like 's<D><FROM><D><TO>[<D>g]' where 'D' is a \
-             delimiter (any character), FROM is a regular expression and TO is a \
-             replacement pattern. FROM and TO must follow the syntax outlined in \
-             {REGEXP_REF} and {REGEXP_REP_REF} respectively, with the caveat that \
-             only bracketed replacement syntax is allowed."
+            "The SUB part in {lit} and {pat} is a sed-like pattern which will \
+             be used to edit the value of KEY. It must be a string like \
+             's<D><FROM><D><TO>[<D>g]' where 'D' is a delimiter (any character), \
+             FROM is a regular expression and TO is a replacement pattern. FROM \
+             and TO must follow the syntax outlined in {REGEXP_REF} and \
+             {REGEXP_REP_REF} respectively, with the caveat that only bracketed \
+             replacement syntax is allowed.",
+            lit = fmt_arg(SUB_STD_LIT_KEY_VALS),
+            pat = fmt_arg(SUB_STD_PAT_KEY_VALS),
         )],
     );
 
     let (date_header, date_help) = format_section(
         "DATE PATTERN",
         [format!(
-            "The value for --{DATE_PATTERN} will be used as an alternative pattern when \
+            "The value for {pat} will be used as an alternative pattern when \
              parsing {kw}. It should have specifiers for year, month, and \
              day as outlined in {CHRONO_REF}. If not supplied, {kw} will \
              be parsed according to the standard pattern which is \
              '%d-%b-%Y'.",
+            pat = fmt_arg(DATE_PATTERN),
             kw = kw_style.paint("$DATE"),
         )],
     );
@@ -294,8 +303,9 @@ fn run() -> AppResult<()> {
         ALLOW_EMPTY_VALUES,
         true,
         format!(
-            "Allow values to be blank if --{TRIM_VALUE_WHITESPACE} is set \
-             and values are entirely whitespace (relatively common)."
+            "Allow values to be blank if {} is set \
+             and values are entirely whitespace (relatively common).",
+            fmt_arg(TRIM_VALUE_WHITESPACE),
         ),
     );
 
@@ -820,28 +830,33 @@ fn run() -> AppResult<()> {
     let delim_arg = Arg::new(DELIM)
         .long(DELIM)
         .short('d')
+        .value_name("CHAR")
         .help("Delimiter to use for tabular output.")
         .default_value("\t");
 
     let dataset_index_arg = Arg::new(DATASET_INDEX)
         .long(DATASET_INDEX)
         .short('I')
+        .value_name("INDEX")
         .value_parser(value_parser!(usize))
         .help("Index of the dataset to parse (starting from 0)");
 
     let skip_arg = Arg::new(SKIP)
         .long(SKIP)
+        .value_name("INT")
         .value_parser(value_parser!(usize))
         .help("Number of datasets to skip");
 
     let limit_arg = Arg::new(LIMIT)
         .long(LIMIT)
+        .value_name("INT")
         .value_parser(value_parser!(usize))
         .help("Number of datasets to return");
 
     let input_arg = Arg::new(INPUT_PATH)
         .short('i')
         .long(INPUT_PATH)
+        .value_name("PATH")
         .value_parser(value_parser!(PathBuf))
         .help("Path to FCS file to parse.")
         .required(true);
@@ -1029,7 +1044,7 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
 }
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
-    Arg::new(long).long(long).help(format!(
+    Arg::new(long).long(long).value_name("LEVEL").help(format!(
         "{help_front} Must be one of 'error', 'demote', 'drop', or \
          'drop_silent' which will throw an error, demote to non-standard, \
          drop with warning, or drop silently respectively"
@@ -1054,9 +1069,13 @@ fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Displ
     } else {
         ("error", "error", ValueParser::new(parse_true_is_err))
     };
-    Arg::new(long).long(long).value_parser(p).help(format!(
-        "{help_front} If '{x}', throw {y}. If 'silent', ignore completely."
-    ))
+    Arg::new(long)
+        .long(long)
+        .value_name("LEVEL")
+        .value_parser(p)
+        .help(format!(
+            "{help_front} If '{x}', throw {y}. If 'silent', ignore completely."
+        ))
 }
 
 fn format_section(

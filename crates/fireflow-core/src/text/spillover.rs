@@ -17,7 +17,6 @@ use std::fmt;
 use std::hash::Hash;
 use std::mem::take;
 use std::num::ParseIntError;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -232,29 +231,21 @@ impl FromStrWith for Spillover {
         ordered_names: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
     ) -> FromStrWithResult<Self> {
+        let trim_flag = conf.trim_intra_value_whitespace;
         if conf.parse_indexed_spillover.is_set() {
             let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
-            let (m, was_trimmed) = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
-                s,
-                conf.trim_intra_value_whitespace,
-                go,
-            )?;
+            let (m, was_trimmed) =
+                GenericSpillover::from_str::<ParseSpilloverError, _, _>(s, trim_flag, go)?;
             let d = was_trimmed.then(|| s.to_owned());
             Ok(DiagnosedKeyword::new(m.try_into_named(ordered_names)?, d))
         } else {
-            let m = s.parse::<Self>()?;
+            let m = Self::from_str::<ParseGenericSpilloverError, _, _>(s, trim_flag, |m| {
+                Ok(Shortname::new_unchecked(m))
+            })
+            .map(|x| x.0)?;
             // m.check_link(names)?;
             Ok(DiagnosedKeyword::new(m, None))
         }
-    }
-}
-
-impl FromStr for Spillover {
-    type Err = ParseGenericSpilloverError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // throw away trimmed flag since we hardcode trimming to false
-        Self::from_str(s, false.into(), |m| Ok(Shortname::new_unchecked(m))).map(|x| x.0)
     }
 }
 
@@ -308,29 +299,69 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn str_compensation() {
-        assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
-        assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
-        assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
+    fn spillover() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
+        assert_from_to_str_with::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf);
+        assert_from_to_str_with::<Spillover>("2,X,Y,1.1,1,0,-1.5", &ns, &conf);
     }
 
     #[test]
-    fn str_compensation_unique() {
-        assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
+    fn spillover_indexed() {
+        let mut conf = ReadStdKeywordsConfig::default();
+        conf.parse_indexed_spillover = true.into();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
+        let spill = res.unwrap().native.to_string();
+        assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
     #[test]
-    fn str_compensation_toosmall() {
-        assert!("1,potato,0".parse::<Spillover>().is_err());
+    fn spillover_trimmed() {
+        let mut conf = ReadStdKeywordsConfig::default();
+        conf.trim_intra_value_whitespace = true.into();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        let res = Spillover::from_str_with("2, X,  Y , 0, 0,    0, 0", &ns, &conf);
+        let spill = res.unwrap().native.to_string();
+        assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
     #[test]
-    fn str_compensation_name_length() {
-        assert!(
-            "2,moody,padfoot,prongs,0,0,0,0"
-                .parse::<Spillover>()
-                .is_err()
-        );
+    fn spillover_nonunique() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        assert!(Spillover::from_str_with("3,Y,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf).is_err());
+    }
+
+    #[test]
+    fn spillover_toosmall() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [&Shortname::new_unchecked("potato")];
+        assert!(Spillover::from_str_with("1,potato,0", &ns, &conf).is_err());
+    }
+
+    #[test]
+    fn spillover_name_wrong_length() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("moody"),
+            &Shortname::new_unchecked("padfoot"),
+            &Shortname::new_unchecked("prongs"),
+        ];
+        assert!(Spillover::from_str_with("2,moody,padfoot,prongs,0,0,0,0", &ns, &conf).is_err());
     }
 }
 

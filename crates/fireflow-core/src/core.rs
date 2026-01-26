@@ -2030,10 +2030,8 @@ impl<O> Optical<O> {
         let filter = Filter::remove_meas_opt_nofail(std, i);
         let power = Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit =
-            PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
-        let det_volt =
-            DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
+        let perc_emit = PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
+        let det_volt = DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         go!(power)
@@ -5670,11 +5668,12 @@ impl UnstainedData {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
-        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
-            .map_deferred_value(|out| {
+        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf).map_deferred_value(
+            |out| {
                 let (c, t) = out.into_root_pair();
                 DiagnosedUnstainedData::new(Self::new(c, i), t)
-            })
+            },
+        )
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -7922,6 +7921,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
+        // TODO these should be processed like all other optional keywords
         let succ = Tot::remove_root_opt(kws)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
@@ -8381,11 +8381,10 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .switchable_into_commutative()
             .into_semigroup();
 
-        let spill =
-            Spillover::remove_or_drop_root_opt_with(std, nonstd, &ordered_names[..], conf)
-                .map_switchable_errors(LookupMetarootWarning::from)
-                .switchable_into_commutative()
-                .into_semigroup();
+        let spill = Spillover::remove_or_drop_root_opt_with(std, nonstd, &ordered_names[..], conf)
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
 
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
@@ -8451,11 +8450,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let mode = go!(Mode3_2::remove_or_drop_root_opt(
-            std,
-            nonstd,
-            conf.as_ref()
-        ));
+        let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(

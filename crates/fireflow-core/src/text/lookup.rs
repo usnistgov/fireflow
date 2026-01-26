@@ -563,6 +563,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     //     Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
     // }
 
+    // TODO this shouldn't be necessary
     fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,

@@ -520,6 +520,7 @@ where
     }
 
     fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
+        // TODO these should process optional keywords the same as everything else
         let x0 = Self::B::remove_root_opt(kws);
         let x1 = Self::E::remove_root_opt(kws);
         (x0, x1)

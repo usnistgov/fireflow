@@ -961,11 +961,10 @@ impl<I> Region<I> {
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let index_res =
-            RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
-                .map_switchable_errors(LookupRegionError::Region)
-                .switchable_into_commutative()
-                .into_semigroup();
+        let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
+            .map_switchable_errors(LookupRegionError::Region)
+            .switchable_into_commutative()
+            .into_semigroup();
         let window_res = RegionWindow::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Window)
             .switchable_into_commutative()

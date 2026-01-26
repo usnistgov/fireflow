@@ -195,9 +195,9 @@ impl<X> Timestamps<X> {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let b = Btim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let e = Etim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip_f3_once(go!(e), go!(d))

@@ -2030,8 +2030,10 @@ impl<O> Optical<O> {
         let filter = Filter::remove_meas_opt_nofail(std, i);
         let power = Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit = PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
-        let det_volt = DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
+        let perc_emit =
+            PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
+        let det_volt =
+            DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
         let specific = O::lookup_specific(std, &mut nonstd, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         go!(power)
@@ -5668,12 +5670,11 @@ impl UnstainedData {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
-        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf).map_deferred_value(
-            |out| {
+        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
+            .map_deferred_value(|out| {
                 let (c, t) = out.into_root_pair();
                 DiagnosedUnstainedData::new(Self::new(c, i), t)
-            },
-        )
+            })
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5733,7 +5734,7 @@ impl CSVFlags {
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
-        CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
+        CSMode::remove_or_drop_root_opt(std, nonstd, conf)
             .map_switchable_errors(LookupCSVFlagsError::from)
             .switchable_into_commutative()
             .into_semigroup()
@@ -5747,7 +5748,7 @@ impl CSVFlags {
                 let n = m.map(|x| x.0).unwrap_or_default();
                 (0..n)
                     .map(|i| {
-                        CSVFlag::remove_or_transfer_meas_opt(std, nonstd, i, conf)
+                        CSVFlag::remove_or_drop_meas_opt(std, nonstd, i, conf)
                             .map_switchable_errors(LookupCSVFlagsError::from)
                             .switchable_into_commutative()
                             .into_semigroup()
@@ -5784,11 +5785,11 @@ impl ModificationData {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
-        let last_mod_date = LastModified::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
+        let last_mod_date = LastModified::remove_or_drop_root_opt_with(std, nonstd, (), conf)
             .map_switchable_errors(LookupModifiedDataError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
+        let ori = Originality::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
             .map_switchable_errors(LookupModifiedDataError::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -8355,14 +8356,6 @@ impl LookupMetaroot for InnerMetaroot3_1 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupMetarootWarning::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
-
         let process_mode = |mode| {
             let err = match &mode {
                 Mode::Correlated => Some(DeprecatedModeWarning::ModeCorrelated),
@@ -8383,13 +8376,16 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
 
-        let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
-        let spill = go!(Spillover::remove_or_drop_root_opt_with(
-            std,
-            nonstd,
-            &ordered_names[..],
-            conf
-        ));
+        let vol = Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+
+        let spill =
+            Spillover::remove_or_drop_root_opt_with(std, nonstd, &ordered_names[..], conf)
+                .map_switchable_errors(LookupMetarootWarning::from)
+                .switchable_into_commutative()
+                .into_semigroup();
 
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
@@ -8455,7 +8451,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
+        let mode = go!(Mode3_2::remove_or_drop_root_opt(
+            std,
+            nonstd,
+            conf.as_ref()
+        ));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(

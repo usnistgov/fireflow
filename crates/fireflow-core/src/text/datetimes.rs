@@ -104,11 +104,11 @@ impl Datetimes {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let b = BeginDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
+        let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
             .map_switchable_errors(LookupDatetimesError::from)
             .switchable_into_commutative()
             .into_semigroup::<Vec<_>, _>();
-        let e = EndDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
+        let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
             .map_switchable_errors(LookupDatetimesError::from)
             .switchable_into_commutative()
             .into_semigroup::<Vec<_>, _>();

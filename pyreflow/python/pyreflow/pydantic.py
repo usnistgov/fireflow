@@ -54,7 +54,6 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_nonunique: pft.TriFlag = False
     allow_odd: pft.TriFlag = False
     allow_empty_keys: pft.TriFlag = False
-    allow_empty_values: pft.TriFlag = False
     allow_delim_at_boundary: pft.TriFlag = False
     allow_non_utf8: pft.TriFlag = False
     use_latin1: bool = False
@@ -62,7 +61,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_missing_supp_text: pft.TriFlag = False
     allow_supp_text_own_delim: pft.TriFlag = False
     allow_missing_nextdata: pft.TriFlag = False
-    trim_value_whitespace: bool = False
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim"
     trim_trailing_whitespace: bool = False
     ignore_standard_keys: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
     promote_to_standard: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS

@@ -169,3 +169,7 @@ ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]
 ScaleDiagnostic: TypeAlias = (
     tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
 )
+
+TrimValueWhitespace: TypeAlias = Literal[
+    "notrim", "trim", "trim_blank_warn", "trim_blank_nowarn"
+]

@@ -731,13 +731,13 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
-        let check_trim = |this: &mut Self, trimmed| {
+        let check_trim = |this: &mut Self, trimmed, flag| {
             let tr = AsRef::<str>::as_ref(&trimmed);
             if tr.is_empty() {
                 let sb = StringOrBytes::from(k.to_vec());
                 this.keys_with_empty_trimmed_values.push(sb.clone());
                 let e = BlankValueError(sb);
-                SwitchableErrorResult::new_switchable3(None, (), e, conf.allow_empty_values)
+                SwitchableErrorResult::new_switchable3(None, (), e, flag)
                     .switchable_into_commutative()
             } else {
                 if v.len() < tr.len() {
@@ -751,12 +751,12 @@ impl ParsedKeywords {
         let mut parse_value = || {
             let res = if conf.use_latin1.is_set() {
                 let it = v.iter().copied().map(char::from);
-                if conf.trim_value_whitespace.is_set() {
+                if let Some(flag) = conf.trim_value_whitespace.into_allow_empty_flag() {
                     let trimmed: String = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
-                    check_trim(self, Cow::Owned(trimmed))
+                    check_trim(self, Cow::Owned(trimmed), flag)
                 } else {
                     // ASSUME this will always be a non-empty string since
                     // it is using the value slice inputted to this function
@@ -764,8 +764,8 @@ impl ParsedKeywords {
                     LogResult::new_ok(Some(Cow::Owned(it.collect())))
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
-                if conf.trim_value_whitespace.is_set() {
-                    check_trim(self, Cow::Borrowed(vv.trim()))
+                if let Some(flag) = conf.trim_value_whitespace.into_allow_empty_flag() {
+                    check_trim(self, Cow::Borrowed(vv.trim()), flag)
                 } else {
                     LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }

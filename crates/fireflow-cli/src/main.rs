@@ -5,7 +5,7 @@ use fireflow_core::api::{
 use fireflow_core::config::{
     self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
     ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TemporalOpticalKey,
-    TimeMeasNamePattern, TriFlag, TruncateEventValues, VersionOverride,
+    TimeMeasNamePattern, TriFlag, TrimValueWhitespace, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -111,10 +111,6 @@ fn run() -> AppResult<()> {
                 trim = fmt_arg(TRIM_TRAILING_WHITESPACE),
                 odd = fmt_arg(ALLOW_ODD),
                 final = fmt_arg(ALLOW_MISSING_FINAL_DELIM),
-            ),
-            format!(
-                "If unescaped mode ends up be used, then {} is implied to be set.",
-                fmt_arg(ALLOW_EMPTY_VALUES),
             ),
         ],
     );
@@ -299,16 +295,6 @@ fn run() -> AppResult<()> {
         "Allow keys to be blank (relatively rare).",
     );
 
-    let allow_empty_values = tri_flag_arg(
-        ALLOW_EMPTY_VALUES,
-        true,
-        format!(
-            "Allow values to be blank if {} is set \
-             and values are entirely whitespace (relatively common).",
-            fmt_arg(TRIM_VALUE_WHITESPACE),
-        ),
-    );
-
     let allow_delim_at_bound = tri_flag_arg(
         ALLOW_DELIM_AT_BOUNDARY,
         true,
@@ -350,10 +336,17 @@ fn run() -> AppResult<()> {
         format!("Allow {} to be missing.", kw_style.paint("$NEXTDATA")),
     );
 
-    let trim_value_whitespace = flag_arg(
-        TRIM_VALUE_WHITESPACE,
-        "Trim whitespace from beginning and end of all values.",
-    );
+    let trim_value_whitespace = Arg::new(TRIM_VALUE_WHITESPACE)
+        .long(TRIM_VALUE_WHITESPACE)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(TrimValueWhitespace))
+        .help(
+            "Trim whitespace from beginning and end of all values. This may \
+             create blank values if the starting string is entirely whitespace. \
+             Set to 'notrim' to not trim at all (default). Set to 'trim', \
+             'trim_blank_warn', or 'trim_blank_nowarn' to enable trimming and \
+             throw error, warning, or nothing when trimming results in a blank.",
+        );
 
     let trim_trailing_whitespace = flag_arg(
         TRIM_TRAILING_WHITESPACE,
@@ -457,7 +450,6 @@ fn run() -> AppResult<()> {
         allow_non_unique,
         allow_odd,
         allow_empty_keys,
-        allow_empty_values,
         allow_delim_at_bound,
         allow_non_utf8,
         use_latin1,
@@ -1170,7 +1162,6 @@ fn parse_header_and_text_config(
         allow_nonunique: parse_tri_flag(sargs, ALLOW_NON_UNIQUE),
         allow_odd: parse_tri_flag(sargs, ALLOW_ODD),
         allow_empty_keys: parse_tri_flag(sargs, ALLOW_EMPTY_KEYS),
-        allow_empty_values: parse_tri_flag(sargs, ALLOW_EMPTY_VALUES),
         allow_delim_at_boundary: parse_tri_flag(sargs, ALLOW_DELIM_AT_BOUNDARY),
         allow_non_utf8: parse_tri_flag(sargs, ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
@@ -1178,7 +1169,7 @@ fn parse_header_and_text_config(
         allow_missing_supp_text: parse_tri_flag(sargs, ALLOW_MISSING_SUPP_TEXT),
         allow_supp_text_own_delim: parse_tri_flag(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
         allow_missing_nextdata: parse_tri_flag(sargs, ALLOW_MISSING_NEXTDATA),
-        trim_value_whitespace: sargs.get_flag(TRIM_VALUE_WHITESPACE).into(),
+        trim_value_whitespace: parse_def(sargs, TRIM_VALUE_WHITESPACE),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
         rename_standard_keys,
@@ -1532,8 +1523,6 @@ const ALLOW_NON_UNIQUE: &str = "allow-non-unique";
 const ALLOW_ODD: &str = "allow-odd";
 
 const ALLOW_EMPTY_KEYS: &str = "allow-empty-keys";
-
-const ALLOW_EMPTY_VALUES: &str = "allow-empty-values";
 
 const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
 

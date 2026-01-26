@@ -313,7 +313,8 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TruncateOffsets)]
     pub header: ReadHeaderInnerConfig,
 
-    // TODO this belongs in one of the keyword configs
+    // NOTE the only reason this is here and not in the Keywords configs is
+    // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
     ///
     /// If [`VersionOverride::Force`], force the version to be the supplied
@@ -396,9 +397,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// the last delimiter. It is also independent of [`Self::allow_odd`] and
     /// [`Self::allow_missing_final_delim`] which will trigger as normal if
     /// their respective violations are found.
-    ///
-    /// If unescaped mode ends up be used, then [`Self::allow_empty_values`] is
-    /// implied to be `true`.
     pub delim_escape_mode: DelimEscapeMode,
 
     /// If `true`, allow delimiter to be character outside 1-126.
@@ -431,23 +429,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// presence of blank keys probably indicates that token which is really
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
-
-    // TODO combine with trim_value_whitespace
-    /// If `true`, allow blank values.
-    ///
-    /// These can arise if delimiters are escaped,
-    /// [`Self::trim_value_whitespace`] is `true`, and values which are entirely
-    /// whitespace are trimmed to zero bytes. This is relatively common in
-    /// practice despite being non-standard. Given this and the fact that
-    /// whitespace generally has little meaning for keyword values, this flag is
-    /// almost always safe to set as `true`.
-    ///
-    /// Blank values will be dropped regardless of this flag; setting it to
-    /// `false` will trigger an error, otherwise a warning.
-    ///
-    /// If delimiters are unescaped, empty values are implied and this flag does
-    /// nothing.
-    pub allow_empty_values: AllowEmptyValues,
 
     /// If `true`, allow delimiters at token boundaries.
     ///
@@ -495,7 +476,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// be emitted rather than an error if this is missing.
     pub allow_missing_nextdata: AllowMissingNextdata,
 
-    /// If `true`, trim whitespace from all values.
+    /// Trim whitespace from all values.
     ///
     /// This is mainly useful for the case of fixing offsets which are usually
     /// padded in order to make the TEXT segment a predictable length. These
@@ -504,16 +485,11 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are padded with spaces (on either side). Setting this to `true` will
     /// trim the spaces leaving just a number to be parsed.
     ///
-    /// Blanks may be erroneously present on any keyword that has a fixed
-    /// structure; setting this to `true` may allow these to be parsed correctly
-    /// as well.
-    ///
     /// Trimming will be done as soon as the bytes are read from the file, thus
     /// preceding any other repair steps. Furthermore, trimming values has a
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
-    /// are entirely whitespace will become empty and thus be dropped. Note that
-    /// these will result in errors if [`Self::allow_empty_values`] is `false`.
+    /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
 
     /// If `true` remove whitespace after TEXT.
@@ -1120,6 +1096,57 @@ impl FromStr for DelimEscapeMode {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct DelimEscapeModeError;
 
+/// Choose how to trim values and deal with blanks that may result.
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum TrimValueWhitespace {
+    /// Do not trim at all.
+    #[default]
+    Notrim,
+    /// Trim whitespace and throw error if blank is created.
+    Trim,
+    /// Trim whitespace and throw warning if blank is created.
+    TrimBlankWarn,
+    /// Trim whitespace and do nothing if blank is created.
+    TrimBlankNowarn,
+}
+
+impl TrimValueWhitespace {
+    /// Emit a flag for handling blank values after trimming.
+    ///
+    /// Will be `None` if trimming is not set.
+    pub(crate) fn into_allow_empty_flag(self) -> Option<DummyTriFlag> {
+        let f = match self {
+            Self::Notrim => None,
+            Self::Trim => Some(TriFlag::False),
+            Self::TrimBlankWarn => Some(TriFlag::True),
+            Self::TrimBlankNowarn => Some(TriFlag::Noop),
+        };
+        f.map(Into::into)
+    }
+}
+
+impl FromStr for TrimValueWhitespace {
+    type Err = TrimValueWhitespaceError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "notrim" => Ok(Self::Notrim),
+            "trim" => Ok(Self::Trim),
+            "trim_blank_warn" => Ok(Self::TrimBlankWarn),
+            "trim_blank_nowarn" => Ok(Self::TrimBlankNowarn),
+            _ => Err(TrimValueWhitespaceError),
+        }
+    }
+}
+
+/// Error when parsing [`TrimValueWhitespace`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'notrim', 'trim', 'trim_blank_warn', or 'trim_blank_nowarn'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct TrimValueWhitespaceError;
+
 /// Choose which $PnE to force as linear.
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
@@ -1259,7 +1286,6 @@ impl_config_flag!(TruncateOffsets);
 
 impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);
-impl_config_flag!(TrimValueWhitespace);
 impl_config_flag!(TrimTrailingWhitespace);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
@@ -1306,7 +1332,6 @@ impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_tri_error_flag!(false_is_error AllowNonunique);
 impl_tri_error_flag!(false_is_error AllowOdd);
 impl_tri_error_flag!(false_is_error AllowEmptyKeys);
-impl_tri_error_flag!(false_is_error AllowEmptyValues);
 impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_tri_error_flag!(false_is_error AllowNonUtf8);
 impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);

@@ -7677,7 +7677,6 @@ impl DocArgParam {
             Self::new_allow_nonunique(),
             Self::new_allow_odd(),
             Self::new_allow_empty_keys(),
-            Self::new_allow_empty_values(),
             Self::new_allow_delim_at_boundary(),
             Self::new_allow_non_utf8(),
             Self::new_use_latin1(),
@@ -8225,13 +8224,6 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d)
     }
 
-    fn new_allow_empty_values() -> Self {
-        let d = "Choose what happens if any values are blank. Only relevant if \
-                 ``trim_value_whitespace`` is ``True`` and value is \
-                 entirely whitespace.";
-        Self::new_tri_flag_param("allow_empty_values", true, "AllowEmptyValues", d)
-    }
-
     fn new_allow_delim_at_boundary() -> Self {
         let d = "Choose what happens if there are delimiters at token boundaries. \
                  The FCS standard forbids this because it is impossible to tell \
@@ -8286,11 +8278,16 @@ impl DocArgParam {
     }
 
     fn new_trim_value_whitespace() -> Self {
-        let d = "If ``True`` trim whitespace from all values. If performed, \
-                 trimming precedes all other repair steps. Any values which are \
-                 entirely spaces will become blanks, in which case it may also be \
-                 sensible to enable ``allow_empty``.";
-        Self::new_bool_param("trim_value_whitespace", d)
+        let d = "Trim whitespace from beginning and end of all values. This may \
+                 create blank values if the starting string is entirely whitespace. \
+                 Set to ``\"notrim\"`` to not trim at all. Set to \
+                 ``\"trim\"``, ``\"trim_blank_warn\"``, or ``\"trim_blank_nowarn\"`` \
+                 to enable trimming and throw error, warning, or nothing when \
+                 trimming results in a blank.";
+        let rstype = config_path("TrimValueWhitespace");
+        let choices = ["notrim", "trim", "trim_blank_warn", "trim_blank_nowarn"];
+        let pt = PyLiteral::new2(choices, rstype);
+        Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
     fn new_trim_trailing_whitespace() -> Self {

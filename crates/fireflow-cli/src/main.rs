@@ -4,8 +4,9 @@ use fireflow_core::api::{
 };
 use fireflow_core::config::{
     self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TemporalOpticalKey,
-    TimeMeasNamePattern, TriFlag, TrimValueWhitespace, TruncateEventValues, VersionOverride,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, SpilloverMeasurementMode,
+    TemporalOpticalKey, TimeMeasNamePattern, TriFlag, TrimValueWhitespace, TruncateEventValues,
+    VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -523,14 +524,18 @@ fn run() -> AppResult<()> {
         .value_delimiter(',')
         .value_parser(value_parser!(TemporalOpticalKey));
 
-    let parse_indexed_spillover = flag_arg(
-        PARSE_INDEXED_SPILLOVER,
-        format!(
-            "Parse numeric indices for {} rather than string names ({}).",
+    let spillover_measurement_mode = Arg::new(SPILLOVER_MEASUREMENT_MODE)
+        .long(SPILLOVER_MEASUREMENT_MODE)
+        .value_name("MODE")
+        .value_parser(value_parser!(SpilloverMeasurementMode))
+        .help(format!(
+            "Choose how to interpret measurement strings in {}. Set to 'named' \
+             to interpret as names which link to {}. Set to 'indexed' to \
+             interpret as 1-indices which point to measurements. Set to 'guess' \
+             to automatically choose the prior two modes.",
             kw_style.paint("$SPILLOVER"),
             kw_style.paint("$PnN")
-        ),
-    );
+        ));
 
     let allow_other_feature = flag_arg(
         ALLOW_OTHER_FEATURE,
@@ -651,7 +656,7 @@ fn run() -> AppResult<()> {
         allow_missing_time,
         force_linear_scale,
         ignore_time_optical_keys,
-        parse_indexed_spillover,
+        spillover_measurement_mode,
         date_pattern,
         time_pattern,
         datetime_pattern,
@@ -1200,7 +1205,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         force_linear_scale: parse_def(sargs, FORCE_LINEAR_SCALE),
         ignore_time_optical_keys,
         allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME),
-        parse_indexed_spillover: sargs.get_flag(PARSE_INDEXED_SPILLOVER).into(),
+        spillover_measurement_mode: parse_def(sargs, SPILLOVER_MEASUREMENT_MODE),
         date_pattern: sargs.get_one(DATE_PATTERN).cloned(),
         time_pattern: sargs.get_one(TIME_PATTERN).cloned(),
         datetime_pattern: sargs.get_one::<String>(DATETIME_PATTERN).cloned(),
@@ -1584,7 +1589,7 @@ const TIME_MEAS_PATTERN: &str = "time-meas-pattern";
 
 const ALLOW_MISSING_TIME: &str = "allow-missing-time";
 
-const PARSE_INDEXED_SPILLOVER: &str = "parse-indexed-spillover";
+const SPILLOVER_MEASUREMENT_MODE: &str = "spillover-measurement-mode";
 
 const FORCE_LINEAR_SCALE: &str = "force-time-linear";
 

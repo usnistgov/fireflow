@@ -600,10 +600,10 @@ pub struct ReadStdKeywordsConfig {
     /// set to `"0,0"`.
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
-    /// If `true`, allow time to be absent even if we specify `time_meas_pattern`.
+    /// Allow time to be absent even [`Self::time_meas_pattern`] is set.
     pub allow_missing_time: AllowMissingTime,
 
-    /// If `true` force, force $PnE to be linear (`"0.0"`).
+    /// Force $PnE to be linear (`"0.0"`).
     pub force_linear_scale: ForceLinearScale,
 
     // TODO control if these should be dropped/demoted/returned in extra
@@ -616,12 +616,11 @@ pub struct ReadStdKeywordsConfig {
     /// equates to a no-op.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
-    // TODO make this guess if this is needed
-    /// If `true`, parse $SPILLOVER with indices rather than names.
+    /// Choose how to interpret measurements in $SPILLOVER.
     ///
-    /// Indices will then be used to look up the names that should have been
-    /// in their place.
-    pub parse_indexed_spillover: ParseIndexedSpillover,
+    /// Some files use numbers/indices rather than names which point to $PnN.
+    /// Only the latter is standards-compliant.
+    pub spillover_measurement_mode: SpilloverMeasurementMode,
 
     /// If set, will be used as an alternative pattern when parsing $DATE.
     ///
@@ -755,7 +754,7 @@ impl Default for ReadStdKeywordsConfig {
             allow_missing_time: AllowMissingTime::default(),
             force_linear_scale: ForceLinearScale::default(),
             ignore_time_optical_keys: HashSet::default(),
-            parse_indexed_spillover: ParseIndexedSpillover::default(),
+            spillover_measurement_mode: SpilloverMeasurementMode::default(),
             date_pattern: None,
             time_pattern: None,
             datetime_pattern: None,
@@ -1183,6 +1182,42 @@ impl ForceLinearScale {
     }
 }
 
+/// Choose how to parse measurements for $SPILLOVER key
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum SpilloverMeasurementMode {
+    /// Interpret measurements as names which match $PnN.
+    #[default]
+    Named,
+    /// Interpret measurements as 1-indices (numbers) which point to measurements.
+    Indexed,
+    /// Guess how measurements should be interpreted.
+    ///
+    /// If they are all numbers and all do not point to $PnN, interpret as
+    /// indices, otherwise names.
+    Guess,
+}
+
+impl FromStr for SpilloverMeasurementMode {
+    type Err = SpilloverMeasurementModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "named" => Ok(Self::Named),
+            "indexed" => Ok(Self::Indexed),
+            "guess" => Ok(Self::Guess),
+            _ => Err(SpilloverMeasurementModeError),
+        }
+    }
+}
+
+/// Error when parsing [`SpilloverMeasurementMode`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'named', 'indexed', or 'guess'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct SpilloverMeasurementModeError;
+
 /// Choose which event types are truncated.
 ///
 /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
@@ -1292,7 +1327,6 @@ impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 
 impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
-impl_config_flag!(ParseIndexedSpillover);
 impl_config_flag!(AllowOtherFeature);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);

@@ -91,7 +91,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     disallow_deprecated: pft.TriFlag = False
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
-    parse_indexed_spillover: bool = False
+    spillover_measurement_mode: pft.SpilloverMeasurementMode = "named"
     disallow_localtime: bool = False
 
 

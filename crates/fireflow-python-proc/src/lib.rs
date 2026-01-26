@@ -7701,7 +7701,7 @@ impl DocArgParam {
     fn new_read_std_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let parse_indexed_spillover = Self::new_parse_indexed_spillover_param();
+        let parse_indexed_spillover = Self::new_spillover_meas_mode_param();
         let disallow_localtime = Self::new_disallow_localtime_param();
 
         let std_common_args = [
@@ -7868,10 +7868,16 @@ impl DocArgParam {
         Self::new_param("ignore_time_optical_keys", p, d).def_auto()
     }
 
-    fn new_parse_indexed_spillover_param() -> Self {
-        let d = "Parse $SPILLOVER with numeric indices rather than strings \
-                 (ie names or *$PnN*)";
-        Self::new_bool_param("parse_indexed_spillover", d)
+    fn new_spillover_meas_mode_param() -> Self {
+        let d = "Choose how to interpret measurement strings in *$SPILLOVER*. \
+                 Set to ``\"named\"`` to interpret as names which link to \
+                 *$PnN*. Set to ``\"indexed\"`` to interpret as 1-indices which \
+                 point to measurements. Set to ``\"guess\"`` to automatically \
+                 choose the prior two modes.";
+        let choices = ["named", "indexed", "guess"];
+        let path = config_path("SpilloverMeasurementMode");
+        let pt = PyLiteral::new2(choices, path);
+        Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
     fn new_date_pattern_param() -> Self {

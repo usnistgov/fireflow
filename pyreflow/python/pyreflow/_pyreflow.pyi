@@ -58,6 +58,7 @@ from pyreflow.typing import (
     ForceLinearScale,
     ScaleDiagnostic,
     TrimValueWhitespace,
+    SpilloverMeasurementMode,
 )
 import pyreflow._defaults as pfd
 
@@ -1177,7 +1178,7 @@ class CoreTEXT3_1(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
@@ -1282,7 +1283,7 @@ class CoreTEXT3_2(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -1595,7 +1596,7 @@ class CoreDataset3_1(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
@@ -1713,7 +1714,7 @@ class CoreDataset3_2(
         disallow_deprecated: bool = False,
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2207,7 +2208,7 @@ def fcs_read_std_text(
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2351,7 +2352,7 @@ def fcs_read_std_dataset(
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2486,7 +2487,7 @@ def fcs_read_std_texts(
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2632,7 +2633,7 @@ def fcs_read_std_datasets(
     disallow_deprecated: bool = False,
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,

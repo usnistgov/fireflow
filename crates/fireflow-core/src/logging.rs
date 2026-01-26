@@ -2741,17 +2741,49 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
+    // pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
+    // where
+    //     F: FnOnce(&T) -> Option<E>,
+    //     EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
+    //     EC::Warn: Extend<E>,
+    //     X: ErrorFlag,
+    // {
+    //     // TODO where is the flag used?
+    //     match self {
+    //         Succ(succ) => {
+    //             if let Some(e) = f(&succ.value) {
+    //                 Fail(Failure::new_from_one(e, succ.value))
+    //             } else {
+    //                 Succ(succ)
+    //             }
+    //         }
+    //         Fail(mut fail) => {
+    //             if let Some(e) = f(&fail.value) {
+    //                 fail.push_error(e);
+    //             }
+    //             Fail(fail)
+    //         }
+    //     }
+    // }
+
+    pub(crate) fn eval_deferred_switchable_error3<F>(self, f: F) -> Self
     where
         F: FnOnce(&T) -> Option<E>,
         EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
         EC::Warn: Extend<E>,
-        X: ErrorFlag,
+        X: TriErrorFlag,
     {
         match self {
-            Succ(succ) => {
+            Succ(mut succ) => {
                 if let Some(e) = f(&succ.value) {
-                    Fail(Failure::new_from_one(e, succ.value))
+                    match succ.flag.is_error() {
+                        None => Succ(succ),
+                        Some(true) => Fail(Failure::new_from_one(e, succ.value)),
+                        Some(false) => {
+                            succ.extend_warnings([e]);
+                            Succ(succ)
+                        }
+                    }
                 } else {
                     Succ(succ)
                 }

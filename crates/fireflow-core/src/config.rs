@@ -1025,7 +1025,7 @@ pub enum ProcessKeywordFailure {
 }
 
 impl ProcessKeywordFailure {
-    pub(crate) fn as_flag(self) -> DummyTriFlag {
+    pub(crate) fn as_triflag(self) -> DummyTriFlag {
         let flag = match self {
             Self::Error => TriFlag::False,
             Self::Demote | Self::Drop => TriFlag::True,

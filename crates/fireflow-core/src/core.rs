@@ -2,11 +2,11 @@
 
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowDeprecated, DisallowRangeTrunc, ProcessKeywordFailure, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState,
-    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
-    TriFlag, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, ProcessKeywordFailure,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig,
+    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalHasOpticalKeyError,
+    TemporalOpticalKey, TimeMeasNamePattern, TriFlag, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -4437,7 +4437,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         |_p| (),
                         StdTEXTFromFlatTEXTWarning::from,
                         StdTEXTFromFlatTEXTErrorInner::from,
-                        flag.as_flag(),
+                        flag.as_triflag(),
                     );
             }
 
@@ -4459,7 +4459,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                             |_p| (),
                             StdTEXTFromFlatTEXTWarning::from,
                             StdTEXTFromFlatTEXTErrorInner::from,
-                            flag.as_flag(),
+                            flag.as_triflag(),
                         );
                 };
             }
@@ -5661,7 +5661,7 @@ impl UnstainedData {
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedUnstainedData,
-        ProcessOptionalFailure,
+        DummyTriFlag,
         OptKeyStError<UnstainedCenters>,
     >
     where
@@ -5698,10 +5698,8 @@ impl SubsetData {
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
-        let f = CSVFlags::lookup(kws, nonstd, conf)
-            .map_switchable_errors(LookupSubsetError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let f =
+            CSVFlags::lookup(kws, nonstd, conf).map_warnings_and_errors(LookupSubsetError::from);
         let b = CSVBits::remove_or_drop_root_opt(kws, nonstd, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
@@ -5734,11 +5732,11 @@ impl CSVFlags {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupCSVFlagsError> {
-        let flag = conf.process_optional_failure;
+    ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
         CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
-            .map_err(LookupCSVFlagsError::from)
-            .into_deferred_nowarn()
+            .map_switchable_errors(LookupCSVFlagsError::from)
+            .switchable_into_commutative()
+            .into_semigroup()
             .and_then_deferred(|m| {
                 // NOTE the standard seems to say that these flags are only
                 // required if the user wishes to encode a subset value using
@@ -5750,13 +5748,13 @@ impl CSVFlags {
                 (0..n)
                     .map(|i| {
                         CSVFlag::remove_or_transfer_meas_opt(std, nonstd, i, conf)
-                            .map_err(LookupCSVFlagsError::from)
-                            .into_deferred_nowarn()
+                            .map_switchable_errors(LookupCSVFlagsError::from)
+                            .switchable_into_commutative()
+                            .into_semigroup()
                     })
                     .sequence_def()
             })
             .map_deferred_value(Self)
-            .nowarn_into_switchable(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5781,21 +5779,20 @@ impl ModificationData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupModifiedDataError>
+    ) -> DeferredWarningsAndErrors<Self, LookupModifiedDataError, LookupModifiedDataError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
         let last_mod_date = LastModified::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
-            .map_err(LookupModifiedDataError::from)
-            .into_deferred_nowarn();
+            .map_switchable_errors(LookupModifiedDataError::from)
+            .switchable_into_commutative()
+            .into_semigroup();
         let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
-            .map_err(LookupModifiedDataError::from)
-            .into_deferred_nowarn();
-        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
-        last_mod_date
-            .lift_f2_once(ori, |d, o| Self::new(last_mod, d.native, o))
-            .nowarn_into_switchable(flag)
+            .map_switchable_errors(LookupModifiedDataError::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+        last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d.native, o))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -8262,8 +8259,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
             .switchable_into_commutative();
         let cyt = Cyt::remove_root_opt_nofail(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let mode = Mode::remove_metaroot_req(std)
@@ -8310,9 +8306,10 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
 
         let comp = Compensation3_0::remove_or_drop_root_opt_with(std, nonstd, (), conf);
-        let ts = Timestamps::lookup(std, nonstd, conf);
         let uni = Unicode::remove_or_drop_root_opt_with(std, nonstd, (), conf);
 
+        let ts = Timestamps::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
@@ -8323,7 +8320,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .into_log();
 
         go!(comp)
-            .zip5_commutative(subset, go!(ts), go!(uni), ag)
+            .zip5_commutative(subset, ts, go!(uni), ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
             .map_ok_value(|((co_out, su, t, u_out, g), m)| {
@@ -8386,8 +8383,6 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
 
-        let modif = go!(ModificationData::lookup(std, nonstd, conf));
-        let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(
             std,
@@ -8399,6 +8394,10 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let ts = Timestamps::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
         let mode = Mode::remove_metaroot_req(std)
@@ -8456,10 +8455,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let dt = go!(Datetimes::lookup(std, nonstd, conf));
-        let modif = go!(ModificationData::lookup(std, nonstd, conf));
         let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
-        let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(
@@ -8469,6 +8465,12 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             conf
         ));
 
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let ts = Timestamps::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let dt = Datetimes::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let agates = AppliedGates3_2::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 

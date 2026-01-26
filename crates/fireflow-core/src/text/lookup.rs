@@ -1,8 +1,8 @@
 use crate::config::{
-    ConfigFlag as _, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadStdKeywordsConfig, TrimIntraValueWhitespace,
 };
-use crate::logging::{DeferredSwitchableError, ResultExt as _};
+use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
     AnyKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
     StdKey, StdKeywords,
@@ -401,30 +401,33 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
         // TODO error state should be handled here rather than trusting the
         // caller to do it correctly
+        let flag = conf.process_optional_failure;
+        let triflag = flag.0.as_triflag();
         match Self::remove_opt(kws, k) {
-            Ok(ret) => Ok(ret),
+            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             Err(e) => {
-                let (return_err, demote) = match conf.process_optional_failure.0 {
-                    ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
-                    ProcessKeywordFailure::Demote => (true, true),
-                    ProcessKeywordFailure::DemoteSilent => (false, true),
-                    ProcessKeywordFailure::DropSilent => (false, false),
-                };
-                if demote {
+                if flag.is_demote() {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
                 }
-                if return_err {
-                    Err(e)
-                } else {
-                    Ok(Self::Outer::default())
-                }
+                LogResult::new_deferred_switchable3(Self::Outer::default(), e, triflag)
+                // let (return_err, demote) = match conf.process_optional_failure.0 {
+                //     ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
+                //     ProcessKeywordFailure::Demote => (true, true),
+                //     ProcessKeywordFailure::DemoteSilent => (false, true),
+                //     ProcessKeywordFailure::DropSilent => (false, false),
+                // };
+                // if return_err {
+                //     Err(e)
+                // } else {
+                //     Ok(Self::Outer::default())
+                // }
             }
         }
     }
@@ -436,7 +439,11 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        ParseKeyError<Self::Err, Self, I>,
+    >
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -444,24 +451,30 @@ pub(crate) trait Optional: Sized {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        let triflag = flag.0.as_triflag();
         match Self::remove_opt_with(std, k, data, conf.as_ref()) {
-            Ok(ret) => Ok(ret),
+            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             // TODO not dry
             Err(e) => {
-                let (return_err, demote) = match rconf.process_optional_failure.0 {
-                    ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
-                    ProcessKeywordFailure::Demote => (true, true),
-                    ProcessKeywordFailure::DemoteSilent => (false, true),
-                    ProcessKeywordFailure::DropSilent => (false, false),
-                };
-                if demote {
+                if flag.is_demote() {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
                 }
-                if return_err {
-                    Err(e)
-                } else {
-                    Ok(DiagnosedKeyword::default())
-                }
+                LogResult::new_deferred_switchable3(DiagnosedKeyword::default(), e, triflag)
+                // let (return_err, demote) = match rconf.process_optional_failure.0 {
+                //     ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => (true, false),
+                //     ProcessKeywordFailure::Demote => (true, true),
+                //     ProcessKeywordFailure::DemoteSilent => (false, true),
+                //     ProcessKeywordFailure::DropSilent => (false, false),
+                // };
+                // if demote {
+                //     nonstd.insert_demoted(k.as_std(), e.value.clone());
+                // }
+                // if return_err {
+                //     Err(e)
+                // } else {
+                //     Ok(DiagnosedKeyword::default())
+                // }
             }
         }
     }
@@ -471,19 +484,15 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<
-        Self::Outer,
-        ProcessOptionalFailure,
-        ParseKeyError<Self::Err, Self, I>,
-    >
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
         Self::remove_or_transfer_opt(std, nonstd, k, conf)
-            .into_nowarn1()
-            .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(conf.process_optional_failure)
+        // .into_nowarn1()
+        // .set_err_value(Self::Outer::default())
+        // .nowarn_into_switchable(conf.process_optional_failure)
     }
 
     #[allow(clippy::type_complexity)]
@@ -495,7 +504,7 @@ pub(crate) trait Optional: Sized {
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
-        ProcessOptionalFailure,
+        DummyTriFlag,
         ParseKeyError<Self::Err, Self, I>,
     >
     where
@@ -504,11 +513,11 @@ pub(crate) trait Optional: Sized {
         Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        // let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
-            .into_nowarn1()
-            .set_err_value(DiagnosedKeyword::default())
-            .nowarn_into_switchable(rconf.process_optional_failure)
+        // .into_nowarn1()
+        // .set_err_value(DiagnosedKeyword::default())
+        // .nowarn_into_switchable(rconf.process_optional_failure)
     }
 
     fn get_opt_inner<F, E, I>(
@@ -640,7 +649,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -652,7 +661,11 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, OptKeyStError<Self>>
+    ) -> DeferredSwitchableError<
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        OptKeyStError<Self>,
+    >
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
@@ -665,7 +678,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -679,7 +692,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
-        ProcessOptionalFailure,
+        DummyTriFlag,
         OptKeyStError<Self>,
     >
     where
@@ -740,7 +753,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -752,7 +765,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
@@ -767,7 +780,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         conf: &C,
     ) -> DeferredSwitchableError<
         DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
-        ProcessOptionalFailure,
+        DummyTriFlag,
         OptIndexedKeyStError<Self>,
     >
     where

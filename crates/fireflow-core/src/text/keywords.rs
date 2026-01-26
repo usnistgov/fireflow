@@ -1,6 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, ForceLinearScale, ProcessOptionalFailure, ReadDataKeywordsConfig,
-    ReadStdKeywordsConfig, TemporalOpticalKey, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, ForceLinearScale, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
+    TemporalOpticalKey, TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -741,12 +741,15 @@ impl Gain {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupTemporalGainError>
+    ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let ignore = &AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
-        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
+        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
+            .process_optional_failure
+            .0
+            .as_triflag();
         if ignore.contains(&TemporalOpticalKey::Gain) {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
@@ -754,7 +757,7 @@ impl Gain {
             Self::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
                 .into_semigroup()
-                .eval_deferred_switchable_error(|gain| {
+                .eval_deferred_switchable_error3(|gain| {
                     (!gain.is_none_or(|g| g.0.is_one())).then_some(TemporalGainError(i).into())
                 })
         }

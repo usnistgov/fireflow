@@ -7320,11 +7320,16 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let pt = PyLiteral::new2(["error", "demote", "drop", "drop_silent"], path);
+        let pt = PyLiteral::new2(
+            ["error", "demote", "demote_silent", "drop", "drop_silent"],
+            path,
+        );
         let d = format!(
             "{desc} Use ``\"error\"`` to throw error on failure, \
-             ``\"demote\"`` to demote to non-standard, ``\"drop\"`` to drop \
-             with warning, or ``\"drop_silent\"`` to drop with no warning"
+             ``\"demote\"`` to demote to non-standard with warning, \
+             ``\"demote\"`` to demote to non-standard with no warning, \
+             ``\"drop\"`` to drop with warning, or ``\"drop_silent\"`` \
+             to drop with no warning"
         );
         Self::new_param(name, pt, d).def_auto()
     }

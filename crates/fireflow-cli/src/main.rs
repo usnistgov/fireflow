@@ -1040,9 +1040,10 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
     Arg::new(long).long(long).value_name("LEVEL").help(format!(
-        "{help_front} Must be one of 'error', 'demote', 'drop', or \
-         'drop_silent' which will throw an error, demote to non-standard, \
-         drop with warning, or drop silently respectively"
+        "{help_front} Must be one of 'error', 'demote', 'demote_silent', 'drop', \
+         or 'drop_silent' which will throw an error, demote to non-standard with \
+         warning, demote to non-standard silently, drop with warning, \
+         or drop silently respectively"
     ))
 }
 

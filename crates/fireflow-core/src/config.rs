@@ -989,7 +989,9 @@ impl ProcessOptionalFailure {
 }
 
 /// Configuration to deal with optional standard keywords that cause errors
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, FromStr)]
+#[from_str(rename_all = "snake_case")]
+#[from_str(error(ProcessKeywordFailureError))]
 pub enum ProcessKeywordFailure {
     /// Throw an error
     #[default]
@@ -1003,6 +1005,14 @@ pub enum ProcessKeywordFailure {
     /// Drop with no warning
     DropSilent,
 }
+
+/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'error', 'demote', 'drop', or 'drop_silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct ProcessKeywordFailureError;
 
 impl ProcessKeywordFailure {
     pub(crate) fn as_triflag(self) -> DummyTriFlag {
@@ -1018,28 +1028,6 @@ impl ProcessKeywordFailure {
         matches!(self, Self::Demote | Self::DemoteSilent)
     }
 }
-
-impl FromStr for ProcessKeywordFailure {
-    type Err = ProcessKeywordFailureError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "error" => Ok(Self::Error),
-            "demote" => Ok(Self::Demote),
-            "demote_silent" => Ok(Self::DemoteSilent),
-            "drop" => Ok(Self::Drop),
-            "drop_silent" => Ok(Self::DropSilent),
-            _ => Err(ProcessKeywordFailureError),
-        }
-    }
-}
-
-/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
-#[derive(Error, Debug)]
-#[error("must be one of 'error', 'demote', 'drop', or 'drop_silent'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct ProcessKeywordFailureError;
 
 /// Strategy to use when autodetecting FCS version
 #[derive(Clone, Copy, FromStr)]

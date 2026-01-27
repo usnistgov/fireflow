@@ -1381,6 +1381,8 @@ pub struct StdTEXTDiagnostics {
     pub scale: Vec<AnyScaleDiagnostic>,
     /// Original keyword values that were trimmed for whitespace between commas.
     pub trimmed: Vec<(StdKey, String)>,
+    /// Optical keys that were found in the temporal measurement.
+    pub temporal_optical_pairs: Vec<(StdKey, String)>,
 }
 
 impl StdTEXTDiagnostics {
@@ -1389,6 +1391,7 @@ impl StdTEXTDiagnostics {
         original_names: Vec<Option<Shortname>>,
         scale: Vec<AnyScaleDiagnostic>,
         trimmed: Vec<(StdKey, String)>,
+        temporal_optical_pairs: Vec<(StdKey, String)>,
     ) -> Self {
         Self {
             pseudostandard: extra.pseudostandard,
@@ -1399,6 +1402,7 @@ impl StdTEXTDiagnostics {
             original_names,
             scale,
             trimmed,
+            temporal_optical_pairs,
         }
     }
 }
@@ -4118,6 +4122,7 @@ where
         NamedTemporalsAndOpticals<M>,
         Vec<AnyScaleDiagnostic>,
         Vec<(StdKey, String)>,
+        Vec<(StdKey, String)>,
     )>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
@@ -4174,14 +4179,16 @@ where
                                 .map_errors(LookupMeasurementError::from)
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
                                 .map_ok_value(|x| {
-                                    (Element::Center((name, x.this)), x.scale.into(), x.trimmed)
+                                    let ret = Element::Center((name, x.this));
+                                    (ret, x.scale.into(), x.trimmed, x.tmp_opt_pairs)
                                 })
                         }
                         Element::NonCenter(k) => Optical::lookup_optical(std, j, meas_nonstd, conf)
                             .map_errors(LookupMeasurementError::from)
                             .map_commutative_warnings(LookupMeasurementWarning::from)
                             .map_ok_value(|x| {
-                                (Element::NonCenter((k, x.this)), x.scale.into(), x.trimmed)
+                                let ret = Element::NonCenter((k, x.this));
+                                (ret, x.scale.into(), x.trimmed, vec![])
                             }),
                     })
             })
@@ -4190,12 +4197,14 @@ where
                 let mut ms = vec![];
                 let mut ds = vec![];
                 let mut trimmed = vec![];
-                for (m, d, ps) in xs {
+                let mut tops = vec![];
+                for (m, d, ps, ts) in xs {
                     ms.push(m);
                     ds.push(d);
                     trimmed.extend(ps);
+                    tops.extend(ts);
                 }
-                (ms, ds, trimmed)
+                (ms, ds, trimmed, tops)
             })
     }
 
@@ -4411,13 +4420,19 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 })
                 .and_then_commutative(
                     |((mut metaroot_out, meas_out, layout_out), original_names)| {
-                        let (meas, meas_scale, meas_trimmed) = meas_out;
+                        let (meas, meas_scale, meas_trimmed, tmp_opt_pairs) = meas_out;
                         metaroot_out.trimmed.extend(meas_trimmed);
                         Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                             .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
                             .map_ok_value(|ret| {
-                                (ret, original_names, meas_scale, metaroot_out.trimmed)
+                                (
+                                    ret,
+                                    original_names,
+                                    meas_scale,
+                                    metaroot_out.trimmed,
+                                    tmp_opt_pairs,
+                                )
                             })
                     },
                 );
@@ -4477,8 +4492,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, original_names, scale, trimmed)| {
-                let d = StdTEXTDiagnostics::from_extra(extra, original_names, scale, trimmed);
+            core_res.map_ok_value(|(ret, original_names, scale, trimmed, tmp_opt_pairs)| {
+                let d = StdTEXTDiagnostics::from_extra(
+                    extra,
+                    original_names,
+                    scale,
+                    trimmed,
+                    tmp_opt_pairs,
+                );
                 (ret, d)
             })
         })

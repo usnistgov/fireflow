@@ -827,6 +827,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
+    let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
+        "temporal_optical_pairs",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        "Optical keys that were found in the temporal measurement.",
+        |_, _| quote!(self.0.temporal_optical_pairs.clone()),
+    );
+
     let doc = DocString::new_class("Diagnostic output from *TEXT* standardization.").args([
         pseudostandard,
         hyper_par,
@@ -836,6 +843,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         original_names,
         scale,
         trimmed,
+        tmp_opt_pairs,
     ]);
     let inner_args = doc.idents_into();
 

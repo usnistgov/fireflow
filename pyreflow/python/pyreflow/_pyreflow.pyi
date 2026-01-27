@@ -1832,6 +1832,7 @@ class StdTEXTDiagnostics:
         original_names: list[Shortname | None],
         scale: list[ScaleDiagnostic],
         trimmed: list[tuple[str, str]],
+        temporal_optical_pairs: list[tuple[str, str]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1850,6 +1851,8 @@ class StdTEXTDiagnostics:
     def scale(self) -> list[ScaleDiagnostic]: ...
     @property
     def trimmed(self) -> list[tuple[str, str]]: ...
+    @property
+    def temporal_optical_pairs(self) -> list[tuple[str, str]]: ...
 
 @final
 class DatasetSegments:

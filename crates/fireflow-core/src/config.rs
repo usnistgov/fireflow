@@ -11,7 +11,7 @@
 //! standard is unclear.
 
 use crate::header::Version;
-use crate::logging::{IOResult, ImpureError};
+use crate::logging::{IOResult, ImpureError, LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
@@ -616,6 +616,12 @@ pub struct ReadStdKeywordsConfig {
     /// equates to a no-op.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
+    /// Choose what to do with optical keywords in the time channel when found.
+    ///
+    /// Does nothing unless keys are specified in
+    /// [`Self::ignore_time_optical_keys`].
+    pub process_time_optical_keys: ProcessTemporalOpticalKeys,
+
     /// Choose how to interpret measurements in $SPILLOVER.
     ///
     /// Some files use numbers/indices rather than names which point to $PnN.
@@ -754,6 +760,7 @@ impl Default for ReadStdKeywordsConfig {
             allow_missing_time: AllowMissingTime::default(),
             force_linear_scale: ForceLinearScale::default(),
             ignore_time_optical_keys: HashSet::default(),
+            process_time_optical_keys: ProcessTemporalOpticalKeys::default(),
             spillover_measurement_mode: SpilloverMeasurementMode::default(),
             date_pattern: None,
             time_pattern: None,
@@ -1185,6 +1192,42 @@ impl ForceLinearScale {
 /// Choose how to parse measurements for $SPILLOVER key
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+pub enum ProcessTemporalOpticalKeys {
+    /// Demote to nonstandard with warning
+    #[default]
+    Demote,
+    /// Demote to nonstandard with no warning
+    DemoteSilent,
+    /// Drop with warning
+    Drop,
+    /// Drop with no warning
+    DropSilent,
+}
+
+impl FromStr for ProcessTemporalOpticalKeys {
+    type Err = ProcessTimeOpticalKeysError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "demote" => Ok(Self::Demote),
+            "demote_silent" => Ok(Self::DemoteSilent),
+            "drop" => Ok(Self::Drop),
+            "drop_silent" => Ok(Self::DropSilent),
+            _ => Err(ProcessTimeOpticalKeysError),
+        }
+    }
+}
+
+/// Error when parsing [`ProcessTemporalOpticalKeys`] from [`String`]
+#[derive(Error, Debug)]
+#[error("must be one of 'demote', 'demote_silent', 'drop', or 'drop_silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct ProcessTimeOpticalKeysError;
+
+/// Choose how to parse measurements for $SPILLOVER key
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
 pub enum SpilloverMeasurementMode {
     /// Interpret measurements as names which match $PnN.
     #[default]
@@ -1293,28 +1336,6 @@ macro_rules! impl_config_flag {
     };
 }
 
-// macro_rules! impl_error_flag {
-//     (true_is_error $n:ident) => {
-//         impl_config_flag!($n);
-
-//         impl ErrorFlag for $n {
-//             fn is_error(&self) -> bool {
-//                 self.0 == true
-//             }
-//         }
-//     };
-
-//     (false_is_error $n:ident) => {
-//         impl_config_flag!($n);
-
-//         impl ErrorFlag for $n {
-//             fn is_error(&self) -> bool {
-//                 self.0 == false
-//             }
-//         }
-//     };
-// }
-
 impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
 impl_config_flag!(TruncateOffsets);
@@ -1385,7 +1406,7 @@ impl_tri_error_flag!(true_is_error DisallowOverRange);
 // flag for controlling imperfect downgrades and upgrades
 impl_tri_error_flag!(false_is_error AllowLoss);
 
-/// Fake flag to use for non-public switchable errors
+/// Fake 3-way flag to use for non-public switchable errors
 #[derive(From, Into, Clone, Copy)]
 pub(crate) struct DummyTriFlag(pub(crate) TriFlag);
 
@@ -1536,6 +1557,20 @@ impl FromStr for TemporalOpticalKey {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
 
+// #[derive(new)]
+// pub(crate) struct TemporalOpticalKeyOut {
+//     pub(crate) errors: Vec<TemporalHasOpticalKeyError>,
+//     pub(crate) warnings: Vec<TemporalHasOpticalKeyError>,
+//     pub(crate) pairs: Vec<(StdKey, String)>,
+// }
+
+type TemporalOpticalResult = WarningsAndErrorsResult<
+    Vec<(StdKey, String)>,
+    (),
+    TemporalHasOpticalKeyError,
+    TemporalHasOpticalKeyError,
+>;
+
 impl TemporalOpticalKey {
     pub(crate) fn std_key(self, i: MeasIndex) -> StdKey {
         match self {
@@ -1559,20 +1594,40 @@ impl TemporalOpticalKey {
     fn remove_keys_inner(
         targets: &[Self],
         ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
         for t in targets {
             let k = t.std_key(i);
-            if ignore.contains(t) {
-                nonstd.transfer_demoted(kws, k);
-            } else if kws.remove(&k).is_some() {
-                es.push(TemporalHasOpticalKeyError::new(i, *t));
+            let (demote, warn) = match flag {
+                ProcessTemporalOpticalKeys::Demote => (true, true),
+                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
+                ProcessTemporalOpticalKeys::Drop => (false, true),
+                ProcessTemporalOpticalKeys::DropSilent => (false, false),
+            };
+            if let Some(v) = std.remove(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if ignore.contains(t) {
+                    if demote {
+                        nonstd.insert_demoted(k.clone(), v.clone());
+                    }
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, v));
+                } else {
+                    es.push(err());
+                }
             }
         }
-        es
+        let mut res = LogResult::new_err_from_iter(es, pairs);
+        res.extend_commutative_warnings(ws);
+        res
     }
 
     pub(crate) fn remove_keys_2_0(
@@ -1580,7 +1635,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::DetectorType,
             Self::DetectorVoltage,
@@ -1589,7 +1645,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_0(
@@ -1597,7 +1653,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::DetectorType,
@@ -1607,7 +1664,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_1(
@@ -1615,7 +1672,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::Calibration,
@@ -1626,7 +1684,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_2(
@@ -1634,7 +1692,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::Analyte,
@@ -1649,7 +1708,7 @@ impl TemporalOpticalKey {
             Self::Tag,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 }
 

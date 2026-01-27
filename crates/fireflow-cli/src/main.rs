@@ -4,9 +4,9 @@ use fireflow_core::api::{
 };
 use fireflow_core::config::{
     self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, SpilloverMeasurementMode,
-    TemporalOpticalKey, TimeMeasNamePattern, TriFlag, TrimValueWhitespace, TruncateEventValues,
-    VersionOverride,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
+    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriFlag,
+    TrimValueWhitespace, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -524,6 +524,19 @@ fn run() -> AppResult<()> {
         .value_delimiter(',')
         .value_parser(value_parser!(TemporalOpticalKey));
 
+    let process_time_optical_keys = Arg::new(PROCESS_TIME_OPTICAL_KEYS)
+        .long(PROCESS_TIME_OPTICAL_KEYS)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(ProcessTemporalOpticalKeys))
+        .help(format!(
+            "Choose how to handle optical keys found in temporal measurements. \
+             Does nothing unless keys are specified in {}. Pass 'demote', \
+             'demote_silent', 'drop', or 'drop_silent' to demote found keys to \
+             nonstandard (with or without warning) or drop keys entirely (with \
+             or without warning) respectively.",
+            fmt_arg(IGNORE_TIME_OPTICAL_KEYS)
+        ));
+
     let spillover_measurement_mode = Arg::new(SPILLOVER_MEASUREMENT_MODE)
         .long(SPILLOVER_MEASUREMENT_MODE)
         .value_name("MODE")
@@ -656,6 +669,7 @@ fn run() -> AppResult<()> {
         allow_missing_time,
         force_linear_scale,
         ignore_time_optical_keys,
+        process_time_optical_keys,
         spillover_measurement_mode,
         date_pattern,
         time_pattern,
@@ -1204,6 +1218,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         time_meas_pattern,
         force_linear_scale: parse_def(sargs, FORCE_LINEAR_SCALE),
         ignore_time_optical_keys,
+        process_time_optical_keys: parse_def(sargs, PROCESS_TIME_OPTICAL_KEYS),
         allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME),
         spillover_measurement_mode: parse_def(sargs, SPILLOVER_MEASUREMENT_MODE),
         date_pattern: sargs.get_one(DATE_PATTERN).cloned(),
@@ -1594,6 +1609,8 @@ const SPILLOVER_MEASUREMENT_MODE: &str = "spillover-measurement-mode";
 const FORCE_LINEAR_SCALE: &str = "force-time-linear";
 
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
+
+const PROCESS_TIME_OPTICAL_KEYS: &str = "process-time-optical-keys";
 
 const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
 

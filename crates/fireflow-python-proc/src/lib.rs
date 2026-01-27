@@ -7711,6 +7711,7 @@ impl DocArgParam {
             Self::new_allow_missing_time_param(),
             Self::new_force_linear_scale_param(),
             Self::new_ignore_time_optical_keys_param(),
+            Self::new_process_time_optical_keys_param(),
             Self::new_date_pattern_param(),
             Self::new_time_pattern_param(version),
             Self::new_datetime_pattern_param(),
@@ -7866,6 +7867,19 @@ impl DocArgParam {
                  Provided keys are the string after the \"Pn\" in the \"PnX\" \
                  keywords.";
         Self::new_param("ignore_time_optical_keys", p, d).def_auto()
+    }
+
+    fn new_process_time_optical_keys_param() -> Self {
+        let d = "Choose how to handle optical keys found in temporal measurements. \
+                 Does nothing unless keys are specified in ``ignore_time_optical_keys``. \
+                 Pass ``\"demote\"``, ``\"demote_silent\"``, ``\"drop\"``, or \
+                 ``\"drop_silent\"`` to demote found keys to nonstandard (with \
+                 or without warning) or drop keys entirely (with or without \
+                 warning) respectively.";
+        let choices = ["demote", "demote_silent", "drop", "drop_silent"];
+        let path = config_path("ProcessTemporalOpticalKeys");
+        let pt = PyLiteral::new2(choices, path);
+        Self::new_param("process_time_optical_keys", pt, d).def_auto()
     }
 
     fn new_spillover_meas_mode_param() -> Self {

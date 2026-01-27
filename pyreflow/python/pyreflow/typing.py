@@ -162,6 +162,10 @@ ProcessKeywordFailure: TypeAlias = Literal[
     "error", "demote", "demote_silent", "drop", "drop_silent"
 ]
 
+ProcessTimeOpticalKeys: TypeAlias = Literal[
+    "error", "demote", "demote_silent", "drop", "drop_silent"
+]
+
 TriFlag: TypeAlias = bool | None
 
 ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]

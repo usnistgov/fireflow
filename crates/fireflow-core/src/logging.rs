@@ -1773,12 +1773,12 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         X: TriErrorFlag,
     {
         match flag.is_error() {
-            None => {
+            None => self.map_err_value(fp),
+            Some(true) => self.extend_errors(errors.into_iter().map(fe), fv, fp),
+            Some(false) => {
                 self.extend_commutative_warnings(errors.into_iter().map(fw));
                 self.map_err_value(fp)
             }
-            Some(true) => self.extend_errors(errors.into_iter().map(fe), fv, fp),
-            Some(false) => self.map_err_value(fp),
         }
     }
 

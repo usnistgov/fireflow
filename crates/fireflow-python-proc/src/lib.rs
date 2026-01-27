@@ -7189,15 +7189,8 @@ impl DocArgRWIvar {
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        Self::new_ivar_rw(
-            "nonstandard_keywords",
-            PyDict::new_nonstd_keywords(),
-            desc,
-            false,
-            f,
-            g,
-        )
-        .def_auto()
+        let p = PyDict::new_nonstd_keywords();
+        Self::new_ivar_rw("nonstandard_keywords", p, desc, false, f, g).def_auto()
     }
 }
 
@@ -7212,26 +7205,21 @@ impl DocArgROIvar {
     }
 
     fn new_version_ivar() -> Self {
-        Self::new_ivar_ro(
-            "version",
-            PyLiteral::new_version(),
-            "The FCS version.",
-            |_, _| quote!(self.0.version),
-        )
+        let p = PyLiteral::new_version();
+        let d = "The FCS version.";
+        Self::new_ivar_ro("version", p, d, |_, _| quote!(self.0.version))
     }
 
     fn new_endian_param(n: usize) -> Self {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
-        Self::new_ivar_ro(
-            "endian",
-            PyLiteral::new_endian(),
-            format!(
-                "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+        let d = format!(
+            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
              if ``\"little\"`` use little endian (``{xs}``)."
-            ),
-            |_, _| quote!(*self.0.as_ref()),
-        )
+        );
+        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| {
+            quote!(*self.0.as_ref())
+        })
         .def_auto()
     }
 
@@ -7239,20 +7227,16 @@ impl DocArgROIvar {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
         let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
-        Self::new_ivar_ro(
-            "endian",
-            PyLiteral::new_endian(),
-            format!(
-                "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
-             if ``\"little\"`` use little endian (``{xs}``)."
-            ),
-            |_, _| {
-                quote! {
-                    let m: #sizedbyteord_path<2> = *self.0.as_ref();
-                    m.endian()
-                }
-            },
-        )
+        let d = format!(
+            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
+                 if ``\"little\"`` use little endian (``{xs}``)."
+        );
+        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| {
+            quote! {
+                let m: #sizedbyteord_path<2> = *self.0.as_ref();
+                m.endian()
+            }
+        })
         .def_auto()
     }
 }
@@ -7375,37 +7359,26 @@ impl DocArgParam {
 
     fn new_std_diagnostics_param() -> Self {
         let desc = "Diagnostic output from *TEXT* standardization";
-        Self::new_param(
-            "std_diagnostics",
-            PyClass::new_py(["api"], "StdTEXTDiagnostics"),
-            desc,
-        )
+        let p = PyClass::new_py(["api"], "StdTEXTDiagnostics");
+        Self::new_param("std_diagnostics", p, desc)
     }
 
     fn new_dataset_segments_param() -> Self {
         let desc = "Offsets used to parse *DATA* and *ANALYSIS*.";
-        Self::new_param(
-            "dataset_segs",
-            PyClass::new_py(["api"], "DatasetSegments"),
-            desc,
-        )
+        let p = PyClass::new_py(["api"], "DatasetSegments");
+        Self::new_param("dataset_segs", p, desc)
     }
 
     fn new_flat_diagnostics_param() -> Self {
         let desc = "Diagnostic data obtained when parsing *TEXT*.";
-        Self::new_param(
-            "flat_diagnostics",
-            PyClass::new_py(["api"], "FlatTEXTDiagnostics"),
-            desc,
-        )
+        let p = PyClass::new_py(["api"], "FlatTEXTDiagnostics");
+        Self::new_param("flat_diagnostics", p, desc)
     }
 
     fn new_event_diagnostics_param() -> Self {
-        Self::new_param(
-            "events_diagnostics",
-            PyClass::new_py(["api"], "EventsDiagnostics"),
-            "Diagnostic output from parsing DATA segment.",
-        )
+        let d = "Diagnostic output from parsing DATA segment.";
+        let p = PyClass::new_py(["api"], "EventsDiagnostics");
+        Self::new_param("events_diagnostics", p, d)
     }
 
     fn new_uncorrected_seg_param(
@@ -7445,12 +7418,8 @@ impl DocArgParam {
 
     fn new_rel_other_segs_param() -> Self {
         let seg = PyTuple::new_relative_segment("OtherSegmentId");
-        Self::new_param(
-            "other_segs",
-            PyList::new1(seg),
-            "The *OTHER* segments from *HEADER*.",
-        )
-        .def_auto()
+        let d = "The *OTHER* segments from *HEADER*.";
+        Self::new_param("other_segs", PyList::new1(seg), d).def_auto()
     }
 
     fn new_data_seg_param(src: SegmentSrc) -> Self {
@@ -7460,17 +7429,14 @@ impl DocArgParam {
 
     fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
         let desc = format!("The *ANALYSIS* segment from {src}.");
-        Self::new_param("analysis_seg", PyTuple::new_analysis_segment(src), desc)
-            .def_auto_if(default)
+        let p = PyTuple::new_analysis_segment(src);
+        Self::new_param("analysis_seg", p, desc).def_auto_if(default)
     }
 
     fn new_other_segs_param(default: bool) -> Self {
-        Self::new_param(
-            "other_segs",
-            PyList::new1(PyTuple::new_other_segment()),
-            "The *OTHER* segments from *HEADER*.",
-        )
-        .def_auto_if(default)
+        let d = "The *OTHER* segments from *HEADER*.";
+        let p = PyList::new1(PyTuple::new_other_segment());
+        Self::new_param("other_segs", p, d).def_auto_if(default)
     }
 
     fn new_textdelim_param() -> Self {
@@ -7488,38 +7454,32 @@ impl DocArgParam {
 
     fn new_skip_conversion_check_param() -> Self {
         let conv_exc = PyreflowError::DataLoss.fmt_ref();
-        Self::new_bool_param(
-            "skip_conversion_check",
-            format!(
-                "Skip check to ensure that types of the dataframe match the \
-                 columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
-                 perform this check before writing, and raise {conv_exc} on \
-                 failure. If ``True``, raise warnings as file is being \
-                 written. Skipping this is faster since the data needs to be \
-                 traversed twice to perform the conversion check, but may \
-                 result in loss of precision and/or truncation."
-            ),
-        )
+        let d = format!(
+            "Skip check to ensure that types of the dataframe match the \
+             columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+             perform this check before writing, and raise {conv_exc} on \
+             failure. If ``True``, raise warnings as file is being \
+             written. Skipping this is faster since the data needs to be \
+             traversed twice to perform the conversion check, but may \
+             result in loss of precision and/or truncation."
+        );
+        Self::new_bool_param("skip_conversion_check", d)
     }
 
     fn new_appendable_param() -> Self {
-        Self::new_bool_param(
-            "appendable",
-            "If ``True``, set *$NEXTDATA* in written dataset so it points to \
-             the next dataset. This obviously assumes the next dataset is actually \
-             written, which will require another call to this method with ``append`` \
-             set to ``True``.",
-        )
+        let d = "If ``True``, set *$NEXTDATA* in written dataset so it points to \
+                 the next dataset. This obviously assumes the next dataset is actually \
+                 written, which will require another call to this method with ``append`` \
+                 set to ``True``.";
+        Self::new_bool_param("appendable", d)
     }
 
     fn new_append_param() -> Self {
-        Self::new_bool_param(
-            "append",
-            "If ``True``, append this dataset to the end of the file if it exists \
-             and already has at least one dataset in it. This assumes that the \
-             previous dataset was written with ``appendable`` set to ``True`` so \
-             that *$NEXTDATA* is properly set.",
-        )
+        let d = "If ``True``, append this dataset to the end of the file if it exists \
+                 and already has at least one dataset in it. This assumes that the \
+                 previous dataset was written with ``appendable`` set to ``True`` so \
+                 that *$NEXTDATA* is properly set.";
+        Self::new_bool_param("append", d)
     }
 
     fn new_paired_measurements_param(version: Version) -> Self {

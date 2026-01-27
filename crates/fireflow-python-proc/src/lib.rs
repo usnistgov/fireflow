@@ -28,7 +28,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let (conf_inner_path, args, inner_args) = DocArgParam::new_read_header_config_params();
 
-    let exc = PyException::new_pyreflow(&PyreflowError::FileLayout)
+    let exc = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("if *HEADER* segment is unparsable");
 
     let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
@@ -75,7 +75,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         .chain(shared_args)
         .collect();
 
-    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are not parsable");
     let xs = [exc0];
 
@@ -159,12 +159,12 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     );
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
-    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("If *HEADER* or *TEXT* are unparsable");
     let exc1 = PyException::new_extra();
     let exc2 = PyException::new_deprecated();
     let exc3 = PyException::new_parse_keyval();
-    let exc4 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc4 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords that are referenced by other keywords are missing");
 
     let xs = [exc0, exc1, exc2, exc3, exc4];
@@ -253,14 +253,14 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .chain(data_args)
         .chain(shared_args);
 
-    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
     let exc1 = PyException::new_deprecated()
         .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords are incompatible with indicated layout of *DATA*");
     let exc4 = PyException::new_event_data();
 
@@ -367,11 +367,11 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     );
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
-    let exc0 = PyException::new_pyreflow(&PyreflowError::FileLayout)
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
     let exc1 = PyException::new_deprecated();
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(
         "If keywords are incompatible with indicated layout of *DATA* or \
          if keywords that are referenced by other keywords do not exist",
     );
@@ -451,14 +451,13 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc0 =
-        PyException::new_pyreflow(&PyreflowError::FileLayout).desc("If *DATA* is unparsable");
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout).desc("If *DATA* is unparsable");
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
     let exc1 = PyException::new_deprecated()
         .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords are incompatible with indicated layout of *DATA*");
     let exc4 = PyException::new_event_data();
 
@@ -1869,18 +1868,10 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             PyFloat::new_timestep(),
             "The value of *$TIMESTEP* to use.",
         ));
-        let exc = PyreflowError::Conversion.fmt_ref();
-        let allow_loss = DocArg::new_param(
-            "allow_loss",
-            PyOpt::new1(PyBool::default()).default_from_inner(),
-            format!(
-                "If ``True`` remove any optical-specific metadata (detectors, \
-                 lasers, etc) without raising an {exc} if an optical measurement \
-                 must be converted; raise a warning instead. If ``None``, silence \
-                 the warning."
-            ),
-        )
-        .def_auto();
+        let allow_loss = DocArg::new_allow_loss_param(
+            "Choose what happens if optical-specific metadata (detectors, \
+             lasers, etc) are found.",
+        );
         DocString::new_method(format!("Set the temporal measurement to a given {i}."))
             .args(once(p).chain(timestep).chain([allow_loss]))
             .returns(DocReturn::new(PyBool::default()).desc(format!(
@@ -1942,23 +1933,13 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let exc = PyreflowError::Conversion.fmt_ref();
-
     let make_doc = |has_timestep: bool, has_allow_loss: bool| {
         let s = "Convert the temporal measurement to an optical measurement.";
         let p = has_allow_loss
-            .then_some(
-                DocArg::new_param(
-                    "allow_loss",
-                    PyOpt::new1(PyBool::default()).default_from_inner(),
-                    format!(
-                        "If ``True`` and current time measurement has data which cannot \
-                     be converted to optical, force the conversion anyways with a warning. \
-                     Pass ``None`` to silence the warning. Otherwise raise {exc}."
-                    ),
-                )
-                .def_auto(),
-            )
+            .then_some(DocArg::new_allow_loss_param(
+                "Choose what happens if temporal measurement cannot be \
+                 converted to optical without data loss.",
+            ))
             .into_iter();
         let (rt, rd) = if has_timestep {
             (
@@ -2000,7 +1981,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let ret = doc.ret_path();
         quote! {
             #doc
-            fn unset_temporal(&mut self, allow_loss: Option<bool>) -> PyResult<#ret> {
+            fn unset_temporal(&mut self, allow_loss: fireflow_core::config::AllowLoss) -> PyResult<#ret> {
                 self.0.unset_temporal_lossy(allow_loss).py_resolve_non_commutative()
             }
         }
@@ -2536,18 +2517,10 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
     // the temporal replacement functions for 3.2 are different because they
     // can fail if $PnTYPE is set
     let (replace_tmp_at_body, replace_tmp_named_body, allow_loss) = if version == Version::FCS3_2 {
-        let exc = PyreflowError::Conversion.fmt_ref();
-        let allow_loss_param = DocArg::new_param(
-            "allow_loss",
-            PyOpt::new1(PyBool::default()).default_from_inner(),
-            format!(
-                "If ``False``, raise {exc} if conversion from temporal \
-                 measurement to optical measurement is necessary and data \
-                 keywords must be dropped. If ``True``, throw a warning for the \
-                 same situation. If ``None`` silence the warning."
-            ),
-        )
-        .def_auto();
+        let allow_loss_param = DocArg::new_allow_loss_param(
+            "Choose what happens if conversion from temporal measurement to \
+             optical measurement is necessary and data loss will occur.",
+        );
         let go =
             |fun, x| quote!(self.0.#fun(#x, meas.into(), allow_loss).py_resolve_non_commutative()?);
         (
@@ -2580,7 +2553,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         let i = &i_param.argname;
         let meas_desc = format!("Temporal measurement to replace measurement at ``{i}``.");
         let exc0 = e.desc(format!("If ``{i}`` does not exist"));
-        let exc1 = PyException::new_pyreflow(&PyreflowError::Relational)
+        let exc1 = PyException::new_pyreflow(PyreflowError::Relational)
             .desc("If a temporal measurement already exists at a different position");
         let xs = [exc0, exc1];
         let ret = PyUnion::new_measurement(version);
@@ -2667,7 +2640,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     );
 
     let exc0 = PyException::new_parse_keyval();
-    let exc1 = PyException::new_pyreflow(&PyreflowError::Relational)
+    let exc1 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords that are referenced by other keywords do not exist");
     let exc2 = PyException::new_extra();
 
@@ -2756,7 +2729,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_deprecated();
     let exc1 = PyException::new_parse_keyval();
-    let exc2 = PyException::new_pyreflow(&PyreflowError::Relational).desc(
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(
         "If keywords are incompatible with indicated layout of *DATA* or \
          if keywords that are referenced by other keywords do not exist",
     );
@@ -3772,14 +3745,11 @@ where
 pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
-    let param_desc = "If ``False``, do not proceed with conversion if it would \
-                      result in data loss. This is most likely to happen when \
-                      converting from a later to an earlier version, as many \
-                      keywords from the later version may not exist in the \
-                      earlier version. There is no place to keep these values so \
-                      they must be discarded. Set to ``True`` to perform the \
-                      conversion with such discarding and a warning. Set to \
-                      ``None`` to silence the warning.";
+    let param_desc = "Choose what happens if conversion would result in data loss. \
+                      This is most likely to happen when converting from a later \
+                      to an earlier version, as many keywords from the later \
+                      version may not exist in the earlier version. There is no \
+                      place to keep these values so they must be discarded.";
     let outputs: Vec<_> = ALL_VERSIONS
         .iter()
         .filter(|&&v| v != version)
@@ -3792,21 +3762,16 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             } else {
                 PyClass::new_coretext(v)
             };
-            let exc0 = PyException::new_pyreflow(&PyreflowError::Conversion).desc(format!(
+            let exc0 = PyException::new_pyreflow(PyreflowError::Conversion).desc(format!(
                 "If keywords which are unsupported in FCS {vs} exist in current \
                  data and ``allow_loss`` is ``False``"
             ));
-            let exc1 = PyException::new_pyreflow(&PyreflowError::Conversion).desc(format!(
+            let exc1 = PyException::new_pyreflow(PyreflowError::Conversion).desc(format!(
                 "If optional keywords are that are missing in current \
                  version are required in FCS {vs}"
             ));
             let target_pytype = target_type.as_rust_type();
-            let param = DocArg::new_param(
-                "allow_loss",
-                PyOpt::new1(PyBool::default()).default_from_inner(),
-                param_desc,
-            )
-            .def_auto();
+            let param = DocArg::new_allow_loss_param(param_desc);
             let doc = DocString::new_method(format!("Convert to FCS {vs}."))
                 .arg(param)
                 .returns(
@@ -3816,7 +3781,10 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 );
             quote! {
                 #doc
-                fn #fn_name(&self, allow_loss: Option<bool>) -> PyResult<#target_pytype> {
+                fn #fn_name(
+                    &self,
+                    allow_loss: fireflow_core::config::AllowLoss
+                ) -> PyResult<#target_pytype> {
                     self.0.clone().try_convert(allow_loss).py_resolve_commutative().map(Into::into)
                 }
             }
@@ -4588,7 +4556,7 @@ struct PyException {
     desc: Option<String>,
 }
 
-#[derive(Display)]
+#[derive(Display, Clone, Copy)]
 enum PyreflowError {
     #[display("FileLayoutError")]
     FileLayout,
@@ -4615,7 +4583,7 @@ enum PyreflowError {
 }
 
 impl PyreflowError {
-    fn fmt_ref(&self) -> String {
+    fn fmt_ref(self) -> String {
         format!(":py:exc:`~pyreflow.{self}`")
     }
 }
@@ -5600,47 +5568,47 @@ impl PyException {
     }
 
     fn new_data_loss() -> Self {
-        Self::new_pyreflow(&PyreflowError::DataLoss).desc(
+        Self::new_pyreflow(PyreflowError::DataLoss).desc(
             "If any values in *DATA* segment need to be truncated to \
              fit layout and ``skip_conversion_check`` is ``False``",
         )
     }
 
-    fn new_pyreflow(p: &PyreflowError) -> Self {
+    fn new_pyreflow(p: PyreflowError) -> Self {
         Self::new(format!("~pyreflow.{p}"))
     }
 
     fn new_invalid_keyword() -> Self {
-        Self::new_pyreflow(&PyreflowError::InvalidKeywordValue)
+        Self::new_pyreflow(PyreflowError::InvalidKeywordValue)
     }
 
     fn new_config() -> Self {
-        Self::new_pyreflow(&PyreflowError::Config)
+        Self::new_pyreflow(PyreflowError::Config)
     }
 
     fn new_extra() -> Self {
-        Self::new_pyreflow(&PyreflowError::ExtraKeyword)
+        Self::new_pyreflow(PyreflowError::ExtraKeyword)
             .desc("If any standard keys are unused and not dropped by some other option")
     }
 
     fn new_deprecated() -> Self {
-        Self::new_pyreflow(&PyreflowError::FCSDeprecated).desc(
+        Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(
             "If any keywords or their values are deprecated and \
              ``disallow_deprecated`` is ``True``",
         )
     }
 
     fn new_parse_keyval() -> Self {
-        Self::new_pyreflow(&PyreflowError::ParseKeywordValue)
+        Self::new_pyreflow(PyreflowError::ParseKeywordValue)
             .desc("If any keyword values could not be read from their string encoding")
     }
 
     fn new_event_data() -> Self {
-        Self::new_pyreflow(&PyreflowError::EventData).desc("If values in *DATA* cannot be read")
+        Self::new_pyreflow(PyreflowError::EventData).desc("If values in *DATA* cannot be read")
     }
 
     fn new_existing() -> Self {
-        Self::new_pyreflow(&PyreflowError::Relational).desc(
+        Self::new_pyreflow(PyreflowError::Relational).desc(
             "If keywords are set which refer to measurements and would be \
              invalidated if measurements were removed",
         )
@@ -5973,14 +5941,14 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey)
             .desc("if %x contains non-ASCII characters or is empty");
         Self::default().rstype(path).exc(e)
     }
 
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKey).desc(
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(
             "if %x is empty, does not start with \
              ``\"$\"``, or is only a ``\"$\"``",
         );
@@ -5989,7 +5957,7 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_nonstd_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKey)
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey)
             .desc("if %x is empty or starts with ``\"$\"``");
         Self::default().rstype(path).exc(e)
     }
@@ -6002,7 +5970,7 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_meas_or_gate_index() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        let e = PyException::new_pyreflow(&PyreflowError::ParseKeywordValue).desc(
+        let e = PyException::new_pyreflow(PyreflowError::ParseKeywordValue).desc(
             "if %x is not like ``P<X>`` or ``G<X>`` \
              where ``X`` is an integer one or greater",
         );
@@ -6204,6 +6172,11 @@ impl PyLiteral {
     fn new_scale_diagnostic() -> Self {
         Self::new1(["trimmed", "log", "trimmed_log", "forced"])
     }
+
+    fn new_tri_flag(name: &str) -> Self {
+        let path = config_path(name);
+        Self::new2(["false", "true", "silent"], path)
+    }
 }
 
 impl<E> PyOpt<E> {
@@ -6213,10 +6186,6 @@ impl<E> PyOpt<E> {
 
     fn rstype(self, rstype: Path) -> Self {
         Self::new(self.inner, Some(rstype), self.default_from_inner)
-    }
-
-    fn default_from_inner(self) -> Self {
-        Self::new(self.inner, self.rstype, true)
     }
 
     fn doc_default(&self) -> (String, TokenStream2) {
@@ -7307,18 +7276,16 @@ impl DocArgParam {
         false_is_error: bool,
         ident_name: &str,
         desc: impl fmt::Display,
+        exc: PyreflowError,
     ) -> Self {
-        let path = config_path(ident_name);
-        let (false_action, true_action) = if false_is_error {
-            ("throw error", "throw warning")
-        } else {
-            ("throw warning", "throw error")
-        };
+        let e = format!("raise {}", exc.fmt_ref());
+        let w = "throw warning".into();
+        let (false_action, true_action) = if false_is_error { (e, w) } else { (w, e) };
         let d = format!(
-            "{desc} If ``False``, {false_action}. If ``True``, \
-             {true_action}. If ``None``, do nothing."
+            "{desc} If ``\"false\"``, {false_action}. If ``\"true\"``, \
+             {true_action}. If ``\"silent\"``, do nothing."
         );
-        let pt = PyOpt::new(PyBool::default(), path, true);
+        let pt = PyLiteral::new_tri_flag(ident_name);
         Self::new_param(name, pt, d).def_auto()
     }
 
@@ -7621,14 +7588,14 @@ impl DocArgParam {
     }
 
     fn new_notrunc_param() -> Self {
-        let exc = PyreflowError::Relational.fmt_ref();
-        let desc = format!(
-            "If ``False``, raise {exc} if ``range`` must be truncated to fit \
-             into measurement type. If ``True``, throw warning. If ``None``, \
-             do nothing."
-        );
-        let pt = PyOpt::new1(PyBool::default()).default_from_inner();
-        Self::new_param("disallow_trunc", pt, desc).def_auto()
+        let d = "Disallow range to be truncated if required to fit in column's data type.";
+        let e = PyreflowError::InvalidKeywordValue;
+        Self::new_tri_flag_param("disallow_trunc", false, "DisallowRangeTrunc", d, e)
+    }
+
+    fn new_allow_loss_param(desc: impl fmt::Display) -> Self {
+        let e = PyreflowError::Conversion;
+        Self::new_tri_flag_param("allow_loss", true, "AllowLoss", desc, e)
     }
 
     fn new_data_param(polars_type: bool) -> Self {
@@ -7636,7 +7603,7 @@ impl DocArgParam {
                     columns must match number of measurements. May be empty. \
                     Types do not necessarily need to correspond to those in the \
                     data layout but mismatches may result in truncation.";
-        let exc = PyException::new_pyreflow(&PyreflowError::EventData).desc(
+        let exc = PyException::new_pyreflow(PyreflowError::EventData).desc(
             "If %x contains columns which are not \
              unsigned 8/16/32/64-bit integers or 32/64-bit floats",
         );
@@ -7849,7 +7816,8 @@ impl DocArgParam {
 
     fn new_allow_missing_time_param() -> Self {
         let d = "Choose what to do when time measurement is be missing.";
-        Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d)
+        let exc = PyreflowError::Relational;
+        Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d, exc)
     }
 
     fn new_force_linear_scale_param() -> Self {
@@ -8015,7 +7983,8 @@ impl DocArgParam {
 
     fn new_disallow_deprecated_param() -> Self {
         let d = "Choose how to handle deprecated key if encountered.";
-        Self::new_tri_flag_param("disallow_deprecated", false, "DisallowDeprecated", d)
+        let e = PyreflowError::FCSDeprecated;
+        Self::new_tri_flag_param("disallow_deprecated", false, "DisallowDeprecated", d, e)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
@@ -8068,9 +8037,11 @@ impl DocArgParam {
     }
 
     fn new_disallow_range_truncation_param() -> Self {
+        let n = "disallow_range_truncation";
         let d = "Choose how to handle *$PnR* values that need to be truncated \
                  to match the number of bytes specified by *$PnB* and *$DATATYPE*.";
-        Self::new_tri_flag_param("disallow_range_truncation", false, "DisallowRangeTrunc", d)
+        let e = PyreflowError::Relational;
+        Self::new_tri_flag_param(n, false, "DisallowRangeTrunc", d, e)
     }
 
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
@@ -8185,86 +8156,82 @@ impl DocArgParam {
     }
 
     fn new_allow_overlapping_supp_text() -> Self {
-        let exc = PyreflowError::FileLayout.fmt_ref();
-        let d = format!(
-            "Choose what happens if supplemental *TEXT* offsets overlap the \
-             primary *TEXT* offsets from *HEADER* or *HEADER*. If exception is \
-             raise it will be a {exc}. The offsets will not be used if an \
-             overlap is found."
-        );
-        Self::new_tri_flag_param(
-            "allow_overlapping_supp_text",
-            true,
-            "AllowOverlappingSuppTEXT",
-            d,
-        )
+        let n = "allow_overlapping_supp_text";
+        let d = "Choose what happens if supplemental *TEXT* offsets overlap the \
+                 primary *TEXT* offsets from *HEADER* or *HEADER*. The offsets \
+                 will not be used if an overlap is found.";
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowOverlappingSuppTEXT", d, e)
     }
 
     fn new_ignore_supp_text() -> Self {
-        Self::new_bool_param(
-            "ignore_supp_text",
-            "If ``True``, ignore supplemental *TEXT* entirely.",
-        )
+        let d = "If ``True``, ignore supplemental *TEXT* entirely.";
+        Self::new_bool_param("ignore_supp_text", d)
     }
 
     fn new_delim_escape_mode() -> Self {
         let path = config_path("DelimEscapeMode");
         let d = "Determine how to escape delims in *TEXT*. If ``\"escaped\"`` \
-             or ``\"unescaped\"``, escape or do not escape delimiters \
-             respectively. If ``\"guess_escaped\"`` or  ``\"guess_unescaped\"``, \
-             attempt to guess how delimiters should be treated, falling back \
-             to escaped or unescaped mode respectively if the choice is ambiguous.";
+                 or ``\"unescaped\"``, escape or do not escape delimiters \
+                 respectively. If ``\"guess_escaped\"`` or  ``\"guess_unescaped\"``, \
+                 attempt to guess how delimiters should be treated, falling back \
+                 to escaped or unescaped mode respectively if the choice is ambiguous.";
         let choices = ["escaped", "unescaped", "guess_escaped", "guess_unescaped"];
         let pt = PyLiteral::new2(choices, path);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
     fn new_allow_non_ascii_delim() -> Self {
+        let n = "allow_non_ascii_delim";
         let d = "Choose how to handle non-ASCII delimiters (outside 1-126).";
-        Self::new_tri_flag_param("allow_non_ascii_delim", true, "AllowNonAsciiDelim", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowNonAsciiDelim", d, e)
     }
 
     fn new_allow_missing_final_delim() -> Self {
+        let n = "allow_missing_final_delim";
         let d = "Choose what happens if *TEXT* does not end with a delimiter.";
-        Self::new_tri_flag_param(
-            "allow_missing_final_delim",
-            true,
-            "AllowMissingFinalDelim",
-            d,
-        )
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMissingFinalDelim", d, e)
     }
 
     fn new_allow_nonunique() -> Self {
         let d = "Choose how to handle non-unique keys in *TEXT*. In such cases, \
                  only the first will be used regardless of this setting.";
-        Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d)
+        let e = PyreflowError::ParseKey;
+        Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d, e)
     }
 
     fn new_allow_odd() -> Self {
         let d = "Choose what happens if *TEXT* contains an odd number of tokens. \
                  The last 'dangling' token will be dropped regardless.";
-        Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d, e)
     }
 
     fn new_allow_empty_keys() -> Self {
         let d = "Choose what happens if any keys are blank. Only relevant if \
                  if delimiters are unescaped.";
-        Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d, e)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
+        let n = "allow_delim_at_boundary";
         let d = "Choose what happens if there are delimiters at token boundaries. \
                  The FCS standard forbids this because it is impossible to tell \
                  if such delimiters belong to the previous or the next token. \
                  Consequently, delimiters at boundaries will be dropped regardless \
                  of this flag. Only relevant if delimiters are escaped.";
-        Self::new_tri_flag_param("allow_delim_at_boundary", true, "AllowDelimAtBoundary", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowDelimAtBoundary", d, e)
     }
 
     fn new_allow_non_utf8() -> Self {
         let d = "Choose what happens if non-UTF8 characters are in *TEXT*. \
                  Tokens with such characters will be dropped regardless.";
-        Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d, e)
     }
 
     fn new_use_latin1() -> Self {
@@ -8274,35 +8241,38 @@ impl DocArgParam {
     }
 
     fn new_allow_non_ascii_keywords() -> Self {
+        let n = "allow_non_ascii_keywords";
         let d = "Choose how to handle non-ASCII keys. This only applies to \
                  non-standard keywords, as all standardized keywords may only \
                  contain letters, numbers, and start with *$*. Regardless, all \
                  compliant keys must only have ASCII.";
-        Self::new_tri_flag_param("allow_non_ascii_keywords", true, "AllowNonAsciiKeywords", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowNonAsciiKeywords", d, e)
     }
 
     fn new_allow_missing_supp_text() -> Self {
+        let n = "allow_missing_supp_text";
         let d = "Choose how to handle supplemental missing *TEXT* offsets in \
                  primary *TEXT*.";
-        Self::new_tri_flag_param("allow_missing_supp_text", true, "AllowMissingSuppTEXT", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMissingSuppTEXT", d, e)
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
+        let n = "allow_supp_text_own_delim";
         let d = "Choose what happens if supplemental *TEXT* has a different \
                  delimiter compared to primary *TEXT*.";
-        Self::new_tri_flag_param(
-            "allow_supp_text_own_delim",
-            true,
-            "AllowSuppTEXTOwnDelim",
-            d,
-        )
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowSuppTEXTOwnDelim", d, e)
     }
 
     fn new_allow_missing_nextdata() -> Self {
+        let n = "allow_missing_nextdata";
         let d = "Choose how to handle missing *$NEXTDATA*. This is a required \
                  keyword in all versions. However, most files only have one dataset \
                  in which case this keyword is meaningless.";
-        Self::new_tri_flag_param("allow_missing_nextdata", true, "AllowMissingNextdata", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMissingNextdata", d, e)
     }
 
     fn new_trim_value_whitespace() -> Self {
@@ -8421,16 +8391,14 @@ impl DocArgParam {
     }
 
     fn new_allow_header_text_offset_mismatch_param() -> Self {
+        let n = "allow_header_text_offset_mismatch";
         let d = "Choose what happens when *TEXT* and *HEADER* offsets to mismatch.";
-        Self::new_tri_flag_param(
-            "allow_header_text_offset_mismatch",
-            true,
-            "AllowHeaderTEXTOffsetMismatch",
-            d,
-        )
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowHeaderTEXTOffsetMismatch", d, e)
     }
 
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
+        let n = "allow_missing_required_offsets";
         let s = match version {
             Some(Version::FCS3_2) => "*DATA*",
             Some(_) => "*DATA* and *ANALYSIS*",
@@ -8440,12 +8408,8 @@ impl DocArgParam {
             "Choose what happens when required {s} offsets in *TEXT* are be missing. \
                  If missing, fall back to offsets from *HEADER*."
         );
-        Self::new_tri_flag_param(
-            "allow_missing_required_offsets",
-            true,
-            "AllowMissingRequiredOffsets",
-            d,
-        )
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMissingRequiredOffsets", d, e)
     }
 
     fn new_truncate_text_offsets_param() -> Self {
@@ -8454,16 +8418,19 @@ impl DocArgParam {
     }
 
     fn new_allow_uneven_event_width_param() -> Self {
+        let n = "allow_uneven_event_width";
         let d = "Choose what to do when event width does not perfectly divide length \
                  of *DATA*. Does not apply to delimited ASCII layouts.";
-        Self::new_tri_flag_param("allow_uneven_event_width", true, "AllowUnevenEventWidth", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowUnevenEventWidth", d, e)
     }
 
     fn new_allow_tot_mismatch_param() -> Self {
         let d = "Choose what happens when *$TOT* does not match number of events as \
                  computed by the event width and length of *DATA*. \
                  Does not apply to delimited ASCII layouts.";
-        Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d)
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
 
     fn new_truncate_event_values() -> Self {
@@ -8474,10 +8441,12 @@ impl DocArgParam {
     }
 
     fn new_disallow_over_range() -> Self {
+        let n = "disallow_over_range";
         let d = "Choose how to handle event values in *DATA* which exceed *$PnR*. \
                  This only has an effect if the column is not truncated \
                  according to ``truncate_event_values``.";
-        Self::new_tri_flag_param("disallow_over_range", false, "DisallowOverRange", d)
+        let e = PyreflowError::EventData;
+        Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
     }
 
     fn new_warnings_are_errors_param() -> Self {

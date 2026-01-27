@@ -3,9 +3,14 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, DatasetOffset, DelimEscapeMode, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
+    self, AllowDelimAtBoundary, AllowEmptyKeys, AllowHeaderTEXTOffsetMismatch,
+    AllowMissingFinalDelim, AllowMissingNextdata, AllowMissingRequiredOffsets,
+    AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim, AllowNonAsciiKeywords,
+    AllowNonUtf8, AllowNonunique, AllowOdd, AllowOverlappingSuppTEXT, AllowSuppTEXTOwnDelim,
+    AllowTotMismatch, AllowUnevenEventWidth, DatasetOffset, DelimEscapeMode, DisallowDeprecated,
+    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
     ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
-    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriFlag,
+    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
     TrimValueWhitespace, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
@@ -247,9 +252,8 @@ fn run() -> AppResult<()> {
         .value_name("INT")
         .help(format!("Correction for {}", kw_style.paint("$NEXTDATA")));
 
-    let allow_overlapping_supp_text = tri_flag_arg(
+    let allow_overlapping_supp_text = tri_flag_arg::<AllowOverlappingSuppTEXT>(
         ALLOW_OVERLAPPING_SUPP_TEXT,
-        true,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
              {prim_text_seg} or the boundaries of {header_seg}."
@@ -270,41 +274,35 @@ fn run() -> AppResult<()> {
              See {delim_header} for details."
         ));
 
-    let non_ascii_delim = tri_flag_arg(
+    let non_ascii_delim = tri_flag_arg::<AllowNonAsciiDelim>(
         ALLOW_NON_ASCII_DELIM,
-        true,
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = tri_flag_arg(
+    let missing_final_delim = tri_flag_arg::<AllowMissingFinalDelim>(
         ALLOW_MISSING_FINAL_DELIM,
-        true,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
-    let allow_non_unique = tri_flag_arg(
+    let allow_non_unique = tri_flag_arg::<AllowNonunique>(
         ALLOW_NON_UNIQUE,
-        true,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = tri_flag_arg(ALLOW_ODD, true, "Allow odd number of tokens.");
+    let allow_odd = tri_flag_arg::<AllowOdd>(ALLOW_ODD, "Allow odd number of tokens.");
 
-    let allow_empty_keys = tri_flag_arg(
+    let allow_empty_keys = tri_flag_arg::<AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
-        true,
         "Allow keys to be blank (relatively rare).",
     );
 
-    let allow_delim_at_bound = tri_flag_arg(
+    let allow_delim_at_bound = tri_flag_arg::<AllowDelimAtBoundary>(
         ALLOW_DELIM_AT_BOUNDARY,
-        true,
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
-    let allow_non_utf8 = tri_flag_arg(
+    let allow_non_utf8 = tri_flag_arg::<AllowNonUtf8>(
         ALLOW_NON_UTF8,
-        true,
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
@@ -313,27 +311,23 @@ fn run() -> AppResult<()> {
         format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
     );
 
-    let allow_non_ascii_keywords = tri_flag_arg(
+    let allow_non_ascii_keywords = tri_flag_arg::<AllowNonAsciiKeywords>(
         ALLOW_NON_ASCII_KEYWORDS,
-        true,
         "Allow non-ASCII characters in keys.",
     );
 
-    let allow_missing_supp_text = tri_flag_arg(
+    let allow_missing_supp_text = tri_flag_arg::<AllowMissingSuppTEXT>(
         ALLOW_MISSING_SUPP_TEXT,
-        true,
         format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
-    let allow_supp_text_own_delim = tri_flag_arg(
+    let allow_supp_text_own_delim = tri_flag_arg::<AllowSuppTEXTOwnDelim>(
         ALLOW_SUPP_TEXT_OWN_DELIM,
-        true,
         format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
-    let allow_missing_nextdata = tri_flag_arg(
+    let allow_missing_nextdata = tri_flag_arg::<AllowMissingNextdata>(
         ALLOW_MISSING_NEXTDATA,
-        true,
         format!("Allow {} to be missing.", kw_style.paint("$NEXTDATA")),
     );
 
@@ -495,9 +489,8 @@ fn run() -> AppResult<()> {
         )
         .value_parser(ValueParser::new(parse_time_meas_pattern));
 
-    let allow_missing_time = tri_flag_arg(
+    let allow_missing_time = tri_flag_arg::<AllowMissingTime>(
         ALLOW_MISSING_TIME,
-        true,
         "Allow time measurement to be missing.",
     );
 
@@ -586,9 +579,8 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(ProcessExtraTimestep));
 
-    let disallow_deprecated = tri_flag_arg(
+    let disallow_deprecated = tri_flag_arg::<DisallowDeprecated>(
         DISALLOW_DEPRECATED,
-        false,
         "Disallow any deprecated keywords are present.",
     );
 
@@ -705,18 +697,16 @@ fn run() -> AppResult<()> {
         format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
 
-    let allow_header_text_offset_mismatch = tri_flag_arg(
+    let allow_header_text_offset_mismatch = tri_flag_arg::<AllowHeaderTEXTOffsetMismatch>(
         ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
-        true,
         format!(
             "Allow {header_seg} and {text_seg} offsets to be different, \
              in which case {header_seg} will be used."
         ),
     );
 
-    let allow_missing_required_offsets = tri_flag_arg(
+    let allow_missing_required_offsets = tri_flag_arg::<AllowMissingRequiredOffsets>(
         ALLOW_MISSING_REQUIRED_OFFSETS,
-        true,
         format!(
             "Allow required offsets to be missing from {text_seg}. \
              Only applies to FCS 3.0/3.1."
@@ -754,9 +744,8 @@ fn run() -> AppResult<()> {
             kw_style.paint("$BYTEORD"),
         ));
 
-    let disallow_range_truncation = tri_flag_arg(
+    let disallow_range_truncation = tri_flag_arg::<DisallowRangeTrunc>(
         DISALLOW_RANGE_TRUNCATION,
-        false,
         format!(
             "Disallow {} values which need to be truncated to fit in type \
              dictated by {} (and {} for FCS 3.2) and {} for a given measurement.",
@@ -785,15 +774,13 @@ fn run() -> AppResult<()> {
 
     // dataset args
 
-    let allow_uneven_event_width = tri_flag_arg(
+    let allow_uneven_event_width = tri_flag_arg::<AllowUnevenEventWidth>(
         ALLOW_UNEVEN_EVENT_WIDTH,
-        true,
         format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
-    let allow_tot_mismatch = tri_flag_arg(
+    let allow_tot_mismatch = tri_flag_arg::<AllowTotMismatch>(
         ALLOW_TOT_MISMATCH,
-        true,
         format!(
             "Allow {} to mismatch the number of events that are actually in {data_seg}.",
             kw_style.paint("$TOT")
@@ -810,9 +797,8 @@ fn run() -> AppResult<()> {
             kw_style.paint("$PnR"),
         ));
 
-    let disallow_over_range = tri_flag_arg(
+    let disallow_over_range = tri_flag_arg::<DisallowOverRange>(
         DISALLOW_OVER_RANGE,
-        false,
         format!(
             "Forbid values in DATA to exceed {}. Does nothing if column \
              was truncated according to '{}'.",
@@ -1058,31 +1044,22 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
     ))
 }
 
-fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Display) -> Arg {
-    let parse_false_is_err = |s: &str| match s {
-        "silent" => Ok(TriFlag::Silent),
-        "warn" => Ok(TriFlag::True),
-        _ => Err("Must be one of 'silent' or 'warn'"),
-    };
-
-    let parse_true_is_err = |s: &str| match s {
-        "silent" => Ok(TriFlag::Silent),
-        "error" => Ok(TriFlag::True),
-        _ => Err("Must be one of 'silent' or 'error'"),
-    };
-
-    let (x, y, p) = if false_is_error {
-        ("warn", "warning", ValueParser::new(parse_false_is_err))
+fn tri_flag_arg<T>(long: &'static str, help_front: impl Display) -> Arg
+where
+    T: From<TriFlag> + Clone + Send + Sync + 'static + TriErrorFlag,
+{
+    let parser = ValueParser::new(T::from_partial_str);
+    let what = if T::FALSE_IS_ERROR {
+        "warning"
     } else {
-        ("error", "error", ValueParser::new(parse_true_is_err))
+        "error"
     };
+    let h = format!("{help_front} If 'true', throw {what}. If 'silent', ignore completely.");
     Arg::new(long)
         .long(long)
         .value_name("LEVEL")
-        .value_parser(p)
-        .help(format!(
-            "{help_front} If '{x}', throw {y}. If 'silent', ignore completely."
-        ))
+        .value_parser(parser)
+        .help(h)
 }
 
 fn format_section(
@@ -1173,21 +1150,21 @@ fn parse_header_and_text_config(
         version_override,
         supp_text_correction,
         nextdata_correction,
-        allow_overlapping_supp_text: parse_tri_flag(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
+        allow_overlapping_supp_text: parse_def(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode: parse_def(sargs, DELIM_ESCAPE_MODE),
-        allow_non_ascii_delim: parse_tri_flag(sargs, ALLOW_NON_ASCII_DELIM),
-        allow_missing_final_delim: parse_tri_flag(sargs, ALLOW_MISSING_FINAL_DELIM),
-        allow_nonunique: parse_tri_flag(sargs, ALLOW_NON_UNIQUE),
-        allow_odd: parse_tri_flag(sargs, ALLOW_ODD),
-        allow_empty_keys: parse_tri_flag(sargs, ALLOW_EMPTY_KEYS),
-        allow_delim_at_boundary: parse_tri_flag(sargs, ALLOW_DELIM_AT_BOUNDARY),
-        allow_non_utf8: parse_tri_flag(sargs, ALLOW_NON_UTF8),
+        allow_non_ascii_delim: parse_def(sargs, ALLOW_NON_ASCII_DELIM),
+        allow_missing_final_delim: parse_def(sargs, ALLOW_MISSING_FINAL_DELIM),
+        allow_nonunique: parse_def(sargs, ALLOW_NON_UNIQUE),
+        allow_odd: parse_def(sargs, ALLOW_ODD),
+        allow_empty_keys: parse_def(sargs, ALLOW_EMPTY_KEYS),
+        allow_delim_at_boundary: parse_def(sargs, ALLOW_DELIM_AT_BOUNDARY),
+        allow_non_utf8: parse_def(sargs, ALLOW_NON_UTF8),
         use_latin1: sargs.get_flag(USE_LATIN1).into(),
-        allow_non_ascii_keywords: parse_tri_flag(sargs, ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_supp_text: parse_tri_flag(sargs, ALLOW_MISSING_SUPP_TEXT),
-        allow_supp_text_own_delim: parse_tri_flag(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
-        allow_missing_nextdata: parse_tri_flag(sargs, ALLOW_MISSING_NEXTDATA),
+        allow_non_ascii_keywords: parse_def(sargs, ALLOW_NON_ASCII_KEYWORDS),
+        allow_missing_supp_text: parse_def(sargs, ALLOW_MISSING_SUPP_TEXT),
+        allow_supp_text_own_delim: parse_def(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
+        allow_missing_nextdata: parse_def(sargs, ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: parse_def(sargs, TRIM_VALUE_WHITESPACE),
         trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
         ignore_standard_keys,
@@ -1219,7 +1196,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         force_linear_scale: parse_def(sargs, FORCE_LINEAR_SCALE),
         ignore_time_optical_keys,
         process_time_optical_keys: parse_def(sargs, PROCESS_TIME_OPTICAL_KEYS),
-        allow_missing_time: parse_tri_flag(sargs, ALLOW_MISSING_TIME),
+        allow_missing_time: parse_def(sargs, ALLOW_MISSING_TIME),
         spillover_measurement_mode: parse_def(sargs, SPILLOVER_MEASUREMENT_MODE),
         date_pattern: sargs.get_one(DATE_PATTERN).cloned(),
         time_pattern: sargs.get_one(TIME_PATTERN).cloned(),
@@ -1230,7 +1207,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         process_hyper_par: parse_def(sargs, PROCESS_HYPER_PAR),
         process_other_version: parse_def(sargs, PROCESS_OTHER_VERSION),
         process_extra_timestep: parse_def(sargs, PROCESS_EXTRA_TIMESTEP),
-        disallow_deprecated: parse_tri_flag(sargs, DISALLOW_DEPRECATED),
+        disallow_deprecated: parse_def(sargs, DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
         nonstandard_measurement_pattern: sargs.get_one(NS_MEAS_PATTERN).cloned(),
@@ -1286,22 +1263,22 @@ fn parse_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         text_analysis_correction,
         ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
         ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
-        allow_header_text_offset_mismatch: parse_tri_flag(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
-        allow_missing_required_offsets: parse_tri_flag(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
+        allow_header_text_offset_mismatch: parse_def(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
+        allow_missing_required_offsets: parse_def(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
         truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
         process_optional_failure: parse_def(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override: parse_opt(sargs, INT_BYTEORD_OVERRIDE),
-        disallow_range_truncation: parse_tri_flag(sargs, DISALLOW_RANGE_TRUNCATION),
+        disallow_range_truncation: parse_def(sargs, DISALLOW_RANGE_TRUNCATION),
     }
 }
 
 fn parse_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
     config::ReadEventsConfig {
-        allow_tot_mismatch: parse_tri_flag(sargs, ALLOW_TOT_MISMATCH),
-        allow_uneven_event_width: parse_tri_flag(sargs, ALLOW_UNEVEN_EVENT_WIDTH),
+        allow_tot_mismatch: parse_def(sargs, ALLOW_TOT_MISMATCH),
+        allow_uneven_event_width: parse_def(sargs, ALLOW_UNEVEN_EVENT_WIDTH),
         truncate_event_values: parse_def(sargs, TRUNCATE_EVENT_VALUES),
-        disallow_over_range: parse_tri_flag(sargs, DISALLOW_OVER_RANGE),
+        disallow_over_range: parse_def(sargs, DISALLOW_OVER_RANGE),
     }
 }
 
@@ -1346,17 +1323,6 @@ where
     T: Default + Copy + Sync + Send + 'static,
 {
     sargs.get_one(name).copied()
-}
-
-fn parse_tri_flag<T>(sargs: &ArgMatches, name: &str) -> T
-where
-    T: From<TriFlag>,
-{
-    sargs
-        .get_one::<TriFlag>(name)
-        .copied()
-        .unwrap_or_default()
-        .into()
 }
 
 fn parse_other_width(s: &str) -> StrResult<OtherWidth> {

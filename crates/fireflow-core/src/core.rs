@@ -1797,7 +1797,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         opt: Optical<O>,
         i: MeasIndex,
         data: Self::TData,
-        flag: AllowLoss,
+        allow_loss: AllowLoss,
     ) -> SwitchableErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalErrors> {
         let opt_common_errs = opt.loss_errors(i);
         let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
@@ -1812,7 +1812,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
 
         let s = OpticalToTemporalSummary::new(i);
         ErrorGroup::try_new_with(s, es)
-            .into_deferred_switchable3::<_, Nothing<_>>(flag)
+            .into_deferred_switchable3::<_, Nothing<_>>(allow_loss)
             .set_deferred_value((opt, data))
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
             .map_err_value(|(o, _)| o)
@@ -2640,22 +2640,21 @@ where
         &mut self,
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss::from(allow_loss);
         self.measurements.set_center_by_name(
             n,
             |old, new| {
-                M::swap_optical_temporal(old, new, flag)
+                M::swap_optical_temporal(old, new, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, flag)
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
@@ -2668,22 +2667,21 @@ where
         &mut self,
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss::from(allow_loss);
         self.measurements.set_center_by_index(
             index,
             |old, new| {
-                M::swap_optical_temporal(old, new, flag)
+                M::swap_optical_temporal(old, new, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, flag)
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
@@ -2714,7 +2712,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn unset_temporal_lossy(
         &mut self,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         (),
@@ -2729,8 +2727,7 @@ where
             >,
     {
         self.measurements.unset_center(|i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
-                .switchable_into_non_commutative()
+            M::Optical::from_temporal(old_t, i, allow_loss).switchable_into_non_commutative()
         })
     }
 
@@ -2803,7 +2800,7 @@ where
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2818,7 +2815,7 @@ where
             >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
+            M::Optical::from_temporal(old_t, i, allow_loss)
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
                 .map_errors(ReplaceTemporalErrorByIndex::from)
@@ -2849,7 +2846,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2865,7 +2862,7 @@ where
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                M::Optical::from_temporal(old_t, i, AllowLoss::from(allow_loss))
+                M::Optical::from_temporal(old_t, i, allow_loss)
                     .switchable_into_non_commutative()
                     .map_ok_value(|(x, _)| x)
                     .map_errors(ReplaceTemporalErrorByName::from)
@@ -3510,7 +3507,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
-        allow_loss: Option<bool>,
+        allow_loss: AllowLoss,
     ) -> WarningsAndGroupResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
@@ -3525,19 +3522,22 @@ where
         ToM::Name: MightHave<Shortname> + Clone + ConvertFromShortname<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
     {
-        let flag = AllowLoss::from(allow_loss);
         let root_res = self
             .metaroot
-            .try_convert(flag)
+            .try_convert(allow_loss)
             .map_errors(ConvertError::Meta);
         let meas_res = self
             .measurements
-            .map_center_value(|v| v.value.convert(v.index, flag).switchable_into_commutative())
+            .map_center_value(|v| {
+                v.value
+                    .convert(v.index, allow_loss)
+                    .switchable_into_commutative()
+            })
             .set_err_value(())
             .map_errors(ConvertError::Temporal)
             .map_commutative_warnings(MetarootConvertWarning::from)
             .and_then_commutative(|meas| {
-                meas.map_non_center_values(|i, v| v.try_convert(i, flag))
+                meas.map_non_center_values(|i, v| v.try_convert(i, allow_loss))
                     .map_errors(ConvertError::Optical)
                     .map_commutative_warnings(MetarootConvertWarning::from)
             })
@@ -4533,10 +4533,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalError, PushTemporalSummary> {
-        self.push_temporal_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
-            .group()
+        self.push_temporal_inner(n, m, r, disallow_trunc).group()
     }
 
     /// Add time measurement at the given position
@@ -4549,10 +4548,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, InsertTemporalError, InsertTemporalSummary>
     {
-        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+        self.insert_temporal_inner(i, n, m, r, disallow_trunc)
             .group()
     }
 
@@ -4564,11 +4563,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, PushOpticalError, PushOpticalSummary>
     {
-        self.push_optical_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
-            .group()
+        self.push_optical_inner(n, m, r, disallow_trunc).group()
     }
 
     /// Add optical measurement at a given position
@@ -4580,10 +4578,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, InsertOpticalError, InsertOpticalSummary>
     {
-        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+        self.insert_optical_inner(i, n, m, r, disallow_trunc)
             .group()
     }
 
@@ -5112,7 +5110,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
         self.data
@@ -5120,7 +5118,7 @@ where
             .map_err(PushTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_temporal_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+                self.push_temporal_inner(n, m, r, disallow_trunc)
                     .map_errors(PushTemporalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -5138,7 +5136,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         (),
         InsertRangeError,
@@ -5150,7 +5148,7 @@ where
             .map_err(InsertTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+                self.insert_temporal_inner(i, n, m, r, disallow_trunc)
                     .map_errors(InsertTemporalToDatasetError::from)
             })
             .when_ok(|| {
@@ -5168,7 +5166,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5180,7 +5178,7 @@ where
             .map_err(PushOpticalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_optical_inner(n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+                self.push_optical_inner(n, m, r, disallow_trunc)
                     .map_errors(PushOpticalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -5197,7 +5195,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: Option<bool>,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5209,7 +5207,7 @@ where
             .map_err(InsertOpticalInDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc::from(disallow_trunc))
+                self.insert_optical_inner(i, n, m, r, disallow_trunc)
                     .map_errors(InsertOpticalInDatasetError::from)
             })
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))

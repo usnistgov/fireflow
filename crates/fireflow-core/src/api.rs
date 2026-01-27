@@ -826,6 +826,7 @@ pub enum ParseSupplementalTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
+    // TODO not necessary?
     BlankValue(BlankValueError),
     Uneven(UnevenTokensError),
     Final(FinalDelimError),
@@ -1604,18 +1605,16 @@ fn split_flat_text_unescaped_delim(
             .switchable_into_commutative()
     });
 
-    let blank_key_errors = keys_with_blank_values
+    // TODO these should be ignore regardless
+    let blank_key_errors = values_with_blank_keys
         .iter()
         .map(|k| BlankKeyError::new(tk, k.clone()));
 
     // TODO its a bit weird that only this error doesn't mention the TEXT from
     // which is came
-    let blank_value_errors = values_with_blank_keys
+    let blank_value_errors = keys_with_blank_values
         .iter()
         .map(|k| BlankValueError(k.clone()));
-
-    // blank_key_errors.push(BlankKeyError(tk));
-    // blank_val_errors.push(BlankValueError(key.to_vec()));
 
     let blank_key_res = SwitchableErrorsResult::new_switchable_iter3(
         (),

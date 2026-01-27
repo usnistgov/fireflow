@@ -46,21 +46,21 @@ class _ReadFlatTEXTConfig(BaseModel):
     version_override: pft.VersionOverride | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     nextdata_correction: int = 0
-    allow_overlapping_supp_text: pft.TriFlag = False
+    allow_overlapping_supp_text: pft.TriFlag = "false"
     ignore_supp_text: bool = False
     delim_escape_mode: pft.DelimEscapeMode = "escaped"
-    allow_non_ascii_delim: pft.TriFlag = False
-    allow_missing_final_delim: pft.TriFlag = False
-    allow_nonunique: pft.TriFlag = False
-    allow_odd: pft.TriFlag = False
-    allow_empty_keys: pft.TriFlag = False
-    allow_delim_at_boundary: pft.TriFlag = False
-    allow_non_utf8: pft.TriFlag = False
+    allow_non_ascii_delim: pft.TriFlag = "false"
+    allow_missing_final_delim: pft.TriFlag = "false"
+    allow_nonunique: pft.TriFlag = "false"
+    allow_odd: pft.TriFlag = "false"
+    allow_empty_keys: pft.TriFlag = "false"
+    allow_delim_at_boundary: pft.TriFlag = "false"
+    allow_non_utf8: pft.TriFlag = "false"
     use_latin1: bool = False
-    allow_non_ascii_keywords: pft.TriFlag = False
-    allow_missing_supp_text: pft.TriFlag = False
-    allow_supp_text_own_delim: pft.TriFlag = False
-    allow_missing_nextdata: pft.TriFlag = False
+    allow_non_ascii_keywords: pft.TriFlag = "false"
+    allow_missing_supp_text: pft.TriFlag = "false"
+    allow_supp_text_own_delim: pft.TriFlag = "false"
+    allow_missing_nextdata: pft.TriFlag = "false"
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim"
     trim_trailing_whitespace: bool = False
     ignore_standard_keys: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
@@ -76,7 +76,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN
-    allow_missing_time: pft.TriFlag = False
+    allow_missing_time: pft.TriFlag = "false"
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote"
@@ -89,7 +89,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     process_hyper_par: pft.ProcessKeywordFailure = "error"
     process_other_version: pft.ProcessKeywordFailure = "error"
     process_extra_timestep: pft.ProcessKeywordFailure = "error"
-    disallow_deprecated: pft.TriFlag = False
+    disallow_deprecated: pft.TriFlag = "false"
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named"
@@ -101,20 +101,20 @@ class _ReadDataKeywordsConfig(BaseModel):
     text_analysis_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False
     ignore_text_analysis_offsets: bool = False
-    allow_header_text_offset_mismatch: pft.TriFlag = False
-    allow_missing_required_offsets: pft.TriFlag = False
+    allow_header_text_offset_mismatch: pft.TriFlag = "false"
+    allow_missing_required_offsets: pft.TriFlag = "false"
     truncate_text_offsets: bool = False
     process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
-    disallow_range_truncation: pft.TriFlag = False
+    disallow_range_truncation: pft.TriFlag = "false"
 
 
 class _ReadEventsConfig(BaseModel):
-    allow_uneven_event_width: pft.TriFlag = False
-    allow_tot_mismatch: pft.TriFlag = False
+    allow_uneven_event_width: pft.TriFlag = "false"
+    allow_tot_mismatch: pft.TriFlag = "false"
     truncate_event_values: pft.TruncateEventValues = "int_only"
-    disallow_over_range: pft.TriFlag = False
+    disallow_over_range: pft.TriFlag = "false"
 
 
 class _ReadSharedConfig(BaseModel):

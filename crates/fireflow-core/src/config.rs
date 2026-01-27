@@ -452,6 +452,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: UseLatin1,
 
+    // TODO not used
     /// If `true`, allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
@@ -1250,7 +1251,7 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
-pub(crate) trait TriErrorFlag: Into<TriFlag> + Copy {
+pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
     const FALSE_IS_ERROR: bool;
 
     fn is_error(&self) -> Option<bool> {
@@ -1260,7 +1261,21 @@ pub(crate) trait TriErrorFlag: Into<TriFlag> + Copy {
             TriFlag::True => Some(!Self::FALSE_IS_ERROR),
         }
     }
+
+    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError> {
+        let res = match s {
+            "silent" => Ok(TriFlag::Silent),
+            "true" => Ok(TriFlag::True),
+            _ => Err(PartialTriErrorFlagError),
+        };
+        res.map(Self::from)
+    }
 }
+
+/// Error when parsing a [`TriFlag`] from `"true"` or `"silent"`.
+#[derive(Error, Debug)]
+#[error("Must be one of 'silent' or 'true'")]
+pub struct PartialTriErrorFlagError;
 
 macro_rules! impl_config_flag {
     ($n:ident) => {
@@ -1299,6 +1314,7 @@ impl_config_flag!(BigOther);
 impl_config_flag!(AppendableFlag);
 impl_config_flag!(AppendFlag);
 
+// TODO add docstrings
 macro_rules! impl_tri_error_flag {
     (true_is_error $n:ident) => {
         impl_tri_error_flag!(_common $n, false);
@@ -1306,13 +1322,11 @@ macro_rules! impl_tri_error_flag {
 
     (false_is_error $n:ident) => {
         impl_tri_error_flag!(_common $n, true);
-
     };
 
     (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Into, Clone, Copy, Default, FromStr)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        #[from(Option<bool>, TriFlag)]
+        #[derive(From, Into, Clone, Copy, FromStr, Default)]
+        #[cfg_attr(feature = "python", derive(FromPyString))]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
@@ -1355,7 +1369,7 @@ impl TriErrorFlag for DummyTriFlag {
 }
 
 /// Tri-state flag to throw warning, throw error, or do nothing
-#[derive(Clone, Copy, Default, FromStr)]
+#[derive(Clone, Copy, FromStr, Default)]
 #[from_str(error(TriFlagError))]
 #[from_str(rename_all = "snake_case")]
 pub enum TriFlag {
@@ -1372,26 +1386,6 @@ pub enum TriFlag {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 #[from(FromStrError)]
 pub struct TriFlagError;
-
-impl From<TriFlag> for Option<bool> {
-    fn from(value: TriFlag) -> Self {
-        match value {
-            TriFlag::False => Some(false),
-            TriFlag::True => Some(true),
-            TriFlag::Silent => None,
-        }
-    }
-}
-
-impl From<Option<bool>> for TriFlag {
-    fn from(value: Option<bool>) -> Self {
-        match value {
-            Some(false) => Self::False,
-            Some(true) => Self::True,
-            None => Self::Silent,
-        }
-    }
-}
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {
@@ -1486,13 +1480,6 @@ impl FromStr for TemporalOpticalKey {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
-
-// #[derive(new)]
-// pub(crate) struct TemporalOpticalKeyOut {
-//     pub(crate) errors: Vec<TemporalHasOpticalKeyError>,
-//     pub(crate) warnings: Vec<TemporalHasOpticalKeyError>,
-//     pub(crate) pairs: Vec<(StdKey, String)>,
-// }
 
 type TemporalOpticalResult = WarningsAndErrorsResult<
     Vec<(StdKey, String)>,
@@ -1735,28 +1722,10 @@ mod python {
     use crate::segment::OffsetCorrection;
     use crate::validated::sub_pattern::SubPattern;
 
-    use super::{KeyPatterns, SubPatterns, TimeMeasNamePattern, TriFlag};
+    use super::{KeyPatterns, SubPatterns, TimeMeasNamePattern};
 
     use pyo3::prelude::*;
     use std::collections::HashMap;
-    use std::convert::Infallible;
-
-    impl<'py> FromPyObject<'py> for TriFlag {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: Option<bool> = ob.extract()?;
-            Ok(x.into())
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for TriFlag {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            Option::<bool>::from(self).into_pyobject(py)
-        }
-    }
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

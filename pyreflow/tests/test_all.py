@@ -1348,7 +1348,7 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
         assert core.temporal is None
-        core.set_temporal_at(0, False)
+        core.set_temporal_at(0, "false")
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -1364,7 +1364,7 @@ class TestCore:
     ) -> None:
         assert core.temporal is None
         ts = 1.0
-        core.set_temporal_at(0, ts, False)
+        core.set_temporal_at(0, ts, "false")
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -1881,7 +1881,7 @@ class TestCore:
             core.to_version_3_0()
         # and should still fail when forced since $PnE is missing
         with pytest.RaisesGroup(pf.PyreflowError):
-            core.to_version_3_0(True)
+            core.to_version_3_0("true")
         core.all_scales = [(), ()]
         new = core.to_version_3_0()
         assert isinstance(new, target)
@@ -1904,7 +1904,7 @@ class TestCore:
             core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
         with pytest.RaisesGroup(pf.PyreflowError):
-            core.to_version_3_1(True)
+            core.to_version_3_1("true")
         core.all_scales = [(), ()]
         new = core.to_version_3_1()
         assert isinstance(new, target)
@@ -1927,7 +1927,7 @@ class TestCore:
             core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
         with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "T cell incinerator"
         core.all_scales = [(), ()]
         core.cyt = "T cell incinerator"
@@ -1984,7 +1984,7 @@ class TestCore:
             core.to_version_3_2()
         # and should still fail if forced since $CYT is missing
         with pytest.RaisesGroup(pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "the dark eternal void from which cells will never escape"
         new = core.to_version_3_2()
         assert isinstance(new, target)
@@ -2039,7 +2039,7 @@ class TestCore:
             core.to_version_3_2()
         # should still fail when forced
         with pytest.RaisesGroup(pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "Cygnus X-1"
         new = core.to_version_3_2()
         assert isinstance(new, target)

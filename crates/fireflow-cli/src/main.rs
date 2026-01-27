@@ -44,16 +44,12 @@ use std::error::Error;
 use std::fmt::Display;
 use std::iter::once;
 use std::path::PathBuf;
-use std::process::exit;
 
-fn main() {
-    match run() {
-        Ok(()) => (),
-        Err(e) => {
-            eprintln!("{e}");
-            exit(1)
-        }
-    }
+fn main() -> Result<(), i32> {
+    run().map_err(|e| {
+        eprintln!("{e}");
+        1_i32
+    })
 }
 
 #[allow(clippy::too_many_lines)]

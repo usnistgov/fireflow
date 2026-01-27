@@ -176,20 +176,35 @@ enum ModeValue {
     Other,
 }
 
-#[derive(Default, PartialEq)]
-pub(crate) struct KeywordVersionScore {
-    /// Number of required keywords expected to be in this version and found
-    pub(crate) good_req: usize,
-    /// Number of optional keywords expected to be in this version and found
-    pub(crate) good_opt: usize,
-    /// Number of keywords (opt or req) that must be dropped for this version
-    pub(crate) drop: usize,
-    /// Number of optional keywords that are missing in this version
-    pub(crate) missing_opt: usize,
-    /// Number of required keywords that are missing in this version
-    pub(crate) missing_req: usize,
-    /// Number of expected keywords that are not present in this version
-    pub(crate) missing_absent: usize,
+/// Score generated when guessing version from keywords.
+#[derive(Default, PartialEq, Clone, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct KeywordVersionScore {
+    /// Number of required keywords expected to be in this version and found.
+    ///
+    /// This is for documentation only.
+    pub good_req: usize,
+    /// Number of optional keywords expected to be in this version and found.
+    ///
+    /// This is for documentation only.
+    pub good_opt: usize,
+    /// Number of keywords (opt or req) that must be dropped for this version.
+    ///
+    /// Smaller is better when comparing versions.
+    pub drop: usize,
+    /// Number of optional keywords that are missing in this version.
+    ///
+    /// This is for documentation only.
+    pub missing_opt: usize,
+    /// Number of required keywords that are missing in this version.
+    ///
+    /// If this number is non-zero, the version will be considered impossible
+    /// for the given set of keywords.
+    pub missing_req: usize,
+    /// Number of keywords that are expected to be missing for this version.
+    ///
+    /// This is for documentation only.
+    pub missing_absent: usize,
 }
 
 impl KeywordVersionScore {

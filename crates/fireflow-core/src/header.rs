@@ -34,10 +34,11 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
+use thiserror::Error;
+
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -57,7 +58,7 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 pub enum Version {
@@ -109,6 +110,16 @@ pub struct UncorrectedHeaderSegments {
     pub analysis: UncorrectedSegment,
     pub other: Vec<UncorrectedSegment>,
 }
+
+/// Keyword scores for all versions generated when guessing version
+///
+/// Each score should sum to the same number.
+pub type KeywordVersionScores = (
+    KeywordVersionScore,
+    KeywordVersionScore,
+    KeywordVersionScore,
+    KeywordVersionScore,
+);
 
 impl<T> HeaderSegments<T> {
     pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
@@ -448,11 +459,11 @@ impl Version {
         self,
         kws: &StdKeywords,
         ver_override: Option<&VersionOverride>,
-    ) -> Result<Self, GuessVersionError> {
+    ) -> Result<(Self, Option<KeywordVersionScores>), GuessVersionError> {
         let vs = [Self::FCS2_0, Self::FCS3_0, Self::FCS3_1, Self::FCS3_2];
         match ver_override {
-            None => Ok(self),
-            Some(VersionOverride::Force(v)) => Ok(*v),
+            None => Ok((self, None)),
+            Some(VersionOverride::Force(v)) => Ok((*v, None)),
             Some(VersionOverride::AutoDetect(strat)) => {
                 let rank =
                     |(v0, s0): &(Self, KeywordVersionScore),
@@ -467,13 +478,14 @@ impl Version {
                     for (k, v) in kws {
                         opt.classify_keyword(k, v);
                     }
-                    let scores: Vec<_> = vs.iter().map(|&v| (v, opt.get_score(v, par))).collect();
+                    let scores = vs.map(|v| (v, opt.get_score(v, par)));
+                    let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
                     if let Some(xs) =
                         NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
                     {
                         // Found at least one version that doesn't require dropping,
                         // rank by strategy to select
-                        Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                        Ok((xs.maximum_by(|&x, &y| rank(x, y)).0, ret_scores()))
                     } else if let Some(xs) =
                         NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
                     {
@@ -487,7 +499,7 @@ impl Version {
                                 y.1.drop.cmp(&x.1.drop)
                             }
                         });
-                        Ok(ret.0)
+                        Ok((ret.0, ret_scores()))
                     } else {
                         // No versions found that have valid keywords available,
                         // return error

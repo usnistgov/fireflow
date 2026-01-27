@@ -32,3 +32,5 @@ from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
 from ._pyreflow import SplitTEXTDiagnostics as SplitTEXTDiagnostics
 from ._pyreflow import StdTEXTDiagnostics as StdTEXTDiagnostics
 from ._pyreflow import EventsDiagnostics as EventsDiagnostics
+
+from ._pyreflow import KeywordVersionScore as KeywordVersionScore

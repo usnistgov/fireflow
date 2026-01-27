@@ -16,8 +16,8 @@ use crate::data::{
     ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1,
-    Version3_2,
+    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -493,7 +493,12 @@ impl AnyCoreTEXT {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (Self, StdTEXTDiagnostics, TEXTOffsets<Option<Tot>>),
+        (
+            Self,
+            StdTEXTDiagnostics,
+            TEXTOffsets<Option<Tot>>,
+            Option<KeywordVersionScores>,
+        ),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTError,
@@ -504,9 +509,9 @@ impl AnyCoreTEXT {
             + AsRef<ReadDataKeywordsConfig>,
     {
         macro_rules! go {
-            ($t:ident) => {
+            ($t:ident, $s:expr) => {
                 $t::new_from_keywords_with_offsets(kws, segs, st)
-                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
+                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common(), $s))
                     .map_errors(StdTEXTFromFlatTEXTError::from)
             };
         }
@@ -514,11 +519,11 @@ impl AnyCoreTEXT {
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
         match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
-            Ok(ver) => match ver {
-                Version::FCS2_0 => go!(CoreTEXT2_0),
-                Version::FCS3_0 => go!(CoreTEXT3_0),
-                Version::FCS3_1 => go!(CoreTEXT3_1),
-                Version::FCS3_2 => go!(CoreTEXT3_2),
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
+                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
+                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
+                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
             },
             Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
         }
@@ -541,7 +546,7 @@ impl AnyCoreDataset {
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, StdDatasetWithKwsOutput),
+        (Self, StdDatasetWithKwsOutput, Option<KeywordVersionScores>),
         StdDatasetFromFlatTEXTWarning,
         StdDatasetFromFlatTextError,
         (),
@@ -562,9 +567,9 @@ impl AnyCoreDataset {
         );
 
         macro_rules! go {
-            ($t:ident) => {
+            ($t:ident, $s:expr) => {
                 $t::new_from_keywords_inner(h, kws, &segs, st)
-                    .map_ok_value(|(x, y)| (x.into(), y))
+                    .map_ok_value(|(x, y)| (x.into(), y, $s))
                     .map_pure_errors(StdDatasetFromFlatTextError::from)
             };
         }
@@ -572,11 +577,11 @@ impl AnyCoreDataset {
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
         match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
-            Ok(ver) => match ver {
-                Version::FCS2_0 => go!(CoreDataset2_0),
-                Version::FCS3_0 => go!(CoreDataset3_0),
-                Version::FCS3_1 => go!(CoreDataset3_1),
-                Version::FCS3_2 => go!(CoreDataset3_2),
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreDataset2_0, scores),
+                Version::FCS3_0 => go!(CoreDataset3_0, scores),
+                Version::FCS3_1 => go!(CoreDataset3_1, scores),
+                Version::FCS3_2 => go!(CoreDataset3_2, scores),
             },
             Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
         }

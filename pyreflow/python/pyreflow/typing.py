@@ -179,3 +179,10 @@ TrimValueWhitespace: TypeAlias = Literal[
 ]
 
 SpilloverMeasurementMode: TypeAlias = Literal["named", "indexed", "guess"]
+
+KeywordVersionScores: TypeAlias = tuple[
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+]

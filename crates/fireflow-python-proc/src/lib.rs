@@ -656,24 +656,30 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
         "text",
         PyClass::new_py(["api"], "FlatTEXTOutput"),
         "Parsed *TEXT* segment.",
-        |_, _| quote!(self.0.text.clone().into()),
+        |n, _| quote!(self.0.#n.clone().into()),
     );
 
     let dataset = DocArg::new_ivar_ro(
         "dataset",
         PyClass::new_py(["api"], "FlatDatasetWithKwsOutput"),
         "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
-        |_, _| quote!(self.0.dataset.clone().into()),
+        |n, _| quote!(self.0.#n.clone().into()),
     );
 
-    let args = [text, dataset];
+    let scores = DocArg::new_version_scores_param();
+
+    let args = [text, dataset, scores];
 
     let doc = DocString::new_class("Dataset from FCS file parsed with flat mode.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(text.into(), dataset.into()).into()
+                #path::new(
+                    text.into(),
+                    dataset.into(),
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
+                ).into()
             }
         }
     };
@@ -753,6 +759,67 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
         truncated_columns,
     ];
     let doc = DocString::new_class("Diagnostic output from reading *DATA* segment.").args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let param = |argname, doc| {
+        DocArgROIvar::new_ivar_ro(argname, RsInt::Usize, doc, |n, _| quote!(self.0.#n))
+    };
+
+    let good_req = param(
+        "good_req",
+        "Number of required keywords expected to be in this version and found.",
+    );
+
+    let good_opt = param(
+        "good_opt",
+        "Number of optional keywords expected to be in this version and found.",
+    );
+
+    let drop = param(
+        "drop",
+        "Number of keywords (opt or req) that must be dropped for this version.",
+    );
+
+    let missing_opt = param(
+        "missing_opt",
+        "Number of optional keywords that are missing in this version.",
+    );
+
+    let missing_req = param(
+        "missing_req",
+        "Number of required keywords that are missing in this version.",
+    );
+
+    let missing_absent = param(
+        "missing_absent",
+        "Number of keywords that are expected to be missing for this version.",
+    );
+
+    let args = [
+        good_req,
+        good_opt,
+        drop,
+        missing_opt,
+        missing_req,
+        missing_absent,
+    ];
+    let doc =
+        DocString::new_class("Score generated when guessing version from keywords.").args(args);
     let inner_args = doc.idents();
 
     let new = |fun_args| {
@@ -909,7 +976,9 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [tot, dataset_segs, std, flat];
+    let scores = DocArg::new_version_scores_param();
+
+    let args = [tot, dataset_segs, std, flat, scores];
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
 
     let new = |fun_args| {
@@ -919,7 +988,8 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                     tot,
                     dataset_segs.into(),
                     std_diagnostics.into(),
-                    flat_diagnostics.into()
+                    flat_diagnostics.into(),
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
                 ).into()
             }
         }
@@ -942,14 +1012,20 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [dataset, flat];
+    let scores = DocArg::new_version_scores_param();
+
+    let args = [dataset, flat, scores];
 
     let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(dataset.into(), flat_diagnostics.into()).into()
+                #path::new(
+                    dataset.into(),
+                    flat_diagnostics.into(),
+                    version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
+                ).into()
             }
         }
     };
@@ -7238,6 +7314,21 @@ impl DocArgROIvar {
             }
         })
         .def_auto()
+    }
+
+    fn new_version_scores_param() -> Self {
+        let desc = "Scores generated if version was guessed.";
+        let s = PyClass::new_py(["api"], "KeywordVersionScore");
+        let t = PyTuple::new2(vec![s; 4]);
+        let p = PyOpt::new1(t);
+        DocArgParam::new_param("version_scores", p, desc).into_ro(|_, _| {
+            quote!(self.0.version_scores.clone().map(|(a, b, c, d)| (
+                a.into(),
+                b.into(),
+                c.into(),
+                d.into()
+            )))
+        })
     }
 }
 

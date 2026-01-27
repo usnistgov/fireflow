@@ -15,7 +15,8 @@ use crate::core::{
 use crate::data::EventsDiagnostics;
 use crate::header::{
     GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError,
-    UncorrectedHeaderSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    KeywordVersionScores, UncorrectedHeaderSegments, Version, Version2_0, Version3_0, Version3_1,
+    Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredWarningAndError,
@@ -148,16 +149,16 @@ pub fn fcs_read_flat_dataset(
                 .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
                 .map_err(FlatDatasetError::from)
                 .map_err(IOErrorGroup::new_pure_one)
-                .map(|v| {
+                .map(|(v, scores)| {
                     flat.version = v;
-                    (flat, h, st)
+                    (flat, h, st, scores)
                 })
                 .into_log()
         })
-        .and_then_commutative(|(flat, mut h, st)| {
+        .and_then_commutative(|(flat, mut h, st, scores)| {
             let segs = flat.flat_diagnostics.non_data_segments();
             h_read_dataset_from_kws(&mut h, flat.version, &flat.keywords.std, &segs, &st)
-                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset))
+                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset, scores))
                 .map_commutative_warnings(FlatDatasetWarning::from)
                 .map_pure_errors(FlatDatasetError::from)
         })
@@ -458,6 +459,9 @@ pub struct StdTEXTOutput {
 
     /// Diagnostic output from flat TEXT parsing
     pub flat_diagnostics: FlatTEXTDiagnostics,
+
+    /// Scores generated if version was guessed.
+    pub version_scores: Option<KeywordVersionScores>,
 }
 
 /// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
@@ -468,6 +472,9 @@ pub struct FlatDatasetOutput {
 
     /// Output from parsing DATA+ANALYSIS
     pub dataset: FlatDatasetWithKwsOutput,
+
+    /// Scores generated if version was guessed.
+    pub version_scores: Option<KeywordVersionScores>,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
@@ -478,6 +485,9 @@ pub struct StdDatasetOutput {
 
     /// Miscellaneous data from parsing TEXT
     pub flat_diagnostics: FlatTEXTDiagnostics,
+
+    /// Scores generated if version was guessed.
+    pub version_scores: Option<KeywordVersionScores>,
 }
 
 /// Output of using keywords to read flat TEXT+DATA
@@ -1108,12 +1118,13 @@ impl FlatTEXTOutput {
     {
         let segs = self.flat_diagnostics.non_data_segments();
         AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
-            |(standardized, extra, offsets)| {
+            |(standardized, extra, offsets, scores)| {
                 let out = StdTEXTOutput::new(
                     offsets.tot,
                     *offsets.as_ref(),
                     extra,
                     self.flat_diagnostics,
+                    scores,
                 );
                 (standardized, out)
             },
@@ -1141,8 +1152,12 @@ impl FlatTEXTOutput {
         let d = hs.data;
         let a = hs.analysis;
         let o = &hs.other[..];
-        AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st)
-            .map_ok_value(|(core, out)| (core, StdDatasetOutput::new(out, self.flat_diagnostics)))
+        AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st).map_ok_value(
+            |(core, out, scores)| {
+                let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
+                (core, dx)
+            },
+        )
     }
 }
 

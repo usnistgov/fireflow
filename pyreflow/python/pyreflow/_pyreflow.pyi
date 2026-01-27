@@ -60,6 +60,7 @@ from pyreflow.typing import (
     TrimValueWhitespace,
     SpilloverMeasurementMode,
     ProcessTimeOpticalKeys,
+    KeywordVersionScores,
 )
 import pyreflow._defaults as pfd
 
@@ -1981,6 +1982,31 @@ class EventsDiagnostics:
     def truncated_columns(self) -> list[int | None]: ...
 
 @final
+class KeywordVersionScore:
+    def __new__(
+        cls,
+        good_req: int,
+        good_opt: int,
+        drop: int,
+        missing_opt: int,
+        missing_req: int,
+        missing_absent: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def good_req(self) -> int: ...
+    @property
+    def good_opt(self) -> int: ...
+    @property
+    def drop(self) -> int: ...
+    @property
+    def missing_opt(self) -> int: ...
+    @property
+    def missing_req(self) -> int: ...
+    @property
+    def missing_absent(self) -> int: ...
+
+@final
 class FlatDatasetWithKwsOutput:
     def __new__(
         cls,
@@ -2008,12 +2034,15 @@ class FlatDatasetOutput:
         cls,
         text: FlatTEXTOutput,
         dataset: FlatDatasetWithKwsOutput,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def text(self) -> FlatTEXTOutput: ...
     @property
     def dataset(self) -> FlatDatasetWithKwsOutput: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class StdTEXTOutput:
@@ -2023,6 +2052,7 @@ class StdTEXTOutput:
         dataset_segs: DatasetSegments,
         std_diagnostics: StdTEXTDiagnostics,
         flat_diagnostics: FlatTEXTDiagnostics,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2033,6 +2063,8 @@ class StdTEXTOutput:
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class StdDatasetWithKwsOutput:
@@ -2056,12 +2088,15 @@ class StdDatasetOutput:
         cls,
         dataset: StdDatasetWithKwsOutput,
         flat_diagnostics: FlatTEXTDiagnostics,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class DatasetSummary:
@@ -2838,6 +2873,7 @@ __all__ = [
     "DatasetSegments",
     "SplitTEXTDiagnostics",
     "EventsDiagnostics",
+    "KeywordVersionScore",
     "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",

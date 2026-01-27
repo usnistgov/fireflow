@@ -85,6 +85,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyStdDatasetOutput>()?;
     m.add_class::<ff::PyStdDatasetWithKwsOutput>()?;
     m.add_class::<ff::PyEventsDiagnostics>()?;
+    m.add_class::<ff::PyKeywordVersionScore>()?;
 
     m.add_class::<ff::PyFlatTEXTDiagnostics>()?;
     m.add_class::<ff::PySplitTEXTDiagnostics>()?;

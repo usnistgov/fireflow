@@ -58,7 +58,7 @@ use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
-    AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
+    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
     DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
     F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
 };
@@ -101,10 +101,12 @@ use fireflow_python_proc::{
     impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
     impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
     impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
-    impl_py_dataset_summary, impl_py_extra_std_keywords, impl_py_flat_dataset_output,
-    impl_py_flat_dataset_with_kws_output, impl_py_flat_text_output, impl_py_flat_text_parse_data,
-    impl_py_header, impl_py_header_segments, impl_py_std_dataset_output,
-    impl_py_std_dataset_with_kws_output, impl_py_std_text_output, impl_py_valid_keywords,
+    impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_py_flat_text_output, impl_py_flat_text_parse_data, impl_py_header,
+    impl_py_header_segments, impl_py_keyword_version_score, impl_py_read_events_diagnostics,
+    impl_py_split_text_diagnostics, impl_py_std_dataset_output,
+    impl_py_std_dataset_with_kws_output, impl_py_std_diagnostics, impl_py_std_text_output,
+    impl_py_uncorrected_header_segments, impl_py_valid_keywords,
 };
 
 use derive_more::{From, Into};
@@ -126,14 +128,18 @@ def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keyword
 
 impl_py_header!(header::Header);
 impl_py_header_segments!(header::HeaderSegments<UintSpacePad20>);
+impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
 impl_py_valid_keywords!(keys::ValidKeywords);
-impl_py_extra_std_keywords!(kws::ExtraStdKeywords);
+impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
 impl_py_dataset_segments!(core::DatasetSegments);
 
 impl_py_flat_text_output!(api::FlatTEXTOutput);
 impl_py_flat_dataset_output!(api::FlatDatasetOutput);
-impl_py_flat_text_parse_data!(api::FlatTEXTParseData);
+impl_py_flat_text_parse_data!(api::FlatTEXTDiagnostics);
+impl_py_split_text_diagnostics!(api::SplitTEXTDiagnostics);
 impl_py_flat_dataset_with_kws_output!(api::FlatDatasetWithKwsOutput);
+impl_py_read_events_diagnostics!(data::EventsDiagnostics);
+impl_py_keyword_version_score!(kws::KeywordVersionScore);
 
 impl_py_std_text_output!(api::StdTEXTOutput);
 impl_py_std_dataset_output!(api::StdDatasetOutput);

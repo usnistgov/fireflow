@@ -11,7 +11,7 @@
 //! standard is unclear.
 
 use crate::header::Version;
-use crate::logging::{IOResult, ImpureError};
+use crate::logging::{IOResult, ImpureError, LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
@@ -21,16 +21,19 @@ use crate::text::keywords::{self as kws, AlphaNumType};
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    IndexedKey as _, KeyPatterns, KeyStringPairs, KeyStringValues, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasPattern, StdKey, StdKeywords,
+    IndexedKey as _, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKey, StdKeywords,
 };
-use crate::validated::sub_pattern::SubPatterns;
+use crate::validated::keystring_pairs::KeyStringPairs;
+use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
+use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
 use regex::Regex;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
@@ -310,6 +313,8 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TruncateOffsets)]
     pub header: ReadHeaderInnerConfig,
 
+    // NOTE the only reason this is here and not in the Keywords configs is
+    // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
     ///
     /// If [`VersionOverride::Force`], force the version to be the supplied
@@ -348,7 +353,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be ignored regardless of this flag if they are
     /// duplicated.
-    pub allow_overlapping_supp_text: AllowDuplicatedSuppTEXT,
+    pub allow_overlapping_supp_text: AllowOverlappingSuppTEXT,
 
     /// If `true`, totally ignore STEXT and its offsets.
     ///
@@ -392,9 +397,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// the last delimiter. It is also independent of [`Self::allow_odd`] and
     /// [`Self::allow_missing_final_delim`] which will trigger as normal if
     /// their respective violations are found.
-    ///
-    /// If unescaped mode ends up be used, then [`Self::allow_empty_values`] is
-    /// implied to be `true`.
     pub delim_escape_mode: DelimEscapeMode,
 
     /// If `true`, allow delimiter to be character outside 1-126.
@@ -428,22 +430,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
 
-    /// If `true`, allow blank values.
-    ///
-    /// These can arise if delimiters are escaped,
-    /// [`Self::trim_value_whitespace`] is `true`, and values which are entirely
-    /// whitespace are trimmed to zero bytes. This is relatively common in
-    /// practice despite being non-standard. Given this and the fact that
-    /// whitespace generally has little meaning for keyword values, this flag is
-    /// almost always safe to set as `true`.
-    ///
-    /// Blank values will be dropped regardless of this flag; setting it to
-    /// `false` will trigger an error, otherwise a warning.
-    ///
-    /// If delimiters are unescaped, empty values are implied and this flag does
-    /// nothing.
-    pub allow_empty_values: AllowEmptyValues,
-
     /// If `true`, allow delimiters at token boundaries.
     ///
     /// Only relevant if `literal_delims` is `false`. While delimiters
@@ -466,6 +452,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: UseLatin1,
 
+    // TODO not used
     /// If `true`, allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
@@ -490,7 +477,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// be emitted rather than an error if this is missing.
     pub allow_missing_nextdata: AllowMissingNextdata,
 
-    /// If `true`, trim whitespace from all values.
+    /// Trim whitespace from all values.
     ///
     /// This is mainly useful for the case of fixing offsets which are usually
     /// padded in order to make the TEXT segment a predictable length. These
@@ -499,16 +486,11 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are padded with spaces (on either side). Setting this to `true` will
     /// trim the spaces leaving just a number to be parsed.
     ///
-    /// Blanks may be erroneously present on any keyword that has a fixed
-    /// structure; setting this to `true` may allow these to be parsed correctly
-    /// as well.
-    ///
     /// Trimming will be done as soon as the bytes are read from the file, thus
     /// preceding any other repair steps. Furthermore, trimming values has a
     /// relatively small performance hit since no additional string allocations
     /// are needed. If anything, it may improve performance since values that
-    /// are entirely whitespace will become empty and thus be dropped. Note that
-    /// these will result in errors if [`Self::allow_empty_values`] is `false`.
+    /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
 
     /// If `true` remove whitespace after TEXT.
@@ -597,7 +579,7 @@ pub struct ReadStdKeywordsConfig {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
     /// All versions of the standards requires that all $PnN be unique.
-    /// Furthermore, many data structures and operations and `fireflow` are
+    /// Furthermore, many data structures and operations in `fireflow` are
     /// impossible without a guarantee that names are unique.
     ///
     /// Setting this option will append incrementing digits to non-unique names
@@ -612,18 +594,18 @@ pub struct ReadStdKeywordsConfig {
     /// `"0,0"`.
     pub trim_intra_value_whitespace: TrimIntraValueWhitespace,
 
-    /// If `true`, a pattern to find/match the $PnN of the time measurement.
+    /// A pattern to find/match the $PnN of the time measurement.
     ///
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to `"0,0"`.
     pub time_meas_pattern: Option<TimeMeasNamePattern>,
 
-    /// If `true`, allow time to be absent even if we specify `time_meas_pattern`.
+    /// Allow time to be absent even [`Self::time_meas_pattern`] is set.
     pub allow_missing_time: AllowMissingTime,
 
-    /// If `true` force, force scale to be linear for temporal measurement.
-    pub force_time_linear: ForceTimeLinear,
+    /// Force $PnE to be linear (`"0.0"`).
+    pub force_linear_scale: ForceLinearScale,
 
     /// Ignore optical keywords in time channel.
     ///
@@ -634,11 +616,17 @@ pub struct ReadStdKeywordsConfig {
     /// equates to a no-op.
     pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
 
-    /// If `true`, parse $SPILLOVER with indices rather than names.
+    /// Choose what to do with optical keywords in the time channel when found.
     ///
-    /// Indices will then be used to look up the names that should have been
-    /// in their place.
-    pub parse_indexed_spillover: ParseIndexedSpillover,
+    /// Does nothing unless keys are specified in
+    /// [`Self::ignore_time_optical_keys`].
+    pub process_time_optical_keys: ProcessTemporalOpticalKeys,
+
+    /// Choose how to interpret measurements in $SPILLOVER.
+    ///
+    /// Some files use numbers/indices rather than names which point to $PnN.
+    /// Only the latter is standards-compliant.
+    pub spillover_measurement_mode: SpilloverMeasurementMode,
 
     /// If set, will be used as an alternative pattern when parsing $DATE.
     ///
@@ -742,6 +730,10 @@ pub struct ReadStdKeywordsConfig {
     /// is ambiguous to not provide one. Without a timezone, timestamps will be
     /// parsed using localtime, which is location-dependent.
     ///
+    /// If `true` timestamps with missing timezones will cause the key to error
+    /// and be dropped or demoted depending on the value of
+    /// [`ReadDataKeywordsConfig::process_optional_failure`].
+    ///
     /// This only affects FCS 3.2
     pub disallow_localtime: DisallowLocaltime,
 
@@ -753,7 +745,7 @@ pub struct ReadStdKeywordsConfig {
     /// expression to match keywords. It should not start with a `"$"` and must
     /// contain a literal `"%n"`.
     ///
-    /// This will matching something like `"P7FOO"` which would be `"FOO"` for
+    /// This will match something like `"P7FOO"` which would be `"FOO"` for
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
@@ -766,9 +758,10 @@ impl Default for ReadStdKeywordsConfig {
             trim_intra_value_whitespace: TrimIntraValueWhitespace::default(),
             time_meas_pattern: None,
             allow_missing_time: AllowMissingTime::default(),
-            force_time_linear: ForceTimeLinear::default(),
+            force_linear_scale: ForceLinearScale::default(),
             ignore_time_optical_keys: HashSet::default(),
-            parse_indexed_spillover: ParseIndexedSpillover::default(),
+            process_time_optical_keys: ProcessTemporalOpticalKeys::default(),
+            spillover_measurement_mode: SpilloverMeasurementMode::default(),
             date_pattern: None,
             time_pattern: None,
             datetime_pattern: None,
@@ -891,7 +884,7 @@ pub struct ReadDataKeywordsConfig {
     /// Due to the vagueness in the standard and the fact that the
     /// interpretation of large $PnR is fairly clear, this is not an error by
     /// default. Users might be interested in setting this to `true` if large
-    /// $PnR values might indicated a typo or other issue.
+    /// $PnR values might indicate a typo or other issue.
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
@@ -1001,12 +994,29 @@ pub enum ProcessKeywordFailure {
     /// Throw an error
     #[default]
     Error,
-    /// Demote to nonstandard
+    /// Demote to nonstandard with warning
     Demote,
+    /// Demote to nonstandard with no warning
+    DemoteSilent,
     /// Drop with warning
     Drop,
     /// Drop with no warning
     DropSilent,
+}
+
+impl ProcessKeywordFailure {
+    pub(crate) fn as_triflag(self) -> DummyTriFlag {
+        let flag = match self {
+            Self::Error => TriFlag::False,
+            Self::Demote | Self::Drop => TriFlag::True,
+            Self::DemoteSilent | Self::DropSilent => TriFlag::Silent,
+        };
+        flag.into()
+    }
+
+    pub(crate) fn is_demote(self) -> bool {
+        matches!(self, Self::Demote | Self::DemoteSilent)
+    }
 }
 
 impl FromStr for ProcessKeywordFailure {
@@ -1016,6 +1026,7 @@ impl FromStr for ProcessKeywordFailure {
         match s {
             "error" => Ok(Self::Error),
             "demote" => Ok(Self::Demote),
+            "demote_silent" => Ok(Self::DemoteSilent),
             "drop" => Ok(Self::Drop),
             "drop_silent" => Ok(Self::DropSilent),
             _ => Err(ProcessKeywordFailureError),
@@ -1031,7 +1042,9 @@ impl FromStr for ProcessKeywordFailure {
 pub struct ProcessKeywordFailureError;
 
 /// Strategy to use when autodetecting FCS version
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, FromStr)]
+#[from_str(error(SelectVersionStrategyError))]
+#[from_str(rename_all = "snake_case")]
 pub enum SelectVersionStrategy {
     /// Choose the latest version
     Latest,
@@ -1043,82 +1056,182 @@ pub enum SelectVersionStrategy {
     Strict,
 }
 
-impl FromStr for SelectVersionStrategy {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "latest" => Ok(Self::Latest),
-            "earliest" => Ok(Self::Earliest),
-            "loose" => Ok(Self::Loose),
-            "strict" => Ok(Self::Strict),
-            _ => Err(()),
-        }
-    }
-}
+/// Error when parsing [`SelectVersionStrategy`] from [`String`].
+///
+/// This is never used directly and exists to satisfy the [`FromStr`] impl for
+/// [`SelectVersionStrategy`].
+#[derive(From)]
+#[from(FromStrError)]
+pub struct SelectVersionStrategyError;
 
 /// Choose how to escape delims in TEXT segment.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(DelimEscapeModeError))]
+#[from_str(rename_all = "snake_case")]
 pub enum DelimEscapeMode {
+    /// Use escaped delimiters.
     #[default]
     Escaped,
+    /// Use unescaped delimiters.
     Unescaped,
+    /// Guess, falling back to escaped mode.
     GuessEscaped,
+    /// Guess, falling back to unescaped mode.
     GuessUnescaped,
 }
 
-impl FromStr for DelimEscapeMode {
-    type Err = DelimEscapeModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "escaped" => Ok(Self::Escaped),
-            "unescaped" => Ok(Self::Unescaped),
-            "guess_escaped" => Ok(Self::GuessEscaped),
-            "guess_unescaped" => Ok(Self::GuessUnescaped),
-            _ => Err(DelimEscapeModeError),
-        }
-    }
-}
-
 /// Error when parsing [`DelimEscapeMode`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'escaped', 'unescaped', 'guess_escaped', or 'guess_unescaped'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct DelimEscapeModeError;
+
+/// Choose how to trim values and deal with blanks that may result.
+#[derive(Default, Clone, Copy, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(TrimValueWhitespaceError))]
+#[from_str(rename_all = "snake_case")]
+pub enum TrimValueWhitespace {
+    /// Do not trim at all.
+    #[default]
+    Notrim,
+    /// Trim whitespace and throw error if blank is created.
+    Trim,
+    /// Trim whitespace and throw warning if blank is created.
+    TrimBlankWarn,
+    /// Trim whitespace and do nothing if blank is created.
+    TrimBlankNowarn,
+}
+
+/// Error when parsing [`TrimValueWhitespace`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'notrim', 'trim', 'trim_blank_warn', or 'trim_blank_nowarn'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct TrimValueWhitespaceError;
+
+impl TrimValueWhitespace {
+    /// Emit a flag for handling blank values after trimming.
+    ///
+    /// Will be `None` if trimming is not set.
+    pub(crate) fn into_allow_empty_flag(self) -> Option<DummyTriFlag> {
+        let f = match self {
+            Self::Notrim => None,
+            Self::Trim => Some(TriFlag::False),
+            Self::TrimBlankWarn => Some(TriFlag::True),
+            Self::TrimBlankNowarn => Some(TriFlag::Silent),
+        };
+        f.map(Into::into)
+    }
+}
+
+/// Choose which $PnE to force as linear.
+#[derive(Default, Clone, Copy, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(ForceLinearScaleError))]
+#[from_str(rename_all = "snake_case")]
+pub enum ForceLinearScale {
+    /// Do not force.
+    #[default]
+    None,
+    /// Only force the temporal measurement.
+    TimeOnly,
+    /// Force all measurements.
+    All,
+}
+
+/// Error when parsing [`TruncateEventValues`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'time_only', 'all', or 'none'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct ForceLinearScaleError;
+
+impl ForceLinearScale {
+    pub(crate) fn time_selected(self) -> bool {
+        matches!(self, Self::TimeOnly | Self::All)
+    }
+}
+
+/// Choose what to do with optical keys in time measurement when found.
+#[derive(Default, Clone, Copy, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(ProcessTimeOpticalKeysError))]
+#[from_str(rename_all = "snake_case")]
+pub enum ProcessTemporalOpticalKeys {
+    /// Demote to nonstandard with warning
+    #[default]
+    Demote,
+    /// Demote to nonstandard with no warning
+    DemoteSilent,
+    /// Drop with warning
+    Drop,
+    /// Drop with no warning
+    DropSilent,
+}
+
+/// Error when parsing [`ProcessTemporalOpticalKeys`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'demote', 'demote_silent', 'drop', or 'drop_silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct ProcessTimeOpticalKeysError;
+
+/// Choose how to parse measurements for $SPILLOVER key
+#[derive(Default, Clone, Copy, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(SpilloverMeasurementModeError))]
+#[from_str(rename_all = "snake_case")]
+pub enum SpilloverMeasurementMode {
+    /// Interpret measurements as names which match $PnN.
+    #[default]
+    Named,
+    /// Interpret measurements as 1-indices (numbers) which point to measurements.
+    Indexed,
+    /// Guess how measurements should be interpreted.
+    ///
+    /// If they are all numbers and all do not point to $PnN, interpret as
+    /// indices, otherwise names.
+    Guess,
+}
+
+/// Error when parsing [`SpilloverMeasurementMode`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'named', 'indexed', or 'guess'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct SpilloverMeasurementModeError;
 
 /// Choose which event types are truncated.
 ///
 /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(TruncateEventValuesError))]
+#[from_str(rename_all = "snake_case")]
 pub enum TruncateEventValues {
+    /// Only truncate integer events.
     #[default]
     IntOnly,
+    /// Truncate all events.
     All,
+    /// Truncate no events.
     None,
 }
 
-impl FromStr for TruncateEventValues {
-    type Err = TruncateEventValuesError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "int_only" => Ok(Self::IntOnly),
-            "all" => Ok(Self::All),
-            "none" => Ok(Self::None),
-            _ => Err(TruncateEventValuesError),
-        }
-    }
-}
-
 /// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'int_only', 'all', or 'none'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct TruncateEventValuesError;
 
 impl TruncateEventValues {
@@ -1138,6 +1251,32 @@ pub trait ErrorFlag {
     fn is_error(&self) -> bool;
 }
 
+pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
+    const FALSE_IS_ERROR: bool;
+
+    fn is_error(&self) -> Option<bool> {
+        match (*self).into() {
+            TriFlag::Silent => None,
+            TriFlag::False => Some(Self::FALSE_IS_ERROR),
+            TriFlag::True => Some(!Self::FALSE_IS_ERROR),
+        }
+    }
+
+    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError> {
+        let res = match s {
+            "silent" => Ok(TriFlag::Silent),
+            "true" => Ok(TriFlag::True),
+            _ => Err(PartialTriErrorFlagError),
+        };
+        res.map(Self::from)
+    }
+}
+
+/// Error when parsing a [`TriFlag`] from `"true"` or `"silent"`.
+#[derive(Error, Debug)]
+#[error("Must be one of 'silent' or 'true'")]
+pub struct PartialTriErrorFlagError;
+
 macro_rules! impl_config_flag {
     ($n:ident) => {
         #[derive(From, Clone, Copy, Default)]
@@ -1152,170 +1291,101 @@ macro_rules! impl_config_flag {
     };
 }
 
-macro_rules! impl_error_flag {
-    (true_is_error $n:ident) => {
-        impl_config_flag!($n);
-
-        impl ErrorFlag for $n {
-            fn is_error(&self) -> bool {
-                self.0 == true
-            }
-        }
-    };
-
-    (false_is_error $n:ident) => {
-        impl_config_flag!($n);
-
-        impl ErrorFlag for $n {
-            fn is_error(&self) -> bool {
-                self.0 == false
-            }
-        }
-    };
-}
-
 impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
 impl_config_flag!(TruncateOffsets);
 
-impl_error_flag!(false_is_error AllowUnevenEventWidth);
-impl_error_flag!(false_is_error AllowTotMismatch);
-
-impl_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
-impl_error_flag!(false_is_error IgnoreSuppTEXT);
-impl_error_flag!(false_is_error AllowNonAsciiDelim);
-impl_error_flag!(false_is_error AllowMissingFinalDelim);
-impl_error_flag!(false_is_error AllowNonunique);
-impl_error_flag!(false_is_error AllowOdd);
-impl_error_flag!(false_is_error AllowEmptyKeys);
-impl_error_flag!(false_is_error AllowEmptyValues);
-impl_error_flag!(false_is_error AllowDelimAtBoundary);
-impl_error_flag!(false_is_error AllowNonUtf8);
+impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);
-impl_error_flag!(false_is_error AllowNonAsciiKeywords);
-impl_error_flag!(false_is_error AllowMissingSuppTEXT);
-impl_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
-impl_error_flag!(false_is_error AllowMissingNextdata);
-impl_config_flag!(TrimValueWhitespace);
 impl_config_flag!(TrimTrailingWhitespace);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
-impl_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
-impl_error_flag!(false_is_error AllowMissingRequiredOffsets);
 
 impl_config_flag!(DedupMeasNames);
 impl_config_flag!(TrimIntraValueWhitespace);
-impl_error_flag!(false_is_error AllowMissingTime);
-impl_config_flag!(ForceTimeLinear);
-impl_config_flag!(ParseIndexedSpillover);
-impl_error_flag!(false_is_error AllowOtherFeature);
+impl_config_flag!(AllowOtherFeature);
 impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
-impl_error_flag!(true_is_error DisallowDeprecated);
 impl_config_flag!(FixLogScaleOffsets);
-impl_error_flag!(true_is_error DisallowLocaltime);
-
-impl_error_flag!(true_is_error DisallowRangeTrunc);
-
-impl_error_flag!(false_is_error AllowLoss);
+impl_config_flag!(DisallowLocaltime);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);
 impl_config_flag!(AppendableFlag);
 impl_config_flag!(AppendFlag);
 
+// TODO add docstrings
 macro_rules! impl_tri_error_flag {
     (true_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, DummyTrueErrorFlag);
+        impl_tri_error_flag!(_common $n, false);
     };
 
     (false_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, DummyFalseErrorFlag);
+        impl_tri_error_flag!(_common $n, true);
     };
 
-    (_common $n:ident, $d:ident) => {
-        #[derive(From, Clone, Copy, Default, FromStr)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+    (_common $n:ident, $false_is_err:expr) => {
+        #[derive(From, Into, Clone, Copy, FromStr, Default)]
+        #[cfg_attr(feature = "python", derive(FromPyString))]
         pub struct $n(pub TriFlag);
 
-        impl From<$n> for Option<$d> {
-            fn from(value: DisallowOverRange) -> Self {
-                Option::<bool>::from(value.0).map($d)
-            }
+        impl TriErrorFlag for $n {
+            const FALSE_IS_ERROR: bool = $false_is_err;
         }
     };
 }
 
+impl_tri_error_flag!(false_is_error AllowOverlappingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_tri_error_flag!(false_is_error AllowNonunique);
+impl_tri_error_flag!(false_is_error AllowOdd);
+impl_tri_error_flag!(false_is_error AllowEmptyKeys);
+impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_tri_error_flag!(false_is_error AllowNonUtf8);
+impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);
+impl_tri_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+impl_tri_error_flag!(false_is_error AllowMissingNextdata);
+impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
+impl_tri_error_flag!(false_is_error AllowTotMismatch);
+impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
+impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
+impl_tri_error_flag!(false_is_error AllowMissingTime);
+
+impl_tri_error_flag!(true_is_error DisallowDeprecated);
+impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
+// flag for controlling imperfect downgrades and upgrades
+impl_tri_error_flag!(false_is_error AllowLoss);
+
+/// Fake 3-way flag to use for non-public switchable errors
+#[derive(From, Into, Clone, Copy)]
+pub(crate) struct DummyTriFlag(pub(crate) TriFlag);
+
+impl TriErrorFlag for DummyTriFlag {
+    const FALSE_IS_ERROR: bool = true;
+}
+
 /// Tri-state flag to throw warning, throw error, or do nothing
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, FromStr, Default)]
+#[from_str(error(TriFlagError))]
+#[from_str(rename_all = "snake_case")]
 pub enum TriFlag {
     #[default]
     False,
     True,
-    Noop,
+    Silent,
 }
 
-impl FromStr for TriFlag {
-    type Err = TriFlagError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "false" => Ok(Self::False),
-            "true" => Ok(Self::True),
-            "silent" => Ok(Self::Noop),
-            _ => Err(TriFlagError),
-        }
-    }
-}
-
-/// Error when parsing [`VersionOverride`] from [`String`]
-#[derive(Error, Debug)]
+/// Error when parsing [`TriFlag`] from [`String`]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'false', 'true', or 'silent'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct TriFlagError;
-
-impl From<TriFlag> for Option<bool> {
-    fn from(value: TriFlag) -> Self {
-        match value {
-            TriFlag::False => Some(false),
-            TriFlag::True => Some(true),
-            TriFlag::Noop => None,
-        }
-    }
-}
-
-impl From<Option<bool>> for TriFlag {
-    fn from(value: Option<bool>) -> Self {
-        match value {
-            Some(false) => Self::False,
-            Some(true) => Self::True,
-            None => Self::Noop,
-        }
-    }
-}
-
-// /// Fake flag to use for non-public switchable errors (false = error)
-// #[derive(From, Clone, Copy)]
-// pub(crate) struct DummyFalseErrorFlag(pub bool);
-
-// impl ErrorFlag for DummyFalseErrorFlag {
-//     fn is_error(&self) -> bool {
-//         !self.0
-//     }
-// }
-
-/// Fake flag to use for non-public switchable errors (true = error)
-#[derive(From, Clone, Copy)]
-pub(crate) struct DummyTrueErrorFlag(pub bool);
-
-impl ErrorFlag for DummyTrueErrorFlag {
-    fn is_error(&self) -> bool {
-        self.0
-    }
-}
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {
@@ -1411,6 +1481,13 @@ impl FromStr for TemporalOpticalKey {
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct ParseTemporalOpticalKeyError;
 
+type TemporalOpticalResult = WarningsAndErrorsResult<
+    Vec<(StdKey, String)>,
+    (),
+    TemporalHasOpticalKeyError,
+    TemporalHasOpticalKeyError,
+>;
+
 impl TemporalOpticalKey {
     pub(crate) fn std_key(self, i: MeasIndex) -> StdKey {
         match self {
@@ -1434,20 +1511,40 @@ impl TemporalOpticalKey {
     fn remove_keys_inner(
         targets: &[Self],
         ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
         for t in targets {
             let k = t.std_key(i);
-            if ignore.contains(t) {
-                nonstd.transfer_demoted(kws, k);
-            } else if kws.remove(&k).is_some() {
-                es.push(TemporalHasOpticalKeyError::new(i, *t));
+            let (demote, warn) = match flag {
+                ProcessTemporalOpticalKeys::Demote => (true, true),
+                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
+                ProcessTemporalOpticalKeys::Drop => (false, true),
+                ProcessTemporalOpticalKeys::DropSilent => (false, false),
+            };
+            if let Some(v) = std.remove(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if ignore.contains(t) {
+                    if demote {
+                        nonstd.insert_demoted(k.clone(), v.clone());
+                    }
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, v));
+                } else {
+                    es.push(err());
+                }
             }
         }
-        es
+        let mut res = LogResult::new_err_from_iter(es, pairs);
+        res.extend_commutative_warnings(ws);
+        res
     }
 
     pub(crate) fn remove_keys_2_0(
@@ -1455,7 +1552,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::DetectorType,
             Self::DetectorVoltage,
@@ -1464,7 +1562,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_0(
@@ -1472,7 +1570,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::DetectorType,
@@ -1482,7 +1581,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_1(
@@ -1490,7 +1589,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::Calibration,
@@ -1501,7 +1601,7 @@ impl TemporalOpticalKey {
             Self::Power,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 
     pub(crate) fn remove_keys_3_2(
@@ -1509,7 +1609,8 @@ impl TemporalOpticalKey {
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
-    ) -> Vec<TemporalHasOpticalKeyError> {
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
         let targets = [
             Self::Gain,
             Self::Analyte,
@@ -1524,7 +1625,7 @@ impl TemporalOpticalKey {
             Self::Tag,
             Self::Wavelength,
         ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i)
+        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
     }
 }
 
@@ -1537,6 +1638,17 @@ pub struct TemporalHasOpticalKeyError {
     index: MeasIndex,
     key: TemporalOpticalKey,
 }
+
+/// A map of [`KeyString`]/[`String`] pairs.
+///
+/// The main use case for this is to replace or add key values.
+pub type KeyStringValues = HashMap<KeyString, String>;
+
+/// A list of patterns that match [`crate::validated::keys::StdKey`]s or
+/// [`crate::validated::keys::NonStdKey`]s.
+pub type KeyPatterns = KeyStringsOrPatterns<()>;
+
+pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 
 impl Default for TimeMeasNamePattern {
     fn default() -> Self {
@@ -1608,28 +1720,12 @@ pub struct DatasetOffsetError(DatasetOffset, FileLen);
 mod python {
     use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
+    use crate::validated::sub_pattern::SubPattern;
 
-    use super::{TimeMeasNamePattern, TriFlag};
+    use super::{KeyPatterns, SubPatterns, TimeMeasNamePattern};
 
     use pyo3::prelude::*;
-    use std::convert::Infallible;
-
-    impl<'py> FromPyObject<'py> for TriFlag {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: Option<bool> = ob.extract()?;
-            Ok(x.into())
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for TriFlag {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            Option::<bool>::from(self).into_pyobject(py)
-        }
-    }
+    use std::collections::HashMap;
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -1646,6 +1742,31 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let t: (i32, i32) = ob.extract()?;
             Ok(Self::from(t))
+        }
+    }
+
+    // pass keypatterns via config as a tuple like ([String], [String]) where the
+    // first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for KeyPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
+            let ret = Self::try_from_literals_and_patterns(
+                lits.into_iter().map(|x| (x, ())),
+                pats.into_iter().map(|x| (x, ())),
+            )?;
+            Ok(ret)
+        }
+    }
+
+    type _SubPattern = HashMap<String, SubPattern>;
+
+    // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
+    // where the first member is literal strings and the second is regex patterns
+    impl<'py> FromPyObject<'py> for SubPatterns {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
+            let ret = Self::try_from_literals_and_patterns(lits, pats)?;
+            Ok(ret)
         }
     }
 }

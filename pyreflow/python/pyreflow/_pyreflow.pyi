@@ -55,6 +55,12 @@ from pyreflow.typing import (
     VersionOverride,
     ProcessKeywordFailure,
     TriFlag,
+    ForceLinearScale,
+    ScaleDiagnostic,
+    TrimValueWhitespace,
+    SpilloverMeasurementMode,
+    ProcessTimeOpticalKeys,
+    KeywordVersionScores,
 )
 import pyreflow._defaults as pfd
 
@@ -565,8 +571,10 @@ class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[Shortname | None]
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, allow_loss: bool = False) -> bool: ...
-    def set_temporal_at(self, index: MeasIndex, allow_loss: bool = False) -> bool: ...
+    def set_temporal(self, name: Shortname, allow_loss: TriFlag = "false") -> bool: ...
+    def set_temporal_at(
+        self, index: MeasIndex, allow_loss: TriFlag = "false"
+    ) -> bool: ...
     def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
@@ -574,13 +582,13 @@ class _CoreTemporal3_0:
         self,
         name: Shortname,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: TriFlag = "false",
     ) -> bool: ...
     def set_temporal_at(
         self,
         index: MeasIndex,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: TriFlag = "false",
     ) -> bool: ...
     def unset_temporal(self) -> float | None: ...
 
@@ -589,12 +597,12 @@ class _CoreTemporal3_2:
         self,
         name: Shortname,
         timestep: Timestep,
-        allow_loss: bool = False,
+        allow_loss: TriFlag = "false",
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, allow_loss: bool = False
+        self, index: MeasIndex, timestep: Timestep, allow_loss: TriFlag = "false"
     ) -> bool: ...
-    def unset_temporal(self, allow_loss: bool = False) -> float | None: ...
+    def unset_temporal(self, allow_loss: TriFlag = "false") -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
@@ -632,18 +640,18 @@ class _CoreReplaceTemporal3_2:
         self,
         index: MeasIndex,
         meas: Temporal3_2,
-        allow_loss: bool = False,
+        allow_loss: TriFlag = "false",
     ) -> Optical3_2 | Temporal3_2: ...
     def replace_temporal_named(
         self,
         name: Shortname,
         meas: Temporal3_2,
-        allow_loss: bool = False,
+        allow_loss: TriFlag = "false",
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
-        self, name: _N, meas: _O, range: Range, disallow_trunc: bool = False
+        self, name: _N, meas: _O, range: Range, disallow_trunc: TriFlag = "false"
     ) -> None: ...
     def insert_optical(
         self,
@@ -651,10 +659,14 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
         name: _N,
         meas: _O,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def push_temporal(
-        self, name: Shortname, meas: _T, range: Range, disallow_trunc: bool = False
+        self,
+        name: Shortname,
+        meas: _T,
+        range: Range,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def insert_temporal(
         self,
@@ -662,7 +674,7 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
         name: Shortname,
         meas: _T,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def unset_measurements(self) -> None: ...
 
@@ -676,7 +688,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _O,
         col: Series,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def insert_optical(
         self,
@@ -685,7 +697,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _O,
         col: Series,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def push_temporal(
         self,
@@ -693,7 +705,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def insert_temporal(
         self,
@@ -702,7 +714,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
         meas: _T,
         col: Series,
         range: Range,
-        disallow_trunc: bool = False,
+        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
@@ -891,16 +903,16 @@ class _CoreToDataset(Generic[_X]):
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def to_version_2_0(self, allow_loss: bool = False) -> _X: ...
+    def to_version_2_0(self, allow_loss: TriFlag = "false") -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def to_version_3_0(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_0(self, allow_loss: TriFlag = "false") -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def to_version_3_1(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_1(self, allow_loss: TriFlag = "false") -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def to_version_3_2(self, allow_loss: bool = False) -> _X: ...
+    def to_version_3_2(self, allow_loss: TriFlag = "false") -> _X: ...
 
 @final
 class CoreTEXT2_0(
@@ -959,9 +971,10 @@ class CoreTEXT2_0(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -971,13 +984,13 @@ class CoreTEXT2_0(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: bool = False,
+        disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1048,9 +1061,10 @@ class CoreTEXT3_0(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1060,20 +1074,20 @@ class CoreTEXT3_0(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: bool = False,
+        disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1151,9 +1165,10 @@ class CoreTEXT3_1(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1163,19 +1178,19 @@ class CoreTEXT3_1(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: bool = False,
+        disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1256,9 +1271,10 @@ class CoreTEXT3_2(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1268,20 +1284,20 @@ class CoreTEXT3_2(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: bool = False,
+        disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1351,9 +1367,10 @@ class CoreDataset2_0(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1363,17 +1380,17 @@ class CoreDataset2_0(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: bool = False,
-        allow_uneven_event_width: bool = False,
-        allow_tot_mismatch: bool = False,
+        disallow_range_truncation: TriFlag = "false",
+        allow_uneven_event_width: TriFlag = "false",
+        allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = False,
+        disallow_over_range: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1453,9 +1470,10 @@ class CoreDataset3_0(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1465,24 +1483,24 @@ class CoreDataset3_0(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: bool = False,
-        allow_uneven_event_width: bool = False,
-        allow_tot_mismatch: bool = False,
+        disallow_range_truncation: TriFlag = "false",
+        allow_uneven_event_width: TriFlag = "false",
+        allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = False,
+        disallow_over_range: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1569,9 +1587,10 @@ class CoreDataset3_1(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1581,23 +1600,23 @@ class CoreDataset3_1(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: bool = False,
-        allow_uneven_event_width: bool = False,
-        allow_tot_mismatch: bool = False,
+        disallow_range_truncation: TriFlag = "false",
+        allow_uneven_event_width: TriFlag = "false",
+        allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = False,
+        disallow_over_range: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1687,9 +1706,10 @@ class CoreDataset3_2(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-        allow_missing_time: bool = False,
-        force_time_linear: bool = False,
+        allow_missing_time: TriFlag = "false",
+        force_linear_scale: ForceLinearScale = "none",
         ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+        process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
@@ -1699,24 +1719,24 @@ class CoreDataset3_2(
         process_hyper_par: ProcessKeywordFailure = "error",
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
-        disallow_deprecated: bool = False,
+        disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-        parse_indexed_spillover: bool = False,
+        spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: bool = False,
-        allow_missing_required_offsets: bool = False,
+        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_missing_required_offsets: TriFlag = "false",
         truncate_text_offsets: bool = False,
         process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: bool = False,
-        allow_uneven_event_width: bool = False,
-        allow_tot_mismatch: bool = False,
+        disallow_range_truncation: TriFlag = "false",
+        allow_uneven_event_width: TriFlag = "false",
+        allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = False,
+        disallow_over_range: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1756,13 +1776,39 @@ class HeaderSegments:
     def other_segs(self) -> list[Segment]: ...
 
 @final
+class UncorrectedHeaderSegments:
+    def __new__(
+        cls,
+        text_seg: Segment,
+        data_seg: Segment,
+        analysis_seg: Segment,
+        other_segs: list[Segment],
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def text_seg(self) -> Segment: ...
+    @property
+    def data_seg(self) -> Segment: ...
+    @property
+    def analysis_seg(self) -> Segment: ...
+    @property
+    def other_segs(self) -> list[Segment]: ...
+
+@final
 class Header:
-    def __new__(cls, version: FCSVersion, segments: HeaderSegments) -> Self: ...
+    def __new__(
+        cls,
+        version: FCSVersion,
+        segments: HeaderSegments,
+        uncorrected_segments: UncorrectedHeaderSegments,
+    ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
     def segments(self) -> HeaderSegments: ...
+    @property
+    def uncorrected_segments(self) -> UncorrectedHeaderSegments: ...
 
 @final
 class ValidKeywords:
@@ -1774,7 +1820,7 @@ class ValidKeywords:
     def nonstd(self) -> NonStdKeywords: ...
 
 @final
-class ExtraStdKeywords:
+class StdTEXTDiagnostics:
     def __new__(
         cls,
         pseudostandard: StdKeywords,
@@ -1782,6 +1828,10 @@ class ExtraStdKeywords:
         hyper_gate: StdKeywords,
         other_version: StdKeywords,
         timestep: str | None,
+        original_names: list[Shortname | None],
+        scale: list[ScaleDiagnostic],
+        trimmed: list[tuple[str, str]],
+        temporal_optical_pairs: list[tuple[str, str]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1794,6 +1844,14 @@ class ExtraStdKeywords:
     def other_version(self) -> StdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
+    @property
+    def original_names(self) -> list[Shortname | None]: ...
+    @property
+    def scale(self) -> list[ScaleDiagnostic]: ...
+    @property
+    def trimmed(self) -> list[tuple[str, str]]: ...
+    @property
+    def temporal_optical_pairs(self) -> list[tuple[str, str]]: ...
 
 @final
 class DatasetSegments:
@@ -1801,29 +1859,70 @@ class DatasetSegments:
         cls,
         data_seg: Segment,
         analysis_seg: Segment,
+        data_seg_uncorrected: Segment | None,
+        analysis_seg_uncorrected: Segment | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def data_seg(self) -> Segment: ...
     @property
     def analysis_seg(self) -> Segment: ...
+    @property
+    def data_seg_uncorrected(self) -> Segment | None: ...
+    @property
+    def analysis_seg_uncorrected(self) -> Segment | None: ...
 
 @final
-class FlatTEXTParseData:
+class SplitTEXTDiagnostics:
+    def __new__(
+        cls,
+        escaped: bool,
+        keys_with_blank_values: list[bytes | str],
+        values_with_blank_keys: list[bytes | str],
+        tokens_with_boundary_delims: list[bytes | str],
+        last_odd_token: bytes | str,
+        missing_final_delim: bool,
+        trailing_whitespace_length: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def escaped(self) -> bool: ...
+    @property
+    def keys_with_blank_values(self) -> list[bytes | str]: ...
+    @property
+    def values_with_blank_keys(self) -> list[bytes | str]: ...
+    @property
+    def tokens_with_boundary_delims(self) -> list[bytes | str]: ...
+    @property
+    def last_odd_token(self) -> bytes | str: ...
+    @property
+    def missing_final_delim(self) -> bool: ...
+    @property
+    def trailing_whitespace_length(self) -> int: ...
+
+@final
+class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_segments: HeaderSegments,
-        supp_text: Segment | None,
+        uncorrected_header_segments: UncorrectedHeaderSegments,
+        supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
-        non_ascii: list[tuple[str, str]],
-        byte_pairs: list[tuple[bytes, bytes]],
-        primary_escaped: bool,
-        supp_escaped: bool | None,
+        byte_pairs: list[tuple[bytes | str, bytes | str]],
+        non_unique_std_keywords: list[tuple[str, str]],
+        non_unique_nonstd_keywords: list[tuple[str, str]],
+        ignored_standard_keywords: list[tuple[str, bytes | str]],
+        keys_with_empty_trimmed_values: list[bytes | str],
+        keys_with_trimmed_values: list[tuple[bytes | str, bytes | str]],
+        primary_split: SplitTEXTDiagnostics,
+        supp_split: SplitTEXTDiagnostics | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_segments(self) -> HeaderSegments: ...
+    @property
+    def uncorrected_header_segments(self) -> UncorrectedHeaderSegments: ...
     @property
     def supp_text(self) -> Segment | None: ...
     @property
@@ -1831,13 +1930,21 @@ class FlatTEXTParseData:
     @property
     def delimiter(self) -> int: ...
     @property
-    def non_ascii(self) -> list[tuple[str, str]]: ...
+    def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
-    def byte_pairs(self) -> list[tuple[bytes, bytes]]: ...
+    def non_unique_std_keywords(self) -> list[tuple[str, str]]: ...
     @property
-    def primary_escaped(self) -> bool: ...
+    def non_unique_nonstd_keywords(self) -> list[tuple[str, str]]: ...
     @property
-    def supp_escaped(self) -> bool | None: ...
+    def ignored_standard_keywords(self) -> list[tuple[str, bytes | str]]: ...
+    @property
+    def keys_with_empty_trimmed_values(self) -> list[bytes | str]: ...
+    @property
+    def keys_with_trimmed_values(self) -> list[tuple[bytes | str, bytes | str]]: ...
+    @property
+    def primary_split(self) -> SplitTEXTDiagnostics: ...
+    @property
+    def supp_split(self) -> SplitTEXTDiagnostics | None: ...
 
 @final
 class FlatTEXTOutput:
@@ -1845,7 +1952,7 @@ class FlatTEXTOutput:
         cls,
         version: FCSVersion,
         kws: ValidKeywords,
-        parse: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1853,7 +1960,51 @@ class FlatTEXTOutput:
     @property
     def kws(self) -> ValidKeywords: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
+
+@final
+class EventsDiagnostics:
+    def __new__(
+        cls,
+        event_width: int | None,
+        event_data_remainder: int | None,
+        tot_event_mismatch: bool | None,
+        truncated_columns: list[int | None],
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def event_width(self) -> int | None: ...
+    @property
+    def event_data_remainder(self) -> int | None: ...
+    @property
+    def tot_event_mismatch(self) -> bool | None: ...
+    @property
+    def truncated_columns(self) -> list[int | None]: ...
+
+@final
+class KeywordVersionScore:
+    def __new__(
+        cls,
+        good_req: int,
+        good_opt: int,
+        drop: int,
+        missing_opt: int,
+        missing_req: int,
+        missing_absent: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def good_req(self) -> int: ...
+    @property
+    def good_opt(self) -> int: ...
+    @property
+    def drop(self) -> int: ...
+    @property
+    def missing_opt(self) -> int: ...
+    @property
+    def missing_req(self) -> int: ...
+    @property
+    def missing_absent(self) -> int: ...
 
 @final
 class FlatDatasetWithKwsOutput:
@@ -1863,6 +2014,7 @@ class FlatDatasetWithKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_segs: DatasetSegments,
+        events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1873,6 +2025,8 @@ class FlatDatasetWithKwsOutput:
     def others(self) -> list[bytes]: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
+    @property
+    def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
 class FlatDatasetOutput:
@@ -1880,12 +2034,15 @@ class FlatDatasetOutput:
         cls,
         text: FlatTEXTOutput,
         dataset: FlatDatasetWithKwsOutput,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def text(self) -> FlatTEXTOutput: ...
     @property
     def dataset(self) -> FlatDatasetWithKwsOutput: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class StdTEXTOutput:
@@ -1893,8 +2050,9 @@ class StdTEXTOutput:
         cls,
         tot: int | None,
         dataset_segs: DatasetSegments,
-        extra: ExtraStdKeywords,
-        parse: FlatTEXTParseData,
+        std_diagnostics: StdTEXTDiagnostics,
+        flat_diagnostics: FlatTEXTDiagnostics,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1902,35 +2060,43 @@ class StdTEXTOutput:
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def extra(self) -> ExtraStdKeywords: ...
+    def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class StdDatasetWithKwsOutput:
     def __new__(
         cls,
         dataset_segs: DatasetSegments,
-        extra: ExtraStdKeywords,
+        std_diagnostics: StdTEXTDiagnostics,
+        events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_segs(self) -> DatasetSegments: ...
     @property
-    def extra(self) -> ExtraStdKeywords: ...
+    def std_diagnostics(self) -> StdTEXTDiagnostics: ...
+    @property
+    def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
 class StdDatasetOutput:
     def __new__(
         cls,
         dataset: StdDatasetWithKwsOutput,
-        parse: FlatTEXTParseData,
+        flat_diagnostics: FlatTEXTDiagnostics,
+        version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetWithKwsOutput: ...
     @property
-    def parse(self) -> FlatTEXTParseData: ...
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
+    @property
+    def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
 class DatasetSummary:
@@ -1997,23 +2163,22 @@ def fcs_read_flat_text(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2045,23 +2210,22 @@ def fcs_read_std_text(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2074,9 +2238,10 @@ def fcs_read_std_text(
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-    allow_missing_time: bool = False,
-    force_time_linear: bool = False,
+    allow_missing_time: TriFlag = "false",
+    force_linear_scale: ForceLinearScale = "none",
     ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+    process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
@@ -2086,23 +2251,23 @@ def fcs_read_std_text(
     process_hyper_par: ProcessKeywordFailure = "error",
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
-    disallow_deprecated: bool = False,
+    disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2126,23 +2291,22 @@ def fcs_read_flat_dataset(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2156,18 +2320,18 @@ def fcs_read_flat_dataset(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2191,23 +2355,22 @@ def fcs_read_std_dataset(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2220,9 +2383,10 @@ def fcs_read_std_dataset(
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-    allow_missing_time: bool = False,
-    force_time_linear: bool = False,
+    allow_missing_time: TriFlag = "false",
+    force_linear_scale: ForceLinearScale = "none",
     ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+    process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
@@ -2232,28 +2396,28 @@ def fcs_read_std_dataset(
     process_hyper_par: ProcessKeywordFailure = "error",
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
-    disallow_deprecated: bool = False,
+    disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2279,23 +2443,22 @@ def fcs_read_flat_texts(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2328,23 +2491,22 @@ def fcs_read_std_texts(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2357,9 +2519,10 @@ def fcs_read_std_texts(
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-    allow_missing_time: bool = False,
-    force_time_linear: bool = False,
+    allow_missing_time: TriFlag = "false",
+    force_linear_scale: ForceLinearScale = "none",
     ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+    process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
@@ -2369,23 +2532,23 @@ def fcs_read_std_texts(
     process_hyper_par: ProcessKeywordFailure = "error",
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
-    disallow_deprecated: bool = False,
+    disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2410,23 +2573,22 @@ def fcs_read_flat_datasets(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2440,18 +2602,18 @@ def fcs_read_flat_datasets(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2476,23 +2638,22 @@ def fcs_read_std_datasets(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2505,9 +2666,10 @@ def fcs_read_std_datasets(
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
-    allow_missing_time: bool = False,
-    force_time_linear: bool = False,
+    allow_missing_time: TriFlag = "false",
+    force_linear_scale: ForceLinearScale = "none",
     ignore_time_optical_keys: list[TemporalOpticalKey] = [],
+    process_time_optical_keys: ProcessTimeOpticalKeys = "demote",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
@@ -2517,28 +2679,28 @@ def fcs_read_std_datasets(
     process_hyper_par: ProcessKeywordFailure = "error",
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
-    disallow_deprecated: bool = False,
+    disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
-    parse_indexed_spillover: bool = False,
+    spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2557,18 +2719,18 @@ def fcs_read_flat_dataset_with_keywords(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2594,23 +2756,22 @@ def fcs_summarize(
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: bool = False,
+    allow_overlapping_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: bool = False,
-    allow_missing_final_delim: bool = False,
-    allow_nonunique: bool = False,
-    allow_odd: bool = False,
-    allow_empty_keys: bool = False,
-    allow_empty_values: bool = False,
-    allow_delim_at_boundary: bool = False,
-    allow_non_utf8: bool = False,
+    allow_non_ascii_delim: TriFlag = "false",
+    allow_missing_final_delim: TriFlag = "false",
+    allow_nonunique: TriFlag = "false",
+    allow_odd: TriFlag = "false",
+    allow_empty_keys: TriFlag = "false",
+    allow_delim_at_boundary: TriFlag = "false",
+    allow_non_utf8: TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keywords: bool = False,
-    allow_missing_supp_text: bool = False,
-    allow_supp_text_own_delim: bool = False,
-    allow_missing_nextdata: bool = False,
-    trim_value_whitespace: bool = False,
+    allow_non_ascii_keywords: TriFlag = "false",
+    allow_missing_supp_text: TriFlag = "false",
+    allow_supp_text_own_delim: TriFlag = "false",
+    allow_missing_nextdata: TriFlag = "false",
+    trim_value_whitespace: TrimValueWhitespace = "notrim",
     trim_trailing_whitespace: bool = False,
     ignore_standard_keys: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
     promote_to_standard: KeyPatterns = pfd._DEFAULT_KEY_PATTERNS,
@@ -2624,18 +2785,18 @@ def fcs_summarize(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: bool = False,
-    allow_missing_required_offsets: bool = False,
+    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_missing_required_offsets: TriFlag = "false",
     truncate_text_offsets: bool = False,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: bool = False,
+    disallow_range_truncation: TriFlag = "false",
     # data args
-    allow_uneven_event_width: bool = False,
-    allow_tot_mismatch: bool = False,
+    allow_uneven_event_width: TriFlag = "false",
+    allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = False,
+    disallow_over_range: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2699,16 +2860,20 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
+    "UncorrectedHeaderSegments",
     "FlatTEXTOutput",
     "FlatDatasetOutput",
     "FlatDatasetWithKwsOutput",
-    "FlatTEXTParseData",
+    "FlatTEXTDiagnostics",
     "StdTEXTOutput",
     "StdDatasetOutput",
     "StdDatasetWithKwsOutput",
-    "ExtraStdKeywords",
+    "StdTEXTDiagnostics",
     "ValidKeywords",
     "DatasetSegments",
+    "SplitTEXTDiagnostics",
+    "EventsDiagnostics",
+    "KeywordVersionScore",
     "DatasetSummary",
     "fcs_read_header",
     "fcs_read_flat_text",

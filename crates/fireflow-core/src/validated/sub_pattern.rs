@@ -1,5 +1,3 @@
-use super::keys::KeyOrStringPatterns;
-
 use regex::Regex;
 use thiserror::Error;
 
@@ -13,8 +11,6 @@ pub struct SubPattern {
     to: String,
     global: bool,
 }
-
-pub type SubPatterns = KeyOrStringPatterns<SubPattern>;
 
 impl SubPattern {
     pub fn try_new(from: Regex, to: String, global: bool) -> Result<Self, SubPatternError> {
@@ -147,11 +143,10 @@ mod tests {
 mod python {
     use crate::python::ConfigError;
 
-    use super::{SubPattern, SubPatterns};
+    use super::SubPattern;
 
     use pyo3::prelude::*;
     use regex::Regex;
-    use std::collections::HashMap;
 
     impl<'py> FromPyObject<'py> for SubPattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -160,18 +155,6 @@ mod python {
                 .parse::<Regex>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))?;
             Ok(Self::try_new(from, to, global)?)
-        }
-    }
-
-    type _SubPattern = HashMap<String, SubPattern>;
-
-    // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
-    // where the first member is literal strings and the second is regex patterns
-    impl<'py> FromPyObject<'py> for SubPatterns {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
-            let ret = Self::try_from_literals_and_patterns(lits, pats)?;
-            Ok(ret)
         }
     }
 }

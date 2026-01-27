@@ -1,5 +1,5 @@
-use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
+use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
+use crate::logging::{DeferredError, DeferredWarningsAndErrors, LogResult};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 use crate::text::optional::KeywordPairMaybe;
@@ -24,6 +24,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+
+use super::lookup::DiagnosedKeyword;
 
 /// The $DATE/$BTIM/$ETIM keywords
 ///
@@ -72,14 +74,19 @@ where
 {
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
+    type Diagnostic = ();
 
-    fn from_str_with<'a>(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+    fn from_str_with<'a>(
+        s: &str,
+        (): (),
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
         } else {
             s.parse::<T>().map_err(FCSFixedTimeError::Native)?
         };
-        Ok(Self(ret))
+        Ok(DiagnosedKeyword::new1(Self(ret)))
     }
 }
 
@@ -95,6 +102,7 @@ impl<X> Timestamps<X> {
         btim: Option<Btim<X>>,
         etim: Option<Etim<X>>,
         date: Option<FCSDate>,
+        // TODO return inputs and not self
     ) -> DeferredError<Self, ReversedTimestampsError>
     where
         X: PartialOrd,
@@ -164,11 +172,16 @@ impl<X> Timestamps<X> {
         true
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupTimestampsError<X, X::Err>>
+    ) -> DeferredWarningsAndErrors<
+        Self,
+        LookupTimestampsError<X, X::Err>,
+        LookupTimestampsError<X, X::Err>,
+    >
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
@@ -177,19 +190,19 @@ impl<X> Timestamps<X> {
     {
         macro_rules! go {
             ($x:expr) => {
-                $x.map_err(LookupTimestampsError::from)
-                    .into_deferred_nowarn()
+                $x.map_switchable_errors(LookupTimestampsError::from)
+                    .switchable_into_commutative()
+                    .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = Btim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let e = Etim::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
-        let d = FCSDate::remove_or_transfer_root_opt_with(std, nonstd, (), conf);
+        let b = Btim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let e = Etim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.process_optional_failure;
         go!(b)
             .zip_f3_once(go!(e), go!(d))
             .and_then_deferred(|(btim, etim, date)| {
-                Self::try_new(btim, etim, date)
+                Self::try_new(btim.into_native(), etim.into_native(), date.into_native())
                     .map_errors(LookupTimestampsError::Reversed)
                     .map_err_value(|ret| {
                         // If creating the new timestamp object failed,
@@ -208,8 +221,8 @@ impl<X> Timestamps<X> {
                         ret
                     })
                     .into_semigroup()
+                    .nowarn_into_warn()
             })
-            .nowarn_into_switchable(flag)
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
@@ -255,13 +268,19 @@ const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
+    type Diagnostic = ();
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
-        if let Some(pattern) = &conf.date_pattern {
+    fn from_str_with(
+        s: &str,
+        (): (),
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
+        let ret = if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())
         } else {
             s.parse::<Self>()
-        }
+        };
+        ret.map(DiagnosedKeyword::new1)
     }
 }
 

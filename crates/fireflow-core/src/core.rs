@@ -2,22 +2,22 @@
 
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowDeprecated, DisallowRangeTrunc, ProcessKeywordFailure, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadSharedConfig, ReadState,
-    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    WriteTEXTInnerConfig,
+    DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, ProcessKeywordFailure,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig,
+    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TemporalHasOpticalKeyError,
+    TemporalOpticalKey, TimeMeasNamePattern, TriFlag, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot, LayoutConvertError,
-    LayoutOps as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
-    ScaleDatatypeMismatchError, VersionedDataLayout,
+    EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot,
+    LayoutConvertError, LayoutOps as _, LookupLayoutError, LookupLayoutWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
+    ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, Version, Version2_0, Version3_0, Version3_1,
-    Version3_2,
+    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -33,7 +33,7 @@ use crate::segment::{
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
     NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId,
     PrimaryTextSegment, RelativeSegment, RelativeToAbsSegmentError, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -51,17 +51,18 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, Analyte, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2,
-    CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn,
-    DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
-    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperGateError, HyperParError, Inst,
-    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
-    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, Op, OpticalFeature, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
-    Scale, Smno, Src, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalType, Timestep,
-    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
-    Wavelengths, WavelengthsLossError, Wellid,
+    Abrt, Analyte, AnyScaleDiagnostic, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
+    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
+    Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
+    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperGateError,
+    HyperParError, Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
+    LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
+    ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par,
+    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
+    PseudostandardError, Range, Scale, ScaleDiagnostic, Smno, Src, Sys, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep, TimestepFoundError, Tot,
+    Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -94,8 +95,9 @@ use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::keys::{
     BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, MeasHeader, NonStdKey, NonStdKeywords,
-    NonStdKeywordsExt as _, NonStdMeasRegexError, StdKeywords, ValidKeywords,
+    NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
+use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
@@ -491,7 +493,12 @@ impl AnyCoreTEXT {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (Self, ExtraStdKeywords, TEXTOffsets<Option<Tot>>),
+        (
+            Self,
+            StdTEXTDiagnostics,
+            TEXTOffsets<Option<Tot>>,
+            Option<KeywordVersionScores>,
+        ),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTError,
@@ -502,9 +509,9 @@ impl AnyCoreTEXT {
             + AsRef<ReadDataKeywordsConfig>,
     {
         macro_rules! go {
-            ($t:ident) => {
+            ($t:ident, $s:expr) => {
                 $t::new_from_keywords_with_offsets(kws, segs, st)
-                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common()))
+                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common(), $s))
                     .map_errors(StdTEXTFromFlatTEXTError::from)
             };
         }
@@ -512,11 +519,11 @@ impl AnyCoreTEXT {
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
         match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
-            Ok(ver) => match ver {
-                Version::FCS2_0 => go!(CoreTEXT2_0),
-                Version::FCS3_0 => go!(CoreTEXT3_0),
-                Version::FCS3_1 => go!(CoreTEXT3_1),
-                Version::FCS3_2 => go!(CoreTEXT3_2),
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
+                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
+                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
+                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
             },
             Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
         }
@@ -539,7 +546,7 @@ impl AnyCoreDataset {
         other_segs: &[OtherSegment20],
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, StdDatasetWithKwsOutput),
+        (Self, StdDatasetWithKwsOutput, Option<KeywordVersionScores>),
         StdDatasetFromFlatTEXTWarning,
         StdDatasetFromFlatTextError,
         (),
@@ -560,9 +567,9 @@ impl AnyCoreDataset {
         );
 
         macro_rules! go {
-            ($t:ident) => {
+            ($t:ident, $s:expr) => {
                 $t::new_from_keywords_inner(h, kws, &segs, st)
-                    .map_ok_value(|(x, y)| (x.into(), y))
+                    .map_ok_value(|(x, y)| (x.into(), y, $s))
                     .map_pure_errors(StdDatasetFromFlatTextError::from)
             };
         }
@@ -570,11 +577,11 @@ impl AnyCoreDataset {
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
         match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
-            Ok(ver) => match ver {
-                Version::FCS2_0 => go!(CoreDataset2_0),
-                Version::FCS3_0 => go!(CoreDataset3_0),
-                Version::FCS3_1 => go!(CoreDataset3_1),
-                Version::FCS3_2 => go!(CoreDataset3_2),
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreDataset2_0, scores),
+                Version::FCS3_0 => go!(CoreDataset3_0, scores),
+                Version::FCS3_1 => go!(CoreDataset3_1, scores),
+                Version::FCS3_2 => go!(CoreDataset3_2, scores),
             },
             Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
         }
@@ -1305,24 +1312,33 @@ pub struct OthersReader<'a> {
 
 /// Output of using keywords to read standardized TEXT+DATA
 #[derive(Clone, new, PartialEq)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct StdDatasetWithKwsOutput {
     /// DATA+ANALYSIS
     pub dataset_segments: DatasetSegments,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub extra: ExtraStdKeywords,
+    pub std_diagnostics: StdTEXTDiagnostics,
+
+    /// Diagnostic output from parsing DATA segment
+    pub events_diagnostics: EventsDiagnostics,
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
 #[derive(Clone, Copy, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatasetSegments {
     /// offsets used to parse DATA
     pub data: AnyDataSegment,
 
     /// offsets used to parse ANALYSIS
     pub analysis: AnyAnalysisSegment,
+
+    /// Uncorrected offsets for DATA if from TEXT
+    pub data_uncorrected: Option<UncorrectedSegment>,
+
+    /// Uncorrected offsets for ANALYSIS if from TEXT
+    pub analysis_uncorrected: Option<UncorrectedSegment>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -1347,6 +1363,80 @@ pub enum IncludeRootOrMeas {
     Root,
     Meas,
     Both,
+}
+
+/// Diagnostic output from standardizing TEXT
+#[derive(Clone, PartialEq, new)]
+#[allow(clippy::too_many_arguments)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct StdTEXTDiagnostics {
+    /// Keys which start with `"$"` but are not part of the standard.
+    pub pseudostandard: StdKeywords,
+    /// Standard $Pn* keys where `n` is higher than $PAR
+    pub hyper_par: StdKeywords,
+    /// Standard $Gn* keys where `n` is higher than $GATE
+    pub hyper_gate: StdKeywords,
+    /// Keys which do not belong in this version but are valid in another.
+    pub other_version: StdKeywords,
+    /// $TIMESTEP if it is given but not used.
+    pub timestep: Option<String>,
+    /// Original $PnN if they are renamed.
+    pub original_names: Vec<Option<Shortname>>,
+    /// Diagnostic outcomes from fixing $PnE keys.
+    pub scale: Vec<AnyScaleDiagnostic>,
+    /// Original keyword values that were trimmed for whitespace between commas.
+    pub trimmed: Vec<(StdKey, String)>,
+    /// Optical keys that were found in the temporal measurement.
+    pub temporal_optical_pairs: Vec<(StdKey, String)>,
+}
+
+impl StdTEXTDiagnostics {
+    fn from_extra(
+        extra: ExtraStdKeywords,
+        original_names: Vec<Option<Shortname>>,
+        scale: Vec<AnyScaleDiagnostic>,
+        trimmed: Vec<(StdKey, String)>,
+        temporal_optical_pairs: Vec<(StdKey, String)>,
+    ) -> Self {
+        Self {
+            pseudostandard: extra.pseudostandard,
+            hyper_par: extra.hyper_par,
+            hyper_gate: extra.hyper_gate,
+            other_version: extra.other_version,
+            timestep: extra.timestep,
+            original_names,
+            scale,
+            trimmed,
+            temporal_optical_pairs,
+        }
+    }
+}
+
+#[derive(new)]
+pub struct DiagnosedMetaroot<M> {
+    this: M,
+    trimmed: Vec<(StdKey, String)>,
+}
+
+#[derive(new)]
+pub struct DiagnosedOptical<M> {
+    this: M,
+    scale: ScaleDiagnostic,
+    trimmed: Vec<(StdKey, String)>,
+}
+
+#[derive(new)]
+pub struct DiagnosedTemporal<M> {
+    this: M,
+    scale: TemporalScaleDiagnostic,
+    trimmed: Vec<(StdKey, String)>,
+    tmp_opt_pairs: Vec<(StdKey, String)>,
+}
+
+#[derive(new)]
+struct DiagnosedUnstainedData {
+    this: UnstainedData,
+    trimmed: Option<(StdKey, String)>,
 }
 
 impl WriteHeaderAndTextConfig<'_> {
@@ -1438,7 +1528,7 @@ pub(crate) trait PrivVersioned: Versioned {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, Analysis, DatasetSegments),
+        (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -1463,17 +1553,18 @@ pub(crate) trait PrivVersioned: Versioned {
             .zip_commutative(offset_res)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(layout, offsets)| {
+            .and_then_commutative(|(layout_out, offsets)| {
                 let dataset_segs = offsets.as_ref();
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
-                layout
+                layout_out
+                    .layout
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                    .and_then_commutative(|d| {
+                    .and_then_commutative(|(df, event_out)| {
                         ar.h_read(h)
-                            .map(|a| (d, a, *dataset_segs))
+                            .map(|a| (df, a, *dataset_segs, event_out))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -1494,7 +1585,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -1505,7 +1596,7 @@ pub trait LookupOptical: Sized + VersionedOptical {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -1516,7 +1607,7 @@ pub trait LookupTemporal: VersionedTemporal {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -1650,7 +1741,7 @@ pub trait VersionedMetaroot: Sized {
         let s = SwapOpticalTemporalSummary::new(opt_index, tmp_index);
 
         ErrorGroup::try_new_with(s, es)
-            .into_deferred_switchable(flag)
+            .into_deferred_switchable3(flag)
             .set_deferred_value((tmp, opt))
             .map_ok_value(|(t, o)| go(t, o))
     }
@@ -1711,7 +1802,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         opt: Optical<O>,
         i: MeasIndex,
         data: Self::TData,
-        flag: AllowLoss,
+        allow_loss: AllowLoss,
     ) -> SwitchableErrorResult<Temporal<Self>, Optical<O>, AllowLoss, OpticalToTemporalErrors> {
         let opt_common_errs = opt.loss_errors(i);
         let opt_specific_errs = opt.specific.optical_to_temporal_loss_errors(i);
@@ -1726,7 +1817,7 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
 
         let s = OpticalToTemporalSummary::new(i);
         ErrorGroup::try_new_with(s, es)
-            .into_deferred_switchable::<_, Nothing<_>>(flag)
+            .into_deferred_switchable3::<_, Nothing<_>>(allow_loss)
             .set_deferred_value((opt, data))
             .map_ok_value(|(o, d)| Self::from_optical_unchecked(o, d))
             .map_err_value(|(o, _)| o)
@@ -1779,7 +1870,8 @@ pub trait VersionedTEXTOffsets: Sized {
     type TotDef: IsTot;
 
     fn lookup<C>(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
@@ -1787,7 +1879,7 @@ pub trait VersionedTEXTOffsets: Sized {
         C: AsRef<ReadDataKeywordsConfig>;
 
     fn lookup_ro<C>(
-        kws: &StdKeywords,
+        std: &StdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
@@ -1834,14 +1926,19 @@ impl<T> Temporal<T> {
         mut nonstd: NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         T: LookupTemporal,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         T::lookup_specific(std, &mut nonstd, i, conf).map_ok_value(|specific| {
             let common = CommonMeasurement::lookup(std, nonstd, i);
-            Self::new(common, specific)
+            DiagnosedTemporal::new(
+                Self::new(common, specific.this),
+                specific.scale,
+                specific.trimmed,
+                specific.tmp_opt_pairs,
+            )
         })
     }
 
@@ -1932,7 +2029,7 @@ impl<O> Optical<O> {
         i: MeasIndex,
         mut nonstd: NonStdKeywords,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         O: LookupOptical,
         Version: From<O::Ver>,
@@ -1955,7 +2052,10 @@ impl<O> Optical<O> {
         let common = CommonMeasurement::lookup(std, nonstd, i);
         go!(power)
             .zip4_commutative(go!(perc_emit), go!(det_volt), specific)
-            .map_ok_value(|(p, e, v, s)| Self::new(common, filter, p, det_type, e, v, s))
+            .map_ok_value(|(p, e, v, s_out)| {
+                let ret = Self::new(common, filter, p, det_type, e, v, s_out.this);
+                DiagnosedOptical::new(ret, s_out.scale, s_out.trimmed)
+            })
     }
 
     fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (MeasHeader, String, String)>
@@ -2131,7 +2231,7 @@ where
         ms: &[M::Name],
         mut nonstd: NonStdKeywords,
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         M: LookupMetaroot,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
@@ -2163,11 +2263,14 @@ where
 
         go!(abrt_res)
             .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
-            .map_ok_value(|(abrt, lost, tr, specific)| {
-                Self::new(
+            .map_ok_value(|(abrt, lost, tr_out, (specific, trimmed))| {
+                let (tr, tr_trimmed) = tr_out.into_opt_root_pair();
+                let ret = Self::new(
                     abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                     nonstd,
-                )
+                );
+                let trimmed2 = trimmed.into_iter().chain(tr_trimmed).collect();
+                DiagnosedMetaroot::new(ret, trimmed2)
             })
     }
 
@@ -2542,22 +2645,21 @@ where
         &mut self,
         n: &Shortname,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_name(
             n,
             |old, new| {
-                M::swap_optical_temporal(old, new, flag)
+                M::swap_optical_temporal(old, new, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, flag)
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByNameError::from)
@@ -2570,22 +2672,21 @@ where
         &mut self,
         index: MeasIndex,
         timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
     where
         M::Temporal: TemporalFromOptical<M::Optical>,
     {
-        let flag = AllowLoss(allow_loss);
         self.measurements.set_center_by_index(
             index,
             |old, new| {
-                M::swap_optical_temporal(old, new, flag)
+                M::swap_optical_temporal(old, new, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
-                M::Temporal::from_optical(old_o, i, timestep, flag)
+                M::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
                     .switchable_into_non_commutative()
                     .map_errors(SetTemporalByIndexError::from)
@@ -2616,7 +2717,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn unset_temporal_lossy(
         &mut self,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         (),
@@ -2631,8 +2732,7 @@ where
             >,
     {
         self.measurements.unset_center(|i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
-                .switchable_into_non_commutative()
+            M::Optical::from_temporal(old_t, i, allow_loss).switchable_into_non_commutative()
         })
     }
 
@@ -2705,7 +2805,7 @@ where
         &mut self,
         index: MeasIndex,
         m: Temporal<M::Temporal>,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2720,7 +2820,7 @@ where
             >,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
-            M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
+            M::Optical::from_temporal(old_t, i, allow_loss)
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
                 .map_errors(ReplaceTemporalErrorByIndex::from)
@@ -2751,7 +2851,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<M::Temporal>,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
         TemporalOrOptical<M>,
         (),
@@ -2767,7 +2867,7 @@ where
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                M::Optical::from_temporal(old_t, i, AllowLoss(allow_loss))
+                M::Optical::from_temporal(old_t, i, allow_loss)
                     .switchable_into_non_commutative()
                     .map_ok_value(|(x, _)| x)
                     .map_errors(ReplaceTemporalErrorByName::from)
@@ -3412,7 +3512,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
-        allow_loss: bool,
+        allow_loss: AllowLoss,
     ) -> WarningsAndGroupResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
@@ -3427,19 +3527,22 @@ where
         ToM::Name: MightHave<Shortname> + Clone + ConvertFromShortname<M::Name>,
         <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
     {
-        let flag = AllowLoss(allow_loss);
         let root_res = self
             .metaroot
-            .try_convert(flag)
+            .try_convert(allow_loss)
             .map_errors(ConvertError::Meta);
         let meas_res = self
             .measurements
-            .map_center_value(|v| v.value.convert(v.index, flag).switchable_into_commutative())
+            .map_center_value(|v| {
+                v.value
+                    .convert(v.index, allow_loss)
+                    .switchable_into_commutative()
+            })
             .set_err_value(())
             .map_errors(ConvertError::Temporal)
             .map_commutative_warnings(MetarootConvertWarning::from)
             .and_then_commutative(|meas| {
-                meas.map_non_center_values(|i, v| v.try_convert(i, flag))
+                meas.map_non_center_values(|i, v| v.try_convert(i, allow_loss))
                     .map_errors(ConvertError::Optical)
                     .map_commutative_warnings(MetarootConvertWarning::from)
             })
@@ -3982,7 +4085,7 @@ where
         nonstd: &mut [NonStdKeywords],
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        Vec<M::Name>,
+        (Vec<M::Name>, Vec<Option<Shortname>>),
         (),
         OptIndexedKeyError<Shortname>,
         LookupShortnameError,
@@ -4004,9 +4107,13 @@ where
             .map_ok_value(|mut names| {
                 let sconf: &ReadStdKeywordsConfig = conf.as_ref();
                 if sconf.dedup_measurement_names.is_set() {
-                    uniquify_names(&mut names[..]);
+                    let original = uniquify_names(&mut names[..]);
+                    (names, original)
+                } else {
+                    let mut original = vec![];
+                    original.resize_with(names.len(), || None);
+                    (names, original)
                 }
-                names
             })
     }
 
@@ -4016,7 +4123,12 @@ where
         names: Vec<M::Name>,
         nonstd: Vec<NonStdKeywords>,
         conf: &C,
-    ) -> LookupMeasurementResult<NamedTemporalsAndOpticals<M>>
+    ) -> LookupMeasurementResult<(
+        NamedTemporalsAndOpticals<M>,
+        Vec<AnyScaleDiagnostic>,
+        Vec<(StdKey, String)>,
+        Vec<(StdKey, String)>,
+    )>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
@@ -4071,15 +4183,34 @@ where
                             Temporal::lookup_temporal(std, meas_nonstd, j, conf)
                                 .map_errors(LookupMeasurementError::from)
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
-                                .map_ok_value(|t| Element::Center((name, t)))
+                                .map_ok_value(|x| {
+                                    let ret = Element::Center((name, x.this));
+                                    (ret, x.scale.into(), x.trimmed, x.tmp_opt_pairs)
+                                })
                         }
                         Element::NonCenter(k) => Optical::lookup_optical(std, j, meas_nonstd, conf)
                             .map_errors(LookupMeasurementError::from)
                             .map_commutative_warnings(LookupMeasurementWarning::from)
-                            .map_ok_value(|m| Element::NonCenter((k, m))),
+                            .map_ok_value(|x| {
+                                let ret = Element::NonCenter((k, x.this));
+                                (ret, x.scale.into(), x.trimmed, vec![])
+                            }),
                     })
             })
             .sequence_commutative()
+            .map_ok_value(|xs| {
+                let mut ms = vec![];
+                let mut ds = vec![];
+                let mut trimmed = vec![];
+                let mut tops = vec![];
+                for (m, d, ps, ts) in xs {
+                    ms.push(m);
+                    ds.push(d);
+                    trimmed.extend(ps);
+                    tops.extend(ts);
+                }
+                (ms, ds, trimmed, tops)
+            })
     }
 
     fn measurement_indexed_names(&self) -> HashMap<MeasIndex, &Shortname> {
@@ -4172,7 +4303,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (Self, ExtraStdKeywords, <M::Ver as Versioned>::Offsets),
+        (Self, StdTEXTDiagnostics, <M::Ver as Versioned>::Offsets),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -4189,9 +4320,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, segs, st)
-            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+        let offsets_res =
+            <M::Ver as Versioned>::Offsets::lookup(&mut kws.std, &mut kws.nonstd, segs, st)
+                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
         Self::lookup_inner(kws, &st.conf)
             .zip_commutative(offsets_res)
@@ -4209,7 +4341,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         kws: ValidKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
-        (Self, ExtraStdKeywords),
+        (Self, StdTEXTDiagnostics),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
@@ -4227,11 +4359,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             .group()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn lookup_inner<C>(
         mut kws: ValidKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        (Self, ExtraStdKeywords),
+        (Self, StdTEXTDiagnostics),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -4270,28 +4403,44 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 })
                 // Lookup root and measurement keywords (which depend on $PnN)
                 // and layout
-                .and_then_commutative(|(names, mut meas_nonstd)| {
+                .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
                         <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
                             .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                             .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-                    let root_res = Metaroot::lookup_metaroot(std, &names[..], kws.nonstd, conf)
+                    let root_res =
+                        Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+
+                    let meas_res = Self::lookup_measurements(std, dedup_names, meas_nonstd, conf)
                         .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                         .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-                    let meas_res = Self::lookup_measurements(std, names, meas_nonstd, conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
-
-                    root_res.zip3_commutative(meas_res, layout_res)
+                    root_res
+                        .zip3_commutative(meas_res, layout_res)
+                        .map_ok_value(|x| (x, original_names))
                 })
-                .and_then_commutative(|(metaroot, meas, layout)| {
-                    Self::try_new(metaroot, meas, layout, conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                });
+                .and_then_commutative(
+                    |((mut metaroot_out, meas_out, layout_out), original_names)| {
+                        let (meas, meas_scale, meas_trimmed, tmp_opt_pairs) = meas_out;
+                        metaroot_out.trimmed.extend(meas_trimmed);
+                        Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
+                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+                            .map_ok_value(|ret| {
+                                (
+                                    ret,
+                                    original_names,
+                                    meas_scale,
+                                    metaroot_out.trimmed,
+                                    tmp_opt_pairs,
+                                )
+                            })
+                    },
+                );
 
             // Push pseudostandard/unused warnings/errors
             // TODO fix gate arg
@@ -4299,52 +4448,47 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
             if let Some(t) = mem::take(&mut extra.timestep) {
-                match sconf.process_extra_timestep.0 {
-                    ProcessKeywordFailure::Demote => {
-                        core_res = core_res.map_ok_value(|mut core| {
-                            core.metaroot
+                let flag = sconf.process_extra_timestep.0;
+                core_res = core_res
+                    .map_ok_value(|mut core| {
+                        if flag.is_demote() {
+                            core.0
+                                .metaroot
                                 .nonstandard_keywords
                                 .insert_demoted(Timestep::std(), t);
-                            core
-                        });
-                    }
-                    ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
-                        core_res = core_res.extend_warnings_or_errors(
-                            Some(TimestepFoundError),
-                            |_v| (),
-                            |_p| (),
-                            StdTEXTFromFlatTEXTWarning::from,
-                            StdTEXTFromFlatTEXTErrorInner::from,
-                            sconf.process_extra_timestep,
-                        );
-                    }
-                    ProcessKeywordFailure::DropSilent => (),
-                }
+                        }
+                        core
+                    })
+                    .extend_warnings_or_errors3(
+                        Some(TimestepFoundError),
+                        |_v| (),
+                        |_p| (),
+                        StdTEXTFromFlatTEXTWarning::from,
+                        StdTEXTFromFlatTEXTErrorInner::from,
+                        flag.as_triflag(),
+                    );
             }
 
             macro_rules! go_extra {
                 ($proc:ident, $keyvals:ident, $errors:ident) => {
-                    match sconf.$proc.into() {
-                        ProcessKeywordFailure::Demote => {
-                            core_res = core_res.map_ok_value(|mut core| {
+                    let flag: ProcessKeywordFailure = sconf.$proc.into();
+                    core_res = core_res
+                        .map_ok_value(|mut core| {
+                            if flag.is_demote() {
                                 for (k, v) in mem::take(&mut extra.$keyvals) {
-                                    core.metaroot.nonstandard_keywords.insert_demoted(k, v);
+                                    core.0.metaroot.nonstandard_keywords.insert_demoted(k, v);
                                 }
-                                core
-                            })
-                        }
-                        ProcessKeywordFailure::Drop | ProcessKeywordFailure::Error => {
-                            core_res = core_res.extend_warnings_or_errors(
-                                errors.$errors,
-                                |_v| (),
-                                |_p| (),
-                                StdTEXTFromFlatTEXTWarning::from,
-                                StdTEXTFromFlatTEXTErrorInner::from,
-                                sconf.$proc,
-                            )
-                        }
-                        ProcessKeywordFailure::DropSilent => (),
-                    };
+                            }
+                            core
+                        })
+                        .extend_warnings_or_errors3(
+                            errors.$errors,
+                            |_v| (),
+                            |_p| (),
+                            StdTEXTFromFlatTEXTWarning::from,
+                            StdTEXTFromFlatTEXTErrorInner::from,
+                            flag.as_triflag(),
+                        );
                 };
             }
 
@@ -4353,7 +4497,16 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|x| (x, extra))
+            core_res.map_ok_value(|(ret, original_names, scale, trimmed, tmp_opt_pairs)| {
+                let d = StdTEXTDiagnostics::from_extra(
+                    extra,
+                    original_names,
+                    scale,
+                    trimmed,
+                    tmp_opt_pairs,
+                );
+                (ret, d)
+            })
         })
     }
 
@@ -4385,10 +4538,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalError, PushTemporalSummary> {
-        self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .group()
+        self.push_temporal_inner(n, m, r, disallow_trunc).group()
     }
 
     /// Add time measurement at the given position
@@ -4401,10 +4553,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, InsertTemporalError, InsertTemporalSummary>
     {
-        self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.insert_temporal_inner(i, n, m, r, disallow_trunc)
             .group()
     }
 
@@ -4416,11 +4568,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, PushOpticalError, PushOpticalSummary>
     {
-        self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
-            .group()
+        self.push_optical_inner(n, m, r, disallow_trunc).group()
     }
 
     /// Add optical measurement at a given position
@@ -4432,10 +4583,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<Shortname, InsertRangeError, InsertOpticalError, InsertOpticalSummary>
     {
-        self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+        self.insert_optical_inner(i, n, m, r, disallow_trunc)
             .group()
     }
 
@@ -4498,7 +4649,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // set, the we consider it an error to be deprecated, thus dropping a
         // keyval is not relevant (error = crash).
         let keep = xfer_flag.is_demote();
-        let do_demote = dep_flag.is_set() && xfer_flag.is_demote();
+        let disallow_dep = matches!(dep_flag.0, TriFlag::True | TriFlag::Silent);
+        let do_demote = disallow_dep && xfer_flag.is_demote();
         for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {
                 d.demote(&mut self.metaroot.nonstandard_keywords, keep);
@@ -4518,7 +4670,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 Element::NonCenter(o) => o.deprecated(i.into(), &mut es, keep, do_demote),
             }
         }
-        LogResult::new_switchable_iter((), (), es, dep_flag)
+        LogResult::new_switchable_iter3((), (), es, dep_flag)
     }
 
     // only meant to be called during lookup when keywords are being read from
@@ -4557,7 +4709,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         Measurements::try_new(measurements)
             .map_err(LookupCoreError::from)
             .into_log()
-            .eval_warning_or_error(missing_flag, |_| (), |()| (), go)
+            .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|ms| {
                 layout
                     .check_measurement_vector_nolen(&ms)
@@ -4730,7 +4882,6 @@ where
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
-                let out = StdDatasetWithKwsOutput::new(*dataset_segs, extra);
                 let or = OthersReader::new(segs.other);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
@@ -4738,11 +4889,13 @@ where
                     .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .and_then_commutative(|data| {
+                    .and_then_commutative(|(data, event_out)| {
                         ar.h_read(h)
                             .and_then(|analysis| {
                                 let others = or.h_read(h)?;
                                 let c = text.into_coredataset_unchecked(data, analysis, others);
+                                let out =
+                                    StdDatasetWithKwsOutput::new(*dataset_segs, extra, event_out);
                                 Ok((c, out))
                             })
                             .map_err(IOErrorGroup::from)
@@ -4962,7 +5115,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
     {
         self.data
@@ -4970,7 +5123,7 @@ where
             .map_err(PushTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_temporal_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.push_temporal_inner(n, m, r, disallow_trunc)
                     .map_errors(PushTemporalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -4988,7 +5141,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         (),
         InsertRangeError,
@@ -5000,7 +5153,7 @@ where
             .map_err(InsertTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_temporal_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.insert_temporal_inner(i, n, m, r, disallow_trunc)
                     .map_errors(InsertTemporalToDatasetError::from)
             })
             .when_ok(|| {
@@ -5018,7 +5171,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5030,7 +5183,7 @@ where
             .map_err(PushOpticalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_optical_inner(n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.push_optical_inner(n, m, r, disallow_trunc)
                     .map_errors(PushOpticalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
@@ -5047,7 +5200,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
         r: Range,
-        disallow_trunc: bool,
+        disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
         Shortname,
         InsertRangeError,
@@ -5059,7 +5212,7 @@ where
             .map_err(InsertOpticalInDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_optical_inner(i, n, m, r, DisallowRangeTrunc(disallow_trunc))
+                self.insert_optical_inner(i, n, m, r, disallow_trunc)
                     .map_errors(InsertOpticalInDatasetError::from)
             })
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
@@ -5538,13 +5691,21 @@ impl UnstainedData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableError<Self, ProcessOptionalFailure, OptKeyStError<UnstainedCenters>>
+    ) -> DeferredSwitchableError<
+        DiagnosedUnstainedData,
+        DummyTriFlag,
+        OptKeyStError<UnstainedCenters>,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
-        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf)
-            .map_deferred_value(|c| Self::new(c, i))
+        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, (), conf).map_deferred_value(
+            |out| {
+                let (c, t) = out.into_root_pair();
+                DiagnosedUnstainedData::new(Self::new(c, i), t)
+            },
+        )
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5569,10 +5730,8 @@ impl SubsetData {
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
-        let f = CSVFlags::lookup(kws, nonstd, conf)
-            .map_switchable_errors(LookupSubsetError::from)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let f =
+            CSVFlags::lookup(kws, nonstd, conf).map_warnings_and_errors(LookupSubsetError::from);
         let b = CSVBits::remove_or_drop_root_opt(kws, nonstd, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
@@ -5605,11 +5764,11 @@ impl CSVFlags {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupCSVFlagsError> {
-        let flag = conf.process_optional_failure;
-        CSMode::remove_or_transfer_root_opt(std, nonstd, conf)
-            .map_err(LookupCSVFlagsError::from)
-            .into_deferred_nowarn()
+    ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
+        CSMode::remove_or_drop_root_opt(std, nonstd, conf)
+            .map_switchable_errors(LookupCSVFlagsError::from)
+            .switchable_into_commutative()
+            .into_semigroup()
             .and_then_deferred(|m| {
                 // NOTE the standard seems to say that these flags are only
                 // required if the user wishes to encode a subset value using
@@ -5620,14 +5779,14 @@ impl CSVFlags {
                 let n = m.map(|x| x.0).unwrap_or_default();
                 (0..n)
                     .map(|i| {
-                        CSVFlag::remove_or_transfer_meas_opt(std, nonstd, i, conf)
-                            .map_err(LookupCSVFlagsError::from)
-                            .into_deferred_nowarn()
+                        CSVFlag::remove_or_drop_meas_opt(std, nonstd, i, conf)
+                            .map_switchable_errors(LookupCSVFlagsError::from)
+                            .switchable_into_commutative()
+                            .into_semigroup()
                     })
                     .sequence_def()
             })
             .map_deferred_value(Self)
-            .nowarn_into_switchable(flag)
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5652,21 +5811,20 @@ impl ModificationData {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupModifiedDataError>
+    ) -> DeferredWarningsAndErrors<Self, LookupModifiedDataError, LookupModifiedDataError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
-        let last_mod_date = LastModified::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
-            .map_err(LookupModifiedDataError::from)
-            .into_deferred_nowarn();
-        let ori = Originality::remove_or_transfer_root_opt(std, nonstd, conf.as_ref())
-            .map_err(LookupModifiedDataError::from)
-            .into_deferred_nowarn();
-        let flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf).process_optional_failure;
-        last_mod_date
-            .lift_f2_once(ori, |d, o| Self::new(last_mod, d, o))
-            .nowarn_into_switchable(flag)
+        let last_mod_date = LastModified::remove_or_drop_root_opt_with(std, nonstd, (), conf)
+            .map_switchable_errors(LookupModifiedDataError::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+        let ori = Originality::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+            .map_switchable_errors(LookupModifiedDataError::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+        last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d.native, o))
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -5791,7 +5949,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         ScaleTransform::try_convert_to_scale(value.scale, i)
             .map_errors(AnyOpticalKeyLossError::from)
             .map_error(OpticalConvertWarning::from)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_error(OpticalConvertError::from)
             .map_ok_value(|scale| Self::new(Some(scale), value.wavelength, value.peak))
@@ -5824,7 +5982,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, value.peak))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -5862,7 +6020,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
 
         xform
             .lift_f2_once(wave, |s, w| Self::new(Some(s), w, PeakData::default()))
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -5902,7 +6060,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -5935,7 +6093,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .extend_deferred_errors(check_errs)
-            .nowarn_into_switchable(flag)
+            .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .set_err_value(())
@@ -5990,14 +6148,14 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             .calibration
             .map(|c| {
                 c.into_3_1(i)
-                    .nowarn_into_switchable(flag)
+                    .nowarn_into_switchable3(flag)
                     .map_switchable_errors(OpticalConvertWarning::from)
                     .switchable_into_commutative()
                     .into_semigroup()
             })
             .transpose_log_result();
 
-        SwitchableErrorsResult::new_deferred_switchable_iter((), check_errs, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), check_errs, flag)
             .switchable_into_commutative()
             .zip_commutative(cal_res)
             .map_errors(OpticalConvertError::from)
@@ -6026,7 +6184,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .zip_commutative(scale_res)
@@ -6058,7 +6216,7 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -6088,7 +6246,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
             .loss_errors(i)
             .map(AnyOpticalKeyLossError::from)
             .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|()| {
@@ -6382,7 +6540,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [c, u].into_iter().flatten().chain(s);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6426,7 +6584,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             .chain(plate)
             .chain(subset)
             .chain(modi);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6473,7 +6631,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
             .chain(carrier)
             .chain(us)
             .chain(ag);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6518,7 +6676,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         let modi = loss_errors!(value.modification);
         let vol = value.vol.root_key_loss_error();
         let es = vol.into_iter().chain(plate).chain(modi);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6562,7 +6720,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
             .chain(dt)
             .chain(carrier)
             .chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6592,7 +6750,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
             .into_iter()
             .flat_map(Compensation2_0::loss_errors)
             .map(AnyMetarootKeyLossError::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
@@ -6621,7 +6779,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         let comp = value.comp.root_key_loss_error();
         let us = value.unicode.root_key_loss_error();
         let es = [comp, us].into_iter().flatten();
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
@@ -6661,7 +6819,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
             .map(AnyMetarootKeyLossError::from);
         let flow = value.flowrate.root_key_loss_error();
         let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
             .map_errors(MetarootConvertError::from)
@@ -6698,13 +6856,13 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = comp.chain(ag);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6749,7 +6907,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
         let es = [uni, comp].into_iter().flatten().chain(subset);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6761,7 +6919,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_res = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6802,7 +6960,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .subset
             .loss_errors()
             .map(AnyMetarootKeyLossError::from);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter((), es, flag)
+        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6814,7 +6972,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
         let mode_rs = Mode3_2::try_from(value.mode)
-            .into_deferred_switchable_opt::<_, Vec<_>>(flag)
+            .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
@@ -6868,7 +7026,7 @@ impl ScaleTransform {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<(Self, ScaleDiagnostic)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -6881,7 +7039,8 @@ impl ScaleTransform {
             .map_err(LookupOpticalError::from)
             .into_log();
         gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
-            Self::try_from((s, g))
+            Self::try_from((s.native, g))
+                .map(|x| (x, s.diagnostic))
                 .map_err(LookupOpticalError::from)
                 .into_log()
         })
@@ -6969,7 +7128,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
             .loss_error()
             .map(AnyTemporalKeyLossError::from);
         let v = Self::new(true, value.peak);
-        SwitchableErrorsResult::new_deferred_switchable_maybe(v, e, flag)
+        SwitchableErrorsResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -6986,7 +7145,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         let d = value.display.indexed_key_loss_error(i);
         let es = [t, d].into_iter().flatten();
         let v = Self::new(true, value.peak);
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7004,7 +7163,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
             .map(AnyTemporalKeyLossError::from);
         let es = [di, m, t].into_iter().flatten();
         let v = Self::new(true, PeakData::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7026,7 +7185,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
     ) -> TemporalConvertResult<Self> {
         let e = value.display.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.peak);
-        LogResult::new_deferred_switchable_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -7040,7 +7199,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         let m = value.measurement_type.indexed_key_loss_error(i);
         let es = [di, m].into_iter().flatten();
         let v = Self::new(value.timestep, PeakData::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7072,7 +7231,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
     ) -> TemporalConvertResult<Self> {
         let e = value.measurement_type.indexed_key_loss_error(i);
         let v = Self::new(value.timestep, value.display, PeakData::default());
-        LogResult::new_deferred_switchable_maybe(v, e, flag)
+        LogResult::new_deferred_switchable_maybe3(v, e, flag)
     }
 }
 
@@ -7084,7 +7243,7 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(Timestep::default(), None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7096,7 +7255,7 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7108,7 +7267,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     ) -> TemporalConvertResult<Self> {
         let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
         let v = Self::new(value.timestep, value.display, TemporalType::default());
-        LogResult::new_deferred_switchable_iter(v, es, flag)
+        LogResult::new_deferred_switchable_iter3(v, es, flag)
     }
 }
 
@@ -7183,7 +7342,7 @@ impl LookupOptical for InnerOptical2_0 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -7200,7 +7359,10 @@ impl LookupOptical for InnerOptical2_0 {
         scale
             .zip3_commutative(wave, peak)
             .map_errors(LookupOpticalError::from)
-            .map_ok_value(|(si, wi, pi)| Self::new(si, wi, pi))
+            .map_ok_value(|(si_out, wi, pi)| {
+                let ret = Self::new(si_out.native, wi, pi);
+                DiagnosedOptical::new(ret, si_out.diagnostic, vec![])
+            })
     }
 }
 
@@ -7210,7 +7372,7 @@ impl LookupOptical for InnerOptical3_0 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -7224,7 +7386,10 @@ impl LookupOptical for InnerOptical3_0 {
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
             .zip_commutative(scale)
-            .map_ok_value(|((w, p), s)| Self::new(s, w, p))
+            .map_ok_value(|((w, p), (s, sd))| {
+                let ret = Self::new(s, w, p);
+                DiagnosedOptical::new(ret, sd, vec![])
+            })
     }
 }
 
@@ -7234,7 +7399,7 @@ impl LookupOptical for InnerOptical3_1 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -7255,7 +7420,18 @@ impl LookupOptical for InnerOptical3_1 {
             .zip4_commutative(go!(cal), go!(dpy), peak)
             .map_errors(LookupOpticalError::from)
             .zip_commutative(scale)
-            .map_ok_value(|((w, c, d, p), s)| Self::new(s, w, c, d, p))
+            .map_ok_value(|((w_out, c_out, d_out, p), (s, sd))| {
+                let (w, w_trimmed) = w_out.into_indexed_pair(i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let ret = Self::new(s, w, c, d, p);
+                let trimmed = w_trimmed
+                    .into_iter()
+                    .chain(c_trimmed)
+                    .chain(d_trimmed)
+                    .collect();
+                DiagnosedOptical::new(ret, sd, trimmed)
+            })
     }
 }
 
@@ -7265,7 +7441,7 @@ impl LookupOptical for InnerOptical3_2 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupOpticalResult<Self>
+    ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -7292,7 +7468,19 @@ impl LookupOptical for InnerOptical3_2 {
 
         go!(wave)
             .zip6_commutative(go!(cal), go!(dpy), go!(meas), go!(feat), scale)
-            .map_ok_value(|(w, c, d, m, f, s)| Self::new(s, w, c, d, anal, f, m, tag, det_name))
+            .map_ok_value(|(w_out, c_out, d_out, m, f, (s, sd))| {
+                let (w, w_trimmed) = w_out.into_indexed_pair(i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                // TODO return something for feature
+                let ret = Self::new(s, w, c, d, anal, f.native, m, tag, det_name);
+                let trimmed = c_trimmed
+                    .into_iter()
+                    .chain(w_trimmed)
+                    .chain(d_trimmed)
+                    .collect();
+                DiagnosedOptical::new(ret, sd, trimmed)
+            })
     }
 }
 
@@ -7302,33 +7490,28 @@ impl LookupTemporal for InnerTemporal2_0 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-        let scale = if sconf.force_time_linear.is_set() {
-            nonstd.transfer_demoted(std, TemporalScale2_0::std(i));
-            LogResult::new_ok(true.into())
-        } else {
-            TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
-                .map_switchable_errors(LookupTemporalWarning::from)
-                .switchable_into_commutative()
-                .into_semigroup()
-        };
+        let flag = sconf.process_time_optical_keys;
+        let ignore = &sconf.ignore_time_optical_keys;
+        let scale = TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
+            .map_switchable_errors(LookupTemporalWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let es =
-            TemporalOpticalKey::remove_keys_2_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
+        let tmp_opt_res = TemporalOpticalKey::remove_keys_2_0(ignore, std, nonstd, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         scale
-            .zip_commutative(peak)
+            .zip3_commutative(peak, tmp_opt_res)
             .map_errors(LookupTemporalError::from)
-            .extend_errors(
-                es.into_iter().map(LookupTemporalError::from),
-                |_| (),
-                |()| (),
-            )
-            .map_ok_value(|(s, p)| Self::new(s, p))
+            .map_ok_value(|(s, p, tmp_opt_pairs)| {
+                let this = Self::new(s.native, p);
+                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs)
+            })
     }
 }
 
@@ -7338,31 +7521,31 @@ impl LookupTemporal for InnerTemporal3_0 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+        let flag = sconf.process_time_optical_keys;
+        let ignore = &sconf.ignore_time_optical_keys;
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let es =
-            TemporalOpticalKey::remove_keys_3_0(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        let tmp_opt = TemporalOpticalKey::remove_keys_3_0(ignore, std, nonstd, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
-        gain.zip_commutative(peak)
+        gain.zip3_commutative(peak, tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
-            .extend_errors(
-                es.into_iter().map(LookupTemporalError::from),
-                |_| (),
-                |()| (),
-            )
-            .map_ok_value(|((_, p), ((), t))| Self::new(t, p))
+            .map_ok_value(|((_, p, tmp_opt_pairs), (s, t))| {
+                let this = Self::new(t, p);
+                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs)
+            })
     }
 }
 
@@ -7372,11 +7555,13 @@ impl LookupTemporal for InnerTemporal3_1 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+        let flag = sconf.process_time_optical_keys;
+        let ignore = &sconf.ignore_time_optical_keys;
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -7386,21 +7571,21 @@ impl LookupTemporal for InnerTemporal3_1 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let es =
-            TemporalOpticalKey::remove_keys_3_1(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        let tmp_opt = TemporalOpticalKey::remove_keys_3_1(ignore, std, nonstd, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
-        gain.zip3_commutative(dpy, peak)
+        gain.zip4_commutative(dpy, peak, tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
-            .extend_errors(
-                es.into_iter().map(LookupTemporalError::from),
-                |_| (),
-                |()| (),
-            )
-            .map_ok_value(|((_, d, p), ((), t))| Self::new(t, d, p))
+            .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let trimmed = d_trimmed.into_iter().collect();
+                let ret = Self::new(t, d, p);
+                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs)
+            })
     }
 }
 
@@ -7410,11 +7595,13 @@ impl LookupTemporal for InnerTemporal3_2 {
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
         conf: &C,
-    ) -> LookupTemporalResult<Self>
+    ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+        let flag = sconf.process_time_optical_keys;
+        let ignore = &sconf.ignore_time_optical_keys;
         let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -7426,21 +7613,21 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let es =
-            TemporalOpticalKey::remove_keys_3_2(&sconf.ignore_time_optical_keys, std, nonstd, i);
-        let scale = TemporalScale3_0::lookup(std, i, nonstd, conf.as_ref())
+        let tmp_opt = TemporalOpticalKey::remove_keys_3_2(ignore, std, nonstd, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
+        let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
-        gain.zip3_commutative(dpy, meas)
+        gain.zip4_commutative(dpy, meas, tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
-            .extend_errors(
-                es.into_iter().map(LookupTemporalError::from),
-                |_| (),
-                |()| (),
-            )
-            .map_ok_value(|((_, d, m), ((), t))| Self::new(t, d, m))
+            .map_ok_value(|((_, d_out, m, tmp_opt_pairs), (s, t))| {
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let trimmed = d_trimmed.into_iter().collect();
+                let ret = Self::new(t, d, m);
+                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs)
+            })
     }
 }
 
@@ -7751,36 +7938,49 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     type TotDef = Option<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
         segs: &NonDataSegments,
-        _: &ReadState<C>,
+        st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let succ = Tot::remove_root_opt(kws)
-            .map_err(LookupTEXTOffsetsWarning::from)
-            .into_succ()
-            .fmap_once(|tot| {
-                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
+        Tot::remove_or_drop_root_opt(std, nonstd, st.conf.as_ref())
+            .map_ok_value(|tot| {
+                let s = DatasetSegments::new(
+                    segs.data.into_any(),
+                    segs.analysis.into_any(),
+                    None,
+                    None,
+                );
                 TEXTOffsets::new(s, tot).into()
-            });
-        LogResult::Succ(succ)
+            })
+            .set_err_value(())
+            .switchable_into_commutative()
+            .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
+            .map_errors(LookupTEXTOffsetsError::from)
+            .into_semigroup()
     }
 
     fn lookup_ro<C>(
-        kws: &StdKeywords,
+        std: &StdKeywords,
         segs: &NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let succ = Tot::get_root_opt(kws)
+        let succ = Tot::get_root_opt(std)
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let s = DatasetSegments::new(segs.data.into_any(), segs.analysis.into_any());
+                let s = DatasetSegments::new(
+                    segs.data.into_any(),
+                    segs.analysis.into_any(),
+                    None,
+                    None,
+                );
                 TEXTOffsets::new(s, tot).into()
             });
         LogResult::Succ(succ)
@@ -7800,47 +8000,52 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        _: &mut NonStdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let tot_res = Tot::remove_metaroot_req(kws)
+        let tot_res = Tot::remove_metaroot_req(std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
+        let data_res = DataSegmentId::remove_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = AnalysisSegmentId::remove_req_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::remove_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn lookup_ro<C>(
-        kws: &StdKeywords,
+        std: &StdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let tot_res = Tot::get_metaroot_req(kws)
+        let tot_res = Tot::get_metaroot_req(std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = DataSegmentId::get_req_or(kws, segs, st)
+        let data_res = DataSegmentId::get_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = AnalysisSegmentId::get_req_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::get_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn tot(&self) -> Self::TotDef {
@@ -7857,47 +8062,52 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        kws: &mut StdKeywords,
+        std: &mut StdKeywords,
+        _: &mut NonStdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let tot_res = Tot::remove_metaroot_req(kws)
+        let tot_res = Tot::remove_metaroot_req(std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = DataSegmentId::remove_req_or(kws, segs, st)
+        let data_res = DataSegmentId::remove_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = AnalysisSegmentId::remove_opt_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::remove_opt_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn lookup_ro<C>(
-        kws: &StdKeywords,
+        std: &StdKeywords,
         segs: &NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
         C: AsRef<ReadDataKeywordsConfig>,
     {
-        let tot_res = Tot::get_metaroot_req(kws)
+        let tot_res = Tot::get_metaroot_req(std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let data_res = DataSegmentId::get_req_or(kws, segs, st)
+        let data_res = DataSegmentId::get_req_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
-        let analysis_res = AnalysisSegmentId::get_opt_or(kws, segs, st)
+        let analysis_res = AnalysisSegmentId::get_opt_or(std, segs, st)
             .map_commutative_warnings(LookupTEXTOffsetsWarning::from)
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, analysis_res)
-            .map_ok_value(|(tot, d, a)| TEXTOffsets::new(DatasetSegments::new(d, a), tot).into())
+            .map_ok_value(|(tot, (d, dr), (a, ar))| {
+                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            })
     }
 
     fn tot(&self) -> Self::TotDef {
@@ -7993,7 +8203,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     > {
         tmp.specific
             .can_convert_to_optical(i)
-            .into_deferred_switchable::<_, Nothing<_>>(flag)
+            .into_deferred_switchable3::<_, Nothing<_>>(flag)
             .set_deferred_value(tmp)
             .map_ok_value(Self::from_temporal_unchecked)
     }
@@ -8068,7 +8278,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8078,8 +8288,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
             .switchable_into_commutative();
         let cyt = Cyt::remove_root_opt_nofail(std);
         let ts = Timestamps::lookup(std, nonstd, conf)
-            .map_switchable_errors(LookupMetarootWarning::from)
-            .switchable_into_commutative();
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates2_0::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let mode = Mode::remove_metaroot_req(std)
@@ -8088,7 +8297,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         comp.zip3_commutative(ts, ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((c, t, g), m)| Self::new(m, cyt, c, t, g))
+            .map_ok_value(|((c, t, g), m)| (Self::new(m, cyt, c, t, g), vec![]))
     }
 }
 
@@ -8110,7 +8319,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         nonstd: &mut NonStdKeywords,
         _: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8126,9 +8335,10 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
 
         let comp = Compensation3_0::remove_or_drop_root_opt_with(std, nonstd, (), conf);
-        let ts = Timestamps::lookup(std, nonstd, conf);
         let uni = Unicode::remove_or_drop_root_opt_with(std, nonstd, (), conf);
 
+        let ts = Timestamps::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
@@ -8139,10 +8349,16 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .into_log();
 
         go!(comp)
-            .zip5_commutative(subset, go!(ts), go!(uni), ag)
+            .zip5_commutative(subset, ts, go!(uni), ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((co, su, t, u, g), m)| Self::new(m, cyt, co, t, cytsn, u, su, g))
+            .map_ok_value(|((co_out, su, t, u_out, g), m)| {
+                let (co, c_trimmed) = co_out.into_opt_root_pair();
+                let (u, u_trimmed) = u_out.into_opt_root_pair();
+                let ret = Self::new(m, cyt, co, t, cytsn, u, su, g);
+                let trimmed = c_trimmed.into_iter().chain(u_trimmed).collect();
+                (ret, trimmed)
+            })
     }
 }
 
@@ -8164,18 +8380,10 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map_switchable_errors(LookupMetarootWarning::from)
-                    .switchable_into_commutative()
-                    .into_semigroup()
-            };
-        }
-
         let process_mode = |mode| {
             let err = match &mode {
                 Mode::Correlated => Some(DeprecatedModeWarning::ModeCorrelated),
@@ -8184,7 +8392,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             };
             let sconf: &ReadStdKeywordsConfig = conf.as_ref();
             let flag = sconf.disallow_deprecated;
-            SwitchableErrorsResult::new_switchable_iter(mode, (), err, flag)
+            SwitchableErrorsResult::new_switchable_iter3(mode, (), err, flag)
                 .map_switchable_errors(LookupMetarootWarning::from)
                 .switchable_into_commutative()
                 .map_errors(LookupMetarootError::from)
@@ -8196,19 +8404,23 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cytsn = Cytsn::remove_root_opt_nofail(std);
         let plate = PlateData::lookup(std);
 
-        let modif = go!(ModificationData::lookup(std, nonstd, conf));
-        let ts = go!(Timestamps::lookup(std, nonstd, conf));
-        let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
-        let spill = go!(Spillover::remove_or_drop_root_opt_with(
-            std,
-            nonstd,
-            &ordered_names[..],
-            conf
-        ));
+        let vol = Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+
+        let spill = Spillover::remove_or_drop_root_opt_with(std, nonstd, &ordered_names[..], conf)
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
 
         let subset = SubsetData::lookup(std, nonstd, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
         let ag = AppliedGates3_0::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let ts = Timestamps::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
         let mode = Mode::remove_metaroot_req(std)
@@ -8220,8 +8432,11 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .zip6_commutative(subset, modif, ts, vol, ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((sp, su, md, t, v, g), m)| {
-                Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g)
+            .map_ok_value(|((sp_out, su, md, t, v, g), m)| {
+                let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
+                let ret = Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g);
+                let trimmed = sp_trimmed.into_iter().collect();
+                (ret, trimmed)
             })
     }
 }
@@ -8244,7 +8459,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<Self>
+    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8263,10 +8478,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let plate = PlateData::lookup(std);
         let carrier = CarrierData::lookup(std);
 
-        let dt = go!(Datetimes::lookup(std, nonstd, conf));
-        let modif = go!(ModificationData::lookup(std, nonstd, conf));
         let mode = go!(Mode3_2::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
-        let ts = go!(Timestamps::lookup(std, nonstd, conf));
         let us = go!(UnstainedData::lookup(std, nonstd, conf));
         let vol = go!(Vol::remove_or_drop_root_opt(std, nonstd, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(
@@ -8276,7 +8488,13 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             conf
         ));
 
-        let ag = AppliedGates3_2::lookup(std, nonstd, conf)
+        let modif = ModificationData::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let ts = Timestamps::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let dt = Datetimes::lookup(std, nonstd, conf)
+            .map_warnings_and_errors(LookupMetarootWarning::from);
+        let agates = AppliedGates3_2::lookup(std, nonstd, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
         let cyt = Cyt3_2::remove_metaroot_req(std)
@@ -8284,13 +8502,16 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .into_log();
 
         dt.zip4_commutative(modif, mode, spill)
-            .zip5_commutative(ts, us, vol, ag)
+            .zip5_commutative(ts, us, vol, agates)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(cyt)
-            .map_ok_value(|(((d_, md_, mo_, sp_), t_, u_, v_, ag_), c_)| {
-                Self::new(
-                    mo_, t_, d_, c_, sp_, cytsn, md_, plate, v_, carrier, u_, flow, ag_,
-                )
+            .map_ok_value(|(((d, md, mo, sp_out), t, u_out, v, ag), c)| {
+                let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
+                let ret = Self::new(
+                    mo, t, d, c, sp, cytsn, md, plate, v, carrier, u_out.this, flow, ag,
+                );
+                let trimmed = sp_trimmed.into_iter().chain(u_out.trimmed).collect();
+                (ret, trimmed)
             })
     }
 }
@@ -9611,8 +9832,10 @@ pub enum LookupAndReadDataAnalysisWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsError {
+    /// $TOT is missing (2.0+)
+    Tot2(OptKeyError<Tot>),
     /// $TOT is missing (3.0+)
-    Tot(ReqKeyError<Tot>),
+    Tot3(ReqKeyError<Tot>),
     /// required DATA keywords are missing (3.0/3.1)
     ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
     /// required ANALYSIS keywords are missing (3.0/3.1)
@@ -9824,7 +10047,6 @@ type LookupTemporalResult<V> =
 pub enum LookupTemporalError {
     TemporalScale(ReqIndexedStKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
-    Optical(TemporalHasOpticalKeyError),
     Warn(LookupTemporalWarning),
 }
 
@@ -9837,6 +10059,7 @@ pub enum LookupTemporalWarning {
     TemporalType(OptIndexedKeyError<TemporalType>),
     Display(OptIndexedKeyStError<Display>),
     Peak(LookupPeakError),
+    Optical(TemporalHasOpticalKeyError),
 }
 
 /// Error when parsing $PKn or $PKNn

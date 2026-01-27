@@ -142,7 +142,7 @@ pub fn derive_to_py_via_display(input: TokenStream) -> TokenStream {
     ret.into()
 }
 
-/// Implement FromPyObject from PyString via FromSrt for the Rust type
+/// Implement FromPyObject from PyString via FromStr for the Rust type
 #[proc_macro_derive(FromPyString)]
 pub fn derive_from_py_via_fromstr(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);

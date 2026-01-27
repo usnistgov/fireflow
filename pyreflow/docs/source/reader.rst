@@ -189,17 +189,26 @@ Common outputs
 
 These are which are reused when returning data from the above functions.
 
-.. autoclass:: pyreflow.api.HeaderSegments
+.. autoclass:: pyreflow.api.UncorrectedHeaderSegments
    :members:
 
-.. autoclass:: pyreflow.api.FlatTEXTParseData
+.. autoclass:: pyreflow.api.HeaderSegments
    :members:
 
 .. autoclass:: pyreflow.api.ValidKeywords
    :members:
 
-.. autoclass:: pyreflow.api.ExtraStdKeywords
+.. autoclass:: pyreflow.api.DatasetSegments
    :members:
 
-.. autoclass:: pyreflow.api.DatasetSegments
+.. autoclass:: pyreflow.api.FlatTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.SplitTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.StdTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.EventsDiagnostics
    :members:

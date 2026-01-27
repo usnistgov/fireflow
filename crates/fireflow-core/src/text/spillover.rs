@@ -1,10 +1,12 @@
-use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
+use crate::config::{
+    ConfigFlag as _, ReadStdKeywordsConfig, SpilloverMeasurementMode, TrimIntraValueWhitespace,
+};
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
 
 use super::index::MeasIndex;
-use super::lookup::FromStrWith;
+use super::lookup::{DiagnosedKeyword, FromStrWith, FromStrWithResult, Trimmed};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
@@ -13,12 +15,12 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
+use thiserror::Error;
+
 use std::fmt;
 use std::hash::Hash;
 use std::mem::take;
 use std::num::ParseIntError;
-use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -141,26 +143,17 @@ impl<T> GenericSpillover<T> {
             })
         }
     }
+}
 
-    fn from_iter<'a, E, F, EM>(
+impl<'a> GenericSpillover<&'a str> {
+    fn try_from_iter(
         mut xs: impl Iterator<Item = &'a str>,
-        parse_meas: F,
-    ) -> Result<Self, E>
-    where
-        E: From<ParseGenericSpilloverError> + From<EM>,
-        F: Fn(&str) -> Result<T, EM>,
-        T: Eq + Hash,
-    {
+    ) -> Result<Self, ParseGenericSpilloverError> {
         if let Some(first) = xs.next().and_then(|x| x.parse::<usize>().ok()) {
             let n = first;
             let nn = n * n;
             let expected = n + nn;
-            // This should be safe since we split on commas
-            let measurements = xs
-                .by_ref()
-                .take(n)
-                .map(parse_meas)
-                .collect::<Result<Vec<_>, _>>()?;
+            let measurements: Vec<_> = xs.by_ref().take(n).collect();
             let values: Vec<_> = xs.collect();
             let total = measurements.len() + values.len();
             if total == expected {
@@ -173,27 +166,31 @@ impl<T> GenericSpillover<T> {
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
                 } else {
-                    Err(ParseGenericSpilloverError::BadFloat.into())
+                    Err(ParseGenericSpilloverError::BadFloat)
                 }
             } else {
-                Err(ParseGenericSpilloverError::WrongLength { total, expected }.into())
+                Err(ParseGenericSpilloverError::WrongLength { total, expected })
             }
         } else {
-            Err(ParseGenericSpilloverError::BadN.into())
+            Err(ParseGenericSpilloverError::BadN)
         }
     }
 
-    fn from_str<E, F, EM>(s: &str, trim: TrimIntraValueWhitespace, parse_meas: F) -> Result<Self, E>
-    where
-        E: From<ParseGenericSpilloverError> + From<EM>,
-        F: Fn(&str) -> Result<T, EM>,
-        T: Eq + Hash,
-    {
+    fn from_str(
+        s: &'a str,
+        trim: TrimIntraValueWhitespace,
+    ) -> Result<(Self, bool), ParseGenericSpilloverError> {
         let it = s.split(',');
         if trim.is_set() {
-            Self::from_iter(it.map(str::trim), parse_meas)
+            let mut was_trimmed = false;
+            Self::try_from_iter(it.map(|x| {
+                let y = str::trim(x);
+                was_trimmed = was_trimmed || y.len() < x.len();
+                y
+            }))
+            .map(|x| (x, was_trimmed))
         } else {
-            Self::from_iter(it, parse_meas)
+            Self::try_from_iter(it).map(|x| (x, false))
         }
     }
 }
@@ -212,33 +209,44 @@ impl fmt::Display for Spillover {
 impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
+    type Diagnostic = Trimmed;
 
     fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, Self::Err> {
-        if conf.parse_indexed_spillover.is_set() {
-            let go = |m: &str| m.parse::<MeasIndex>().map_err(MalformedIndexError);
-            let m = GenericSpillover::from_str::<ParseSpilloverError, _, _>(
-                s,
-                conf.trim_intra_value_whitespace,
-                go,
-            )?;
-            Ok(m.try_into_named(ordered_names)?)
+    ) -> FromStrWithResult<Self> {
+        let trim_flag = conf.trim_intra_value_whitespace;
+        let (m, was_trimmed) = GenericSpillover::from_str(s, trim_flag)?;
+        let d = was_trimmed.then(|| s.to_owned());
+        let use_indices = match conf.spillover_measurement_mode {
+            SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
+                if let Ok(i) = x.parse::<MeasIndex>() {
+                    let n = Shortname::new_unchecked(i.to_string());
+                    !ordered_names.contains(&&n)
+                } else {
+                    false
+                }
+            }),
+            SpilloverMeasurementMode::Indexed => true,
+            SpilloverMeasurementMode::Named => false,
+        };
+        let ret = if use_indices {
+            let new_ms = m
+                .measurements
+                .into_iter()
+                .map(|x| x.parse::<MeasIndex>().map_err(MalformedIndexError))
+                .collect::<Result<Vec<_>, _>>()?;
+            GenericSpillover::new(new_ms, m.matrix).try_into_named(ordered_names)?
         } else {
-            let m = s.parse::<Self>()?;
-            // m.check_link(names)?;
-            Ok(m)
-        }
-    }
-}
-
-impl FromStr for Spillover {
-    type Err = ParseGenericSpilloverError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s, false.into(), |m| Ok(Shortname::new_unchecked(m)))
+            let new_ms = m
+                .measurements
+                .into_iter()
+                .map(Shortname::new_unchecked)
+                .collect();
+            Self::new(new_ms, m.matrix)
+        };
+        Ok(DiagnosedKeyword::new(ret, d))
     }
 }
 
@@ -292,29 +300,101 @@ mod tests {
     use crate::test::*;
 
     #[test]
-    fn str_compensation() {
-        assert_from_to_str::<Spillover>("2,X,Y,0,0,0,0");
-        assert_from_to_str::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
-        assert_from_to_str::<Spillover>("2,X,Y,1.1,1,0,-1.5");
+    fn spillover() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
+        assert_from_to_str_with::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf);
+        assert_from_to_str_with::<Spillover>("2,X,Y,1.1,1,0,-1.5", &ns, &conf);
     }
 
     #[test]
-    fn str_compensation_unique() {
-        assert!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0".parse::<Spillover>().is_err());
+    fn spillover_indexed() {
+        let conf = ReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
+            ..Default::default()
+        };
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
+        let spill = res.unwrap().native.to_string();
+        assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
     #[test]
-    fn str_compensation_toosmall() {
-        assert!("1,potato,0".parse::<Spillover>().is_err());
+    fn spillover_guess_indexed() {
+        let conf = ReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Guess,
+            ..Default::default()
+        };
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
+        let spill = res.unwrap().native.to_string();
+        assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
     #[test]
-    fn str_compensation_name_length() {
-        assert!(
-            "2,moody,padfoot,prongs,0,0,0,0"
-                .parse::<Spillover>()
-                .is_err()
-        );
+    fn spillover_guess_named() {
+        let conf = ReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Guess,
+            ..Default::default()
+        };
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
+    }
+
+    #[test]
+    fn spillover_trimmed() {
+        let conf = ReadStdKeywordsConfig {
+            trim_intra_value_whitespace: true.into(),
+            ..Default::default()
+        };
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        let res = Spillover::from_str_with("2, X,  Y , 0, 0,    0, 0", &ns, &conf);
+        let spill = res.unwrap().native.to_string();
+        assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
+    }
+
+    #[test]
+    fn spillover_nonunique() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("X"),
+            &Shortname::new_unchecked("Y"),
+        ];
+        assert!(Spillover::from_str_with("3,Y,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf).is_err());
+    }
+
+    #[test]
+    fn spillover_toosmall() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [&Shortname::new_unchecked("potato")];
+        assert!(Spillover::from_str_with("1,potato,0", &ns, &conf).is_err());
+    }
+
+    #[test]
+    fn spillover_name_wrong_length() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &Shortname::new_unchecked("moody"),
+            &Shortname::new_unchecked("padfoot"),
+            &Shortname::new_unchecked("prongs"),
+        ];
+        assert!(Spillover::from_str_with("2,moody,padfoot,prongs,0,0,0,0", &ns, &conf).is_err());
     }
 }
 

@@ -121,18 +121,18 @@ impl UintSpacePad20 {
     pub(crate) fn from_bytes(
         bs: &[u8],
         allow_negative: AllowNegative,
-    ) -> Result<Self, ParseFixedUintError> {
+    ) -> Result<(Self, i128), ParseFixedUintError> {
         debug_assert!(bs.len() <= 20, "cannot parse more than 20 bytes");
-        let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i32>()?;
+        let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i128>()?;
         if x < 0 {
             if allow_negative.is_set() {
-                Ok(Self::zero())
+                Ok((Self::zero(), 0))
             } else {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
             }
         } else {
             // ASSUME this will never fail because we checked the sign above
-            Ok(Self(x.try_into().unwrap()))
+            Ok((Self(x.try_into().unwrap()), x))
         }
     }
 }
@@ -191,24 +191,24 @@ impl UintSpacePad8 {
         bs: [u8; 8],
         allow_blank: bool,
         allow_negative: AllowNegative,
-    ) -> Result<Self, ParseFixedUintError> {
+    ) -> Result<(Self, i128), ParseFixedUintError> {
         let s = ascii_str_from_bytes(&bs[..]).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
-            return Ok(Self::zero());
+            return Ok((Self::zero(), 0));
         }
-        let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
+        let x = trimmed.parse::<i128>().map_err(ParseFixedUintError::Int)?;
         if x < 0 {
             if allow_negative.is_set() {
-                Ok(Self::zero())
+                Ok((Self::zero(), x))
             } else {
                 Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
             }
         } else {
             // ASSUME this will never wrap since the max digits we can read are
-            // 8, which is only ~1e9 which is much less than 4e10 which is the
+            // 8, which is only ~1e9 which is much less than 4e9 which is the
             // max of a u32.
-            Ok(Self(x.try_into().unwrap()))
+            Ok((Self(x.try_into().unwrap()), x))
         }
     }
 }
@@ -284,7 +284,7 @@ pub struct BytesNotAsciiError(Vec<u8>);
 /// Error when offsets in HEADER are negative (this happens for some reason)
 #[derive(Debug, Error)]
 #[error("HEADER offset is negative: {0}")]
-pub struct NegativeOffsetError(pub i32);
+pub struct NegativeOffsetError(pub i128);
 
 #[cfg(test)]
 mod tests {

@@ -13,7 +13,7 @@ use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
     HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
     SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
-    TEXTSegment,
+    TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -34,10 +34,11 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::Zero;
+use thiserror::Error;
+
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -46,7 +47,6 @@ use serde::Serialize;
 use {
     crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
-    pyo3::prelude::*,
 };
 
 /// The length of the HEADER.
@@ -58,7 +58,7 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 pub enum Version {
@@ -91,7 +91,7 @@ impl_version!(Version3_0, FCS3_0);
 impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
-/// The three segments from the HEADER
+/// The segments from the HEADER
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
@@ -100,6 +100,26 @@ pub struct HeaderSegments<T> {
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment<T>>,
 }
+
+/// The uncorrected segments from the HEADER
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct UncorrectedHeaderSegments {
+    pub text: UncorrectedSegment,
+    pub data: UncorrectedSegment,
+    pub analysis: UncorrectedSegment,
+    pub other: Vec<UncorrectedSegment>,
+}
+
+/// Keyword scores for all versions generated when guessing version
+///
+/// Each score should sum to the same number.
+pub type KeywordVersionScores = (
+    KeywordVersionScore,
+    KeywordVersionScore,
+    KeywordVersionScore,
+    KeywordVersionScore,
+);
 
 impl<T> HeaderSegments<T> {
     pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
@@ -283,10 +303,10 @@ impl<T> HeaderSegments<T> {
 /// Only valid segments are to be put in this struct (ie begin <= end).
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Header {
     pub version: Version,
     pub segments: HeaderSegments<UintSpacePad20>,
+    pub uncorrected_segments: UncorrectedHeaderSegments,
 }
 
 impl Header {
@@ -299,7 +319,10 @@ impl Header {
         R: Read + Seek,
     {
         h.seek(SeekFrom::Start(st.dataset_offset.0))?;
-        let (version, text, data, analysis) = h_read_required_header(h, st)?;
+        let req = h_read_required_header(h, st)?;
+        let (text, text_raw) = req.text;
+        let (data, data_raw) = req.data;
+        let (analysis, analysis_raw) = req.analysis;
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
         let other_res = if let Some(m) = min_coord {
@@ -309,7 +332,14 @@ impl Header {
         };
         let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
-            .map(|other| Self::new(version, HeaderSegments::new(text, data, analysis, other)))
+            .map(|other| {
+                let (os, os_raw) = other.into_iter().unzip();
+                Self::new(
+                    req.version,
+                    HeaderSegments::new(text, data, analysis, os),
+                    UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw),
+                )
+            })
             .ungroup()
             .map_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
@@ -324,19 +354,18 @@ impl Header {
     }
 }
 
+#[derive(new)]
+struct ReqHeader {
+    version: Version,
+    text: (PrimaryTextSegment, UncorrectedSegment),
+    data: (HeaderDataSegment, UncorrectedSegment),
+    analysis: (HeaderAnalysisSegment, UncorrectedSegment),
+}
+
 fn h_read_required_header<C, R>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> IOGroupResult<
-    (
-        Version,
-        PrimaryTextSegment,
-        HeaderDataSegment,
-        HeaderAnalysisSegment,
-    ),
-    HeaderError,
-    (),
->
+) -> IOGroupResult<ReqHeader, HeaderError, ()>
 where
     R: Read + Seek,
     C: AsRef<ReadHeaderInnerConfig>,
@@ -373,7 +402,7 @@ where
         .group()
         .resolve_nowarn()
         .map_err(IOErrorGroup::Pure)
-        .map(|(t, d, a)| (version, t, d, a))
+        .map(|(t, d, a)| ReqHeader::new(version, t, d, a))
 }
 
 fn h_read_spaces<R, C>(
@@ -430,11 +459,11 @@ impl Version {
         self,
         kws: &StdKeywords,
         ver_override: Option<&VersionOverride>,
-    ) -> Result<Self, GuessVersionError> {
+    ) -> Result<(Self, Option<KeywordVersionScores>), GuessVersionError> {
         let vs = [Self::FCS2_0, Self::FCS3_0, Self::FCS3_1, Self::FCS3_2];
         match ver_override {
-            None => Ok(self),
-            Some(VersionOverride::Force(v)) => Ok(*v),
+            None => Ok((self, None)),
+            Some(VersionOverride::Force(v)) => Ok((*v, None)),
             Some(VersionOverride::AutoDetect(strat)) => {
                 let rank =
                     |(v0, s0): &(Self, KeywordVersionScore),
@@ -449,13 +478,14 @@ impl Version {
                     for (k, v) in kws {
                         opt.classify_keyword(k, v);
                     }
-                    let scores: Vec<_> = vs.iter().map(|&v| (v, opt.get_score(v, par))).collect();
+                    let scores = vs.map(|v| (v, opt.get_score(v, par)));
+                    let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
                     if let Some(xs) =
                         NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
                     {
                         // Found at least one version that doesn't require dropping,
                         // rank by strategy to select
-                        Ok(xs.maximum_by(|&x, &y| rank(x, y)).0)
+                        Ok((xs.maximum_by(|&x, &y| rank(x, y)).0, ret_scores()))
                     } else if let Some(xs) =
                         NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
                     {
@@ -469,7 +499,7 @@ impl Version {
                                 y.1.drop.cmp(&x.1.drop)
                             }
                         });
-                        Ok(ret.0)
+                        Ok((ret.0, ret_scores()))
                     } else {
                         // No versions found that have valid keywords available,
                         // return error

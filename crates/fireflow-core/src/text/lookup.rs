@@ -1,18 +1,19 @@
 use crate::config::{
-    ConfigFlag as _, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadStdKeywordsConfig, TrimIntraValueWhitespace,
 };
-use crate::logging::{DeferredSwitchableError, ResultExt as _};
+use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
     AnyKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
     StdKey, StdKeywords,
 };
 
-use super::index::IndexFromOne;
+use super::index::{IndexFromOne, MeasIndex};
 
 use derive_more::{Display, From};
 use derive_new::new;
 use thiserror::Error;
+use type_families::{BifunctorOnce, Sibling2, impl_functor_once, impl_kind1, impl_kind2};
 
 use std::convert::Infallible;
 use std::fmt;
@@ -79,6 +80,103 @@ pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
+pub type Trimmed = Option<String>;
+
+/// Return value for string converted to native type that has delimiters.
+#[derive(new)]
+pub struct TrimmedKeyword<T> {
+    /// Native rust type
+    pub native: T,
+
+    /// The original value if it was trimmed
+    pub trimmed: Trimmed,
+}
+
+impl<T> TrimmedKeyword<T> {
+    pub(crate) fn new1(t: T) -> Self {
+        Self::new(t, None)
+    }
+}
+
+impl<T> TrimmedKeyword<T> {
+    pub(crate) fn lift(self) -> DiagnosedKeyword<T, Trimmed> {
+        DiagnosedKeyword::new(self.native, self.trimmed)
+    }
+}
+
+impl_kind1!(StrDelimOutputFamily, TrimmedKeyword);
+
+impl_functor_once!(
+    TrimmedKeyword,
+    self,
+    mut f,
+    TrimmedKeyword::new(f(self.native), self.trimmed)
+);
+
+/// Return value for string that was converted with a configuration and state.
+#[derive(Default, new)]
+pub struct DiagnosedKeyword<T, D> {
+    /// Native rust type
+    pub native: T,
+
+    /// Diagnostic info associated with this type.
+    pub diagnostic: D,
+}
+
+impl<T> DiagnosedKeyword<T, ()> {
+    pub(crate) fn new1(t: T) -> Self {
+        Self::new(t, ())
+    }
+
+    pub(crate) fn into_native(self) -> T {
+        self.native
+    }
+}
+
+impl<T> DiagnosedKeyword<T, Trimmed> {
+    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, String)>)
+    where
+        T: Key,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+    }
+
+    pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, String)>)
+    where
+        T: IndexedKey,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+    }
+}
+
+impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, String)>)
+    where
+        T: Key,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+    }
+
+    pub(crate) fn into_opt_indexed_pair(self, i: MeasIndex) -> (Option<T>, Option<(StdKey, String)>)
+    where
+        T: IndexedKey,
+    {
+        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+    }
+}
+
+impl_kind2!(DiagnosedOutputFamily, DiagnosedKeyword);
+
+impl<A, B> BifunctorOnce<A, B> for DiagnosedKeyword<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        DiagnosedKeyword::new(f(self.native), self.diagnostic)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        DiagnosedKeyword::new(self.native, f(self.diagnostic))
+    }
+}
+
 /// Parse a string that includes delimiters
 pub trait FromStrDelim: Sized {
     type Err;
@@ -89,26 +187,36 @@ pub trait FromStrDelim: Sized {
     fn from_str_delim(
         s: &str,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<Self, Self::Err> {
+    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
         let it = s.split(Self::DELIM);
         if trim_whitespace.is_set() {
-            Self::from_iter(it.map(str::trim))
+            let mut was_trimmed = false;
+            Self::from_iter(it.map(|x| {
+                let y = str::trim(x);
+                was_trimmed = was_trimmed || y.len() < x.len();
+                y
+            }))
+            .map(|x| TrimmedKeyword::new(x, was_trimmed.then(|| s.to_owned())))
         } else {
-            Self::from_iter(it)
+            Self::from_iter(it).map(TrimmedKeyword::new1)
         }
     }
 }
+
+pub type FromStrWithResult<T> =
+    Result<DiagnosedKeyword<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 /// Parse a string based on external data and config
 pub trait FromStrWith: Sized {
     type Err;
     type Payload<'a>;
+    type Diagnostic;
 
     fn from_str_with(
         _: &str,
         _: Self::Payload<'_>,
         _: &ReadStdKeywordsConfig,
-    ) -> Result<Self, Self::Err>;
+    ) -> FromStrWithResult<Self>;
 }
 
 // this won't be necessary once rust gets specialization
@@ -117,13 +225,15 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
+            type Diagnostic = Option<String>;
 
             fn from_str_with(
                 s: &str,
                 (): (),
                 conf: &crate::config::ReadStdKeywordsConfig,
-            ) -> Result<Self, Self::Err> {
-                Self::from_str_delim(s, conf.trim_intra_value_whitespace)
+            ) -> Result<crate::text::lookup::DiagnosedKeyword<Self, Option<String>>, Self::Err>
+            {
+                Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(|x| x.lift())
             }
         }
     };
@@ -161,12 +271,13 @@ pub(crate) trait Required: Sized {
             .map_err(ReqKeyErrorInner::from)
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_req_with<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
@@ -246,24 +357,34 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyKey,
         Self: FromStr,
     {
-        Self::remove_opt_inner(kws, k, |k_, v| {
-            v.parse().map_err(|e| ParseKeyError::new(e, k_, v))
-        })
+        kws.remove(&k.as_std())
+            .map(|v| v.parse().map_err(|e| ParseKeyError::new(e, k, v)))
+            .transpose()
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_opt_with<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
     {
-        Self::remove_opt_inner(kws, k, |k_, v| {
-            Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k_, v))
-        })
+        kws.remove(&k.as_std())
+            .map(|v| {
+                Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k, v))
+            })
+            .transpose()
+            .map(|x| {
+                x.map_or(DiagnosedKeyword::default(), |y| {
+                    y.first_once(Self::Outer::from)
+                })
+            })
     }
 
     fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
@@ -280,92 +401,55 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStr,
     {
+        let flag = conf.process_optional_failure;
+        let triflag = flag.0.as_triflag();
         match Self::remove_opt(kws, k) {
-            Ok(ret) => Ok(ret),
-            Err(e) => match conf.process_optional_failure.0 {
-                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
-                ProcessKeywordFailure::Demote => {
+            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
+            Err(e) => {
+                if flag.is_demote() {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
-                    Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
-            },
+                LogResult::new_deferred_switchable3(Self::Outer::default(), e, triflag)
+            }
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_or_transfer_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        ParseKeyError<Self::Err, Self, I>,
+    >
     where
         SpecificKey<Self, I>: AnyKey + Copy,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        let triflag = flag.0.as_triflag();
         match Self::remove_opt_with(std, k, data, conf.as_ref()) {
-            Ok(ret) => Ok(ret),
+            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             // TODO not dry
-            Err(e) => match rconf.process_optional_failure.0 {
-                ProcessKeywordFailure::Error | ProcessKeywordFailure::Drop => Err(e),
-                ProcessKeywordFailure::Demote => {
+            Err(e) => {
+                if flag.is_demote() {
                     nonstd.insert_demoted(k.as_std(), e.value.clone());
-                    Err(e)
                 }
-                ProcessKeywordFailure::DropSilent => Ok(Self::Outer::default()),
-            },
+                LogResult::new_deferred_switchable3(DiagnosedKeyword::default(), e, triflag)
+            }
         }
-    }
-
-    fn remove_or_drop_opt<I>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        k: SpecificKey<Self, I>,
-        conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<
-        Self::Outer,
-        ProcessOptionalFailure,
-        ParseKeyError<Self::Err, Self, I>,
-    >
-    where
-        SpecificKey<Self, I>: AnyKey + Copy,
-        Self: FromStr,
-    {
-        Self::remove_or_transfer_opt(std, nonstd, k, conf)
-            .into_nowarn1()
-            .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(conf.process_optional_failure)
-    }
-
-    fn remove_or_drop_opt_with<C, I>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        k: SpecificKey<Self, I>,
-        data: Self::Payload<'_>,
-        conf: &C,
-    ) -> DeferredSwitchableError<
-        Self::Outer,
-        ProcessOptionalFailure,
-        ParseKeyError<Self::Err, Self, I>,
-    >
-    where
-        SpecificKey<Self, I>: AnyKey + Copy,
-        Self: FromStrWith,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-    {
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        Self::remove_or_transfer_opt_with(std, nonstd, k, data, conf)
-            .into_nowarn1()
-            .set_err_value(Self::Outer::default())
-            .nowarn_into_switchable(rconf.process_optional_failure)
     }
 
     fn get_opt_inner<F, E, I>(
@@ -378,21 +462,6 @@ pub(crate) trait Optional: Sized {
         F: FnOnce(SpecificKey<Self, I>, &str) -> Result<Self, E>,
     {
         kws.get(&k.as_std())
-            .map(|v| f(k, v))
-            .transpose()
-            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
-    }
-
-    fn remove_opt_inner<F, E, I>(
-        kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-        f: F,
-    ) -> Result<Self::Outer, E>
-    where
-        SpecificKey<Self, I>: AnyKey,
-        F: FnOnce(SpecificKey<Self, I>, String) -> Result<Self, E>,
-    {
-        kws.remove(&k.as_std())
             .map(|v| f(k, v))
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -447,9 +516,10 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<Self, ReqIndexedStKeyError<Self>>
+    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
+        Self::Diagnostic: Default,
     {
         Self::remove_req_with(kws, SpecificKey::new_i1(i.into()), data, conf)
     }
@@ -493,6 +563,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     //     Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
     // }
 
+    // TODO this shouldn't be necessary
     fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -507,39 +578,15 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::remove_opt_nofail(kws, SpecificKey::default())
     }
 
-    fn remove_or_transfer_root_opt(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, OptKeyError<Self>>
-    where
-        Self: FromStr,
-    {
-        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::default(), conf)
-    }
-
-    fn remove_or_transfer_root_opt_with<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        data: Self::Payload<'_>,
-        conf: &C,
-    ) -> Result<Self::Outer, OptKeyStError<Self>>
-    where
-        Self: FromStrWith,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-    {
-        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
-    }
-
     fn remove_or_drop_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::remove_or_drop_opt(std, nonstd, SpecificKey::default(), conf)
+        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::default(), conf)
     }
 
     fn remove_or_drop_root_opt_with<C>(
@@ -547,12 +594,17 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         nonstd: &mut NonStdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyStError<Self>>
+    ) -> DeferredSwitchableError<
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        OptKeyStError<Self>,
+    >
     where
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
 
     fn root_pair_std(&self) -> (StdKey, String)
@@ -600,43 +652,35 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::remove_opt_nofail(kws, SpecificKey::new_i1(i.into()))
     }
 
-    fn remove_or_transfer_meas_opt(
+    fn remove_or_drop_meas_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
-    ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
         Self::remove_or_transfer_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
     }
 
-    fn remove_or_drop_meas_opt(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: impl Into<IndexFromOne>,
-        conf: &ReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
-    where
-        Self: FromStr,
-    {
-        Self::remove_or_drop_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
-    }
-
     fn remove_or_drop_meas_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        i: impl Into<IndexFromOne> + Copy,
+        i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &C,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyStError<Self>>
+    ) -> DeferredSwitchableError<
+        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        OptIndexedKeyStError<Self>,
+    >
     where
-        Self::Outer: PartialEq,
         Self: FromStrWith,
+        Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        Self::remove_or_drop_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
+        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }
 
     fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)

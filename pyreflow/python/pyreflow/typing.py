@@ -158,6 +158,31 @@ ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
 
-ProcessKeywordFailure: TypeAlias = Literal["error", "demote", "drop", "drop_silent"]
+ProcessKeywordFailure: TypeAlias = Literal[
+    "error", "demote", "demote_silent", "drop", "drop_silent"
+]
 
-TriFlag: TypeAlias = bool | Literal["silent"]
+ProcessTimeOpticalKeys: TypeAlias = Literal[
+    "error", "demote", "demote_silent", "drop", "drop_silent"
+]
+
+TriFlag: TypeAlias = Literal["false", "true", "silent"]
+
+ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]
+
+ScaleDiagnostic: TypeAlias = (
+    tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
+)
+
+TrimValueWhitespace: TypeAlias = Literal[
+    "notrim", "trim", "trim_blank_warn", "trim_blank_nowarn"
+]
+
+SpilloverMeasurementMode: TypeAlias = Literal["named", "indexed", "guess"]
+
+KeywordVersionScores: TypeAlias = tuple[
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+    pf.KeywordVersionScore,
+]

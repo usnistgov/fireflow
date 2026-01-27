@@ -1,13 +1,11 @@
-use crate::config::{
-    ConfigFlag as _, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-};
+use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::UnitaryKeyLossError;
-use crate::logging::{DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _};
-use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey as _};
+use crate::logging::{DeferredError, DeferredWarningsAndErrors, LogResult};
+use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
-use type_families::ApplyOnce as _;
+use type_families::{ApplyOnce as _, BifunctorOnce as _};
 
 use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
 use derive_more::{AsRef, Display, From, Into};
@@ -61,6 +59,7 @@ impl Datetimes {
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
+        // TODO return inputs and not self
     ) -> DeferredError<Self, ReversedDatetimesError> {
         let ret = Self { begin, end };
         if ret.valid() {
@@ -101,34 +100,34 @@ impl Datetimes {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredSwitchableErrors<Self, ProcessOptionalFailure, LookupDatetimesError>
+    ) -> DeferredWarningsAndErrors<Self, LookupDatetimesError, LookupDatetimesError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let b = BeginDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
-            .map_err(LookupDatetimesError::from)
-            .into_deferred_nowarn();
-        let e = EndDateTime::remove_or_transfer_root_opt_with(std, nonstd, (), conf)
-            .map_err(LookupDatetimesError::from)
-            .into_deferred_nowarn();
+        let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
+            .map_switchable_errors(LookupDatetimesError::from)
+            .switchable_into_commutative()
+            .into_semigroup::<Vec<_>, _>();
+        let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
+            .map_switchable_errors(LookupDatetimesError::from)
+            .switchable_into_commutative()
+            .into_semigroup::<Vec<_>, _>();
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.process_optional_failure;
-        b.zip_f2_once(e)
-            .and_then_deferred(|(begin, end)| {
-                Self::try_new(begin, end)
-                    .map_errors(LookupDatetimesError::from)
-                    .map_err_value(|ret| {
-                        // If creating the new datetime object failed,
-                        // optionally transfer component keys to nonstandard
-                        if rconf.process_optional_failure.is_demote() {
-                            ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
-                            ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
-                        }
-                        ret
-                    })
-                    .into_semigroup()
-            })
-            .nowarn_into_switchable(flag)
+        b.zip_f2_once(e).and_then_deferred(|(begin, end)| {
+            Self::try_new(begin.into_native(), end.into_native())
+                .map_errors(LookupDatetimesError::from)
+                .map_err_value(|ret| {
+                    // If creating the new datetime object failed,
+                    // optionally transfer component keys to nonstandard
+                    if rconf.process_optional_failure.is_demote() {
+                        ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
+                        ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
+                    }
+                    ret
+                })
+                .into_semigroup()
+                .nowarn_into_warn()
+        })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -151,13 +150,14 @@ macro_rules! impl_from_str_with {
         impl FromStrWith for $t {
             type Err = FCSDateTimeError;
             type Payload<'a> = ();
+            type Diagnostic = ();
 
             fn from_str_with(
                 s: &str,
                 (): (),
                 conf: &ReadStdKeywordsConfig,
-            ) -> Result<Self, Self::Err> {
-                FCSDateTime::from_str_with(s, (), conf).map(Self)
+            ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
+                FCSDateTime::from_str_with(s, (), conf).map(|x| x.first_once(Self))
             }
         }
     };
@@ -169,12 +169,18 @@ impl_from_str_with!(EndDateTime);
 impl FromStrWith for FCSDateTime {
     type Err = FCSDateTimeError;
     type Payload<'a> = ();
+    type Diagnostic = ();
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> Result<Self, Self::Err> {
+    fn from_str_with(
+        s: &str,
+        (): (),
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists
             DateTime::parse_from_str(s, pat.as_str())
                 .map(Self)
+                .map(DiagnosedKeyword::new1)
                 .map_err(|_| FCSDateTimeError::AltFormat(pat.to_owned()))
         } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
             // next, try to parse without a timezone, defaulting to localtime and
@@ -183,7 +189,9 @@ impl FromStrWith for FCSDateTime {
                 Err(FCSDateTimeError::Localtime)
             } else {
                 match Local::now().timezone().from_local_datetime(&naive) {
-                    MappedLocalTime::Single(t) => Ok(Self(t.fixed_offset())),
+                    MappedLocalTime::Single(t) => {
+                        Ok(DiagnosedKeyword::new1(Self(t.fixed_offset())))
+                    }
                     MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
                     MappedLocalTime::None => Err(FCSDateTimeError::Gap),
                 }
@@ -199,7 +207,7 @@ impl FromStrWith for FCSDateTime {
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s, f) {
-                    return Ok(Self(t));
+                    return Ok(DiagnosedKeyword::new1(Self(t)));
                 }
             }
             Err(FCSDateTimeError::Format)
@@ -263,7 +271,7 @@ mod tests {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let conf = ReadStdKeywordsConfig::default();
-            Self::from_str_with(s, (), &conf)
+            Self::from_str_with(s, (), &conf).map(|x| x.native)
         }
     }
 

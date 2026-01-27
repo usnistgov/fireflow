@@ -2045,7 +2045,9 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 ///
 /// Do this by appending "~X" to keys which are not unique and incrementing "X"
 /// starting at 0.
-pub(crate) fn uniquify_names<K>(xs: &mut [K])
+///
+/// Return vector of original names if they were changed.
+pub(crate) fn uniquify_names<K>(xs: &mut [K]) -> Vec<Option<Shortname>>
 where
     K: MightHave<Shortname>,
 {
@@ -2053,6 +2055,8 @@ where
     // their indices. Any key with more than one index is duplicated and should
     // be processed later.
     let mut counts: HashMap<&Shortname, NonEmpty<usize>> = HashMap::new();
+    let mut original = vec![];
+    original.resize_with(xs.len(), || None); // Avoid using Clone for Option<K>
     for (i, k) in xs.iter().enumerate() {
         if let Some(n) = k.as_opt() {
             match counts.entry(n) {
@@ -2094,13 +2098,15 @@ where
     for (i, r) in replacements {
         // ASSUME this will never fail because these indices were obtained from
         // .enumerate and we are not changing the length of the slice
-        xs[i] = K::wrap(r);
+        original[i] = mem::replace(&mut xs[i], K::wrap(r)).to_opt();
     }
 
     debug_assert!(
         all_unique_names(xs.iter().map(|k| k.as_opt())),
         "names are still not unique"
     );
+
+    original
 }
 
 /// Error when inserting new element into [`NamedVec`]

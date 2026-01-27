@@ -1348,7 +1348,7 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
         assert core.temporal is None
-        core.set_temporal_at(0, False)
+        core.set_temporal_at(0, "false")
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -1364,7 +1364,7 @@ class TestCore:
     ) -> None:
         assert core.temporal is None
         ts = 1.0
-        core.set_temporal_at(0, ts, False)
+        core.set_temporal_at(0, ts, "false")
         assert core.temporal is not None
         assert core.temporal[1] == LINK_NAME1
 
@@ -1881,7 +1881,7 @@ class TestCore:
             core.to_version_3_0()
         # and should still fail when forced since $PnE is missing
         with pytest.RaisesGroup(pf.PyreflowError):
-            core.to_version_3_0(True)
+            core.to_version_3_0("true")
         core.all_scales = [(), ()]
         new = core.to_version_3_0()
         assert isinstance(new, target)
@@ -1904,7 +1904,7 @@ class TestCore:
             core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
         with pytest.RaisesGroup(pf.PyreflowError):
-            core.to_version_3_1(True)
+            core.to_version_3_1("true")
         core.all_scales = [(), ()]
         new = core.to_version_3_1()
         assert isinstance(new, target)
@@ -1927,7 +1927,7 @@ class TestCore:
             core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
         with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "T cell incinerator"
         core.all_scales = [(), ()]
         core.cyt = "T cell incinerator"
@@ -1984,7 +1984,7 @@ class TestCore:
             core.to_version_3_2()
         # and should still fail if forced since $CYT is missing
         with pytest.RaisesGroup(pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "the dark eternal void from which cells will never escape"
         new = core.to_version_3_2()
         assert isinstance(new, target)
@@ -2039,7 +2039,7 @@ class TestCore:
             core.to_version_3_2()
         # should still fail when forced
         with pytest.RaisesGroup(pf.ConversionError):
-            core.to_version_3_2(True)
+            core.to_version_3_2("true")
         core.cyt = "Cygnus X-1"
         new = core.to_version_3_2()
         assert isinstance(new, target)
@@ -2647,10 +2647,7 @@ class TestApiFunctions:
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=(["wood"], []))
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["lawnmower+spike"]))
-        # TODO make this an error? This is apparently a valid regexp but it
-        # only should match an empty string, but keys by definition are not
-        # blank, so this is useless and confusing
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], [""]))
+        # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([""], []))
         with pytest.raises(pf.ConfigError):
@@ -2789,23 +2786,21 @@ class TestReadWrite:
     def _assert_uncore_text_empty(
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
-        assert uncore.parse.delimiter == 30
-        assert len(uncore.parse.non_ascii) == 0
-        assert len(uncore.parse.byte_pairs) == 0
-        assert len(uncore.extra.pseudostandard) == 0
-        assert len(uncore.extra.hyper_par) == 0
-        assert len(uncore.extra.other_version) == 0
+        assert uncore.flat_diagnostics.delimiter == 30
+        assert len(uncore.flat_diagnostics.byte_pairs) == 0
+        assert len(uncore.std_diagnostics.pseudostandard) == 0
+        assert len(uncore.std_diagnostics.hyper_par) == 0
+        assert len(uncore.std_diagnostics.other_version) == 0
 
     @staticmethod
     def _assert_uncore_dataset_empty(
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
-        assert uncore.parse.delimiter == 30
-        assert len(uncore.parse.non_ascii) == 0
-        assert len(uncore.parse.byte_pairs) == 0
-        assert len(uncore.dataset.extra.pseudostandard) == 0
-        assert len(uncore.dataset.extra.hyper_par) == 0
-        assert len(uncore.dataset.extra.other_version) == 0
+        assert uncore.flat_diagnostics.delimiter == 30
+        assert len(uncore.flat_diagnostics.byte_pairs) == 0
+        assert len(uncore.dataset.std_diagnostics.pseudostandard) == 0
+        assert len(uncore.dataset.std_diagnostics.hyper_par) == 0
+        assert len(uncore.dataset.std_diagnostics.other_version) == 0
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
@@ -3045,4 +3040,4 @@ class TestReadWrite:
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
         # supp text should have non-zero offsets in new file
-        assert un_core.parse.supp_text is not None
+        assert un_core.flat_diagnostics.supp_text is not None

@@ -24,7 +24,9 @@ pub struct Shortname(String);
 
 impl Shortname {
     pub(crate) fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
-        Self(s.as_ref().to_owned())
+        let ss: &str = s.as_ref();
+        debug_assert!(!ss.contains(','), "shortname has at least one comma");
+        Self(ss.to_owned())
     }
 
     pub(crate) fn increment(&self, i: usize) -> Self {

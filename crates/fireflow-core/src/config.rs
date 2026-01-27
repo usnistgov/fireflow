@@ -606,7 +606,6 @@ pub struct ReadStdKeywordsConfig {
     /// Force $PnE to be linear (`"0.0"`).
     pub force_linear_scale: ForceLinearScale,
 
-    // TODO control if these should be dropped/demoted/returned in extra
     /// Ignore optical keywords in time channel.
     ///
     /// These are keys which the standard does not explicitly forbid but are
@@ -797,7 +796,6 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(TEXTCorrection<AnalysisSegmentId>)]
     pub text_analysis_correction: TEXTCorrection<AnalysisSegmentId>,
 
-    // TODO unused
     /// If `true`, ignore DATA offsets in TEXT.
     ///
     /// This may be useful if DATA offsets are different from those in HEADER,
@@ -806,7 +804,6 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(IgnoreTEXTDataOffsets)]
     pub ignore_text_data_offsets: IgnoreTEXTDataOffsets,
 
-    // TODO unused
     /// If `true`, ignore ANALYSIS offsets in TEXT.
     ///
     /// This may be useful if ANALYSIS offsets are different from those in

@@ -2475,7 +2475,7 @@ where
                         let ws = es.fmap(ReadDataframeWarning::from);
                         LogResult::new_ok(()).set_commutative_warnings(ws)
                     }
-                    TriFlag::Noop => LogResult::new_ok(()),
+                    TriFlag::Silent => LogResult::new_ok(()),
                 };
                 overrange_res.map_ok_value(|()| {
                     let cs = data
@@ -3091,7 +3091,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 let ws = es.into_iter().flatten().collect();
                 LogResult::new_ok(()).set_commutative_warnings(ws)
             }
-            TriFlag::Noop => LogResult::new_ok(()),
+            TriFlag::Silent => LogResult::new_ok(()),
         };
         overrange_res.map_ok_value(|()| {
             let data = col_readers.into_iter().map(Readable::into_dataframe_column);

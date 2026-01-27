@@ -1060,13 +1060,13 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
 
 fn tri_flag_arg(long: &'static str, false_is_error: bool, help_front: impl Display) -> Arg {
     let parse_false_is_err = |s: &str| match s {
-        "silent" => Ok(TriFlag::Noop),
+        "silent" => Ok(TriFlag::Silent),
         "warn" => Ok(TriFlag::True),
         _ => Err("Must be one of 'silent' or 'warn'"),
     };
 
     let parse_true_is_err = |s: &str| match s {
-        "silent" => Ok(TriFlag::Noop),
+        "silent" => Ok(TriFlag::Silent),
         "error" => Ok(TriFlag::True),
         _ => Err("Must be one of 'silent' or 'error'"),
     };

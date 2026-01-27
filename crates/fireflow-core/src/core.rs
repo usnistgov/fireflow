@@ -4646,7 +4646,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         // set, the we consider it an error to be deprecated, thus dropping a
         // keyval is not relevant (error = crash).
         let keep = xfer_flag.is_demote();
-        let disallow_dep = matches!(dep_flag.0, TriFlag::True | TriFlag::Noop);
+        let disallow_dep = matches!(dep_flag.0, TriFlag::True | TriFlag::Silent);
         let do_demote = disallow_dep && xfer_flag.is_demote();
         for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
             if do_demote {

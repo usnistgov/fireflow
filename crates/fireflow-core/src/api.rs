@@ -1930,7 +1930,7 @@ fn lookup_nextdata(
             .map(Some)
             .into_log()
             .set_err_value(None),
-        TriFlag::Noop => LogResult::new_ok(
+        TriFlag::Silent => LogResult::new_ok(
             kws.get(&Nextdata::std())
                 .and_then(|s| s.parse::<Nextdata>().ok()),
         ),

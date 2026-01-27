@@ -30,7 +30,7 @@ use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use derive_more::{AsRef, Display, From, FromStr, Into};
+use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
 use regex::Regex;
 use std::collections::HashMap;
@@ -1008,7 +1008,7 @@ impl ProcessKeywordFailure {
         let flag = match self {
             Self::Error => TriFlag::False,
             Self::Demote | Self::Drop => TriFlag::True,
-            Self::DemoteSilent | Self::DropSilent => TriFlag::Noop,
+            Self::DemoteSilent | Self::DropSilent => TriFlag::Silent,
         };
         flag.into()
     }
@@ -1041,7 +1041,9 @@ impl FromStr for ProcessKeywordFailure {
 pub struct ProcessKeywordFailureError;
 
 /// Strategy to use when autodetecting FCS version
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, FromStr)]
+#[from_str(error(SelectVersionStrategyError))]
+#[from_str(rename_all = "snake_case")]
 pub enum SelectVersionStrategy {
     /// Choose the latest version
     Latest,
@@ -1053,55 +1055,44 @@ pub enum SelectVersionStrategy {
     Strict,
 }
 
-impl FromStr for SelectVersionStrategy {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "latest" => Ok(Self::Latest),
-            "earliest" => Ok(Self::Earliest),
-            "loose" => Ok(Self::Loose),
-            "strict" => Ok(Self::Strict),
-            _ => Err(()),
-        }
-    }
-}
+/// Error when parsing [`SelectVersionStrategy`] from [`String`].
+///
+/// This is never used directly and exists to satisfy the [`FromStr`] impl for
+/// [`SelectVersionStrategy`].
+#[derive(From)]
+#[from(FromStrError)]
+pub struct SelectVersionStrategyError;
 
 /// Choose how to escape delims in TEXT segment.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(DelimEscapeModeError))]
+#[from_str(rename_all = "snake_case")]
 pub enum DelimEscapeMode {
+    /// Use escaped delimiters.
     #[default]
     Escaped,
+    /// Use unescaped delimiters.
     Unescaped,
+    /// Guess, falling back to escaped mode.
     GuessEscaped,
+    /// Guess, falling back to unescaped mode.
     GuessUnescaped,
 }
 
-impl FromStr for DelimEscapeMode {
-    type Err = DelimEscapeModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "escaped" => Ok(Self::Escaped),
-            "unescaped" => Ok(Self::Unescaped),
-            "guess_escaped" => Ok(Self::GuessEscaped),
-            "guess_unescaped" => Ok(Self::GuessUnescaped),
-            _ => Err(DelimEscapeModeError),
-        }
-    }
-}
-
 /// Error when parsing [`DelimEscapeMode`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'escaped', 'unescaped', 'guess_escaped', or 'guess_unescaped'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct DelimEscapeModeError;
 
 /// Choose how to trim values and deal with blanks that may result.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(TrimValueWhitespaceError))]
+#[from_str(rename_all = "snake_case")]
 pub enum TrimValueWhitespace {
     /// Do not trim at all.
     #[default]
@@ -1114,6 +1105,14 @@ pub enum TrimValueWhitespace {
     TrimBlankNowarn,
 }
 
+/// Error when parsing [`TrimValueWhitespace`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'notrim', 'trim', 'trim_blank_warn', or 'trim_blank_nowarn'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct TrimValueWhitespaceError;
+
 impl TrimValueWhitespace {
     /// Emit a flag for handling blank values after trimming.
     ///
@@ -1123,61 +1122,33 @@ impl TrimValueWhitespace {
             Self::Notrim => None,
             Self::Trim => Some(TriFlag::False),
             Self::TrimBlankWarn => Some(TriFlag::True),
-            Self::TrimBlankNowarn => Some(TriFlag::Noop),
+            Self::TrimBlankNowarn => Some(TriFlag::Silent),
         };
         f.map(Into::into)
     }
 }
 
-impl FromStr for TrimValueWhitespace {
-    type Err = TrimValueWhitespaceError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "notrim" => Ok(Self::Notrim),
-            "trim" => Ok(Self::Trim),
-            "trim_blank_warn" => Ok(Self::TrimBlankWarn),
-            "trim_blank_nowarn" => Ok(Self::TrimBlankNowarn),
-            _ => Err(TrimValueWhitespaceError),
-        }
-    }
-}
-
-/// Error when parsing [`TrimValueWhitespace`] from [`String`]
-#[derive(Error, Debug)]
-#[error("must be one of 'notrim', 'trim', 'trim_blank_warn', or 'trim_blank_nowarn'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct TrimValueWhitespaceError;
-
 /// Choose which $PnE to force as linear.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(ForceLinearScaleError))]
+#[from_str(rename_all = "snake_case")]
 pub enum ForceLinearScale {
+    /// Do not force.
     #[default]
     None,
+    /// Only force the temporal measurement.
     TimeOnly,
+    /// Force all measurements.
     All,
 }
 
-impl FromStr for ForceLinearScale {
-    type Err = ForceLinearScaleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "time_only" => Ok(Self::TimeOnly),
-            "all" => Ok(Self::All),
-            "none" => Ok(Self::None),
-            _ => Err(ForceLinearScaleError),
-        }
-    }
-}
-
 /// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'time_only', 'all', or 'none'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct ForceLinearScaleError;
 
 impl ForceLinearScale {
@@ -1186,9 +1157,11 @@ impl ForceLinearScale {
     }
 }
 
-/// Choose how to parse measurements for $SPILLOVER key
-#[derive(Default, Clone, Copy)]
+/// Choose what to do with optical keys in time measurement when found.
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(ProcessTimeOpticalKeysError))]
+#[from_str(rename_all = "snake_case")]
 pub enum ProcessTemporalOpticalKeys {
     /// Demote to nonstandard with warning
     #[default]
@@ -1201,30 +1174,19 @@ pub enum ProcessTemporalOpticalKeys {
     DropSilent,
 }
 
-impl FromStr for ProcessTemporalOpticalKeys {
-    type Err = ProcessTimeOpticalKeysError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "demote" => Ok(Self::Demote),
-            "demote_silent" => Ok(Self::DemoteSilent),
-            "drop" => Ok(Self::Drop),
-            "drop_silent" => Ok(Self::DropSilent),
-            _ => Err(ProcessTimeOpticalKeysError),
-        }
-    }
-}
-
 /// Error when parsing [`ProcessTemporalOpticalKeys`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'demote', 'demote_silent', 'drop', or 'drop_silent'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct ProcessTimeOpticalKeysError;
 
 /// Choose how to parse measurements for $SPILLOVER key
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(SpilloverMeasurementModeError))]
+#[from_str(rename_all = "snake_case")]
 pub enum SpilloverMeasurementMode {
     /// Interpret measurements as names which match $PnN.
     #[default]
@@ -1238,56 +1200,37 @@ pub enum SpilloverMeasurementMode {
     Guess,
 }
 
-impl FromStr for SpilloverMeasurementMode {
-    type Err = SpilloverMeasurementModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "named" => Ok(Self::Named),
-            "indexed" => Ok(Self::Indexed),
-            "guess" => Ok(Self::Guess),
-            _ => Err(SpilloverMeasurementModeError),
-        }
-    }
-}
-
 /// Error when parsing [`SpilloverMeasurementMode`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'named', 'indexed', or 'guess'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct SpilloverMeasurementModeError;
 
 /// Choose which event types are truncated.
 ///
 /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, FromStr)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(TruncateEventValuesError))]
+#[from_str(rename_all = "snake_case")]
 pub enum TruncateEventValues {
+    /// Only truncate integer events.
     #[default]
     IntOnly,
+    /// Truncate all events.
     All,
+    /// Truncate no events.
     None,
 }
 
-impl FromStr for TruncateEventValues {
-    type Err = TruncateEventValuesError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "int_only" => Ok(Self::IntOnly),
-            "all" => Ok(Self::All),
-            "none" => Ok(Self::None),
-            _ => Err(TruncateEventValuesError),
-        }
-    }
-}
-
 /// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'int_only', 'all', or 'none'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct TruncateEventValuesError;
 
 impl TruncateEventValues {
@@ -1312,7 +1255,7 @@ pub(crate) trait TriErrorFlag: Into<TriFlag> + Copy {
 
     fn is_error(&self) -> Option<bool> {
         match (*self).into() {
-            TriFlag::Noop => None,
+            TriFlag::Silent => None,
             TriFlag::False => Some(Self::FALSE_IS_ERROR),
             TriFlag::True => Some(!Self::FALSE_IS_ERROR),
         }
@@ -1412,32 +1355,22 @@ impl TriErrorFlag for DummyTriFlag {
 }
 
 /// Tri-state flag to throw warning, throw error, or do nothing
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, FromStr)]
+#[from_str(error(TriFlagError))]
+#[from_str(rename_all = "snake_case")]
 pub enum TriFlag {
     #[default]
     False,
     True,
-    Noop,
+    Silent,
 }
 
-impl FromStr for TriFlag {
-    type Err = TriFlagError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "false" => Ok(Self::False),
-            "true" => Ok(Self::True),
-            "silent" => Ok(Self::Noop),
-            _ => Err(TriFlagError),
-        }
-    }
-}
-
-/// Error when parsing [`VersionOverride`] from [`String`]
-#[derive(Error, Debug)]
+/// Error when parsing [`TriFlag`] from [`String`]
+#[derive(Error, Debug, From)]
 #[error("must be one of 'false', 'true', or 'silent'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
 pub struct TriFlagError;
 
 impl From<TriFlag> for Option<bool> {
@@ -1445,7 +1378,7 @@ impl From<TriFlag> for Option<bool> {
         match value {
             TriFlag::False => Some(false),
             TriFlag::True => Some(true),
-            TriFlag::Noop => None,
+            TriFlag::Silent => None,
         }
     }
 }
@@ -1455,7 +1388,7 @@ impl From<Option<bool>> for TriFlag {
         match value {
             Some(false) => Self::False,
             Some(true) => Self::True,
-            None => Self::Noop,
+            None => Self::Silent,
         }
     }
 }

@@ -255,14 +255,11 @@ pub struct ReadHeaderInnerConfig {
     /// None means limitless.
     pub max_other: Option<usize>,
 
-    // TODO why is 1 the lower limit? Offsets must be larger than 58 + 2w
-    // minimum, so likely 3 would be the bare minimum, and these are usually
-    // after TEXT. Maybe 8 since that's in HEADER already?
     /// Width (in bytes) to use when parsing OTHER offsets.
     ///
     /// In 3.2 this should be 8 bytes. In older versions this was not specified.
     /// In practice, vendors seem to use whatever width they want, presumably to
-    /// make "large" numbers fit. As such, this must be an integer between 1 and
+    /// make "large" numbers fit. As such, this must be an integer between 8 and
     /// 20 (corresponding to a theoretical max of 2^64) but will default to 8
     /// since this is most logical.
     pub other_width: OtherWidth,

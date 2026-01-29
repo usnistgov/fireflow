@@ -2632,10 +2632,10 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_header(p, other_width=1)
+        _ = pf.api.fcs_read_header(p, other_width=8)
         _ = pf.api.fcs_read_header(p, other_width=20)
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_header(p, other_width=0)
+            _ = pf.api.fcs_read_header(p, other_width=7)
             _ = pf.api.fcs_read_header(p, other_width=21)
 
     def test_key_patterns(

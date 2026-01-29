@@ -1802,32 +1802,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn other_width() {
-        // 2x8
-        let s = "       0       0".as_bytes();
+    fn other_width_2x8() {
+        let s = b"       0       0";
         assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
-        // 4x8
-        let s = "       0       0    2112   90125".as_bytes();
+    }
+
+    #[test]
+    fn other_width_4x8() {
+        let s = b"       0       0    2112   90125";
         assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
-        // 4x8 but with the first segment "hidden"
-        let s = "       010000000    1234   12345".as_bytes();
+    }
+
+    #[test]
+    fn other_width_4x8_hidden() {
+        let s = b"       010000000       1       2";
         assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
-        // 4x8 but with random space after than should be ignored
-        let s = "       0       0       0       0              ".as_bytes();
+    }
+
+    #[test]
+    fn other_width_4x8_spaceballs() {
+        // random space after than should be ignored
+        let s = b"       0       0       0   12345              ";
         assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
     }
 
     #[test]
     fn other_width_uneven() {
         // 8 then 9
-        let s = "       0        0".as_bytes();
+        let s = b"       0        0";
         assert!(OtherSegment20::guess_other_width(s).is_err());
     }
 
     #[test]
     fn other_width_nobound() {
         // this can either be 8 or 16
-        let s = "00000000000000000000000000000000".as_bytes();
+        let s = b"00000000000000000000000000000000";
         assert!(OtherSegment20::guess_other_width(s).is_err());
     }
 }

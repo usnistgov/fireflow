@@ -8140,7 +8140,7 @@ impl DocArgParam {
 
     fn new_other_width_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let e = PyException::new_config().desc("if %x is less than `1` and greater than `20`");
+        let e = PyException::new_config().desc("if %x is less than ``8`` and greater than ``20``");
         let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))

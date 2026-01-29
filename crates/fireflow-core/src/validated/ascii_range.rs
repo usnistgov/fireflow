@@ -49,10 +49,9 @@ pub struct AsciiRangeValue(pub u64);
 
 /// Width to use when parsing OTHER segments.
 ///
-/// Must be an integer between 1 and 20.
-#[derive(Clone, Copy, Into, From)]
-#[into(u8, Chars)]
-pub struct OtherWidth(Chars);
+/// Must be an integer between 8 and 20.
+#[derive(Clone, Copy, Into)]
+pub struct OtherWidth(u8);
 
 /// The number of chars for an ASCII measurement
 ///
@@ -63,6 +62,8 @@ pub struct OtherWidth(Chars);
 pub(crate) struct Chars(NonZeroU8);
 
 pub(crate) const MAX_CHARS: u8 = 20;
+
+pub(crate) const MIN_OTHER_WIDTH: u8 = 8;
 
 impl TryFrom<Range> for Chars {
     type Error = RangeToIntError<u64>;
@@ -197,7 +198,7 @@ impl TryFrom<NonZeroU8> for Chars {
 
 impl Default for OtherWidth {
     fn default() -> Self {
-        Self(Chars(NonZeroU8::new(8).unwrap()))
+        Self(8)
     }
 }
 
@@ -205,9 +206,11 @@ impl TryFrom<u8> for OtherWidth {
     type Error = OtherWidthError;
 
     fn try_from(x: u8) -> Result<Self, Self::Error> {
-        Chars::try_from(x)
-            .map_err(|e| OtherWidthError(e.0))
-            .map(Self)
+        if (MIN_OTHER_WIDTH..=MAX_CHARS).contains(&x) {
+            Ok(Self(x))
+        } else {
+            Err(OtherWidthError(x))
+        }
     }
 }
 
@@ -255,7 +258,7 @@ pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
 /// Error when creating [`OtherWidth`] for configuration struct
 #[derive(Debug, Error)]
-#[error("OTHER width should be integer b/t 1 and 20, got {0}")]
+#[error("OTHER width should be integer b/t 8 and 20, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct OtherWidthError(u8);

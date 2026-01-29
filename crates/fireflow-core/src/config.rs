@@ -505,8 +505,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// a predictable offset. This allows the length of digits in TEXT (such as
     /// offsets) to vary within a given range.
     ///
-    /// Unfortunately, it also trips off lots of errors because TEXT in these
-    /// cases will not end with a delimiter.
+    /// Unfortunately, it also causes errors because TEXT in these cases will
+    /// not end with a delimiter.
     ///
     /// This flag will "move" the end of TEXT to the latest non-whitespace
     /// character prior to the offset actually given in HEADER.

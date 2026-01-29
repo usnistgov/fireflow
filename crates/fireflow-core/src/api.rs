@@ -3,8 +3,8 @@ use crate::config::{
     ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
     ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
     ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag,
-    TrimTrailingWhitespace, TruncateOffsets, VersionOverride,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, TruncateOffsets,
+    VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -606,7 +606,6 @@ struct SplitTEXTOutputInner {
     tokens_with_boundary_delims: Vec<StringOrBytes>,
     last_odd_token: StringOrBytes,
     missing_final_delim: bool,
-    trailing_whitespace_length: usize,
 }
 
 /// Summary of an FCS dataset
@@ -1392,10 +1391,16 @@ fn split_flat_text_inner(
                 GuessedEscapeMode::Ambiguous => default_escape,
             },
         );
-    let res = if escaped {
-        split_flat_text_escaped_delim(kws, delim, bytes, tk, conf)
+    let (n_trim, trimmed_bytes) = if conf.trim_trailing_whitespace.is_set() {
+        let t = bytes.trim_ascii_end();
+        (bytes.len() - t.len(), t)
     } else {
-        split_flat_text_unescaped_delim(kws, delim, bytes, tk, conf)
+        (0, bytes)
+    };
+    let res = if escaped {
+        split_flat_text_escaped_delim(kws, delim, trimmed_bytes, tk, conf)
+    } else {
+        split_flat_text_unescaped_delim(kws, delim, trimmed_bytes, tk, conf)
     };
     res.map_ok_value(|inner| SplitTEXTDiagnostics {
         keys_with_blank_values: inner.keys_with_blank_values,
@@ -1403,7 +1408,7 @@ fn split_flat_text_inner(
         tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
         last_odd_token: inner.last_odd_token,
         missing_final_delim: inner.missing_final_delim,
-        trailing_whitespace_length: inner.trailing_whitespace_length,
+        trailing_whitespace_length: n_trim,
         escaped,
     })
 }
@@ -1592,18 +1597,9 @@ fn split_flat_text_unescaped_delim(
         }
     }
 
-    // If last token is all spaces and we want to "trim" them, this will allow
-    // us to bypass some errors below since these can be ignored
-    let (trim_trailing, trailing_whitespace_length) =
-        check_trailing_whitespace(prev_token, conf.trim_trailing_whitespace);
-
     // We should end on a blank, which corresponds to a (not valid) key. If this
     // is not the case, the number of tokens was not even.
-    let uneven_ok = prev_was_key || trim_trailing;
-
-    // Don't emit this error if we are trimming whitespace off the end, because
-    // the "odd token" in that case is entirely whitespace and therefore can be
-    // ignored
+    let uneven_ok = prev_was_key;
     let uneven_err = UnevenTokensError(tk).into();
     let uneven_res =
         LogResult::new_switchable_ok_if3(uneven_ok, (), (), uneven_err, conf.allow_odd)
@@ -1615,18 +1611,13 @@ fn split_flat_text_unescaped_delim(
     };
 
     // If the last token was not a blank, we did not end on a delimiter.
-
     let delim_flag = conf.allow_missing_final_delim;
-    // Don't emit this error if we are trimming whitespace off the end because
-    // the thing immediately before the whitespace is a delimiter in this case
     let final_delim_err = NonEmpty::from_slice(prev_token)
         .map(|bs| FinalDelimError::new(tk, bs))
         .map(ParseKeywordsIssue::from);
-    let missing_final_delim = !trim_trailing && final_delim_err.is_some();
-    let final_delim_res = missing_final_delim.then(|| {
-        LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
-            .switchable_into_commutative()
-    });
+    let missing_final_delim = final_delim_err.is_some();
+    let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
+        .switchable_into_commutative();
 
     // TODO these should be ignore regardless
     let blank_key_errors = values_with_blank_keys
@@ -1659,7 +1650,6 @@ fn split_flat_text_unescaped_delim(
         tokens_with_boundary_delims: vec![],
         last_odd_token,
         missing_final_delim,
-        trailing_whitespace_length,
     };
 
     // TODO this is one instance where it could be inefficient to chain together
@@ -1670,8 +1660,7 @@ fn split_flat_text_unescaped_delim(
     insert_results
         .into_iter()
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, blank_key_res, blank_val_res])
-        .chain(final_delim_res)
+        .chain([uneven_res, blank_key_res, blank_val_res, final_delim_res])
         .sequence_def_void()
         .set_ok_value(ret)
 }
@@ -1746,11 +1735,6 @@ fn split_flat_text_escaped_delim(
         lastbuf = segment;
     }
 
-    // If last token is all spaces and we want to "trim" them, this will allow us
-    // to bypass some errors below since these can be ignored
-    let (trim_trailing, trailing_whitespace_length) =
-        check_trailing_whitespace(lastbuf, conf.trim_trailing_whitespace);
-
     // If all went perfectly, we should have one consecutive blank at this point
     // since the space between the last delim and the end will show up as a
     // blank. The value of the last buffer should also be an empty slice.
@@ -1786,12 +1770,10 @@ fn split_flat_text_escaped_delim(
     }
 
     let (uneven_err, last_odd_token) = if valuebuf.is_empty() {
-        // Don't emit this error if we are trimming whitespace off the end,
-        // because the "odd token" in that case is entirely whitespace and
-        // therefore can be ignored
-        (!trim_trailing)
-            .then_some((UnevenTokensError(tk).into(), keybuf.clone().into()))
-            .unzip()
+        (
+            Some(UnevenTokensError(tk).into()),
+            Some(keybuf.clone().into()),
+        )
     } else {
         push_pair(&keybuf, &valuebuf);
         (None, None)
@@ -1806,16 +1788,12 @@ fn split_flat_text_escaped_delim(
     let delim_flag = conf.allow_missing_final_delim;
     let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
         .switchable_into_commutative();
-    // Don't emit this error if we are trimming whitespace off the end because
-    // the thing immediately before the whitespace is a delimiter in this case
     let final_delim_err = NonEmpty::from_slice(lastbuf)
         .map(|bs| FinalDelimError::new(tk, bs))
         .map(ParseKeywordsIssue::from);
-    let missing_final_delim = !trim_trailing && final_delim_err.is_some();
-    let final_delim_res = missing_final_delim.then(|| {
-        LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
-            .switchable_into_commutative()
-    });
+    let missing_final_delim = final_delim_err.is_some();
+    let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
+        .switchable_into_commutative();
 
     let bound_iter = tokens_with_boundary_delims
         .iter()
@@ -1830,14 +1808,12 @@ fn split_flat_text_escaped_delim(
         tokens_with_boundary_delims,
         last_odd_token: last_odd_token.unwrap_or_default(),
         missing_final_delim,
-        trailing_whitespace_length,
     };
 
     insert_results
         .into_iter()
         .map(LogResult::into_semigroup)
-        .chain([uneven_res, even_delim_res, boundary_res])
-        .chain(final_delim_res)
+        .chain([uneven_res, even_delim_res, boundary_res, final_delim_res])
         .sequence_def_void()
         .set_ok_value(ret)
 }
@@ -1927,19 +1903,6 @@ where
                 .map_commutative_warnings(STextSegmentWarning::from)
         })
     })
-}
-
-fn check_trailing_whitespace(lastbuf: &[u8], flag: TrimTrailingWhitespace) -> (bool, usize) {
-    let has_trailing_whitespace = lastbuf
-        .iter()
-        .all(|c| char::is_ascii_whitespace(&char::from(*c)));
-    let trim_trailing = has_trailing_whitespace && flag.is_set();
-    let len = if has_trailing_whitespace {
-        lastbuf.len()
-    } else {
-        0
-    };
-    (trim_trailing, len)
 }
 
 fn lookup_nextdata(

@@ -62,7 +62,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_supp_text_own_delim: pft.TriFlag = "false"
     allow_missing_nextdata: pft.TriFlag = "false"
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim"
-    trim_trailing_whitespace: bool = False
+    trim_text_end: bool = False
     ignore_standard_keys: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
     promote_to_standard: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS
     demote_from_standard: pft.KeyPatterns = pfd._DEFAULT_KEY_PATTERNS

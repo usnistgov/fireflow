@@ -397,11 +397,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// have escaped delimiters in them. Keys should almost never be blank in
     /// unescaped mode since `""` is almost never a sensible key value.
     ///
-    /// The guessing algorithm is independent of
-    /// [`Self::trim_trailing_whitespace`] since it will ignore everything after
-    /// the last delimiter. It is also independent of [`Self::allow_odd`] and
-    /// [`Self::allow_missing_final_delim`] which will trigger as normal if
-    /// their respective violations are found.
+    /// The guessing algorithm will be run after [`Self::trim_text_end`] since
+    /// this may remove the last delimiter if necessary. It is also independent
+    /// of [`Self::allow_odd`] and [`Self::allow_missing_final_delim`] which
+    /// will trigger as normal if their respective violations are found.
     pub delim_escape_mode: DelimEscapeMode,
 
     /// If `true`, allow delimiter to be character outside 1-126.
@@ -498,19 +497,19 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
 
-    /// If `true` remove whitespace after TEXT.
+    /// If `true`, trim extra characters off the end of TEXT.
     ///
-    /// In order to make TEXT a predictable length, it seems some vendors just
-    /// add padding at the end which will ensure the segment after it starts at
-    /// a predictable offset. This allows the length of digits in TEXT (such as
-    /// offsets) to vary within a given range.
+    /// This does two things (in this order):
     ///
-    /// Unfortunately, it also causes errors because TEXT in these cases will
-    /// not end with a delimiter.
+    /// First, it will move the ending offset to the last delimiter in TEXT,
+    /// thereby removing any non-delimiter characters (usually spaces if
+    /// present). These are usually added to make TEXT a predictable length.
     ///
-    /// This flag will "move" the end of TEXT to the latest non-whitespace
-    /// character prior to the offset actually given in HEADER.
-    pub trim_trailing_whitespace: TrimTrailingWhitespace,
+    /// Second, it will decrease the offset by one if the number of delimiters
+    /// is even and the number of final consecutive delimiters is more than one.
+    /// This will effectively remove the last delimiter, which sometimes
+    /// erroneously exists.
+    pub trim_text_end: TrimTEXTEnd,
 
     /// Remove standard keys from TEXT.
     ///
@@ -1332,7 +1331,7 @@ impl_config_flag!(TruncateOffsets);
 
 impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);
-impl_config_flag!(TrimTrailingWhitespace);
+impl_config_flag!(TrimTEXTEnd);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 

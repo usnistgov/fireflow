@@ -110,7 +110,7 @@ fn run() -> AppResult<()> {
                  everything after the last delimiter. It is also independent of {odd} \
                  and {final} which will trigger as normal if their respective violations \
                  are found.",
-                trim = fmt_arg(TRIM_TRAILING_WHITESPACE),
+                trim = fmt_arg(TRIM_TEXT_END),
                 odd = fmt_arg(ALLOW_ODD),
                 final = fmt_arg(ALLOW_MISSING_FINAL_DELIM),
             ),
@@ -353,9 +353,12 @@ fn run() -> AppResult<()> {
              throw error, warning, or nothing when trimming results in a blank.",
         );
 
-    let trim_trailing_whitespace = flag_arg(
-        TRIM_TRAILING_WHITESPACE,
-        "Trim whitespace from end of TEXT.",
+    let trim_text_end = flag_arg(
+        TRIM_TEXT_END,
+        format!(
+            "Decrease the final offset of {text_seg} based on delimiter count \
+             and trailing non-delimiter characters after {text_seg}."
+        ),
     );
 
     let make_key_str_args = |lit_flag, pat_flag, lit_help, pat_help| {
@@ -463,7 +466,7 @@ fn run() -> AppResult<()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        trim_trailing_whitespace,
+        trim_text_end,
         ignore_std_lit_key,
         ignore_std_pat_key,
         promote_lit_to_std,
@@ -1178,7 +1181,7 @@ fn parse_header_and_text_config(
         allow_supp_text_own_delim: parse_def(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
         allow_missing_nextdata: parse_def(sargs, ALLOW_MISSING_NEXTDATA),
         trim_value_whitespace: parse_def(sargs, TRIM_VALUE_WHITESPACE),
-        trim_trailing_whitespace: sargs.get_flag(TRIM_TRAILING_WHITESPACE).into(),
+        trim_text_end: sargs.get_flag(TRIM_TEXT_END).into(),
         ignore_standard_keys,
         rename_standard_keys,
         promote_to_standard,
@@ -1540,7 +1543,7 @@ const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 
 const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 
-const TRIM_TRAILING_WHITESPACE: &str = "trim-trailing-whitespace";
+const TRIM_TEXT_END: &str = "trim-text-end";
 
 const IGNORE_STD_LIT_KEY: &str = "ignore-std-lit-key";
 

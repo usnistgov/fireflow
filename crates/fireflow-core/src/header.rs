@@ -7,13 +7,13 @@ use crate::config::{
 use crate::core::Other;
 use crate::logging::{
     DeferredErrors, DeferredIter as _, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
-    ResultExt, split_io,
+    ResultExt, WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
-    SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
-    TEXTSegment, UncorrectedSegment,
+    GenericSegment, GuessOtherWidthError, HasRegion, HasSource, HeaderAnalysisSegment,
+    HeaderDataSegment, HeaderSegment, HeaderSegmentError, OtherSegment, OtherSegment20,
+    PrimaryTextSegment, Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment,
+    TEXTDataSegment, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -313,44 +313,41 @@ impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,
-    ) -> IOGroupResult<Self, HeaderError, ()>
+    ) -> WarningsAndIOGroupResult<Self, GuessOtherWidthError, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig>,
         R: Read + Seek,
     {
-        h.seek(SeekFrom::Start(st.dataset_offset.0))?;
-        let req = h_read_required_header(h, st)?;
+        io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset.0)));
+        let req = io_to_log!(h_read_required_header(h, st));
         let (text, text_raw) = req.text;
         let (data, data_raw) = req.data;
         let (analysis, analysis_raw) = req.analysis;
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
         let other_res = if let Some(m) = min_coord {
-            split_io!(OtherSegment20::h_read_others(h, m, st))
+            OtherSegment20::h_read_others(h, m, st)
         } else {
-            Ok(vec![])
+            LogResult::new_ok(vec![])
         };
         let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
-            .map(|other| {
+            .map_ok_value(|other| {
                 let (os, os_raw) = other.into_iter().unzip();
-                Self::new(
-                    req.version,
-                    HeaderSegments::new(text, data, analysis, os),
-                    UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw),
-                )
+                let ss = HeaderSegments::new(text, data, analysis, os);
+                let us = UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw);
+                Self::new(req.version, ss, us)
             })
-            .ungroup()
-            .map_errors(HeaderError::from)
+            .map_pure_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
                 hdr.segments
                     .validate(conf.other_width)
                     .map_errors(HeaderError::from)
                     .map_ok_value(|()| hdr)
+                    .nowarn_into_warn()
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
             })
-            .group()
-            .resolve_nowarn()
-            .map_err(IOErrorGroup::Pure)
     }
 }
 

@@ -8,10 +8,10 @@ use fireflow_core::config::{
     AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim, AllowNonAsciiKeywords,
     AllowNonUtf8, AllowNonunique, AllowOdd, AllowOverlappingSuppTEXT, AllowSuppTEXTOwnDelim,
     AllowTotMismatch, AllowUnevenEventWidth, DatasetOffset, DelimEscapeMode, DisallowDeprecated,
-    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
-    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
-    TrimValueWhitespace, TruncateEventValues, VersionOverride,
+    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth, ProcessExtraTimestep,
+    ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard,
+    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern,
+    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::HeaderCorrection;
@@ -199,6 +199,19 @@ fn run() -> AppResult<()> {
         .help(format!("Width of {other_seg} segments."))
         .value_parser(ValueParser::new(parse_other_width));
 
+    let guess_other_width = Arg::new(GUESS_OTHER_WIDTH)
+        .long(GUESS_OTHER_WIDTH)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(GuessOtherWidth))
+        .help(format!(
+            "Guess the width of {other_seg} segments. Valid values are \
+             'none' (no guessing) or 'error', 'warn' or 'silent' which \
+             will guess and throw an error, warning, or nothing on failure. \
+             For 'warn' and 'silent', failure will fall back to the 8 or \
+             whatever was given in {}",
+            fmt_arg(OTHER_WIDTH),
+        ));
+
     let squish_offsets = flag_arg(
         SQUISH_OFFSETS,
         format!(
@@ -220,6 +233,7 @@ fn run() -> AppResult<()> {
         analysis_correction_end,
         max_other,
         other_width,
+        guess_other_width,
         squish_offsets,
         allow_negative,
         truncate_offsets,
@@ -946,8 +960,9 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = parse_header_config(sargs);
             let filepath = parse_input_path(sargs);
-            let h = fcs_read_header(filepath, DatasetOffset(0), &conf.into())?;
-            print_json(&h);
+            let ((), res) = fcs_read_header(filepath, DatasetOffset(0), &conf.into())
+                .resolve_commutative(print_warnings, |s| s);
+            print_json(&res?);
             Ok(())
         }
 
@@ -1087,6 +1102,7 @@ fn parse_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
         other_corrections: vec![],
         max_other: sargs.get_one::<usize>(MAX_OTHER).copied(),
         other_width: parse_def(sargs, OTHER_WIDTH),
+        guess_other_width: parse_def(sargs, GUESS_OTHER_WIDTH),
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
         truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
@@ -1476,6 +1492,8 @@ const ANALYSIS_COR_END: &str = "analysis-correction-end";
 const MAX_OTHER: &str = "max-other";
 
 const OTHER_WIDTH: &str = "other-width";
+
+const GUESS_OTHER_WIDTH: &str = "guess-other-width";
 
 const SQUISH_OFFSETS: &str = "squish-offsets";
 

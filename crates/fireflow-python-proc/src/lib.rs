@@ -46,7 +46,8 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
             let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
-            Ok(#fun_path(&path, dataset_offset, &conf)?.into())
+            let header = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
+            Ok(header.into())
         }
     }
     .into()
@@ -7681,6 +7682,7 @@ impl DocArgParam {
             Self::new_other_corrections_param(),
             Self::new_max_other_param(),
             Self::new_other_width_param(),
+            Self::new_guess_other_width_param(),
             Self::new_squish_offsets_param(),
             Self::new_allow_negative_param(),
             Self::new_truncate_offsets_param(),
@@ -8142,6 +8144,18 @@ impl DocArgParam {
         let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
+    }
+
+    fn new_guess_other_width_param() -> Self {
+        let path = config_path("GuessOtherWidth");
+        let choices = ["none", "error", "warn", "silent"];
+        let pt = PyLiteral::new2(choices, path);
+        let d = "Guess the width of *OTHER* segments. Valid values are ``\"none\"`` \
+                 (no guessing) or ``\"error\"``, ``\"warn\"`` or ``\"silent\"`` \
+                 which will guess and throw an error, warning, or nothing on \
+                 failure. For ``\"warn\"`` and ``\"silent\"``, failure will fall \
+                 back to the 8 or whatever was given in ``other_width``";
+        Self::new_param("guess_other_width", pt, d).def_auto()
     }
 
     // this only matters for 3.0+ files

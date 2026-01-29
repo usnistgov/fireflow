@@ -255,6 +255,9 @@ pub struct ReadHeaderInnerConfig {
     /// None means limitless.
     pub max_other: Option<usize>,
 
+    // TODO why is 1 the lower limit? Offsets must be larger than 58 + 2w
+    // minimum, so likely 3 would be the bare minimum, and these are usually
+    // after TEXT. Maybe 8 since that's in HEADER already?
     /// Width (in bytes) to use when parsing OTHER offsets.
     ///
     /// In 3.2 this should be 8 bytes. In older versions this was not specified.
@@ -263,6 +266,11 @@ pub struct ReadHeaderInnerConfig {
     /// 20 (corresponding to a theoretical max of 2^64) but will default to 8
     /// since this is most logical.
     pub other_width: OtherWidth,
+
+    /// Guess the width for OTHER segments.
+    ///
+    /// In case a width can't be found, fall back to [`Self::other_width`].
+    pub guess_other_width: GuessOtherWidth,
 
     /// If `true` and a segments ending offset is zero, treat it as empty.
     ///
@@ -931,6 +939,48 @@ pub struct ReadSharedConfig {
 
     /// If `true`, do not emit warnings.
     pub hide_warnings: bool,
+}
+
+/// Configuration to deal with optional standard keywords that cause errors
+#[derive(Clone, Copy, Default, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(rename_all = "snake_case")]
+#[from_str(error(ParseGuessOtherWidthError))]
+pub enum GuessOtherWidth {
+    /// Do not guess
+    #[default]
+    None,
+    /// Guess, throw error on failure.
+    Error,
+    /// Guess, throw warning on failure.
+    ///
+    /// Fall back to [`ReadHeaderInnerConfig::other_width`].
+    Warn,
+    /// Guess, do not throw warning or error on failure.
+    ///
+    /// Fall back to [`ReadHeaderInnerConfig::other_width`].
+    Silent,
+}
+
+/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error("must be one of 'none', 'error', 'warn', or 'silent'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct ParseGuessOtherWidthError;
+
+impl GuessOtherWidth {
+    // TODO not DRY
+    pub(crate) fn into_tri_flag(self) -> Option<DummyTriFlag> {
+        let r = match self {
+            Self::None => None,
+            Self::Error => Some(TriFlag::False),
+            Self::Warn => Some(TriFlag::True),
+            Self::Silent => Some(TriFlag::Silent),
+        };
+        r.map(Into::into)
+    }
 }
 
 /// Configuration to override/detect FCS version

@@ -20,16 +20,17 @@ use crate::header::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult,
-    ResultExt as _, Success, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, io_to_log, split_log,
+    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult, ResultExt as _, Success,
+    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
+    split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
-    OptSegmentError, OtherSegmentId, PrimaryTextSegment, RelativeSegment, ReqSegmentError,
-    SupplementalTextSegment, SupplementalTextSegmentId, TEXTCorrection, UncorrectedSegment,
+    AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, KeyedOptSegment as _,
+    KeyedReqSegment as _, NonDataSegments, OptSegmentError, OtherSegmentId, PrimaryTextSegment,
+    RelativeSegment, ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId,
+    TEXTCorrection, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -73,15 +74,17 @@ pub fn fcs_read_header(
     path: &PathBuf,
     dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
-) -> IOGroupResult<Header, ReadHeaderError, HeaderSummary> {
-    let (st, file) = ReadState::open(path, dataset_offset, conf)
+) -> WarningsAndIOGroupResult<Header, GuessOtherWidthError, ReadHeaderError, HeaderSummary> {
+    let file_res = ReadState::open(path, dataset_offset, conf)
         .map_err(|e| e.fmap_once(ReadHeaderError::from))
         .map_err(IOAnonErrorGroup::from)
-        .map_err(IOAnonErrorGroup::deanonymize)?;
+        .map_err(IOAnonErrorGroup::deanonymize);
+    let (st, file) = io_to_log!(file_res);
     let mut reader = BufReader::new(file);
     Header::h_read(&mut reader, &st)
-        .map_err(|e| e.fmap(ReadHeaderError::from))
-        .map_err(IOErrorGroup::deanonymize)
+        .map_error(|e| e.fmap(ReadHeaderError::from))
+        // .warnings_to_pure_errors(&conf.shared, ReadHeaderError::from)
+        .deanonymize()
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file at a given position
@@ -92,7 +95,7 @@ pub fn fcs_read_flat_text(
     conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     FlatTEXTOutput,
-    ParseFlatTEXTWarning,
+    HeaderOrFlatTEXTWarning,
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
@@ -249,7 +252,7 @@ pub fn fcs_read_flat_texts(
     conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<FlatTEXTOutput>,
-    ParseFlatTEXTWarning,
+    HeaderOrFlatTEXTWarning,
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
@@ -380,7 +383,7 @@ where
     Fsucc: FnMut(&PathBuf, DatasetOffset, &C) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
     Fnext: FnMut(&X) -> Option<u64>,
     E: From<HeaderOrFlatTextError> + From<Ei>,
-    W: From<ParseFlatTEXTWarning> + From<Wi>,
+    W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadSharedConfig>,
     G: Copy,
 {
@@ -667,7 +670,7 @@ pub enum ReadHeaderError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
-    Flat(ParseFlatTEXTWarning),
+    Flat(HeaderOrFlatTEXTWarning),
     Std(StdTEXTFromFlatTEXTWarning),
 }
 
@@ -684,7 +687,7 @@ pub enum StdTEXTError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
-    Flat(ParseFlatTEXTWarning),
+    Flat(HeaderOrFlatTEXTWarning),
     Std(StdDatasetFromFlatTEXTWarning),
 }
 
@@ -701,7 +704,7 @@ pub enum StdDatasetError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum FlatDatasetWarning {
-    Flat(ParseFlatTEXTWarning),
+    Flat(HeaderOrFlatTEXTWarning),
     Read(LookupAndReadDataAnalysisWarning),
 }
 
@@ -722,7 +725,7 @@ pub enum HeaderOrFlatTextError {
     DatasetOffset(DatasetOffsetError),
     Header(HeaderError),
     FlatTEXT(ParseFlatTEXTError),
-    Warn(ParseFlatTEXTWarning),
+    Warn(HeaderOrFlatTEXTWarning),
 }
 
 /// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -745,7 +748,7 @@ pub enum STextSegmentWarning {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetWarning {
-    Text(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Text(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
     Data(FlatDatasetWarning),
 }
 
@@ -769,7 +772,7 @@ pub enum MultiStdTEXTError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdTEXTWarning {
-    Flat(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Flat(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
     Std(StdTEXTWarning),
 }
 
@@ -785,8 +788,16 @@ pub enum MultiStdDatasetError {
 #[derive(From, Display, Error, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdDatasetWarning {
-    Flat(ParseFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
+    Flat(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
     Std(StdDatasetWarning),
+}
+
+/// Warning when parsing HEADER + TEXT segment in flat mode
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum HeaderOrFlatTEXTWarning {
+    Header(GuessOtherWidthError),
+    Text(ParseFlatTEXTWarning),
 }
 
 /// Warning when parsing TEXT segment in flat mode
@@ -1017,7 +1028,7 @@ fn read_flat_text_inner<C>(
     conf: C,
 ) -> WarningsAndIOGroupResult<
     (FlatTEXTOutput, BufReader<fs::File>, ReadState<C>),
-    ParseFlatTEXTWarning,
+    HeaderOrFlatTEXTWarning,
     HeaderOrFlatTextError,
     (),
 >
@@ -1079,7 +1090,7 @@ impl FlatTEXTOutput {
     ) -> WarningsAndErrorResult<
         Self,
         (),
-        ParseFlatTEXTWarning,
+        HeaderOrFlatTEXTWarning,
         IOErrorGroup<HeaderOrFlatTextError, ()>,
     >
     where
@@ -1090,14 +1101,11 @@ impl FlatTEXTOutput {
             + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
         Header::h_read(h, st)
-            .into_log()
+            .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
             .map_pure_errors(HeaderOrFlatTextError::from)
             .and_then_commutative(|header| {
-                // let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-                // if let Some(VersionOverride::Force(v)) = conf.version_override {
-                //     header.version = v;
-                // }
                 h_read_flat_text_from_header(h, header, st)
+                    .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
                     .map_pure_errors(HeaderOrFlatTextError::from)
             })
     }

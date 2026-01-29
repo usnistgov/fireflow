@@ -10,11 +10,13 @@ use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
     OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
+use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
@@ -24,6 +26,7 @@ use type_families::ApplyOnce as _;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use num_traits::identities::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
@@ -1143,68 +1146,102 @@ impl OtherSegment20 {
         h: &mut BufReader<R>,
         text_begin: UintSpacePad8,
         st: &ReadState<C>,
-    ) -> Result<Vec<(Self, UncorrectedSegment)>, IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> WarningsAndIOGroupResult<
+        Vec<(Self, UncorrectedSegment)>,
+        GuessOtherWidthError,
+        HeaderSegmentError,
+        (),
+    >
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig>,
     {
         let conf = st.conf.as_ref();
-        let n = u64::from(text_begin)
+        let Ok(n): Result<NonZeroU64, _> = u64::from(text_begin)
             .checked_sub(u64::from(HEADER_LEN))
-            .expect("TEXT begin is less than 58");
+            // TODO where is this validated?
+            .expect("TEXT begin is less than 58")
+            .try_into()
+        else {
+            // If number of bytes in this section is zero, return early
+            return LogResult::new_ok(vec![]);
+        };
 
-        let remaining = st.remaining_bytes(h)?;
+        // TODO validate that all chars in this region are digits, null, or space
 
-        if remaining < n {
+        let remaining = io_to_log!(st.remaining_bytes(h));
+
+        if remaining < u64::from(n) {
             // ASSUME this will always be at byte 58 (that's what the error says)
             let e = OtherOffsetsNoBytesError::new(remaining, n);
-            return Err(IOErrorGroup::new_pure_one(e.into()));
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
         }
 
         let mut buf = vec![];
-        h.take(n).read_to_end(&mut buf)?;
+        io_to_log!(h.take(u64::from(n)).read_to_end(&mut buf));
 
         // assume that there are no OTHER segments if the entire region where
         // there should be segments is either all 0, \0, or " "
         if buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
-            return Ok(vec![]);
+            return LogResult::new_ok(vec![]);
         }
 
-        let w = u8::from(conf.other_width);
-        let n_segs = usize::try_from(n / (u64::from(w) * 2)).expect("usize overflow");
-
-        let mut results = vec![];
-
-        let corrs = conf
-            .other_corrections
-            .iter()
-            .copied()
-            .chain(repeat(OffsetCorrection::default()))
-            .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
-
-        for (i, corr) in corrs.enumerate() {
-            let seg_conf =
-                NewSegmentConfig::new(corr, st.file_len, st.dataset_offset, conf.truncate_offsets);
-            let uw = usize::from(w);
-            let i0 = 2 * i * uw;
-            let i1 = ((2 * i) + 1) * uw;
-            let i2 = ((2 * i) + 2) * uw;
-            let buf0 = &buf[i0..i1];
-            let buf1 = &buf[i1..i2];
-
-            // If any regions are entirely blank or zero, just ignore them
-            if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
-                let r = Self::parse_other(buf0, buf1, conf.allow_negative, &seg_conf);
-                results.push(r);
+        let width_res = if let Some(guess) = conf.guess_other_width.into_tri_flag() {
+            match Self::guess_other_width(&buf) {
+                Ok(w) => WarningsAndErrorsResult::new_ok(w),
+                Err(e) => {
+                    let w = conf.other_width;
+                    LogResult::new_switchable3(w, (), e, guess).switchable_into_commutative()
+                }
             }
-        }
+        } else {
+            WarningsAndErrorsResult::new_ok(conf.other_width)
+        };
 
-        results
-            .into_iter()
-            .sequence_commutative()
+        width_res
+            .map_errors(HeaderSegmentError::from)
+            .and_then_commutative(|width| {
+                let w = u8::from(width);
+                let n_segs =
+                    usize::try_from(u64::from(n) / (u64::from(w) * 2)).expect("usize overflow");
+
+                let mut results = vec![];
+
+                let corrs = conf
+                    .other_corrections
+                    .iter()
+                    .copied()
+                    .chain(repeat(OffsetCorrection::default()))
+                    .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
+
+                for (i, corr) in corrs.enumerate() {
+                    let seg_conf = NewSegmentConfig::new(
+                        corr,
+                        st.file_len,
+                        st.dataset_offset,
+                        conf.truncate_offsets,
+                    );
+                    let uw = usize::from(w);
+                    let i0 = 2 * i * uw;
+                    let i1 = ((2 * i) + 1) * uw;
+                    let i2 = ((2 * i) + 2) * uw;
+                    let buf0 = &buf[i0..i1];
+                    let buf1 = &buf[i1..i2];
+
+                    // If any regions are entirely blank or zero, just ignore them
+                    if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
+                        let r = Self::parse_other(buf0, buf1, conf.allow_negative, &seg_conf);
+                        results.push(r);
+                    }
+                }
+
+                results
+                    .into_iter()
+                    .sequence_commutative()
+                    .nowarn_into_warn()
+            })
             .group()
-            .resolve_nowarn()
-            .map_err(IOErrorGroup::Pure)
+            .map_error(IOErrorGroup::Pure)
     }
 
     fn parse_other(
@@ -1230,6 +1267,120 @@ impl OtherSegment20 {
                     .into_log()
             },
         )
+    }
+
+    fn guess_other_width(xs: &[u8]) -> Result<OtherWidth, GuessOtherWidthError> {
+        const MIN_WIDTH: u8 = 8;
+        let is_null = |x: u8| x == 0 || x == 32;
+        debug_assert!(
+            xs.iter().all(|x| is_null(*x) || (48..58).contains(x)),
+            "stream must be all one of null, space, or a digit"
+        );
+        debug_assert!(!xs.is_empty(), "stream must be non-empty");
+
+        // First, get boundaries of "digit streams" which are contiguous streams
+        // of digit characters separated by at least one space or null char. The
+        // boundaries will be constructed as intervals like (start, end) where
+        // start and end are the indices of the start and end of the stream.
+
+        // indices where chars changed (false = null->digit, true = digit->null)
+        let mut digit_starts: Vec<usize> = vec![];
+        let mut digit_ends: Vec<usize> = vec![];
+        let mut it = xs.iter();
+        let mut prev_was_null = is_null(*it.by_ref().next().unwrap());
+        // if first char is digit, push start boundary to balance the ends
+        if !prev_was_null {
+            digit_starts.push(0);
+        }
+        for (&x, i) in it.zip(1..) {
+            let this_is_null = is_null(x);
+            if prev_was_null != this_is_null {
+                if this_is_null {
+                    digit_ends.push(i);
+                } else {
+                    digit_starts.push(i);
+                }
+            }
+            prev_was_null = this_is_null;
+        }
+        // if previous was a digit, add a boundary to the end
+        if !prev_was_null {
+            digit_ends.push(xs.len());
+        }
+        let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
+        debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
+        let digit_intervals: Vec<_> = digit_starts.into_iter().zip(digit_ends).collect();
+
+        // Next, iterate through all possible widths and test if the width is
+        // compatible with the digit streams we computed above. From width,
+        // compute the ending indices of each offset. The width passes if
+        // - the number of offsets is even
+        // - each offset end is in a digit stream
+        // - the end of each digit stream matches with an offset end
+        let go = |w| {
+            let ww = usize::from(w);
+            let n_segs = final_digit_position / ww;
+            if n_segs & 1 == 1 {
+                // number of segments odd, invalid
+                return None;
+            }
+            let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
+            let mut cur_end = seg_ends.by_ref().next();
+            for (a, b) in &digit_intervals {
+                // Criteria for passing width
+                // - the right position of all digit streams should correspond
+                //   to an offset boundary
+                // - all offset boundaries should be in a digit stream
+                if let Some(s) = cur_end {
+                    if &s == b {
+                        // offset end and digit end are equal, this digit stream
+                        // is satisfied
+                        cur_end = seg_ends.by_ref().next();
+                        continue;
+                    } else if a < &s && &s < b {
+                        // offset end is in digit stream, which is allowed but
+                        // we still need to match the current digit stream's
+                        // ending offset. Advance until we either find a match
+                        // (pass) or we overshoot (fail)
+                        while cur_end.is_some_and(|s0| &s0 < b) {
+                            cur_end = seg_ends.by_ref().next();
+                        }
+                        if cur_end.is_some_and(|s0| &s0 == b) {
+                            continue;
+                        }
+                        return None;
+                    }
+                    // offset end is before the start of digit stream, invalid
+                    return None;
+                }
+                // we ran out of segment ends, this digit stream is not
+                // matched which is a fail
+                return None;
+            }
+            Some(w)
+        };
+        let candidates = (MIN_WIDTH..MAX_CHARS).filter_map(go);
+
+        // TODO for now we are assuming that checking digit boundaries is good
+        // enough to figure out what the offset width should be. We could also
+        // parse the offsets to check that the digits make sense, and also
+        // check for overlaps. This is obviously much more complex. This
+        // would only be necessary in the case of ties where multiple widths
+        // are valid. In theory, ties are most likely for widths 8, 9, and 10
+        // which could be mistaken instead of 16, 18, and 20 respectively. There
+        // may be other edge cases as well.
+        //
+        // Example of a tie: '   11111   22222' could either be 1,1111 and
+        // 2,2222 or 11111,22222 (width is 4 or 8 respectively)
+        if let Some(ws) = NonEmpty::collect(candidates) {
+            if ws.tail.is_empty() {
+                Ok(OtherWidth::try_from(ws.head).unwrap())
+            } else {
+                Err(GuessOtherWidthError::MultiWidth(ws))
+            }
+        } else {
+            Err(GuessOtherWidthError::NoWidth)
+        }
     }
 }
 
@@ -1415,6 +1566,7 @@ pub enum HeaderSegmentError {
     Parse(ParseOffsetError),
     SegmentBytes(OffsetsNoBytesError),
     OtherBytes(OtherOffsetsNoBytesError),
+    Guess(GuessOtherWidthError),
 }
 
 /// Error when there are not enough bytes in file to read offsets
@@ -1443,7 +1595,7 @@ pub struct OffsetsNoBytesError {
 )]
 pub struct OtherOffsetsNoBytesError {
     remaining: u64,
-    required: u64,
+    required: NonZeroU64,
 }
 
 #[derive(From, Debug, Error, Clone, Copy)]
@@ -1631,6 +1783,17 @@ pub struct TEXTSegmentInHeaderError<I> {
     begin: u64,
     header_len: u64,
     _loc: PhantomData<I>,
+}
+
+/// Error when segment with TEXT offsets overlaps with HEADER or another segment
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub enum GuessOtherWidthError {
+    #[error("No width for OTHER offsets could be found.")]
+    NoWidth,
+    #[error("Multiple possible widths for OTHER offsets: {}", _0.iter().join(","))]
+    MultiWidth(NonEmpty<u8>),
 }
 
 #[cfg(feature = "serde")]

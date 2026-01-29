@@ -62,7 +62,7 @@ pub struct OtherWidth(Chars);
 #[into(NonZeroU8, u8)]
 pub(crate) struct Chars(NonZeroU8);
 
-const MAX_CHARS: u8 = 20;
+pub(crate) const MAX_CHARS: u8 = 20;
 
 impl TryFrom<Range> for Chars {
     type Error = RangeToIntError<u64>;

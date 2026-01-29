@@ -186,3 +186,5 @@ KeywordVersionScores: TypeAlias = tuple[
     pf.KeywordVersionScore,
     pf.KeywordVersionScore,
 ]
+
+GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]

@@ -1346,6 +1346,7 @@ impl OtherSegment20 {
                             cur_end = seg_ends.by_ref().next();
                         }
                         if cur_end.is_some_and(|s0| &s0 == b) {
+                            cur_end = seg_ends.by_ref().next();
                             continue;
                         }
                         return None;
@@ -1786,7 +1787,7 @@ pub struct TEXTSegmentInHeaderError<I> {
 }
 
 /// Error when segment with TEXT offsets overlaps with HEADER or another segment
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub enum GuessOtherWidthError {
@@ -1794,6 +1795,41 @@ pub enum GuessOtherWidthError {
     NoWidth,
     #[error("Multiple possible widths for OTHER offsets: {}", _0.iter().join(","))]
     MultiWidth(NonEmpty<u8>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn other_width() {
+        // 2x8
+        let s = "       0       0".as_bytes();
+        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        // 4x8
+        let s = "       0       0    2112   90125".as_bytes();
+        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        // 4x8 but with the first segment "hidden"
+        let s = "       010000000    1234   12345".as_bytes();
+        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        // 4x8 but with random space after than should be ignored
+        let s = "       0       0       0       0              ".as_bytes();
+        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+    }
+
+    #[test]
+    fn other_width_uneven() {
+        // 8 then 9
+        let s = "       0        0".as_bytes();
+        assert!(OtherSegment20::guess_other_width(s).is_err());
+    }
+
+    #[test]
+    fn other_width_nobound() {
+        // this can either be 8 or 16
+        let s = "00000000000000000000000000000000".as_bytes();
+        assert!(OtherSegment20::guess_other_width(s).is_err());
+    }
 }
 
 #[cfg(feature = "serde")]

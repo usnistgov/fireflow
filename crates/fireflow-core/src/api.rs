@@ -3,7 +3,7 @@ use crate::config::{
     ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
     ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
     ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, TruncateOffsets,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, TruncateOffsetLimit,
     VersionOverride,
 };
 use crate::core::{
@@ -1034,7 +1034,7 @@ fn read_flat_text_inner<C>(
 where
     C: AsRef<ReadHeaderAndTEXTConfig>
         + AsRef<ReadHeaderInnerConfig>
-        + AsRef<TruncateOffsets>
+        + AsRef<TruncateOffsetLimit>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
 {
     ReadState::open(p, dataset_offset, conf)
@@ -1096,7 +1096,7 @@ impl FlatTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
             + AsRef<ReadHeaderInnerConfig>
-            + AsRef<TruncateOffsets>
+            + AsRef<TruncateOffsetLimit>
             + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
     {
         Header::h_read(h, st)
@@ -1201,7 +1201,7 @@ where
     R: Read + Seek,
     C: AsRef<ReadHeaderAndTEXTConfig>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
-        + AsRef<TruncateOffsets>,
+        + AsRef<TruncateOffsetLimit>,
 {
     let conf = st.conf.as_ref();
     let mut buf = vec![];
@@ -1383,8 +1383,6 @@ fn split_flat_text_inner(
         (bytes, &[])
     };
     let escaped = GuessedEscapeMode::is_escaped(delim, trimmed_bytes, conf.delim_escape_mode);
-    // TODO these two functions don't check of the number of delims is odd,
-    // which is a requirement for TEXT to be valid
     let res = if escaped {
         split_flat_text_escaped_delim(kws, delim, trimmed_bytes, tk, conf)
     } else {
@@ -1924,7 +1922,7 @@ fn lookup_stext_offsets<C>(
     STextSegmentError,
 >
 where
-    C: AsRef<TruncateOffsets>
+    C: AsRef<TruncateOffsetLimit>
         + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
         + AsRef<ReadHeaderAndTEXTConfig>,
 {

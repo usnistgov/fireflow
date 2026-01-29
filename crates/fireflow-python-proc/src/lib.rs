@@ -7685,7 +7685,7 @@ impl DocArgParam {
             Self::new_guess_other_width_param(),
             Self::new_squish_offsets_param(),
             Self::new_allow_negative_param(),
-            Self::new_truncate_offsets_param(),
+            Self::new_truncate_offset_limit_param(true),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -7781,7 +7781,7 @@ impl DocArgParam {
                 Self::new_ignore_text_analysis_offsets_param(),
                 Self::new_allow_header_text_offset_mismatch_param(),
                 Self::new_allow_missing_required_offsets_param(version),
-                Self::new_truncate_text_offsets_param(),
+                Self::new_truncate_offset_limit_param(false),
             ],
         };
 
@@ -8181,14 +8181,17 @@ impl DocArgParam {
         Self::new_bool_param("allow_negative", d)
     }
 
-    fn new_truncate_offsets_param() -> Self {
-        let d = "If true, truncate offsets that exceed the end of the file. \
-                 In some cases the DATA offset (usually) might exceed the end of the \
-                 file by 1, which is usually a mistake and should be corrected with \
-                 ``data_correction`` (or analogous for the offending offset). If this \
-                 is not the case, the file is likely corrupted. This flag will allow \
-                 such files to be read conveniently if desired.";
-        Self::new_bool_param("truncate_offsets", d)
+    fn new_truncate_offset_limit_param(in_header: bool) -> Self {
+        let (src, argname) = if in_header {
+            ("*HEADER*", "truncate_offset_limit")
+        } else {
+            ("*TEXT*", "truncate_text_offset_limit")
+        };
+        let d = format!(
+            "Limit by which {src} offsets can be truncated \
+             if they exceed end of file."
+        );
+        Self::new_param(argname, RsInt::U64, d).def_auto()
     }
 
     fn new_version_override() -> Self {
@@ -8479,11 +8482,6 @@ impl DocArgParam {
         );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingRequiredOffsets", d, e)
-    }
-
-    fn new_truncate_text_offsets_param() -> Self {
-        let d = "If ``True`` truncate offsets that exceed end of file.";
-        Self::new_bool_param("truncate_text_offsets", d)
     }
 
     fn new_allow_uneven_event_width_param() -> Self {

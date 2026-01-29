@@ -11,7 +11,8 @@ use fireflow_core::config::{
     DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth, ProcessExtraTimestep,
     ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard,
     ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern,
-    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, VersionOverride,
+    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit,
+    VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -176,6 +177,22 @@ fn run() -> AppResult<()> {
             .value_parser(ValueParser::new(parse_offsets))
     };
 
+    let trunc_arg = |in_header: bool| {
+        let (src, argname) = if in_header {
+            (&header_seg, TRUNCATE_OFFSET_LIMIT)
+        } else {
+            (&text_seg, TRUNCATE_TEXT_OFFSET_LIMIT)
+        };
+        Arg::new(argname)
+            .long(argname)
+            .value_name("LIMIT")
+            .value_parser(value_parser!(TruncateOffsetLimit))
+            .help(format!(
+                "Limit by which {src} offsets can be truncated \
+                 if they exceed end of file."
+            ))
+    };
+
     // header args
 
     let text_correction = correction_arg(TEXT_COR, true, &text_seg);
@@ -217,7 +234,7 @@ fn run() -> AppResult<()> {
 
     let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
 
-    let truncate_offsets = flag_arg(TRUNCATE_OFFSETS, "Truncate offsets that exceed file size.");
+    let truncate_header_offset_limit = trunc_arg(true);
 
     let all_header_args = [
         text_correction,
@@ -228,7 +245,7 @@ fn run() -> AppResult<()> {
         guess_other_width,
         squish_offsets,
         allow_negative,
-        truncate_offsets,
+        truncate_header_offset_limit,
     ];
 
     // "flat" args
@@ -246,7 +263,7 @@ fn run() -> AppResult<()> {
              keywords respectively)."
         ));
 
-    let supp_text_correction = correction_arg(SUPP_TEXT_COR, true, &supp_text_seg);
+    let supp_text_correction = correction_arg(SUPP_TEXT_COR, false, &supp_text_seg);
 
     let nextdata_correction = Arg::new(NEXTDATA_COR)
         .long(NEXTDATA_COR)
@@ -683,8 +700,8 @@ fn run() -> AppResult<()> {
 
     // layout args
 
-    let text_data_correction = correction_arg(TEXT_DATA_COR, true, &data_seg);
-    let text_analysis_correction = correction_arg(TEXT_ANALYSIS_COR, true, &analysis_seg);
+    let text_data_correction = correction_arg(TEXT_DATA_COR, false, &data_seg);
+    let text_analysis_correction = correction_arg(TEXT_ANALYSIS_COR, false, &analysis_seg);
 
     let ignore_text_data_offsets = flag_arg(
         IGNORE_TEXT_DATA_OFFSETS,
@@ -712,10 +729,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let truncate_text_offsets = flag_arg(
-        TRUNCATE_TEXT_OFFSETS,
-        format!("Truncate offsets in {text_seg} if they exceed end of file."),
-    );
+    let truncate_text_offset_limit = trunc_arg(false);
 
     let process_optional_failure = proc_kw_fail_arg(
         PROCESS_OPTIONAL_FAILURE,
@@ -762,7 +776,7 @@ fn run() -> AppResult<()> {
         ignore_text_analysis_offsets,
         allow_header_text_offset_mismatch,
         allow_missing_required_offsets,
-        truncate_text_offsets,
+        truncate_text_offset_limit,
         process_optional_failure,
         int_widths_from_byteord,
         int_byteord_override,
@@ -1084,7 +1098,7 @@ fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
         guess_other_width: get_def(sargs, GUESS_OTHER_WIDTH),
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
-        truncate_offsets: sargs.get_flag(TRUNCATE_OFFSETS).into(),
+        truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
     }
 }
 
@@ -1245,7 +1259,7 @@ fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
         allow_header_text_offset_mismatch: get_def(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
         allow_missing_required_offsets: get_def(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
-        truncate_text_offsets: sargs.get_flag(TRUNCATE_TEXT_OFFSETS).into(),
+        truncate_text_offset_limit: get_def(sargs, TRUNCATE_TEXT_OFFSET_LIMIT),
         process_optional_failure: get_def(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override: get_opt(sargs, INT_BYTEORD_OVERRIDE),
@@ -1484,7 +1498,7 @@ const SQUISH_OFFSETS: &str = "squish-offsets";
 
 const ALLOW_NEGATIVE: &str = "allow-negative";
 
-const TRUNCATE_OFFSETS: &str = "truncate-offsets";
+const TRUNCATE_OFFSET_LIMIT: &str = "truncate-offset-limit";
 
 const VERSION_OVERRIDE: &str = "version-override";
 
@@ -1608,7 +1622,7 @@ const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str = "allow-text-offset-mismatch";
 
 const ALLOW_MISSING_REQUIRED_OFFSETS: &str = "allow-missing-required-offsets";
 
-const TRUNCATE_TEXT_OFFSETS: &str = "truncate-text-offsets";
+const TRUNCATE_TEXT_OFFSET_LIMIT: &str = "truncate-text-offset-limit";
 
 const INT_WIDTHS_FROM_BYTEORD: &str = "integer-widths-from-byteord";
 

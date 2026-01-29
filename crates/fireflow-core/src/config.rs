@@ -57,7 +57,7 @@ pub struct ReadHeaderConfig(pub ReadHeaderInnerConfig);
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsetLimit)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
@@ -68,7 +68,7 @@ pub struct ReadFlatTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsetLimit)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
@@ -86,7 +86,7 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsetLimit)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
@@ -104,7 +104,7 @@ pub struct ReadFlatDatasetConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsetLimit)]
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
 
@@ -301,13 +301,17 @@ pub struct ReadHeaderInnerConfig {
     /// This flag will treat any negative offset as a 0.
     pub allow_negative: AllowNegative,
 
-    /// If `true`, truncate offsets that exceed the end of the file.
+    /// Maximum that may be truncated from offsets that exceed EOF.
     ///
-    /// In many cases, such offsets likely mean the file was incompletely
-    /// written, which is a larger problem itself. Setting this to `true` will at
-    /// least allow these files to be read.
-    #[as_ref(TruncateOffsets)]
-    pub truncate_offsets: TruncateOffsets,
+    /// For some files, the DATA ending offset is one greater than it should be,
+    /// which means it points to the byte directly after the file ending. Set
+    /// this to `1` to allow truncating this ending offset down by one byte.
+    ///
+    /// In other cases, offsets far beyond EOF likely mean the file was
+    /// incompletely written, which is a larger problem itself. Setting this to
+    /// a large value will at least allow these files to be read.
+    #[as_ref(TruncateOffsetLimit)]
+    pub truncate_offset_limit: TruncateOffsetLimit,
 }
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
@@ -315,7 +319,7 @@ pub struct ReadHeaderInnerConfig {
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(ReadHeaderInnerConfig)]
-    #[as_ref(TruncateOffsets)]
+    #[as_ref(TruncateOffsetLimit)]
     pub header: ReadHeaderInnerConfig,
 
     // NOTE the only reason this is here and not in the Keywords configs is
@@ -830,13 +834,12 @@ pub struct ReadDataKeywordsConfig {
     #[as_ref(AllowMissingRequiredOffsets)]
     pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
 
-    /// If `true`, truncate TEXT offsets that exceed the end of the file.
+    /// Maximum that may be truncated from offsets that exceed EOF.
     ///
-    /// In many cases, such offsets likely mean the file was incompletely
-    /// written, which is a larger problem itself. Setting this to true will at
-    /// least allow these files to be read.
-    #[as_ref(TruncateOffsets)]
-    pub truncate_text_offsets: TruncateOffsets,
+    /// This is like [`ReadHeaderInnerConfig::truncate_offset_limit`] but for TEXT
+    /// offsets (rather than HEADER).
+    #[as_ref(TruncateOffsetLimit)]
+    pub truncate_text_offset_limit: TruncateOffsetLimit,
 
     /// Choose how to deal with optional keywords which produce errors.
     ///
@@ -1327,7 +1330,6 @@ macro_rules! impl_config_flag {
 
 impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowNegative);
-impl_config_flag!(TruncateOffsets);
 
 impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);
@@ -1689,6 +1691,10 @@ impl Default for TimeMeasNamePattern {
         Self(Regex::new("^(TIME|Time)$").unwrap())
     }
 }
+
+/// The maximum number of bytes that an offset may be truncated if beyond EOF.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+pub struct TruncateOffsetLimit(pub u64);
 
 /// State pertinent to reading a file
 #[derive(new)]

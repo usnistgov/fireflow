@@ -4,7 +4,7 @@ use crate::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative, ConfigFlag,
     DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
     ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
-    ReadState, TruncateOffsets,
+    ReadState, TruncateOffsetLimit,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -159,7 +159,7 @@ pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
     file_len: FileLen,
     dataset_offset: DatasetOffset,
-    truncate_offsets: TruncateOffsets,
+    truncate_offset_limit: TruncateOffsetLimit,
 }
 
 pub type PrimaryTextSegment = Segment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
@@ -293,10 +293,10 @@ pub trait KeyedSegment: Sized + Copy {
 
     fn segment_conf<C>(st: &ReadState<C>) -> NewSegmentConfig<Self, SegmentFromTEXT>
     where
-        C: AsRef<TEXTCorrection<Self>> + AsRef<TruncateOffsets>,
+        C: AsRef<TEXTCorrection<Self>> + AsRef<TruncateOffsetLimit>,
     {
         let correction: &TEXTCorrection<Self> = st.conf.as_ref();
-        let truncate: &TruncateOffsets = st.conf.as_ref();
+        let truncate: &TruncateOffsetLimit = st.conf.as_ref();
         NewSegmentConfig::new(*correction, st.file_len, st.dataset_offset, *truncate)
     }
 }
@@ -322,7 +322,7 @@ where
         ),
     >
     where
-        C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<TruncateOffsetLimit> + AsRef<TEXTCorrection<Self>>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -426,7 +426,7 @@ where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<AllowHeaderTEXTOffsetMismatch>
             + AsRef<AllowMissingRequiredOffsets>
-            + AsRef<TruncateOffsets>
+            + AsRef<TruncateOffsetLimit>
             + AsRef<TEXTCorrection<Self>>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -490,7 +490,7 @@ where
         ),
     >
     where
-        C: AsRef<TruncateOffsets> + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<TruncateOffsetLimit> + AsRef<TEXTCorrection<Self>>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -596,7 +596,7 @@ where
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<TruncateOffsets>
+            + AsRef<TruncateOffsetLimit>
             + AsRef<TEXTCorrection<Self>>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -1053,7 +1053,7 @@ impl<I: Copy> HeaderSegment<I> {
     {
         let conf = st.conf.as_ref();
         let dso = st.dataset_offset;
-        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, conf.truncate_offsets);
+        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, conf.truncate_offset_limit);
 
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
@@ -1219,7 +1219,7 @@ impl OtherSegment20 {
                         corr,
                         st.file_len,
                         st.dataset_offset,
-                        conf.truncate_offsets,
+                        conf.truncate_offset_limit,
                     );
                     let uw = usize::from(w);
                     let i0 = 2 * i * uw;
@@ -1450,26 +1450,46 @@ impl<T> InnerSegment<T, DatasetOffset> {
                     // truncation
                     let abs_begin = dso + u64::from(new_begin);
                     let abs_end = dso + u64::from(new_end);
-                    // the maximum coordinate the ending offset can have is
-                    // one less the file length (since the end is the last byte
-                    // of the offset rather than the next byte)
-                    let max_end = fl.saturating_sub(1);
-                    // begin should never exceed file length
-                    if fl < abs_begin {
-                        return Err(err(SegmentErrorKind::BeginEOF(conf.file_len)));
+                    // Check by how much the final offset exceeds EOF.
+                    if let Some(overflow_end) = (abs_end + 1).checked_sub(fl) {
+                        if overflow_end > conf.truncate_offset_limit.0 {
+                            // If the extra bytes are more than what is allowed,
+                            // throw error depending on if the beginning offset
+                            // is also over EOF.
+                            if fl < abs_begin {
+                                Err(err(SegmentErrorKind::BeginEOF(conf.file_len)))
+                            } else {
+                                Err(err(SegmentErrorKind::Truncated(conf.file_len)))
+                            }
+                        } else if fl < abs_begin {
+                            // If begin is also beyond the file length, return
+                            // empty segment. We can do this because this block
+                            // only runs if the ending offset is within the
+                            // truncation limit, and the entire segment is
+                            // within the truncation limit is begin is also
+                            // beyond EOF.
+                            Ok(Self::Empty)
+                        } else {
+                            // Otherwise, the segment is partially truncated, so
+                            // adjust the final offset. The maximum offset
+                            // is one less the file length.
+                            let max_end = fl.saturating_sub(1);
+                            let trunc_end = abs_end.min(max_end);
+                            // Put the truncated ending offset back into
+                            // relative coordinates.
+                            let rel_trunc_end = T::try_from(trunc_end - dso)
+                                .expect("could not convert absolute to relative offset");
+                            let seg =
+                                NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
+                            Ok(Self::NonEmpty(seg))
+                        }
+                    } else {
+                        // If we make it to this block, we know that the segment
+                        // is entirely within the file. Don't bother with
+                        // truncation at all.
+                        let seg = NonEmptySegment::new(new_begin, new_end, conf.dataset_offset);
+                        Ok(Self::NonEmpty(seg))
                     }
-                    // end can only be greater then end if we allow it, in which
-                    // case it must be truncated
-                    if abs_end >= fl && !conf.truncate_offsets.is_set() {
-                        return Err(err(SegmentErrorKind::Truncated(conf.file_len)));
-                    }
-                    let trunc_end = abs_end.min(max_end);
-                    // put the (possibly truncated) ending offset back into
-                    // relative coordinates.
-                    let rel_trunc_end = T::try_from(trunc_end - dso)
-                        .expect("could not convert absolute to relative offset");
-                    let seg = NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
-                    Ok(Self::NonEmpty(seg))
                 }
             }
             (_, _) => Err(err(SegmentErrorKind::Range)),

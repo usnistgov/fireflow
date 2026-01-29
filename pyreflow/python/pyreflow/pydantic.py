@@ -39,7 +39,7 @@ class _HeaderConfig(BaseModel):
     other_width: int = pfd._DEFAULT_OTHER_WIDTH
     squish_offsets: bool = False
     allow_negative: bool = False
-    truncate_offsets: bool = False
+    truncate_offset_limit: bool = False
 
 
 class _ReadFlatTEXTConfig(BaseModel):
@@ -103,7 +103,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     ignore_text_analysis_offsets: bool = False
     allow_header_text_offset_mismatch: pft.TriFlag = "false"
     allow_missing_required_offsets: pft.TriFlag = "false"
-    truncate_text_offsets: bool = False
+    truncate_text_offset_limit: bool = False
     process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None

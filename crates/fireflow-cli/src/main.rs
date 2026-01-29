@@ -1196,7 +1196,7 @@ fn parse_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     let time_meas_pattern = sargs
         .get_one::<Option<TimeMeasNamePattern>>(TIME_MEAS_PATTERN)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or(Some(TimeMeasNamePattern::default()));
 
     let ignore_time_optical_keys = sargs
         .get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS)

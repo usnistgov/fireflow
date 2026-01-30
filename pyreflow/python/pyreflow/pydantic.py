@@ -41,7 +41,7 @@ class _HeaderConfig(BaseModel):
 
 
 class _OffsetConfig(BaseModel):
-    allow_negative: bool = False
+    allow_pseudoempty: bool = False
     truncate_offset_limit: bool = False
 
 

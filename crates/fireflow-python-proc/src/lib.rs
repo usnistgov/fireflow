@@ -7726,7 +7726,7 @@ impl DocArgParam {
             vec![]
         } else {
             vec![
-                Self::new_allow_negative_param(),
+                Self::new_allow_pseudoempty_param(),
                 Self::new_truncate_offset_limit_param(),
             ]
         };
@@ -8212,15 +8212,13 @@ impl DocArgParam {
         Self::new_bool_param("squish_offsets", d)
     }
 
-    fn new_allow_negative_param() -> Self {
-        let d = "If true, allow negative values in a HEADER offset. If negative \
-                 offsets are found, they will be replaced with ``0``. Some files \
-                 will denote an \"empty\" offset as ``0,-1``, which is logically \
-                 correct since the last offset points to the last byte, thus ``0,0`` \
-                 is actually 1 byte long. Unfortunately this is not what the \
-                 standards say, so specifying ``0,-1`` is an error unless this \
-                 flag is set.";
-        Self::new_bool_param("allow_negative", d)
+    fn new_allow_pseudoempty_param() -> Self {
+        let d = "If ``True``, allow offsets like ``X,X-1``. Some files \
+                 will denote an \"empty\" offset as ``0,-1`` or ``1000,999``, \
+                 which is logically correct since the last offset points to the \
+                 last byte, thus ``0,0`` is actually 1 byte long. If this flat \
+                 is set, such offsets will be treated as if they were ``0,0``.";
+        Self::new_bool_param("allow_pseudoempty", d)
     }
 
     fn new_truncate_offset_limit_param() -> Self {

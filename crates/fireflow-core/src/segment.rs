@@ -1,7 +1,7 @@
 //! Reading and writing offsets in an FCS file
 
 use crate::config::{
-    AllowNegative, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
+    AllowPseudoempty, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
     IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
@@ -19,7 +19,7 @@ use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
-use crate::validated::keys::{Key, StdKeywords};
+use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
 
 use type_families::ApplyOnce as _;
 
@@ -27,8 +27,7 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use num_traits::identities::{One, Zero};
-use num_traits::ops::checked::CheckedSub;
+use num_traits::identities::Zero;
 use thiserror::Error;
 
 use std::any::type_name;
@@ -158,7 +157,24 @@ pub struct NewSegmentConfig<I, S> {
     corr: OffsetCorrection<I, S>,
     file_len: FileLen,
     dataset_offset: DatasetOffset,
+    allow_pseudoempty: AllowPseudoempty,
     truncate_offset_limit: TruncateOffsetLimit,
+}
+
+impl<I, S> NewSegmentConfig<I, S> {
+    fn from_read_config<C>(corr: OffsetCorrection<I, S>, st: &ReadState<C>) -> Self
+    where
+        C: AsRef<ReadOffsetConfig>,
+    {
+        let oconf = st.conf.as_ref();
+        Self::new(
+            corr,
+            st.file_len,
+            st.dataset_offset,
+            oconf.allow_pseudoempty,
+            oconf.truncate_offset_limit,
+        )
+    }
 }
 
 pub type PrimaryTextSegment = Segment<PrimaryTextSegmentId, SegmentFromHeader, UintSpacePad8>;
@@ -289,18 +305,6 @@ impl NonDataSegments<'_> {
 pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-
-    fn segment_conf<C>(
-        correction: TEXTCorrection<Self>,
-        st: &ReadState<C>,
-    ) -> NewSegmentConfig<Self, SegmentFromTEXT>
-    where
-        C: AsRef<ReadOffsetConfig>,
-    {
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        let truncate = oconf.truncate_offset_limit;
-        NewSegmentConfig::new(correction, st.file_len, st.dataset_offset, truncate)
-    }
 }
 
 /// Operations to obtain required segment from TEXT keywords
@@ -310,6 +314,7 @@ where
     Self::E: ReqMetarootKey,
 {
     #[allow(clippy::type_complexity)]
+    #[allow(clippy::result_large_err)]
     fn with_req_pair<C>(
         pair: ReqPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
@@ -332,9 +337,11 @@ where
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
-                let new_conf = Self::segment_conf(corr, st);
-                let raw = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
-                Segment::try_new(x0, x1, &new_conf)
+                let y0 = i128::from(x0);
+                let y1 = i128::from(x1);
+                let new_conf = NewSegmentConfig::from_read_config(corr, st);
+                let raw = UncorrectedSegment::new(y0, y1);
+                Segment::try_new(y0, y1, &new_conf)
                     .map(|x| (x, raw))
                     .map_err(ReqSegmentError::Segment)
                     .map_err(|e| (e, None))
@@ -476,6 +483,7 @@ where
     Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
 {
     #[allow(clippy::type_complexity)]
+    #[allow(clippy::result_large_err)]
     fn with_opt_pair<C>(
         pair: OptPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
@@ -498,11 +506,13 @@ where
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
-                let new_conf = Self::segment_conf(corr, st);
+                let new_conf = NewSegmentConfig::from_read_config(corr, st);
                 x0.zip(x1)
                     .map(|(y0, y1)| {
-                        let raw = UncorrectedSegment::new(i128::from(y0), i128::from(y1));
-                        Segment::try_new(y0, y1, &new_conf).map(|x| (x, raw))
+                        let z0 = i128::from(y0);
+                        let z1 = i128::from(y1);
+                        let raw = UncorrectedSegment::new(z0, z1);
+                        Segment::try_new(z0, z1, &new_conf).map(|x| (x, raw))
                     })
                     .transpose()
                     .map_err(OptSegmentError::Segment)
@@ -893,27 +903,13 @@ impl<I, S, T> Segment<I, S, T> {
         format!("{b},{e}")
     }
 
-    fn try_new(
-        begin: impl Into<T>,
-        end: impl Into<T>,
-        conf: &NewSegmentConfig<I, S>,
-    ) -> Result<Self, SegmentError>
+    fn try_new(begin: i128, end: i128, conf: &NewSegmentConfig<I, S>) -> Result<Self, SegmentError>
     where
         I: HasRegion,
         S: HasSource,
-        T: Zero
-            + One
-            + CheckedSub
-            + Into<u64>
-            + Into<i128>
-            + TryFrom<i128>
-            + Ord
-            + Copy
-            + TryFrom<u64>,
-        u64: From<T>,
-        <T as TryFrom<u64>>::Error: Debug,
+        T: TryFrom<i128>,
     {
-        InnerSegment::try_new::<I, S>(begin.into(), end.into(), conf).map(Self::new)
+        InnerSegment::try_new::<I, S>(begin, end, conf).map(Self::new)
     }
 }
 
@@ -1051,9 +1047,7 @@ impl<I: Copy> HeaderSegment<I> {
         I: HasRegion + Copy,
     {
         let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        let dso = st.dataset_offset;
-        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, oconf.truncate_offset_limit);
+        let seg_conf = NewSegmentConfig::from_read_config(corr, st);
 
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
@@ -1072,8 +1066,9 @@ impl<I: Copy> HeaderSegment<I> {
         let parse_one = |bs, is_begin| {
             // TEXT segment should never be blank
             let allow_blank = !is_text;
-            UintSpacePad8::from_bytes(bs, allow_blank, oconf.allow_negative).map_err(|error| {
-                ParseOffsetError::new(error, is_begin, I::REGION, bs.to_vec()).into()
+            UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
+                let src = StringOrBytes::from(bs.to_vec());
+                ParseOffsetError::new(error, is_begin, I::REGION, src).into()
             })
         };
 
@@ -1081,11 +1076,11 @@ impl<I: Copy> HeaderSegment<I> {
         let end_res = parse_one(buf1, false).into_nowarn();
         begin_res
             .zip_commutative(end_res)
-            .and_then_commutative(|((begin, begin_raw), (end, end_raw))| {
+            .and_then_commutative(|(begin, end)| {
                 // TEXT segment is not squishable
                 let allow_squish = !is_text;
                 let squish = hconf.squish_offsets.is_set() && allow_squish;
-                let raw = UncorrectedSegment::new(begin_raw, end_raw);
+                let raw = UncorrectedSegment::new(begin, end);
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
@@ -1116,8 +1111,8 @@ impl<I: Copy> HeaderSegment<I> {
     }
 
     fn try_new_squish(
-        begin: UintSpacePad8,
-        end: UintSpacePad8,
+        begin: i128,
+        end: i128,
         squish_offsets: bool,
         version: Version,
         conf: &NewSegmentConfig<I, SegmentFromHeader>,
@@ -1128,12 +1123,8 @@ impl<I: Copy> HeaderSegment<I> {
         // never run on 2.0 since offset "squishing" only applies to HEADER
         // offsets that overflow and necessitate TEXT offsets, which don't exist
         // in 2.0
-        let (b, e) = if version > Version::FCS2_0
-            && squish_offsets
-            && end == UintSpacePad8::zero()
-            && begin > end
-        {
-            (UintSpacePad8::zero(), UintSpacePad8::zero())
+        let (b, e) = if version > Version::FCS2_0 && squish_offsets && end == 0 && begin > 0 {
+            (0, 0)
         } else {
             (begin, end)
         };
@@ -1157,7 +1148,6 @@ impl OtherSegment20 {
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let Ok(n): Result<NonZeroU64, _> = u64::from(text_begin)
             .checked_sub(u64::from(HEADER_LEN))
             // TODO where is this validated?
@@ -1216,12 +1206,7 @@ impl OtherSegment20 {
                     .take(hconf.max_other.map_or(n_segs, |x| x.min(n_segs)));
 
                 for (i, corr) in corrs.enumerate() {
-                    let seg_conf = NewSegmentConfig::new(
-                        corr,
-                        st.file_len,
-                        st.dataset_offset,
-                        oconf.truncate_offset_limit,
-                    );
+                    let seg_conf = NewSegmentConfig::from_read_config(corr, st);
                     let uw = usize::from(w);
                     let i0 = 2 * i * uw;
                     let i1 = ((2 * i) + 1) * uw;
@@ -1231,7 +1216,7 @@ impl OtherSegment20 {
 
                     // If any regions are entirely blank or zero, just ignore them
                     if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
-                        let r = Self::parse_other(buf0, buf1, oconf.allow_negative, &seg_conf);
+                        let r = Self::parse_other(buf0, buf1, &seg_conf);
                         results.push(r);
                     }
                 }
@@ -1248,26 +1233,26 @@ impl OtherSegment20 {
     fn parse_other(
         bs0: &[u8],
         bs1: &[u8],
-        allow_negative: AllowNegative,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
     ) -> ErrorsResult<(Self, UncorrectedSegment), (), HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
-            UintSpacePad20::from_bytes(bs, allow_negative).map_err(|error| {
-                ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, bs.to_vec()).into()
+            UintSpacePad20::from_bytes(bs).map_err(|error| {
+                let src = StringOrBytes::from(bs.to_vec());
+                ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
             })
         };
 
         let begin_res = parse_one(bs0, true).into_nowarn();
         let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res.zip_commutative(end_res).and_then_commutative(
-            |((begin, begin_raw), (end, end_raw))| {
-                let raw = UncorrectedSegment::new(begin_raw, end_raw);
+        begin_res
+            .zip_commutative(end_res)
+            .and_then_commutative(|(begin, end)| {
+                let raw = UncorrectedSegment::new(begin, end);
                 Self::try_new(begin, end, conf)
                     .map(|x| (x, raw))
                     .map_err(HeaderSegmentError::from)
                     .into_log()
-            },
-        )
+            })
     }
 
     fn guess_other_width(xs: &[u8]) -> Result<OtherWidth, GuessOtherWidthError> {
@@ -1415,21 +1400,17 @@ impl<I> TEXTSegment<I> {
 
 impl<T> InnerSegment<T, DatasetOffset> {
     fn try_new<I: HasRegion, S: HasSource>(
-        begin: T,
-        end: T,
+        begin: i128,
+        end: i128,
         conf: &NewSegmentConfig<I, S>,
     ) -> Result<Self, SegmentError>
     where
-        T: Zero + One + CheckedSub + Into<i128> + TryFrom<i128> + Ord + Copy + TryFrom<u64>,
-        u64: From<T>,
-        <T as TryFrom<u64>>::Error: Debug,
+        T: TryFrom<i128>,
     {
         let corr = &conf.corr;
-        let x = Into::<i128>::into(begin) + i128::from(corr.begin);
-        let y = Into::<i128>::into(end) + i128::from(corr.end);
         let err = |kind| {
             SegmentError::new(
-                (u64::from(begin), u64::from(end)),
+                (begin, end),
                 (corr.begin, corr.end),
                 conf.dataset_offset,
                 kind,
@@ -1437,61 +1418,70 @@ impl<T> InnerSegment<T, DatasetOffset> {
                 S::SRC,
             )
         };
-        match (T::try_from(x), T::try_from(y)) {
-            (Ok(new_begin), Ok(new_end)) => {
-                if new_begin > new_end {
-                    Err(err(SegmentErrorKind::Inverted))
-                } else if new_begin == T::zero() && new_end == T::zero() {
-                    Ok(Self::Empty)
+
+        let new_begin = begin + i128::from(corr.begin);
+        let new_end = end + i128::from(corr.end);
+
+        if new_begin == new_end + 1 && conf.allow_pseudoempty.is_set() {
+            // Check if this offset is pseudoempty
+            // TODO possibly throw warning if this happens
+            return Ok(Self::Empty);
+        } else if new_begin == 0 && new_end == 0 {
+            // Check if this offset if empty
+            return Ok(Self::Empty);
+        } else if new_begin > new_end {
+            // Check if begin is greater than end
+            return Err(err(SegmentErrorKind::Inverted));
+        }
+
+        let dso = i128::from(conf.dataset_offset.0);
+        let fl = i128::from(conf.file_len.0);
+        debug_assert!(dso <= fl, "dataset offset exceeds file length");
+
+        // put offset in absolute coordinates to check for
+        // truncation
+        let abs_begin = dso + new_begin;
+        let abs_end = dso + new_end;
+
+        let (b, e) = if let Some(overflow_end) = (abs_end + 1).checked_sub(fl) {
+            // Check by how much the final offset exceeds EOF (if anything)
+            let trunc_limit = i128::from(conf.truncate_offset_limit.0);
+            if overflow_end > trunc_limit {
+                // If the extra bytes are more than what is allowed, throw error
+                // depending on if the beginning offset is also over EOF.
+                let kind = if fl < abs_begin {
+                    SegmentErrorKind::BeginEOF(conf.file_len)
                 } else {
-                    let dso = conf.dataset_offset.0;
-                    let fl = conf.file_len.0;
-                    debug_assert!(dso <= fl, "dataset offset exceeds file length");
-                    // put offset in absolute coordinates to check for
-                    // truncation
-                    let abs_begin = dso + u64::from(new_begin);
-                    let abs_end = dso + u64::from(new_end);
-                    // Check by how much the final offset exceeds EOF.
-                    if let Some(overflow_end) = (abs_end + 1).checked_sub(fl) {
-                        if overflow_end > conf.truncate_offset_limit.0 {
-                            // If the extra bytes are more than what is allowed,
-                            // throw error depending on if the beginning offset
-                            // is also over EOF.
-                            if fl < abs_begin {
-                                Err(err(SegmentErrorKind::BeginEOF(conf.file_len)))
-                            } else {
-                                Err(err(SegmentErrorKind::Truncated(conf.file_len)))
-                            }
-                        } else if fl < abs_begin {
-                            // If begin is also beyond the file length, return
-                            // empty segment. We can do this because this block
-                            // only runs if the ending offset is within the
-                            // truncation limit, and the entire segment is
-                            // within the truncation limit is begin is also
-                            // beyond EOF.
-                            Ok(Self::Empty)
-                        } else {
-                            // Otherwise, the segment is partially truncated, so
-                            // adjust the final offset. The maximum offset
-                            // is one less the file length.
-                            let max_end = fl.saturating_sub(1);
-                            let trunc_end = abs_end.min(max_end);
-                            // Put the truncated ending offset back into
-                            // relative coordinates.
-                            let rel_trunc_end = T::try_from(trunc_end - dso)
-                                .expect("could not convert absolute to relative offset");
-                            let seg =
-                                NonEmptySegment::new(new_begin, rel_trunc_end, conf.dataset_offset);
-                            Ok(Self::NonEmpty(seg))
-                        }
-                    } else {
-                        // If we make it to this block, we know that the segment
-                        // is entirely within the file. Don't bother with
-                        // truncation at all.
-                        let seg = NonEmptySegment::new(new_begin, new_end, conf.dataset_offset);
-                        Ok(Self::NonEmpty(seg))
-                    }
-                }
+                    SegmentErrorKind::Truncated(conf.file_len)
+                };
+                return Err(err(kind));
+            } else if fl < abs_begin {
+                // If begin is also beyond the file length, return empty
+                // segment. We can do this because this block only runs if the
+                // ending offset is within the truncation limit, and the entire
+                // segment is within the truncation limit is begin is also
+                // beyond EOF.
+                return Ok(Self::Empty);
+            }
+            // Otherwise, the segment is partially truncated, so adjust the
+            // final offset. The maximum offset is one less the file length.
+            let max_end = fl.saturating_sub(1);
+            let trunc_end = abs_end.min(max_end);
+            // Put the truncated ending offset back into relative coordinates.
+            let rel_trunc_end = trunc_end
+                .checked_sub(dso)
+                .expect("truncated end is bigger than dataset offset");
+            (new_begin, rel_trunc_end)
+        } else {
+            // If we make it to this block, we know that the segment is entirely
+            // within the file. Don't bother with truncation at all.
+            (new_begin, new_end)
+        };
+
+        match (T::try_from(b), T::try_from(e)) {
+            (Ok(b0), Ok(e0)) => {
+                let seg = NonEmptySegment::new(b0, e0, conf.dataset_offset);
+                Ok(Self::NonEmpty(seg))
             }
             (_, _) => Err(err(SegmentErrorKind::Range)),
         }
@@ -1653,7 +1643,7 @@ pub struct RelativeSegmentError(AnyRegion);
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct SegmentError {
-    coords: (u64, u64),
+    coords: (i128, i128),
     correction: (i32, i32),
     dataset_offset: DatasetOffset,
     kind: SegmentErrorKind,
@@ -1714,7 +1704,7 @@ pub struct ParseOffsetError {
     error: ParseFixedUintError,
     is_begin: bool,
     location: AnyRegion,
-    src: Vec<u8>,
+    src: StringOrBytes,
 }
 
 /// Error when TEXT offsets are overridden using corresponding offsets from HEADER

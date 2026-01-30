@@ -228,7 +228,10 @@ fn run() -> AppResult<()> {
 
     // offset args
 
-    let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
+    let allow_pseudoempty = flag_arg(
+        ALLOW_PSEUDOEMPTY,
+        "Treat offsets like '0,-1' or '1000,999' as '0,0'.",
+    );
 
     let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
         .long(TRUNCATE_OFFSET_LIMIT)
@@ -236,7 +239,7 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(TruncateOffsetLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
-    let all_offset_args = [allow_negative, truncate_offset_limit];
+    let all_offset_args = [allow_pseudoempty, truncate_offset_limit];
 
     // "flat" args
 
@@ -1103,7 +1106,7 @@ fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig 
 
 fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
     config::ReadOffsetConfig {
-        allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
+        allow_pseudoempty: sargs.get_flag(ALLOW_PSEUDOEMPTY).into(),
         truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
     }
 }
@@ -1505,7 +1508,7 @@ const GUESS_OTHER_WIDTH: &str = "guess-other-width";
 
 const SQUISH_OFFSETS: &str = "squish-offsets";
 
-const ALLOW_NEGATIVE: &str = "allow-negative";
+const ALLOW_PSEUDOEMPTY: &str = "allow-pseudoempty";
 
 const TRUNCATE_OFFSET_LIMIT: &str = "truncate-offset-limit";
 

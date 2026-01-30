@@ -1,12 +1,10 @@
 //! Types used for constructing offsets in HEADER and TEXT
 
-use crate::config::{AllowNegative, ConfigFlag as _};
 use crate::header::MAX_HEADER_OFFSET;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
 use num_derive::{One, Zero};
-use num_traits::identities::Zero as _;
 use num_traits::ops::checked::CheckedSub;
 use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
@@ -118,22 +116,9 @@ impl UintSpacePad20 {
     /// Parse from a buffer that contains up to 20 bytes.
     ///
     /// Will panic if parsed digit is more than 20 digits long.
-    pub(crate) fn from_bytes(
-        bs: &[u8],
-        allow_negative: AllowNegative,
-    ) -> Result<(Self, i128), ParseFixedUintError> {
+    pub(crate) fn from_bytes(bs: &[u8]) -> Result<i128, ParseFixedUintError> {
         debug_assert!(bs.len() <= 20, "cannot parse more than 20 bytes");
-        let x = ascii_str_from_bytes(bs)?.trim_start().parse::<i128>()?;
-        if x < 0 {
-            if allow_negative.is_set() {
-                Ok((Self::zero(), 0))
-            } else {
-                Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
-            }
-        } else {
-            // ASSUME this will never fail because we checked the sign above
-            Ok((Self(x.try_into().unwrap()), x))
-        }
+        Ok(ascii_str_from_bytes(bs)?.trim_start().parse::<i128>()?)
     }
 }
 
@@ -187,29 +172,11 @@ impl CheckedSub for UintSpacePad8 {
 
 impl UintSpacePad8 {
     /// Parse from a buffer that contains 8 bytes.
-    pub(crate) fn from_bytes(
-        bs: [u8; 8],
-        allow_blank: bool,
-        allow_negative: AllowNegative,
-    ) -> Result<(Self, i128), ParseFixedUintError> {
-        let s = ascii_str_from_bytes(&bs[..]).map_err(ParseFixedUintError::NotAscii)?;
-        let trimmed = s.trim_start();
-        if allow_blank && trimmed.is_empty() {
-            return Ok((Self::zero(), 0));
+    pub(crate) fn from_bytes(bs: [u8; 8], allow_blank: bool) -> Result<i128, ParseFixedUintError> {
+        if bs.iter().all(|&x| x == 32) && allow_blank {
+            return Ok(0);
         }
-        let x = trimmed.parse::<i128>().map_err(ParseFixedUintError::Int)?;
-        if x < 0 {
-            if allow_negative.is_set() {
-                Ok((Self::zero(), x))
-            } else {
-                Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
-            }
-        } else {
-            // ASSUME this will never wrap since the max digits we can read are
-            // 8, which is only ~1e9 which is much less than 4e9 which is the
-            // max of a u32.
-            Ok((Self(x.try_into().unwrap()), x))
-        }
+        Ok(ascii_str_from_bytes(&bs[..])?.trim_start().parse()?)
     }
 }
 
@@ -267,7 +234,7 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError
 pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
     NotAscii(BytesNotAsciiError),
-    Negative(NegativeOffsetError),
+    // Negative(NegativeOffsetError),
 }
 
 /// Error when unsigned integer exceeds 8 digits

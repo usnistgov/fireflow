@@ -304,20 +304,21 @@ pub struct ReadHeaderInnerConfig {
 }
 
 /// Specific instructions for reading offsets
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy)]
 pub struct ReadOffsetConfig {
-    /// If `true`, allow negative values in a HEADER offset.
+    /// Allow offsets that are like `X,X-1`.
     ///
     /// An empty offset is supposed to be written as 0,0 according to the
     /// standard. However, this is actually nonsense given that the begin and
-    /// end offsets point to the first and last byte; thus 0,0 points to
-    /// bytes 0 and 0 for begin and end respectively, which is one byte and
-    /// not zero. Therefore, some vendors (understandably) write an "empty"
-    /// offset as 0,-1 which actually is zero bytes long. However, -1 is
-    /// not a valid offset.
+    /// end offsets point to the first and last byte; thus 0,0 points to bytes 0
+    /// and 0 for begin and end respectively, which is one byte and not zero.
+    /// Therefore, some vendors (understandably) write an "empty" offset as 0,-1
+    /// which actually is zero bytes long. However, -1 is not a valid offset.
+    /// Additionally, some vendors do the same pattern for a non-zero offset,
+    /// such as 1000,999.
     ///
-    /// This flag will treat any negative offset as a 0.
-    pub allow_negative: AllowNegative,
+    /// This flag will treat all such offsets as if they were written as `0,0`.
+    pub allow_pseudoempty: AllowPseudoempty,
 
     /// Maximum that may be truncated from offsets that exceed EOF.
     ///
@@ -811,7 +812,7 @@ impl Default for ReadStdKeywordsConfig {
 /// be read specifically when building [`crate::core::CoreTEXT`] or
 /// [`crate::core::CoreDataset`], these options are here since the layout is the
 /// thing they have in common.
-#[derive(Default, Clone, AsRef)]
+#[derive(Default, Clone, Copy, AsRef)]
 pub struct ReadDataKeywordsConfig {
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
@@ -908,7 +909,7 @@ pub struct ReadDataKeywordsConfig {
 }
 
 /// Specific instructions for reading events from DATA segment
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy)]
 pub struct ReadEventsConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -940,7 +941,7 @@ pub struct ReadEventsConfig {
 }
 
 /// Configuration options for across all reading functions
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy)]
 pub struct ReadSharedConfig {
     /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
@@ -1338,7 +1339,7 @@ macro_rules! impl_config_flag {
 }
 
 impl_config_flag!(SquishOffsets);
-impl_config_flag!(AllowNegative);
+impl_config_flag!(AllowPseudoempty);
 
 impl_config_flag!(IgnoreSuppTEXT);
 impl_config_flag!(UseLatin1);

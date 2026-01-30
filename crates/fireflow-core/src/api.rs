@@ -101,7 +101,7 @@ pub fn fcs_read_flat_text(
 > {
     read_flat_text_inner(path, dataset_offset, conf)
         .map_ok_value(|(x, _, _)| x)
-        .warnings_to_pure_errors(&conf.shared, HeaderOrFlatTextError::from)
+        .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
         .deanonymize()
 }
 
@@ -128,7 +128,7 @@ pub fn fcs_read_std_text(
                 .group()
                 .map_errors(IOErrorGroup::Pure)
         })
-        .warnings_to_pure_errors(&conf.shared, StdTEXTError::from)
+        .warnings_to_pure_errors(conf.shared, StdTEXTError::from)
         .deanonymize()
 }
 
@@ -165,7 +165,7 @@ pub fn fcs_read_flat_dataset(
                 .map_commutative_warnings(FlatDatasetWarning::from)
                 .map_pure_errors(FlatDatasetError::from)
         })
-        .warnings_to_pure_errors(&conf.shared, FlatDatasetError::from)
+        .warnings_to_pure_errors(conf.shared, FlatDatasetError::from)
         .deanonymize()
 }
 
@@ -189,7 +189,7 @@ pub fn fcs_read_std_dataset(
                 .map_commutative_warnings(StdDatasetWarning::from)
                 .map_pure_errors(StdDatasetError::from)
         })
-        .warnings_to_pure_errors(&conf.shared, StdDatasetError::from)
+        .warnings_to_pure_errors(conf.shared, StdDatasetError::from)
         .deanonymize()
 }
 
@@ -239,7 +239,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
             let mut h = BufReader::new(file);
             h_read_dataset_from_kws(&mut h, version, std, &segs, &st)
         })
-        .warnings_to_pure_errors(&conf.shared, LookupAndReadDataAnalysisError::from)
+        .warnings_to_pure_errors(conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
 }
 
@@ -392,8 +392,8 @@ where
     let mut results = vec![];
     let rconf = ReadFlatTEXTConfig {
         flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
-        offset: AsRef::<ReadOffsetConfig>::as_ref(conf).clone(),
-        shared: AsRef::<ReadSharedConfig>::as_ref(conf).clone(),
+        offset: *conf.as_ref(),
+        shared: *conf.as_ref(),
     };
     while let Some(dso) = dataset_offset
         && limit.is_none_or(|x| count <= x)

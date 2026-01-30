@@ -3046,6 +3046,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             })
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn h_read_unchecked_df<R>(
         &self,
         h: &mut BufReader<R>,
@@ -3149,6 +3150,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .sum()
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
     fn compute_nrows(
         &self,
         seg: AnyDataSegment,

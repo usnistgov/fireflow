@@ -2955,7 +2955,7 @@ impl<V, P, LWC, RWC, X, E> IOGroupLogResult<V, P, LWC, RWC, X, E, ()> {
 impl<V, WC, P, E> IOGroupLogResult<V, P, WC, WC, (), E, ()> {
     pub(crate) fn warnings_to_pure_errors<F, W>(
         self,
-        conf: &ReadSharedConfig,
+        conf: ReadSharedConfig,
         f: F,
     ) -> IOGroupLogResult<V, (), WC, WC, (), E, ()>
     where

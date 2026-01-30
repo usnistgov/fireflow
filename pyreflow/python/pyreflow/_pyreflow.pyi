@@ -1466,7 +1466,7 @@ class CoreDataset3_0(
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
         # offset args
-        allow_negative: bool = False,
+        allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -1588,7 +1588,7 @@ class CoreDataset3_1(
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
         # offset args
-        allow_negative: bool = False,
+        allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -1712,7 +1712,7 @@ class CoreDataset3_2(
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
         # offset args
-        allow_negative: bool = False,
+        allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -2156,7 +2156,7 @@ def fcs_read_header(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     # offset args
     truncate_offset_limit: int = 0,
     dataset_offset: int = 0,
@@ -2175,7 +2175,7 @@ def fcs_read_flat_text(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2224,7 +2224,7 @@ def fcs_read_std_text(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2306,7 +2306,7 @@ def fcs_read_flat_dataset(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2371,7 +2371,7 @@ def fcs_read_std_dataset(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2460,7 +2460,7 @@ def fcs_read_flat_texts(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2510,7 +2510,7 @@ def fcs_read_std_texts(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2593,7 +2593,7 @@ def fcs_read_flat_datasets(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2659,7 +2659,7 @@ def fcs_read_std_datasets(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
@@ -2741,7 +2741,7 @@ def fcs_read_flat_dataset_with_keywords(
     analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
     other_segs: list[Segment] = [],
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2780,7 +2780,7 @@ def fcs_summarize(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
-    allow_negative: bool = False,
+    allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,

@@ -4854,7 +4854,7 @@ where
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
-            .warnings_to_pure_errors(conf.as_ref(), StdDatasetFromFlatTextErrorInner::from)
+            .warnings_to_pure_errors(*conf.as_ref(), StdDatasetFromFlatTextErrorInner::from)
             .map_pure_errors(StdDatasetFromFlatTextError::from)
             .deanonymize()
     }

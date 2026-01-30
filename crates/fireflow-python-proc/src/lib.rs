@@ -26,14 +26,16 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
 
     let conf_path = config_path("ReadHeaderConfig");
 
-    let (conf_inner_path, args, inner_args) = DocArgParam::new_read_header_config_params();
+    let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
 
     let exc = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc("if *HEADER* segment is unparsable");
 
     let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
         .arg(DocArg::new_path_param(true))
-        .args(args)
+        .args(header_args)
+        .args(offset_args)
         .arg(DocArg::new_dataset_offset_param())
         .returns(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc]));
 
@@ -45,7 +47,9 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_header(#fun_args) -> #ret_path {
-            let conf = #conf_path(#conf_inner_path { #(#inner_args),* });
+            let header = #header_conf { #(#header_recs),* };
+            let offset = #offset_conf { #(#offset_recs),* };
+            let conf = #conf_path { header, offset };
             let header = #fun_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
             Ok(header.into())
         }
@@ -63,6 +67,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
@@ -72,6 +77,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
     let conf_args: Vec<_> = header_args
         .into_iter()
+        .chain(offset_args)
         .chain(flat_args)
         .chain(shared_args)
         .collect();
@@ -104,9 +110,10 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
+        let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { header, #(#flat_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, shared };
+        let conf = #conf_path { flat, offset, shared };
     };
 
     quote! {
@@ -140,6 +147,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
@@ -148,6 +156,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
+        .chain(offset_args)
         .chain(flat_args)
         .chain(std_args)
         .chain(layout_args)
@@ -194,11 +203,12 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
+        let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { header, #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, standard, layout, shared };
+        let conf = #conf_path { flat, offset, standard, layout, shared };
     };
 
     quote! {
@@ -234,6 +244,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
@@ -249,6 +260,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
+        .chain(offset_args)
         .chain(flat_args)
         .chain(layout_args)
         .chain(data_args)
@@ -299,11 +311,12 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
+        let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { header, #(#flat_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, layout, data, shared };
+        let conf = #conf_path { flat, offset, layout, data, shared };
     };
 
     quote! {
@@ -346,6 +359,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let path_arg = DocArg::new_path_param(true);
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
@@ -355,6 +369,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let conf_args = header_args
         .into_iter()
+        .chain(offset_args)
         .chain(flat_args)
         .chain(std_args)
         .chain(layout_args)
@@ -404,12 +419,13 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
+        let offset = #offset_conf { #(#offset_recs),* };
         let flat = #flat_conf { header, #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, standard, layout, data, shared };
+        let conf = #conf_path { flat, offset, standard, layout, data, shared };
     };
 
     quote! {
@@ -448,6 +464,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let other_arg = DocArg::new_rel_other_segs_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
@@ -471,6 +488,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .arg(data_arg)
         .arg(analysis_arg)
         .arg(other_arg)
+        .args(offset_args)
         .args(layout_args)
         .args(data_args)
         .args(shared_args)
@@ -485,10 +503,11 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_dataset_with_keywords(#fun_args) -> #ret_path {
+            let offset = #offset_conf { #(#offset_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { layout, data, shared };
+            let conf = #conf_path { offset, layout, data, shared };
             let ret = #fun_path(
                 &path, version, &std, data_seg, analysis_seg, other_segs, dataset_offset, &conf
             ).py_resolve_commutative()?;
@@ -2777,13 +2796,15 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let core_conf = config_path("NewCoreDatasetConfig");
 
     let v = Some(version);
+    let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(v);
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
     let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let config_args: Vec<_> = std_args
+    let config_args: Vec<_> = offset_args
         .into_iter()
+        .chain(std_args)
         .chain(layout_args)
         .chain(data_args)
         .chain(shared_args)
@@ -2844,6 +2865,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
                 let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
+                let offset = #offset_conf {
+                    #(#offset_recs,)*
+                    ..#offset_conf::default()
+                };
+                #[allow(clippy::needless_update)]
                 let standard = #std_conf {
                     #(#std_recs,)*
                     ..#std_conf::default()
@@ -2863,7 +2889,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     #(#shared_recs,)*
                     ..#shared_conf::default()
                 };
-                let conf = #core_conf { standard, layout, data, shared };
+                let conf = #core_conf { offset, standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     &path, kws, data_seg, analysis_seg, other_segs, dataset_offset, &conf
                 ).py_resolve_commutative()?;
@@ -7684,9 +7710,26 @@ impl DocArgParam {
             Self::new_other_width_param(),
             Self::new_guess_other_width_param(),
             Self::new_squish_offsets_param(),
-            Self::new_allow_negative_param(),
-            Self::new_truncate_offset_limit_param(true),
         ];
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
+    fn new_read_offset_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("ReadOffsetConfig");
+        // This switch will only be used for functions that don't deal with
+        // HEADER so any offsets in that case are limited to TEXT which aren't
+        // present in 2.0
+        let ps = if version == Some(Version::FCS2_0) {
+            vec![]
+        } else {
+            vec![
+                Self::new_allow_negative_param(),
+                Self::new_truncate_offset_limit_param(),
+            ]
+        };
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -7781,7 +7824,6 @@ impl DocArgParam {
                 Self::new_ignore_text_analysis_offsets_param(),
                 Self::new_allow_header_text_offset_mismatch_param(),
                 Self::new_allow_missing_required_offsets_param(version),
-                Self::new_truncate_offset_limit_param(false),
             ],
         };
 
@@ -8181,17 +8223,9 @@ impl DocArgParam {
         Self::new_bool_param("allow_negative", d)
     }
 
-    fn new_truncate_offset_limit_param(in_header: bool) -> Self {
-        let (src, argname) = if in_header {
-            ("*HEADER*", "truncate_offset_limit")
-        } else {
-            ("*TEXT*", "truncate_text_offset_limit")
-        };
-        let d = format!(
-            "Limit by which {src} offsets can be truncated \
-             if they exceed end of file."
-        );
-        Self::new_param(argname, RsInt::U64, d).def_auto()
+    fn new_truncate_offset_limit_param() -> Self {
+        let d = "Limit by which offsets can be truncated if they exceed end of file.";
+        Self::new_param("truncate_offset_limit", RsInt::U64, d).def_auto()
     }
 
     fn new_version_override() -> Self {

@@ -1,10 +1,9 @@
 //! Reading and writing offsets in an FCS file
 
 use crate::config::{
-    AllowHeaderTEXTOffsetMismatch, AllowMissingRequiredOffsets, AllowNegative, ConfigFlag,
-    DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
-    ReadState, TruncateOffsetLimit,
+    AllowNegative, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
+    IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
 use crate::header::{HEADER_LEN, Version};
 use crate::logging::{
@@ -291,13 +290,16 @@ pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
     type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 
-    fn segment_conf<C>(st: &ReadState<C>) -> NewSegmentConfig<Self, SegmentFromTEXT>
+    fn segment_conf<C>(
+        correction: TEXTCorrection<Self>,
+        st: &ReadState<C>,
+    ) -> NewSegmentConfig<Self, SegmentFromTEXT>
     where
-        C: AsRef<TEXTCorrection<Self>> + AsRef<TruncateOffsetLimit>,
+        C: AsRef<ReadOffsetConfig>,
     {
-        let correction: &TEXTCorrection<Self> = st.conf.as_ref();
-        let truncate: &TruncateOffsetLimit = st.conf.as_ref();
-        NewSegmentConfig::new(*correction, st.file_len, st.dataset_offset, *truncate)
+        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let truncate = oconf.truncate_offset_limit;
+        NewSegmentConfig::new(correction, st.file_len, st.dataset_offset, truncate)
     }
 }
 
@@ -310,6 +312,7 @@ where
     #[allow(clippy::type_complexity)]
     fn with_req_pair<C>(
         pair: ReqPair<Self::B, Self::E>,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> Result<
         (
@@ -322,14 +325,14 @@ where
         ),
     >
     where
-        C: AsRef<TruncateOffsetLimit> + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
-                let new_conf = Self::segment_conf(st);
+                let new_conf = Self::segment_conf(corr, st);
                 let raw = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
                 Segment::try_new(x0, x1, &new_conf)
                     .map(|x| (x, raw))
@@ -370,35 +373,35 @@ where
     fn get_req_or<'a, C>(
         kws: &StdKeywords,
         segs: &NonDataSegments<'a>,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadDataKeywordsConfig>,
-        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
+        if ignore.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok((default.into_any(), None))
         } else {
-            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
-            Self::with_req_pair_default(Self::get_req_pair(kws), segs, &inner_st)
+            Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, st)
         }
     }
 
     fn remove_req_or<'a, C>(
         kws: &mut StdKeywords,
         segs: &NonDataSegments<'a>,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadDataKeywordsConfig>,
-        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -406,47 +409,44 @@ where
         // if we want to totally ignore the TEXT offsets, just blindly remove
         // them so we don't trigger any pseudostandard false positives later and
         // return the default segment
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
+        if ignore.is_set() {
             let _ = Self::remove_req_pair(kws);
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok((default.into_any(), None))
         } else {
-            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
-            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, &inner_st)
+            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, st)
         }
     }
 
     fn with_req_pair_default<'a, C>(
         pair: ReqPair<Self::B, Self::E>,
         segs: &NonDataSegments<'a>,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<AllowMissingRequiredOffsets>
-            + AsRef<TruncateOffsetLimit>
-            + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
+        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
-        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
-        let missing_flag: &AllowMissingRequiredOffsets = st.conf.as_ref();
+        let mismatch_flag = dconf.allow_header_text_offset_mismatch;
+        let missing_flag = dconf.allow_missing_required_offsets;
 
-        match Self::with_req_pair(pair, st) {
+        match Self::with_req_pair(pair, corr, st) {
             Ok((text_seg, raw)) => {
                 let val_res = segs
                     .validate::<_, Self::OtherDataId>(&text_seg)
-                    .nowarn_into_switchable3(*missing_flag)
+                    .nowarn_into_switchable3(missing_flag)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative();
                 let (seg, warn) = default.unless(text_seg);
                 let mismatch_res =
-                    SwitchableErrorsResult::new_switchable_maybe3(seg, (), warn, *mismatch_flag)
+                    SwitchableErrorsResult::new_switchable_maybe3(seg, (), warn, mismatch_flag)
                         .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                         .switchable_into_commutative();
                 val_res
@@ -455,7 +455,7 @@ where
                     .map_ok_value(|((), ret)| (ret, Some(raw)))
             }
             Err((e0, e1)) => {
-                let mut res = SwitchableErrorsResult::new_switchable3((), (), e0, *missing_flag)
+                let mut res = SwitchableErrorsResult::new_switchable3((), (), e0, missing_flag)
                     .extend_deferred_switchable_errors3(e1)
                     .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                     .switchable_into_commutative()
@@ -478,6 +478,7 @@ where
     #[allow(clippy::type_complexity)]
     fn with_opt_pair<C>(
         pair: OptPair<Self::B, Self::E>,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> Result<
         Option<(
@@ -490,14 +491,14 @@ where
         ),
     >
     where
-        C: AsRef<TruncateOffsetLimit> + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
         match pair {
             (Ok(x0), Ok(x1)) => {
-                let new_conf = Self::segment_conf(st);
+                let new_conf = Self::segment_conf(corr, st);
                 x0.zip(x1)
                     .map(|(y0, y1)| {
                         let raw = UncorrectedSegment::new(i128::from(y0), i128::from(y1));
@@ -542,73 +543,71 @@ where
     fn get_opt_or<'a, C>(
         kws: &StdKeywords,
         segs: &NonDataSegments<'a>,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadDataKeywordsConfig>,
-        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
+        if ignore.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             LogResult::new_ok((default.into_any(), None))
         } else {
-            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::get_opt_pair(kws);
-            Self::with_opt_pair_default(pair, segs, &inner_st)
+            Self::with_opt_pair_default(pair, segs, corr, st)
         }
     }
 
     fn remove_opt_or<'a, C>(
         kws: &mut StdKeywords,
         segs: &NonDataSegments<'a>,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<ReadDataKeywordsConfig>,
-        ReadDataKeywordsConfig: AsRef<TEXTCorrection<Self>> + AsRef<Self::IgnoreFlag>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let ignore_flag: &Self::IgnoreFlag = st.conf.as_ref().as_ref();
-        if ignore_flag.is_set() {
+        if ignore.is_set() {
             let default: &HeaderSegment<Self> = segs.as_ref();
             let _ = Self::remove_opt_pair(kws);
             LogResult::new_ok((default.into_any(), None))
         } else {
-            let inner_st = st.as_innner_ref::<ReadDataKeywordsConfig>();
             let pair = Self::remove_opt_pair(kws);
-            Self::with_opt_pair_default(pair, segs, &inner_st)
+            Self::with_opt_pair_default(pair, segs, corr, st)
         }
     }
 
     fn with_opt_pair_default<'a, C>(
         pair: OptPair<Self::B, Self::E>,
         segs: &NonDataSegments<'a>,
+        corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
         NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
-        C: AsRef<AllowHeaderTEXTOffsetMismatch>
-            + AsRef<TruncateOffsetLimit>
-            + AsRef<TEXTCorrection<Self>>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
+        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let default: &HeaderSegment<Self> = segs.as_ref();
         let header_seg = default.into_any();
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::Drop);
-        let mismatch_flag: &AllowHeaderTEXTOffsetMismatch = st.conf.as_ref();
+        let mismatch_flag = &dconf.allow_header_text_offset_mismatch;
 
-        match Self::with_opt_pair(pair, st) {
+        match Self::with_opt_pair(pair, corr, st) {
             Ok(ts) => match ts {
                 None => LogResult::new_ok((header_seg, None)),
                 Some((text_seg, raw)) => {
@@ -1048,12 +1047,13 @@ impl<I: Copy> HeaderSegment<I> {
     ) -> Result<(Self, UncorrectedSegment), IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
-        C: AsRef<ReadHeaderInnerConfig>,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         I: HasRegion + Copy,
     {
-        let conf = st.conf.as_ref();
+        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let dso = st.dataset_offset;
-        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, conf.truncate_offset_limit);
+        let seg_conf = NewSegmentConfig::new(corr, st.file_len, dso, oconf.truncate_offset_limit);
 
         let mut buf0 = [0_u8; 8];
         let mut buf1 = [0_u8; 8];
@@ -1072,7 +1072,7 @@ impl<I: Copy> HeaderSegment<I> {
         let parse_one = |bs, is_begin| {
             // TEXT segment should never be blank
             let allow_blank = !is_text;
-            UintSpacePad8::from_bytes(bs, allow_blank, conf.allow_negative).map_err(|error| {
+            UintSpacePad8::from_bytes(bs, allow_blank, oconf.allow_negative).map_err(|error| {
                 ParseOffsetError::new(error, is_begin, I::REGION, bs.to_vec()).into()
             })
         };
@@ -1084,7 +1084,7 @@ impl<I: Copy> HeaderSegment<I> {
             .and_then_commutative(|((begin, begin_raw), (end, end_raw))| {
                 // TEXT segment is not squishable
                 let allow_squish = !is_text;
-                let squish = conf.squish_offsets.is_set() && allow_squish;
+                let squish = hconf.squish_offsets.is_set() && allow_squish;
                 let raw = UncorrectedSegment::new(begin_raw, end_raw);
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map(|x| (x, raw))
@@ -1154,9 +1154,10 @@ impl OtherSegment20 {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadHeaderInnerConfig>,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let conf = st.conf.as_ref();
+        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let Ok(n): Result<NonZeroU64, _> = u64::from(text_begin)
             .checked_sub(u64::from(HEADER_LEN))
             // TODO where is this validated?
@@ -1186,16 +1187,16 @@ impl OtherSegment20 {
             return LogResult::new_ok(vec![]);
         }
 
-        let width_res = if let Some(guess) = conf.guess_other_width.into_tri_flag() {
+        let width_res = if let Some(guess) = hconf.guess_other_width.into_tri_flag() {
             match Self::guess_other_width(&buf) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
-                    let w = conf.other_width;
+                    let w = hconf.other_width;
                     LogResult::new_switchable3(w, (), e, guess).switchable_into_commutative()
                 }
             }
         } else {
-            WarningsAndErrorsResult::new_ok(conf.other_width)
+            WarningsAndErrorsResult::new_ok(hconf.other_width)
         };
 
         width_res
@@ -1207,19 +1208,19 @@ impl OtherSegment20 {
 
                 let mut results = vec![];
 
-                let corrs = conf
+                let corrs = hconf
                     .other_corrections
                     .iter()
                     .copied()
                     .chain(repeat(OffsetCorrection::default()))
-                    .take(conf.max_other.map_or(n_segs, |x| x.min(n_segs)));
+                    .take(hconf.max_other.map_or(n_segs, |x| x.min(n_segs)));
 
                 for (i, corr) in corrs.enumerate() {
                     let seg_conf = NewSegmentConfig::new(
                         corr,
                         st.file_len,
                         st.dataset_offset,
-                        conf.truncate_offset_limit,
+                        oconf.truncate_offset_limit,
                     );
                     let uw = usize::from(w);
                     let i0 = 2 * i * uw;
@@ -1230,7 +1231,7 @@ impl OtherSegment20 {
 
                     // If any regions are entirely blank or zero, just ignore them
                     if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
-                        let r = Self::parse_other(buf0, buf1, conf.allow_negative, &seg_conf);
+                        let r = Self::parse_other(buf0, buf1, oconf.allow_negative, &seg_conf);
                         results.push(r);
                     }
                 }

@@ -1,8 +1,8 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadState,
-    SelectVersionStrategy, VersionOverride,
+    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig,
+    ReadState, SelectVersionStrategy, VersionOverride,
 };
 use crate::core::Other;
 use crate::logging::{
@@ -315,7 +315,7 @@ impl Header {
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<Self, GuessOtherWidthError, HeaderError, ()>
     where
-        C: AsRef<ReadHeaderInnerConfig>,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         R: Read + Seek,
     {
         io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset.0)));
@@ -365,9 +365,9 @@ fn h_read_required_header<C, R>(
 ) -> IOGroupResult<ReqHeader, HeaderError, ()>
 where
     R: Read + Seek,
-    C: AsRef<ReadHeaderInnerConfig>,
+    C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
 {
-    let conf = &st.conf.as_ref();
+    let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
     let text_cor = conf.text_correction;
     let data_cor = conf.data_correction;
     let anal_cor = conf.analysis_correction;

@@ -177,22 +177,6 @@ fn run() -> AppResult<()> {
             .value_parser(ValueParser::new(parse_offsets))
     };
 
-    let trunc_arg = |in_header: bool| {
-        let (src, argname) = if in_header {
-            (&header_seg, TRUNCATE_OFFSET_LIMIT)
-        } else {
-            (&text_seg, TRUNCATE_TEXT_OFFSET_LIMIT)
-        };
-        Arg::new(argname)
-            .long(argname)
-            .value_name("LIMIT")
-            .value_parser(value_parser!(TruncateOffsetLimit))
-            .help(format!(
-                "Limit by which {src} offsets can be truncated \
-                 if they exceed end of file."
-            ))
-    };
-
     // header args
 
     let text_correction = correction_arg(TEXT_COR, true, &text_seg);
@@ -232,10 +216,6 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
-
-    let truncate_header_offset_limit = trunc_arg(true);
-
     let all_header_args = [
         text_correction,
         data_correction,
@@ -244,9 +224,19 @@ fn run() -> AppResult<()> {
         other_width,
         guess_other_width,
         squish_offsets,
-        allow_negative,
-        truncate_header_offset_limit,
     ];
+
+    // offset args
+
+    let allow_negative = flag_arg(ALLOW_NEGATIVE, "Substitute 0 for negative offsets.");
+
+    let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
+        .long(TRUNCATE_OFFSET_LIMIT)
+        .value_name("LIMIT")
+        .value_parser(value_parser!(TruncateOffsetLimit))
+        .help("Limit by which offsets can be truncated if they exceed end of file.");
+
+    let all_offset_args = [allow_negative, truncate_offset_limit];
 
     // "flat" args
 
@@ -729,8 +719,6 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let truncate_text_offset_limit = trunc_arg(false);
-
     let process_optional_failure = proc_kw_fail_arg(
         PROCESS_OPTIONAL_FAILURE,
         "Process optional keys if they cause an error.",
@@ -776,7 +764,6 @@ fn run() -> AppResult<()> {
         ignore_text_analysis_offsets,
         allow_header_text_offset_mismatch,
         allow_missing_required_offsets,
-        truncate_text_offset_limit,
         process_optional_failure,
         int_widths_from_byteord,
         int_byteord_override,
@@ -872,13 +859,15 @@ fn run() -> AppResult<()> {
     let header_cmd = Command::new(SUBCMD_HEADER)
         .about("Show header as JSON.")
         .arg(&input_arg)
-        .args(&all_header_args);
+        .args(&all_header_args)
+        .args(&all_offset_args);
 
     let flat_cmd = Command::new(SUBCMD_FLAT)
         .about("Show flat keywords as JSON.")
         .arg(&input_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_shared_args)
         .after_long_help(flat_long_help);
@@ -888,6 +877,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
@@ -899,6 +889,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
@@ -911,6 +902,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
@@ -923,6 +915,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
@@ -935,6 +928,7 @@ fn run() -> AppResult<()> {
         .about("Summarize datasets in FCS file")
         .arg(&input_arg)
         .args(&all_header_args)
+        .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_layout_args)
         .args(&all_dataset_args)
@@ -961,7 +955,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
             let filepath = get_input_path(sargs);
-            let ((), res) = fcs_read_header(filepath, DatasetOffset(0), &conf.into())
+            let ((), res) = fcs_read_header(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             print_json(&res?);
             Ok(())
@@ -1086,7 +1080,14 @@ fn format_section(
     (h, s)
 }
 
-fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
+fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderConfig {
+    config::ReadHeaderConfig {
+        header: get_header_inner_config(sargs),
+        offset: get_offsets_config(sargs),
+    }
+}
+
+fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
     config::ReadHeaderInnerConfig {
         text_correction: get_correction(sargs, TEXT_COR),
         data_correction: get_correction(sargs, DATA_COR),
@@ -1097,6 +1098,11 @@ fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
         other_width: get_def(sargs, OTHER_WIDTH),
         guess_other_width: get_def(sargs, GUESS_OTHER_WIDTH),
         squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
+    }
+}
+
+fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
+    config::ReadOffsetConfig {
         allow_negative: sargs.get_flag(ALLOW_NEGATIVE).into(),
         truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
     }
@@ -1148,7 +1154,7 @@ fn get_header_and_text_config(
     let substitute_standard_key_values = sub_lits.chain(sub_pats).cloned().collect();
 
     config::ReadHeaderAndTEXTConfig {
-        header: get_header_config(sargs),
+        header: get_header_inner_config(sargs),
         version_override,
         supp_text_correction: get_correction(sargs, SUPP_TEXT_COR),
         nextdata_correction,
@@ -1219,6 +1225,7 @@ fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
 fn get_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
     config::ReadFlatTEXTConfig {
         flat: get_header_and_text_config(cmd, sargs),
+        offset: get_offsets_config(sargs),
         shared: get_shared_config(sargs),
     }
 }
@@ -1226,6 +1233,7 @@ fn get_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTCon
 fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     config::ReadStdTEXTConfig {
         flat: get_header_and_text_config(cmd, sargs),
+        offset: get_offsets_config(sargs),
         standard: get_std_inner_config(sargs),
         layout: get_layout_config(sargs),
         shared: get_shared_config(sargs),
@@ -1235,6 +1243,7 @@ fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfi
 fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
     config::ReadFlatDatasetConfig {
         flat: get_header_and_text_config(cmd, sargs),
+        offset: get_offsets_config(sargs),
         layout: get_layout_config(sargs),
         data: get_dataset_inner_config(sargs),
         shared: get_shared_config(sargs),
@@ -1244,6 +1253,7 @@ fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFla
 fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
     config::ReadStdDatasetConfig {
         flat: get_header_and_text_config(cmd, sargs),
+        offset: get_offsets_config(sargs),
         standard: get_std_inner_config(sargs),
         layout: get_layout_config(sargs),
         data: get_dataset_inner_config(sargs),
@@ -1259,7 +1269,6 @@ fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
         ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
         allow_header_text_offset_mismatch: get_def(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
         allow_missing_required_offsets: get_def(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
-        truncate_text_offset_limit: get_def(sargs, TRUNCATE_TEXT_OFFSET_LIMIT),
         process_optional_failure: get_def(sargs, PROCESS_OPTIONAL_FAILURE),
         integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
         integer_byteord_override: get_opt(sargs, INT_BYTEORD_OVERRIDE),
@@ -1621,8 +1630,6 @@ const IGNORE_TEXT_ANALYSIS_OFFSETS: &str = "ignore-text-analysis-offsets";
 const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str = "allow-text-offset-mismatch";
 
 const ALLOW_MISSING_REQUIRED_OFFSETS: &str = "allow-missing-required-offsets";
-
-const TRUNCATE_TEXT_OFFSET_LIMIT: &str = "truncate-text-offset-limit";
 
 const INT_WIDTHS_FROM_BYTEORD: &str = "integer-widths-from-byteord";
 

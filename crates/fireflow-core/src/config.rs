@@ -50,16 +50,21 @@ use {
     pyo3::prelude::*,
 };
 
+/// Instructions for reading the HEADER segment.
 #[derive(Default, Clone, AsRef, From)]
-pub struct ReadHeaderConfig(pub ReadHeaderInnerConfig);
+pub struct ReadHeaderConfig {
+    pub header: ReadHeaderInnerConfig,
+    pub offset: ReadOffsetConfig,
+}
 
 /// Instructions for reading the HEADER and TEXT segments in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsetLimit)]
-    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
 
     pub shared: ReadSharedConfig,
 }
@@ -68,9 +73,10 @@ pub struct ReadFlatTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsetLimit)]
-    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
 
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
@@ -86,9 +92,10 @@ pub struct ReadStdTEXTConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsetLimit)]
-    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
 
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
@@ -104,9 +111,10 @@ pub struct ReadFlatDatasetConfig {
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
-    #[as_ref(TruncateOffsetLimit)]
-    #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub flat: ReadHeaderAndTEXTConfig,
+
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
 
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
@@ -124,6 +132,9 @@ pub struct ReadStdDatasetConfig {
 /// Instructions for reading a dataset in flat mode with a given set of keywords.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetFromKeywordsConfig {
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
+
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
 
@@ -150,6 +161,9 @@ pub struct NewCoreTEXTConfig {
 /// Instructions for building a new [`crate::core::CoreDataset`] from keywords.
 #[derive(Default, Clone, AsRef)]
 pub struct NewCoreDatasetConfig {
+    #[as_ref(ReadOffsetConfig)]
+    pub offset: ReadOffsetConfig,
+
     #[as_ref(ReadStdKeywordsConfig)]
     pub standard: ReadStdKeywordsConfig,
 
@@ -287,7 +301,11 @@ pub struct ReadHeaderInnerConfig {
     /// since the TEXT offsets themselves cannot be written in TEXT without
     /// unleashing the dreaded recursive doom loop monster.
     pub squish_offsets: SquishOffsets,
+}
 
+/// Specific instructions for reading offsets
+#[derive(Default, Clone)]
+pub struct ReadOffsetConfig {
     /// If `true`, allow negative values in a HEADER offset.
     ///
     /// An empty offset is supposed to be written as 0,0 according to the
@@ -310,7 +328,6 @@ pub struct ReadHeaderInnerConfig {
     /// In other cases, offsets far beyond EOF likely mean the file was
     /// incompletely written, which is a larger problem itself. Setting this to
     /// a large value will at least allow these files to be read.
-    #[as_ref(TruncateOffsetLimit)]
     pub truncate_offset_limit: TruncateOffsetLimit,
 }
 
@@ -319,7 +336,6 @@ pub struct ReadHeaderInnerConfig {
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(ReadHeaderInnerConfig)]
-    #[as_ref(TruncateOffsetLimit)]
     pub header: ReadHeaderInnerConfig,
 
     // NOTE the only reason this is here and not in the Keywords configs is
@@ -833,13 +849,6 @@ pub struct ReadDataKeywordsConfig {
     /// missing these will be taken from HEADER.
     #[as_ref(AllowMissingRequiredOffsets)]
     pub allow_missing_required_offsets: AllowMissingRequiredOffsets,
-
-    /// Maximum that may be truncated from offsets that exceed EOF.
-    ///
-    /// This is like [`ReadHeaderInnerConfig::truncate_offset_limit`] but for TEXT
-    /// offsets (rather than HEADER).
-    #[as_ref(TruncateOffsetLimit)]
-    pub truncate_text_offset_limit: TruncateOffsetLimit,
 
     /// Choose how to deal with optional keywords which produce errors.
     ///
@@ -1734,13 +1743,6 @@ impl<C> ReadState<C> {
             return Err(ImpureError::Pure(e));
         }
         Ok(Self::new(fl, dataset_offset, conf))
-    }
-
-    pub(crate) fn as_innner_ref<X>(&self) -> ReadState<&X>
-    where
-        C: AsRef<X>,
-    {
-        ReadState::new(self.file_len, self.dataset_offset, self.conf.as_ref())
     }
 
     pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {

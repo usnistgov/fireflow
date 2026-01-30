@@ -1084,7 +1084,6 @@ class CoreTEXT3_0(
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
@@ -1189,7 +1188,6 @@ class CoreTEXT3_1(
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
@@ -1296,7 +1294,6 @@ class CoreTEXT3_2(
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
         warnings_are_errors: bool = False,
@@ -1468,6 +1465,10 @@ class CoreDataset3_0(
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
+        # offset args
+        allow_negative: bool = False,
+        truncate_offset_limit: int = 0,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
@@ -1487,13 +1488,13 @@ class CoreDataset3_0(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
+        # layout args
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
@@ -1502,6 +1503,7 @@ class CoreDataset3_0(
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1585,6 +1587,10 @@ class CoreDataset3_1(
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
+        # offset args
+        allow_negative: bool = False,
+        truncate_offset_limit: int = 0,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
@@ -1605,19 +1611,20 @@ class CoreDataset3_1(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
+        # layout args
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1704,6 +1711,10 @@ class CoreDataset3_2(
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
         other_segs: list[Segment] = [],
+        # offset args
+        allow_negative: bool = False,
+        truncate_offset_limit: int = 0,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
@@ -1725,19 +1736,20 @@ class CoreDataset3_2(
         nonstandard_measurement_pattern: str | None = pfd._DEFAULT_NS_MEAS_PATTERN,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
+        # layout args
         text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
         allow_header_text_offset_mismatch: TriFlag = "false",
         allow_missing_required_offsets: TriFlag = "false",
-        truncate_text_offset_limit: int = 0,
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -2135,6 +2147,7 @@ class DatasetSummary:
 
 def fcs_read_header(
     path: Path,
+    # header args
     text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2144,6 +2157,7 @@ def fcs_read_header(
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
     allow_negative: bool = False,
+    # offset args
     truncate_offset_limit: int = 0,
     dataset_offset: int = 0,
 ) -> Header: ...
@@ -2160,6 +2174,7 @@ def fcs_read_flat_text(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2208,6 +2223,7 @@ def fcs_read_std_text(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2267,7 +2283,6 @@ def fcs_read_std_text(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2290,6 +2305,7 @@ def fcs_read_flat_dataset(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2327,7 +2343,6 @@ def fcs_read_flat_dataset(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2355,6 +2370,7 @@ def fcs_read_std_dataset(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2414,7 +2430,6 @@ def fcs_read_std_dataset(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2444,6 +2459,7 @@ def fcs_read_flat_texts(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2493,6 +2509,7 @@ def fcs_read_std_texts(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2552,7 +2569,6 @@ def fcs_read_std_texts(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2576,6 +2592,7 @@ def fcs_read_flat_datasets(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2613,7 +2630,6 @@ def fcs_read_flat_datasets(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2642,6 +2658,7 @@ def fcs_read_std_datasets(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2701,7 +2718,6 @@ def fcs_read_std_datasets(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2724,6 +2740,9 @@ def fcs_read_flat_dataset_with_keywords(
     data_seg: Segment,
     analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
     other_segs: list[Segment] = [],
+    # offset args
+    allow_negative: bool = False,
+    truncate_offset_limit: int = 0,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2731,7 +2750,6 @@ def fcs_read_flat_dataset_with_keywords(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
@@ -2761,6 +2779,7 @@ def fcs_summarize(
     other_width: int = pfd._DEFAULT_OTHER_WIDTH,
     guess_other_width: GuessOtherWidth = "none",
     squish_offsets: bool = False,
+    # offset args
     allow_negative: bool = False,
     truncate_offset_limit: int = 0,
     # flat args
@@ -2798,7 +2817,6 @@ def fcs_summarize(
     ignore_text_analysis_offsets: bool = False,
     allow_header_text_offset_mismatch: TriFlag = "false",
     allow_missing_required_offsets: TriFlag = "false",
-    truncate_text_offset_limit: int = 0,
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,

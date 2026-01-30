@@ -2,9 +2,9 @@
 use crate::config::{
     ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
     ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
-    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadSharedConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, TruncateOffsetLimit,
-    VersionOverride,
+    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
+    ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
+    TriFlag, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -30,7 +30,7 @@ use crate::segment::{
     AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, KeyedOptSegment as _,
     KeyedReqSegment as _, NonDataSegments, OptSegmentError, OtherSegmentId, PrimaryTextSegment,
     RelativeSegment, ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId,
-    TEXTCorrection, UncorrectedSegment,
+    UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -384,7 +384,7 @@ where
     Fnext: FnMut(&X) -> Option<u64>,
     E: From<HeaderOrFlatTextError> + From<Ei>,
     W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
-    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadSharedConfig>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadSharedConfig>,
     G: Copy,
 {
     let mut dataset_offset = Some(DatasetOffset::default());
@@ -392,6 +392,7 @@ where
     let mut results = vec![];
     let rconf = ReadFlatTEXTConfig {
         flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
+        offset: AsRef::<ReadOffsetConfig>::as_ref(conf).clone(),
         shared: AsRef::<ReadSharedConfig>::as_ref(conf).clone(),
     };
     while let Some(dso) = dataset_offset
@@ -1032,10 +1033,7 @@ fn read_flat_text_inner<C>(
     (),
 >
 where
-    C: AsRef<ReadHeaderAndTEXTConfig>
-        + AsRef<ReadHeaderInnerConfig>
-        + AsRef<TruncateOffsetLimit>
-        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
 {
     ReadState::open(p, dataset_offset, conf)
         .map_err(|e| e.fmap_once(HeaderOrFlatTextError::from))
@@ -1061,7 +1059,7 @@ fn h_read_dataset_from_kws<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
+    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
 {
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -1094,10 +1092,7 @@ impl FlatTEXTOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<ReadHeaderInnerConfig>
-            + AsRef<TruncateOffsetLimit>
-            + AsRef<TEXTCorrection<SupplementalTextSegmentId>>,
+        C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         Header::h_read(h, st)
             .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
@@ -1120,6 +1115,7 @@ impl FlatTEXTOutput {
     >
     where
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
     {
@@ -1151,6 +1147,7 @@ impl FlatTEXTOutput {
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
@@ -1182,7 +1179,7 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig>,
+    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
 {
     match version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, segs, st),
@@ -1199,9 +1196,7 @@ fn h_read_flat_text_from_header<C, R>(
 ) -> WarningsAndIOGroupResult<FlatTEXTOutput, ParseFlatTEXTWarning, ParseFlatTEXTError, ()>
 where
     R: Read + Seek,
-    C: AsRef<ReadHeaderAndTEXTConfig>
-        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
-        + AsRef<TruncateOffsetLimit>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
 {
     let conf = st.conf.as_ref();
     let mut buf = vec![];
@@ -1922,9 +1917,7 @@ fn lookup_stext_offsets<C>(
     STextSegmentError,
 >
 where
-    C: AsRef<TruncateOffsetLimit>
-        + AsRef<TEXTCorrection<SupplementalTextSegmentId>>
-        + AsRef<ReadHeaderAndTEXTConfig>,
+    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
 {
     let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
     debug_assert!(
@@ -1955,11 +1948,12 @@ where
             }
         }
     };
+    let corr = conf.supp_text_correction;
     let res = match ver {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
-            match SupplementalTextSegmentId::with_req_pair(pair, st) {
+            match SupplementalTextSegmentId::with_req_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(Some(seg)),
                 Err((e0, e1)) => {
                     let flag = conf.allow_missing_supp_text;
@@ -1973,7 +1967,7 @@ where
         }
         Version::FCS3_2 => {
             let pair = SupplementalTextSegmentId::get_opt_pair(kws);
-            match SupplementalTextSegmentId::with_opt_pair(pair, st) {
+            match SupplementalTextSegmentId::with_opt_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(seg),
                 Err((e0, e1)) => {
                     let mut res = DeferredWarningsAndErrors::new_ok(None);

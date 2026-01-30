@@ -5,7 +5,7 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
-use crate::header::{HEADER_LEN, Version};
+use crate::header::{HEADER_LEN, HeaderSegments, Version};
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -253,19 +253,25 @@ struct NonEmptySegment<T, O> {
     dataset_offset: O,
 }
 
-/// Helper struct to bundle all but the DATA and ANALYSIS segments
+/// Helper struct to bundle all but the DATA and ANALYSIS segments from TEXT
 #[derive(new, AsRef)]
-pub struct NonDataSegments<'a> {
-    pub(crate) text: PrimaryTextSegment,
+pub struct NonDataSegments {
     #[as_ref(HeaderDataSegment)]
-    pub(crate) data: HeaderDataSegment,
     #[as_ref(HeaderAnalysisSegment)]
-    pub(crate) analysis: HeaderAnalysisSegment,
-    pub(crate) other: &'a [OtherSegment20],
+    pub(crate) header: HeaderSegments<UintSpacePad20>,
     pub(crate) supp: Option<SupplementalTextSegment>,
 }
 
-impl NonDataSegments<'_> {
+impl NonDataSegments {
+    pub(crate) fn new_no_text(
+        data: HeaderDataSegment,
+        analyis: HeaderAnalysisSegment,
+        other: Vec<OtherSegment20>,
+    ) -> Self {
+        let hdr = HeaderSegments::new(PrimaryTextSegment::default(), data, analyis, other);
+        Self::new(hdr, None)
+    }
+
     /// Ensure this segment does not overlap with other segments.
     ///
     /// Specifically check that no other segment (except its analogue in HEADER
@@ -277,15 +283,17 @@ impl NonDataSegments<'_> {
         O: HasRegion,
         Self: AsRef<HeaderSegment<O>>,
     {
+        let h = &self.header;
         if let Some(this_seg) = s.try_as_generic() {
-            let hdr_len = u64::try_from(self.other.len()).unwrap() + u64::from(HEADER_LEN);
+            // TODO where to get this?
+            let hdr_len = h.nbytes(OtherWidth::default());
             let in_hdr_err = (this_seg.begin < hdr_len)
                 .then_some(TEXTSegmentInHeaderError::new(this_seg.begin, hdr_len))
                 .map(TEXTSegmentOverlapError::from);
-            let text = self.text.try_as_generic();
+            let text = h.text.try_as_generic();
             let not_this_seg = self.as_ref().try_as_generic();
             let supp = self.supp.as_ref().and_then(Segment::try_as_generic);
-            let es = self
+            let es = h
                 .other
                 .iter()
                 .map(Segment::try_as_generic)
@@ -377,15 +385,15 @@ where
     type IgnoreFlag: ConfigFlag;
     type OtherDataId: HasRegion;
 
-    fn get_req_or<'a, C>(
+    fn get_req_or<C>(
         kws: &StdKeywords,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -399,15 +407,15 @@ where
         }
     }
 
-    fn remove_req_or<'a, C>(
+    fn remove_req_or<C>(
         kws: &mut StdKeywords,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -425,14 +433,14 @@ where
         }
     }
 
-    fn with_req_pair_default<'a, C>(
+    fn with_req_pair_default<C>(
         pair: ReqPair<Self::B, Self::E>,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -550,15 +558,15 @@ where
     type IgnoreFlag: ConfigFlag;
     type OtherDataId: HasRegion;
 
-    fn get_opt_or<'a, C>(
+    fn get_opt_or<C>(
         kws: &StdKeywords,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -573,15 +581,15 @@ where
         }
     }
 
-    fn remove_opt_or<'a, C>(
+    fn remove_opt_or<C>(
         kws: &mut StdKeywords,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
@@ -597,14 +605,14 @@ where
         }
     }
 
-    fn with_opt_pair_default<'a, C>(
+    fn with_opt_pair_default<C>(
         pair: OptPair<Self::B, Self::E>,
-        segs: &NonDataSegments<'a>,
+        segs: &NonDataSegments,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegTentative<Self>
     where
-        NonDataSegments<'a>: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
+        NonDataSegments: AsRef<HeaderSegment<Self>> + AsRef<HeaderSegment<Self::OtherDataId>>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,

@@ -32,9 +32,9 @@ use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId,
-    PrimaryTextSegment, RelativeSegment, RelativeToAbsSegmentError, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, UncorrectedSegment,
+    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId, RelativeSegment,
+    RelativeToAbsSegmentError, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
+    SegmentMismatchWarning, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -545,7 +545,7 @@ impl AnyCoreDataset {
         kws: ValidKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        other_segs: &[OtherSegment20],
+        other_segs: Vec<OtherSegment20>,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput, Option<KeywordVersionScores>),
@@ -561,13 +561,7 @@ impl AnyCoreDataset {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let segs = NonDataSegments::new(
-            PrimaryTextSegment::default(),
-            data_seg,
-            analysis_seg,
-            other_segs,
-            None,
-        );
+        let segs = NonDataSegments::new_no_text(data_seg, analysis_seg, other_segs);
 
         macro_rules! go {
             ($t:ident, $s:expr) => {
@@ -4850,7 +4844,7 @@ where
                     .map_error(IOErrorGroup::Pure)
             })
             .and_then_commutative(|(d, a, os, st, file)| {
-                let segs = NonDataSegments::new(PrimaryTextSegment::default(), d, a, &os[..], None);
+                let segs = NonDataSegments::new_no_text(d, a, os);
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })
@@ -4889,7 +4883,7 @@ where
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
-                let or = OthersReader::new(segs.other);
+                let or = OthersReader::new(&segs.header.other[..]);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout
@@ -7956,8 +7950,8 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         Tot::remove_or_drop_root_opt(std, nonstd, st.conf.as_ref())
             .map_ok_value(|tot| {
                 let s = DatasetSegments::new(
-                    segs.data.into_any(),
-                    segs.analysis.into_any(),
+                    segs.header.data.into_any(),
+                    segs.header.analysis.into_any(),
                     None,
                     None,
                 );
@@ -7983,8 +7977,8 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .into_succ()
             .fmap_once(|tot| {
                 let s = DatasetSegments::new(
-                    segs.data.into_any(),
-                    segs.analysis.into_any(),
+                    segs.header.data.into_any(),
+                    segs.header.analysis.into_any(),
                     None,
                     None,
                 );

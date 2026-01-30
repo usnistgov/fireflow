@@ -28,9 +28,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, KeyedOptSegment as _,
-    KeyedReqSegment as _, NonDataSegments, OptSegmentError, OtherSegmentId, PrimaryTextSegment,
-    RelativeSegment, ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId,
-    UncorrectedSegment,
+    KeyedReqSegment as _, NonDataSegments, OptSegmentError, OtherSegmentId, RelativeSegment,
+    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -235,7 +234,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
                 .map_error(IOErrorGroup::Pure)
         })
         .and_then_commutative(|(d, a, os, st, file)| {
-            let segs = NonDataSegments::new(PrimaryTextSegment::default(), d, a, &os[..], None);
+            let segs = NonDataSegments::new_no_text(d, a, os);
             let mut h = BufReader::new(file);
             h_read_dataset_from_kws(&mut h, version, std, &segs, &st)
         })
@@ -1064,7 +1063,7 @@ where
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments, event_out)| {
-            OthersReader::new(segs.other)
+            OthersReader::new(&segs.header.other[..])
                 .h_read(h)
                 .map(|others| {
                     FlatDatasetWithKwsOutput::new(
@@ -1152,10 +1151,10 @@ impl FlatTEXTOutput {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let hs = &self.flat_diagnostics.header_segments;
+        let hs = self.flat_diagnostics.header_segments.clone();
         let d = hs.data;
         let a = hs.analysis;
-        let o = &hs.other[..];
+        let o = hs.other;
         AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st).map_ok_value(
             |(core, out, scores)| {
                 let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
@@ -2033,15 +2032,9 @@ fn byte_errors(
 }
 
 impl FlatTEXTDiagnostics {
-    fn non_data_segments(&self) -> NonDataSegments<'_> {
-        let hs = &self.header_segments;
-        NonDataSegments::new(
-            hs.text,
-            hs.data,
-            hs.analysis,
-            &hs.other[..],
-            self.supp_text.as_ref().copied().map(|(c, _)| c),
-        )
+    fn non_data_segments(&self) -> NonDataSegments {
+        let hs = self.header_segments.clone();
+        NonDataSegments::new(hs, self.supp_text.as_ref().copied().map(|(c, _)| c))
     }
 }
 

@@ -29,7 +29,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use type_families::ApplyOnce as _;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
@@ -92,11 +92,13 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The segments from the HEADER
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<T> {
     pub text: PrimaryTextSegment,
+    #[as_ref(HeaderDataSegment)]
     pub data: HeaderDataSegment,
+    #[as_ref(HeaderAnalysisSegment)]
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment<T>>,
 }
@@ -271,7 +273,7 @@ impl<T> HeaderSegments<T> {
     }
 
     /// Return number of bytes required to encode HEADER
-    fn nbytes(&self, w: OtherWidth) -> u64
+    pub(crate) fn nbytes(&self, w: OtherWidth) -> u64
     where
         T: HeaderString,
     {

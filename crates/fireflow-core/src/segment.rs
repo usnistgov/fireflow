@@ -1417,14 +1417,9 @@ impl<T> InnerSegment<T, DatasetOffset> {
     {
         let corr = &conf.corr;
         let err = |kind| {
-            SegmentError::new(
-                (begin, end),
-                (corr.begin, corr.end),
-                conf.dataset_offset,
-                kind,
-                I::REGION,
-                S::SRC,
-            )
+            let o = conf.dataset_offset;
+            let c = (corr.begin, corr.end);
+            SegmentError::new((begin, end), c, o, kind, I::REGION, S::SRC)
         };
 
         let new_begin = begin + i128::from(corr.begin);
@@ -1440,6 +1435,9 @@ impl<T> InnerSegment<T, DatasetOffset> {
         } else if new_begin > new_end {
             // Check if begin is greater than end
             return Err(err(SegmentErrorKind::Inverted));
+        } else if new_begin < i128::from(HEADER_LEN) {
+            // Check if segment overlaps with HEADER (sans OTHER segments).
+            return Err(err(SegmentErrorKind::InHeader));
         }
 
         let dso = i128::from(conf.dataset_offset.0);
@@ -1664,7 +1662,7 @@ enum SegmentErrorKind {
     Range,
     Inverted,
     BeginEOF(FileLen),
-    // InHeader,
+    InHeader,
     Truncated(FileLen),
 }
 
@@ -1676,7 +1674,7 @@ impl fmt::Display for SegmentError {
             SegmentErrorKind::Range => "Offset out of range".into(),
             SegmentErrorKind::Inverted => "Begin after end".into(),
             SegmentErrorKind::BeginEOF(size) => format!("Begin exceeds file size ({size} bytes)"),
-            // SegmentErrorKind::InHeader => "Begins within HEADER".into(),
+            SegmentErrorKind::InHeader => "Begins within HEADER (first 58 bytes)".into(),
             SegmentErrorKind::Truncated(size) => {
                 format!("Segment exceeds file size ({size} bytes)")
             }

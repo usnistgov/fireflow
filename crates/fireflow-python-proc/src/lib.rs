@@ -509,7 +509,14 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offset, layout, data, shared };
             let ret = #fun_path(
-                &path, version, &std, data_seg, analysis_seg, other_segs, dataset_offset, &conf
+                &path,
+                version,
+                &std,
+                data_seg,
+                analysis_seg,
+                other_segs.map(|(os, w)| (os.0, w)),
+                dataset_offset,
+                &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
         }
@@ -587,17 +594,22 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Header, false)
         .into_ro(|_, _| quote!(self.0.analysis));
 
-    let other = DocArg::new_other_segs_param(false).into_ro(|_, _| quote!(self.0.other.clone()));
+    let other = DocArg::new_other_segs_param()
+        .into_ro(|_, _| quote!(self.0.other.clone().map(|(os, w)| (os.into(), w))));
 
     let args = [text, data, analysis, other];
 
     let doc = DocString::new_class("The segments from *HEADER*").args(args);
-    let inner_args = doc.idents();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #bare_path::new(#inner_args).into()
+                #bare_path::new(
+                    text_seg,
+                    data_seg,
+                    analysis_seg,
+                    other_segs.map(|(os, w)| (os.0, w)),
+                ).into()
             }
         }
     };
@@ -2787,6 +2799,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let ident = path.segments.last().unwrap().ident.clone();
@@ -2891,7 +2904,13 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let conf = #core_conf { offset, standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
-                    &path, kws, data_seg, analysis_seg, other_segs, dataset_offset, &conf
+                    &path,
+                    kws,
+                    data_seg,
+                    analysis_seg,
+                    other_segs.map(|(os, w)| (os.0, w)),
+                    dataset_offset,
+                    &conf
                 ).py_resolve_commutative()?;
                 Ok((core.into(), uncore.into()))
             }
@@ -5948,6 +5967,12 @@ impl<E: From<PyException>> PyInt<E> {
         Self::from(intkind).exc(e)
     }
 
+    fn new_other_width() -> Self {
+        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
+        let e = PyException::new_config().desc("if %x is less than ``8`` and greater than ``20``");
+        Self::new_int(RsInt::NonZeroU8).rstype(path).exc(e)
+    }
+
     fn new_ascii_range_value() -> Self {
         let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
@@ -7536,8 +7561,11 @@ impl DocArgParam {
 
     fn new_rel_other_segs_param() -> Self {
         let seg = PyTuple::new_relative_segment("OtherSegmentId");
+        let width = PyInt::new_other_width();
+        let rstype = seg.rstype.clone().expect("no rstype for OTHER seg");
+        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(seg, &rstype)).add(width));
         let d = "The *OTHER* segments from *HEADER*.";
-        Self::new_param("other_segs", PyList::new1(seg), d).def_auto()
+        Self::new_param("other_segs", pt, d).def_auto()
     }
 
     fn new_data_seg_param(src: SegmentSrc) -> Self {
@@ -7551,10 +7579,13 @@ impl DocArgParam {
         Self::new_param("analysis_seg", p, desc).def_auto_if(default)
     }
 
-    fn new_other_segs_param(default: bool) -> Self {
+    fn new_other_segs_param() -> Self {
+        let seg = PyTuple::new_other_segment();
+        let width = PyInt::new_other_width();
+        let rstype = seg.rstype.clone().expect("no rstype for OTHER seg");
+        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(seg, &rstype)).add(width));
         let d = "The *OTHER* segments from *HEADER*.";
-        let p = PyList::new1(PyTuple::new_other_segment());
-        Self::new_param("other_segs", p, d).def_auto_if(default)
+        Self::new_param("other_segs", pt, d)
     }
 
     fn new_textdelim_param() -> Self {
@@ -8181,9 +8212,7 @@ impl DocArgParam {
     }
 
     fn new_other_width_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let e = PyException::new_config().desc("if %x is less than ``8`` and greater than ``20``");
-        let pt = PyInt::new_int(RsInt::NonZeroU8).rstype(path).exc(e);
+        let pt = PyInt::new_other_width();
         let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
     }

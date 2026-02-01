@@ -5,7 +5,9 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
-use crate::header::{HEADER_LEN, HeaderSegments, Version};
+use crate::header::{
+    HEADER_LEN, HeaderSegments, ParsedHeaderSegments, ParsedOtherSegments, Version,
+};
 use crate::logging::{
     CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
     IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -81,7 +83,7 @@ pub struct UncorrectedSegment {
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
-#[derive(Clone, Debug, Display, new)]
+#[derive(Clone, Copy, Debug, Display, new)]
 #[display("segment for {region} from {src} with coords ({begin}, {end})")]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
@@ -90,7 +92,7 @@ pub(crate) struct GenericSegment {
     pub(crate) src: AnySrc,
 }
 
-#[derive(Clone, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display)]
 pub(crate) enum AnySrc {
     #[display("HEADER")]
     Header,
@@ -258,7 +260,7 @@ struct NonEmptySegment<T, O> {
 pub struct NonDataSegments {
     #[as_ref(HeaderDataSegment)]
     #[as_ref(HeaderAnalysisSegment)]
-    pub(crate) header: HeaderSegments<UintSpacePad20>,
+    pub(crate) header: ParsedHeaderSegments,
     pub(crate) supp: Option<SupplementalTextSegment>,
 }
 
@@ -266,7 +268,7 @@ impl NonDataSegments {
     pub(crate) fn new_no_text(
         data: HeaderDataSegment,
         analyis: HeaderAnalysisSegment,
-        other: Vec<OtherSegment20>,
+        other: ParsedOtherSegments,
     ) -> Self {
         let hdr = HeaderSegments::new(PrimaryTextSegment::default(), data, analyis, other);
         Self::new(hdr, None)
@@ -285,8 +287,7 @@ impl NonDataSegments {
     {
         let h = &self.header;
         if let Some(this_seg) = s.try_as_generic() {
-            // TODO where to get this?
-            let hdr_len = h.nbytes(OtherWidth::default());
+            let hdr_len = h.nbytes();
             let in_hdr_err = (this_seg.begin < hdr_len)
                 .then_some(TEXTSegmentInHeaderError::new(this_seg.begin, hdr_len))
                 .map(TEXTSegmentOverlapError::from);
@@ -294,8 +295,9 @@ impl NonDataSegments {
             let not_this_seg = self.as_ref().try_as_generic();
             let supp = self.supp.as_ref().and_then(Segment::try_as_generic);
             let es = h
-                .other
-                .iter()
+                .as_others()
+                // .other
+                // .iter()
                 .map(Segment::try_as_generic)
                 .chain([text, not_this_seg, supp])
                 .flatten()
@@ -974,8 +976,8 @@ impl GenericSegment {
             Ok(())
         } else {
             Err(SegmentOverlapError {
-                seg0: self.clone(),
-                seg1: other.clone(),
+                seg0: *self,
+                seg1: *other,
             })
         }
     }
@@ -994,7 +996,7 @@ impl GenericSegment {
                 if z.begin <= prev.end {
                     errors.push(SegmentOverlapError {
                         seg0: prev,
-                        seg1: z.clone(),
+                        seg1: z,
                     });
                     prev = z;
                 }
@@ -1143,12 +1145,13 @@ impl<I: Copy> HeaderSegment<I> {
 impl OtherSegment20 {
     // TODO this won't deal with offsets like 0,-1, which hopefully aren't too
     // common.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         first_seg_begin: UintSpacePad8,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        Vec<(Self, UncorrectedSegment)>,
+        Option<(NonEmpty<(Self, UncorrectedSegment)>, OtherWidth)>,
         GuessOtherWidthError,
         HeaderSegmentError,
         (),
@@ -1166,7 +1169,7 @@ impl OtherSegment20 {
             .expect("minimal offset is less than 58")
             .try_into()
         else {
-            return LogResult::new_ok(vec![]);
+            return LogResult::new_ok(None);
         };
 
         // Get max desired number of segments; If zero, exit early.
@@ -1176,7 +1179,7 @@ impl OtherSegment20 {
             .map(NonZeroU64::try_from)
             .transpose()
         else {
-            return LogResult::new_ok(vec![]);
+            return LogResult::new_ok(None);
         };
 
         // Check that we have enough bytes left to read the offsets.
@@ -1212,7 +1215,7 @@ impl OtherSegment20 {
 
         // Exit early if there are only spaces, nulls, or zero
         if valid_buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
-            return LogResult::new_ok(vec![]);
+            return LogResult::new_ok(None);
         }
 
         // Guess offset width if desired.
@@ -1264,6 +1267,7 @@ impl OtherSegment20 {
                     .into_iter()
                     .sequence_commutative()
                     .nowarn_into_warn()
+                    .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
             })
             .group()
             .map_error(IOErrorGroup::Pure)

@@ -22,7 +22,7 @@ unicase = { workspace = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }
-nonempty = { workspace = true }
+nonempty = { workspace = true, features = ["serialize"] }
 phf = { workspace = true, features = ["macros", "unicase"] }
 type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }

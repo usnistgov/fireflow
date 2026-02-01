@@ -17,8 +17,8 @@ use crate::data::{
     ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
-    Version3_0, Version3_1, Version3_2,
+    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, ParsedOtherSegments,
+    RelativeOtherSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -545,7 +545,7 @@ impl AnyCoreDataset {
         kws: ValidKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        other_segs: Vec<OtherSegment20>,
+        other_segs: ParsedOtherSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput, Option<KeywordVersionScores>),
@@ -4799,7 +4799,7 @@ where
         kws: ValidKeywords,
         data_seg: RelativeSegment<DataSegmentId>,
         analysis_seg: RelativeSegment<AnalysisSegmentId>,
-        other_segs: Vec<RelativeSegment<OtherSegmentId>>,
+        other_segs: RelativeOtherSegments,
         dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
@@ -4831,10 +4831,14 @@ where
                 let anal_res = analysis_seg
                     .relative_to_abs(dataset_offset, st.file_len)
                     .into_nowarn();
-                let oss_res = other_segs
-                    .into_iter()
-                    .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
-                    .sequence_commutative();
+                let oss_res = if let Some((segs, width)) = other_segs {
+                    segs.into_iter()
+                        .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
+                        .sequence_commutative()
+                        .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
+                } else {
+                    LogResult::new_ok(None)
+                };
                 data_res
                     .zip3_commutative(anal_res, oss_res)
                     .map_errors(StdDatasetFromFlatTextErrorInner::from)
@@ -4883,7 +4887,8 @@ where
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, offsets)| {
                 let dataset_segs = offsets.as_ref();
-                let or = OthersReader::new(&segs.header.other[..]);
+                let os: Vec<_> = segs.header.as_others().copied().collect();
+                let or = OthersReader::new(&os[..]);
                 let ar = AnalysisReader::new(dataset_segs.analysis);
                 let read_conf: &ReadEventsConfig = st.conf.as_ref();
                 text.layout

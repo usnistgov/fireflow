@@ -14,9 +14,9 @@ use crate::core::{
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, HeaderSegments, HeaderValidationError,
-    KeywordVersionScores, UncorrectedHeaderSegments, Version, Version2_0, Version3_0, Version3_1,
-    Version3_2,
+    GuessVersionError, Header, HeaderError, HeaderValidationError, KeywordVersionScores,
+    ParsedHeaderSegments, RelativeOtherSegments, UncorrectedHeaderSegments, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredWarningAndError,
@@ -28,8 +28,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, KeyedOptSegment as _,
-    KeyedReqSegment as _, NonDataSegments, OptSegmentError, OtherSegmentId, RelativeSegment,
-    ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId, UncorrectedSegment,
+    KeyedReqSegment as _, NonDataSegments, OptSegmentError, RelativeSegment, ReqSegmentError,
+    SupplementalTextSegment, SupplementalTextSegmentId, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -37,7 +37,6 @@ use crate::text::keywords::{
 use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
-use crate::validated::ascii_uint::UintSpacePad20;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey,
@@ -201,7 +200,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
     std: &StdKeywords,
     data_seg: RelativeSegment<DataSegmentId>,
     analysis_seg: RelativeSegment<AnalysisSegmentId>,
-    other_segs: Vec<RelativeSegment<OtherSegmentId>>,
+    other_segs: RelativeOtherSegments,
     dataset_offset: DatasetOffset,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
@@ -221,10 +220,14 @@ pub fn fcs_read_flat_dataset_with_keywords(
             let anal_res = analysis_seg
                 .relative_to_abs(dataset_offset, st.file_len)
                 .into_nowarn();
-            let oss_res = other_segs
-                .into_iter()
-                .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
-                .sequence_commutative();
+            let oss_res = if let Some((segs, width)) = other_segs {
+                segs.into_iter()
+                    .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
+                    .sequence_commutative()
+                    .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
+            } else {
+                LogResult::new_ok(None)
+            };
             data_res
                 .zip3_commutative(anal_res, oss_res)
                 .map_errors(LookupAndReadDataAnalysisError::from)
@@ -518,7 +521,7 @@ pub struct FlatDatasetWithKwsOutput {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTDiagnostics {
     /// Corrected offsets read from HEADER
-    pub header_segments: HeaderSegments<UintSpacePad20>,
+    pub header_segments: ParsedHeaderSegments,
 
     /// Uncorrected offsets read from HEADER
     pub uncorrected_header_segments: UncorrectedHeaderSegments,
@@ -1063,7 +1066,8 @@ where
     kws_to_df_analysis(version, h, kws, segs, st)
         .map_pure_errors(LookupAndReadDataAnalysisError::from)
         .and_then_commutative(|(data, analysis, dataset_segments, event_out)| {
-            OthersReader::new(&segs.header.other[..])
+            let os: Vec<_> = segs.header.as_others().copied().collect();
+            OthersReader::new(&os[..])
                 .h_read(h)
                 .map(|others| {
                     FlatDatasetWithKwsOutput::new(
@@ -1981,7 +1985,7 @@ where
             let flag = conf.allow_overlapping_supp_text;
             header
                 .segments
-                .validate_text(&seg, conf.header.other_width)
+                .validate_text(&seg)
                 .set_ok_value(Some((seg, raw)))
                 .set_err_value(None)
                 .nowarn_into_switchable3(flag)

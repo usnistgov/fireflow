@@ -12,8 +12,8 @@ use crate::logging::{
 use crate::segment::{
     GenericSegment, GuessOtherWidthError, HasRegion, HasSource, HeaderAnalysisSegment,
     HeaderDataSegment, HeaderSegment, HeaderSegmentError, OtherSegment, OtherSegment20,
-    PrimaryTextSegment, Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment,
-    TEXTDataSegment, TEXTSegment, UncorrectedSegment,
+    OtherSegmentId, PrimaryTextSegment, RelativeSegment, Segment, SegmentOverlapError,
+    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -27,7 +27,7 @@ use crate::validated::ascii_uint::{
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::TEXTDelim;
 
-use type_families::ApplyOnce as _;
+use type_families::{ApplyOnce as _, impl_functor_once, impl_kind1};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -94,14 +94,30 @@ impl_version!(Version3_2, FCS3_2);
 /// The segments from the HEADER
 #[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct HeaderSegments<T> {
+pub struct HeaderSegments<O> {
     pub text: PrimaryTextSegment,
     #[as_ref(HeaderDataSegment)]
     pub data: HeaderDataSegment,
     #[as_ref(HeaderAnalysisSegment)]
     pub analysis: HeaderAnalysisSegment,
-    pub other: Vec<OtherSegment<T>>,
+    pub other: O,
 }
+
+impl_kind1!(HeaderSegmentsFamily, HeaderSegments);
+
+impl_functor_once!(
+    HeaderSegments,
+    self,
+    mut f,
+    HeaderSegments::new(self.text, self.data, self.analysis, f(self.other))
+);
+
+pub type ParsedHeaderSegments = HeaderSegments<ParsedOtherSegments>;
+pub type WriteHeaderSegments<T> = HeaderSegments<WriteOtherSegments<T>>;
+
+pub type ParsedOtherSegments = Option<(NonEmpty<OtherSegment<UintSpacePad20>>, OtherWidth)>;
+pub type RelativeOtherSegments = Option<(NonEmpty<RelativeSegment<OtherSegmentId>>, OtherWidth)>;
+pub type WriteOtherSegments<T> = Vec<OtherSegment<T>>;
 
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
@@ -123,7 +139,7 @@ pub type KeywordVersionScores = (
     KeywordVersionScore,
 );
 
-impl<T> HeaderSegments<T> {
+impl<T> WriteHeaderSegments<T> {
     pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
     where
         T: HeaderString + Zero,
@@ -147,19 +163,19 @@ impl<T> HeaderSegments<T> {
         }
         Ok(())
     }
+}
 
+impl ParsedHeaderSegments {
     /// Ensure that TEXT segment does not start in HEADER and does not overlap.
     pub(crate) fn validate_text<I>(
         &self,
         s: &TEXTSegment<I>,
-        w: OtherWidth,
     ) -> DeferredErrors<Option<GenericSegment>, HeaderValidationError>
     where
         I: HasRegion,
-        T: HeaderString,
     {
         let contains_res = self
-            .contains_text_segment(s, w)
+            .contains_text_segment(s)
             .map_err(HeaderValidationError::from)
             .into_deferred_nowarn();
         let overlap_res = self
@@ -172,14 +188,12 @@ impl<T> HeaderSegments<T> {
     pub(crate) fn contains_text_segment<I>(
         &self,
         s: &TEXTSegment<I>,
-        w: OtherWidth,
     ) -> Result<Option<GenericSegment>, InHeaderError>
     where
         I: HasRegion,
-        T: HeaderString,
     {
         s.try_as_generic()
-            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
+            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
     }
 
     /// Check if TEXT segment overlaps with any in HEADER.
@@ -191,7 +205,6 @@ impl<T> HeaderSegments<T> {
     ) -> DeferredErrors<Option<GenericSegment>, SegmentOverlapError>
     where
         I: HasRegion,
-        T: Copy + Into<u64>,
     {
         if let Some(q) = s.try_as_generic() {
             self.as_generics()
@@ -205,30 +218,21 @@ impl<T> HeaderSegments<T> {
 
     // TODO if we don't have TEXT, we can have ANALYSIS but not DATA
     /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self, w: OtherWidth) -> DeferredErrors<(), HeaderValidationError>
-    where
-        T: Copy + Into<u64> + HeaderString,
-    {
+    fn validate(&self) -> DeferredErrors<(), HeaderValidationError> {
         let x = self
             .overlapping_segments()
             .map_errors(HeaderValidationError::from);
         let y = self
-            .contains_header_segments(w)
+            .contains_header_segments()
             .map_errors(HeaderValidationError::from);
         x.lift_f2_once(y, |(), ()| ())
     }
 
-    fn contains_header_segments(&self, w: OtherWidth) -> DeferredErrors<(), InHeaderError>
-    where
-        T: Copy + Into<u64> + HeaderString,
-    {
-        let t = self.contains_header_segment(&self.text, w);
-        let d = self.contains_header_segment(&self.data, w);
-        let a = self.contains_header_segment(&self.analysis, w);
-        let os = self
-            .other
-            .iter()
-            .map(|o| self.contains_header_segment(o, w));
+    fn contains_header_segments(&self) -> DeferredErrors<(), InHeaderError> {
+        let t = self.contains_header_segment(&self.text);
+        let d = self.contains_header_segment(&self.data);
+        let a = self.contains_header_segment(&self.analysis);
+        let os = self.as_others().map(|o| self.contains_header_segment(o));
         [t, d, a]
             .into_iter()
             .chain(os)
@@ -239,54 +243,35 @@ impl<T> HeaderSegments<T> {
     fn contains_header_segment<I, S, T0>(
         &self,
         s: &Segment<I, S, T0>,
-        w: OtherWidth,
     ) -> Result<Option<GenericSegment>, InHeaderError>
     where
-        T: HeaderString,
         I: HasRegion,
         S: HasSource,
         T0: Into<u64> + Copy,
     {
         s.try_as_generic()
-            .map_or(Ok(None), |q| self.contains_segment(q, w).map(Some))
+            .map_or(Ok(None), |q| self.contains_segment(q).map(Some))
     }
 
-    fn contains_segment(
-        &self,
-        s: GenericSegment,
-        w: OtherWidth,
-    ) -> Result<GenericSegment, InHeaderError>
-    where
-        T: HeaderString,
-    {
-        if s.begin < self.nbytes(w) {
+    fn contains_segment(&self, s: GenericSegment) -> Result<GenericSegment, InHeaderError> {
+        if s.begin < self.nbytes() {
             Err(InHeaderError(s))
         } else {
             Ok(s)
         }
     }
 
-    fn overlapping_segments(&self) -> DeferredErrors<(), SegmentOverlapError>
-    where
-        T: Copy + Into<u64>,
-    {
+    fn overlapping_segments(&self) -> DeferredErrors<(), SegmentOverlapError> {
         GenericSegment::find_overlaps(self.as_generics().collect())
     }
 
-    /// Return number of bytes required to encode HEADER
-    pub(crate) fn nbytes(&self, w: OtherWidth) -> u64
-    where
-        T: HeaderString,
-    {
-        HeaderKeywordsToWrite::<T>::header_len(self.other.len(), u8::from(w))
+    /// Return number of bytes required to encode HEADER (including OTHER)
+    pub(crate) fn nbytes(&self) -> u64 {
+        u64::from(HEADER_LEN) + self.other_offset_nbytes()
     }
 
-    fn as_generics(&self) -> impl Iterator<Item = GenericSegment>
-    where
-        T: Copy + Into<u64>,
-    {
-        self.other
-            .iter()
+    fn as_generics(&self) -> impl Iterator<Item = GenericSegment> {
+        self.as_others()
             .copied()
             .map(|x| x.try_as_generic())
             .chain([
@@ -295,6 +280,17 @@ impl<T> HeaderSegments<T> {
                 self.analysis.try_as_generic(),
             ])
             .flatten()
+    }
+
+    pub(crate) fn as_others(&self) -> impl Iterator<Item = &OtherSegment<UintSpacePad20>> {
+        self.other.iter().flat_map(|(os, _)| os.iter())
+    }
+
+    fn other_offset_nbytes(&self) -> u64 {
+        self.other.as_ref().map_or(0, |(os, width)| {
+            let n = u64::try_from(os.len()).expect("usize overflow");
+            n * u64::from(u8::from(*width))
+        })
     }
 }
 
@@ -308,7 +304,7 @@ impl<T> HeaderSegments<T> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
     pub version: Version,
-    pub segments: HeaderSegments<UintSpacePad20>,
+    pub segments: ParsedHeaderSegments,
     pub uncorrected_segments: UncorrectedHeaderSegments,
 }
 
@@ -331,20 +327,24 @@ impl Header {
         let other_res = if let Some(m) = min_coord {
             OtherSegment20::h_read_others(h, m, st)
         } else {
-            LogResult::new_ok(vec![])
+            LogResult::new_ok(None)
         };
-        let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
         other_res
             .map_ok_value(|other| {
-                let (os, os_raw) = other.into_iter().unzip();
-                let ss = HeaderSegments::new(text, data, analysis, os);
+                let (os, os_raw) = if let Some((os, w)) = other {
+                    let (parsed, raw) = os.into_iter().unzip();
+                    (Some((NonEmpty::from_vec(parsed).unwrap(), w)), raw)
+                } else {
+                    (None, vec![])
+                };
+                let ss = ParsedHeaderSegments::new(text, data, analysis, os);
                 let us = UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw);
                 Self::new(req.version, ss, us)
             })
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|hdr| {
                 hdr.segments
-                    .validate(conf.other_width)
+                    .validate()
                     .map_errors(HeaderError::from)
                     .map_ok_value(|()| hdr)
                     .nowarn_into_warn()
@@ -618,7 +618,7 @@ pub enum GuessVersionError {
 
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
-    pub(crate) header: HeaderSegments<T>,
+    pub(crate) header: WriteHeaderSegments<T>,
     pub(crate) primary: KeywordsWriter,
     pub(crate) supplemental: KeywordsWriter,
     pub(crate) nextdata: Nextdata,

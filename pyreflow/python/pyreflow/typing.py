@@ -188,3 +188,5 @@ KeywordVersionScores: TypeAlias = tuple[
 ]
 
 GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
+
+OtherSegments: TypeAlias = tuple[list[Segment], int]

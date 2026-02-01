@@ -62,6 +62,7 @@ from pyreflow.typing import (
     ProcessTimeOpticalKeys,
     KeywordVersionScores,
     GuessOtherWidth,
+    OtherSegments,
 )
 import pyreflow._defaults as pfd
 
@@ -1361,7 +1362,7 @@ class CoreDataset2_0(
         nonstd: NonStdKeywords,
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: list[Segment] = [],
+        other_segs: OtherSegments | None = None,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
@@ -1464,7 +1465,7 @@ class CoreDataset3_0(
         nonstd: NonStdKeywords,
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: list[Segment] = [],
+        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1586,7 +1587,7 @@ class CoreDataset3_1(
         nonstd: NonStdKeywords,
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: list[Segment] = [],
+        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1710,7 +1711,7 @@ class CoreDataset3_2(
         nonstd: NonStdKeywords,
         data_seg: Segment,
         analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: list[Segment] = [],
+        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -2739,7 +2740,7 @@ def fcs_read_flat_dataset_with_keywords(
     std: dict[str, str],
     data_seg: Segment,
     analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-    other_segs: list[Segment] = [],
+    other_segs: OtherSegments | None = None,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,

@@ -1141,9 +1141,11 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl OtherSegment20 {
+    // TODO this won't deal with offsets like 0,-1, which hopefully aren't too
+    // common.
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
-        text_begin: UintSpacePad8,
+        first_seg_begin: UintSpacePad8,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Vec<(Self, UncorrectedSegment)>,
@@ -1156,37 +1158,66 @@ impl OtherSegment20 {
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
         let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-        let Ok(n): Result<NonZeroU64, _> = u64::from(text_begin)
+
+        // Get maximum length of OTHER offset region according to first required
+        // offset. If zero, exit early.
+        let Ok(max_other_len): Result<NonZeroU64, _> = u64::from(first_seg_begin)
             .checked_sub(u64::from(HEADER_LEN))
-            // TODO where is this validated?
-            .expect("TEXT begin is less than 58")
+            .expect("minimal offset is less than 58")
             .try_into()
         else {
-            // If number of bytes in this section is zero, return early
             return LogResult::new_ok(vec![]);
         };
 
-        // TODO validate that all chars in this region are digits, null, or space
+        // Get max desired number of segments; If zero, exit early.
+        let Ok(max_other) = hconf
+            .max_other
+            .map(|x| u64::try_from(x).expect("usize overflow"))
+            .map(NonZeroU64::try_from)
+            .transpose()
+        else {
+            return LogResult::new_ok(vec![]);
+        };
 
+        // Check that we have enough bytes left to read the offsets.
         let remaining = io_to_log!(st.remaining_bytes(h));
-
-        if remaining < u64::from(n) {
+        if remaining < u64::from(max_other_len) {
             // ASSUME this will always be at byte 58 (that's what the error says)
-            let e = OtherOffsetsNoBytesError::new(remaining, n);
+            let e = OtherOffsetsNoBytesError::new(remaining, max_other_len);
             return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
         }
 
+        // Read the offsets.
+        //
+        // TODO (minor optimization opportunity) This will take all bytes
+        // between offset 58 and the next required offset (ie from
+        // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of case, the first segment
+        // will be one of these three. However, it is theoretically possible
+        // that this region has both the OTHER offsets and the OTHER segments
+        // themselves. This is technically standards compliant since OTHER
+        // segments only need to be within the first 99,999,999 bytes as of 3.2
+        // (in earlier versions this was even less restricted since they did not
+        // specify a width). In these cases, reading bytes like this will
+        // result in the OTHER segments themselves being read twice (here they
+        // be read and ignored).
         let mut buf = vec![];
-        io_to_log!(h.take(u64::from(n)).read_to_end(&mut buf));
+        io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
 
-        // assume that there are no OTHER segments if the entire region where
-        // there should be segments is either all 0, \0, or " "
-        if buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
+        // Only consider bytes which are spaces, nulls, or digits.
+        let n_valid_bytes = buf
+            .iter()
+            .take_while(|&&x| x == 0 || x == 32 || (48..=57).contains(&x))
+            .count();
+        let valid_buf = &buf[0..n_valid_bytes];
+
+        // Exit early if there are only spaces, nulls, or zero
+        if valid_buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
             return LogResult::new_ok(vec![]);
         }
 
+        // Guess offset width if desired.
         let width_res = if let Some(guess) = hconf.guess_other_width.into_tri_flag() {
-            match Self::guess_other_width(&buf) {
+            match Self::guess_other_width(valid_buf, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
                     let w = hconf.other_width;
@@ -1200,9 +1231,9 @@ impl OtherSegment20 {
         width_res
             .map_errors(HeaderSegmentError::from)
             .and_then_commutative(|width| {
+                let n_valid = valid_buf.len();
                 let w = u8::from(width);
-                let n_segs =
-                    usize::try_from(u64::from(n) / (u64::from(w) * 2)).expect("usize overflow");
+                let n_segs = n_valid / (usize::from(w) * 2);
 
                 let mut results = vec![];
 
@@ -1263,7 +1294,10 @@ impl OtherSegment20 {
             })
     }
 
-    fn guess_other_width(xs: &[u8]) -> Result<OtherWidth, GuessOtherWidthError> {
+    fn guess_other_width(
+        xs: &[u8],
+        max_other: Option<NonZeroU64>,
+    ) -> Result<OtherWidth, GuessOtherWidthError> {
         const MIN_WIDTH: u8 = 8;
         let is_null = |x: u8| x == 0 || x == 32;
         debug_assert!(
@@ -1272,59 +1306,78 @@ impl OtherSegment20 {
         );
         debug_assert!(!xs.is_empty(), "stream must be non-empty");
 
-        // First, get boundaries of "digit streams" which are contiguous streams
-        // of digit characters separated by at least one space or null char. The
-        // boundaries will be constructed as intervals like (start, end) where
-        // start and end are the indices of the start and end of the stream.
-
-        // indices where chars changed (false = null->digit, true = digit->null)
+        // Indices where chars changed (false = null->digit, true = digit->null)
         let mut digit_starts: Vec<usize> = vec![];
         let mut digit_ends: Vec<usize> = vec![];
-        let mut it = xs.iter();
-        let mut prev_was_null = is_null(*it.by_ref().next().unwrap());
-        // if first char is digit, push start boundary to balance the ends
-        if !prev_was_null {
-            digit_starts.push(0);
-        }
-        for (&x, i) in it.zip(1..) {
-            let this_is_null = is_null(x);
-            if prev_was_null != this_is_null {
-                if this_is_null {
-                    digit_ends.push(i);
-                } else {
-                    digit_starts.push(i);
-                }
-            }
-            prev_was_null = this_is_null;
-        }
-        // if previous was a digit, add a boundary to the end
-        if !prev_was_null {
-            digit_ends.push(xs.len());
-        }
-        let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
-        debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
-        let digit_intervals: Vec<_> = digit_starts.into_iter().zip(digit_ends).collect();
 
-        // Next, iterate through all possible widths and test if the width is
-        // compatible with the digit streams we computed above. From width,
-        // compute the ending indices of each offset. The width passes if
-        // - the number of offsets is even
-        // - each offset end is in a digit stream
-        // - the end of each digit stream matches with an offset end
+        // Iterate through all possible widths and test if the width is
+        // compatible with the bytestring.
         let go = |w| {
+            digit_starts.clear();
+            digit_ends.clear();
+
+            // Limit bytes if limit for maximum segment number is given.
+            let these_bytes = if let Some(n) = max_other {
+                let i = usize::try_from(u64::from(n)).expect("u64 overflow") * usize::from(w) * 2;
+                &xs[0..i]
+            } else {
+                xs
+            };
+
+            // Get boundaries of "digit streams" which are contiguous streams of
+            // digit characters separated by at least one space or null char.
+            // The boundaries will be constructed as intervals like (start, end)
+            // where start and end are the indices of the start and end of the
+            // stream.
+            let mut it = these_bytes.iter();
+            let mut prev_was_null = is_null(*it.by_ref().next().unwrap());
+            // If first char is digit, push start boundary to balance the ends
+            if !prev_was_null {
+                digit_starts.push(0);
+            }
+            for (&x, i) in it.zip(1..) {
+                let this_is_null = is_null(x);
+                if prev_was_null != this_is_null {
+                    if this_is_null {
+                        digit_ends.push(i);
+                    } else {
+                        digit_starts.push(i);
+                    }
+                }
+                prev_was_null = this_is_null;
+            }
+            // If previous was a digit, add a boundary to the end
+            if !prev_was_null {
+                digit_ends.push(these_bytes.len());
+            }
+            let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
+            debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
+            let digit_intervals: Vec<_> = digit_starts
+                .iter()
+                .copied()
+                .zip(digit_ends.iter().copied())
+                .collect();
+
+            // Compute number of segments that fit into digits. Use the last
+            // found digit as the end of the bytes to be considered. If segment
+            // number is odd, this width is not valid since offsets come in
+            // pairs.
             let ww = usize::from(w);
             let n_segs = final_digit_position / ww;
             if n_segs & 1 == 1 {
-                // number of segments odd, invalid
                 return None;
             }
+
+            // Match intervals of digits computed by positions of digit bytes
+            // themselves with offset boundaries as defined by the width.
+            //
+            // Criteria for passing width
+            // - the right position of all digit streams should correspond to
+            //   an offset boundary
+            // - all offset boundaries should be in a digit stream
             let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
             let mut cur_end = seg_ends.by_ref().next();
             for (a, b) in &digit_intervals {
-                // Criteria for passing width
-                // - the right position of all digit streams should correspond
-                //   to an offset boundary
-                // - all offset boundaries should be in a digit stream
                 if let Some(s) = cur_end {
                     if &s == b {
                         // offset end and digit end are equal, this digit stream
@@ -1821,40 +1874,52 @@ mod tests {
     #[test]
     fn other_width_2x8() {
         let s = b"       0       0";
-        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
     }
 
     #[test]
     fn other_width_4x8() {
         let s = b"       0       0    2112   90125";
-        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
     }
 
     #[test]
     fn other_width_4x8_hidden() {
         let s = b"       010000000       1       2";
-        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
     }
 
     #[test]
     fn other_width_4x8_spaceballs() {
         // random space after than should be ignored
         let s = b"       0       0       0   12345              ";
-        assert_eq!(OtherSegment20::guess_other_width(s).map(u8::from), Ok(8));
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
     }
 
     #[test]
     fn other_width_uneven() {
         // 8 then 9
         let s = b"       0        0";
-        assert!(OtherSegment20::guess_other_width(s).is_err());
+        assert!(OtherSegment20::guess_other_width(s, None).is_err());
     }
 
     #[test]
     fn other_width_nobound() {
         // this can either be 8 or 16
         let s = b"00000000000000000000000000000000";
-        assert!(OtherSegment20::guess_other_width(s).is_err());
+        assert!(OtherSegment20::guess_other_width(s, None).is_err());
     }
 }
 

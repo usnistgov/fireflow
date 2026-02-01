@@ -203,6 +203,7 @@ impl<T> HeaderSegments<T> {
         }
     }
 
+    // TODO if we don't have TEXT, we can have ANALYSIS but not DATA
     /// Ensure HEADER segments don't overlap and start after HEADER itself
     fn validate(&self, w: OtherWidth) -> DeferredErrors<(), HeaderValidationError>
     where

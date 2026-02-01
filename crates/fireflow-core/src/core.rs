@@ -32,7 +32,7 @@ use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
     HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, OtherSegmentId, RelativeSegment,
+    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, RelativeSegment,
     RelativeToAbsSegmentError, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
     SegmentMismatchWarning, UncorrectedSegment,
 };

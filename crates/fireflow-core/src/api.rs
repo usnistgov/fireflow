@@ -14,22 +14,20 @@ use crate::core::{
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, HeaderValidationError, KeywordVersionScores,
-    ParsedHeaderSegments, RelativeOtherSegments, UncorrectedHeaderSegments, Version, Version2_0,
-    Version3_0, Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, HeaderValidationError, KeywordVersionScores, Version,
+    Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredIter as _, DeferredWarningAndError,
-    DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult, ResultExt as _, Success,
-    SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult,
-    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
-    split_log,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, IOAnonErrorGroup,
+    IOErrorGroup, LogResult, ResultExt as _, Success, SuccessResultIter as _,
+    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
+    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, KeyedOptSegment as _,
-    KeyedReqSegment as _, NonDataSegments, OptSegmentError, RelativeSegment, ReqSegmentError,
-    SupplementalTextSegment, SupplementalTextSegmentId, UncorrectedSegment,
+    GuessOtherWidthError, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
+    OptSegmentError, ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId,
+    UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -145,22 +143,20 @@ pub fn fcs_read_flat_dataset(
     FlatTEXTOutput::read(path, dataset_offset, conf)
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
-        .and_then_commutative(|(mut flat, h, st)| {
-            flat.version
+        .and_then_commutative(|(flat, h, st)| {
+            let version = flat.flat_diagnostics.header.version;
+            version
                 .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
                 .map_err(FlatDatasetError::from)
                 .map_err(IOErrorGroup::new_pure_one)
-                .map(|(v, scores)| {
-                    flat.version = v;
-                    (flat, h, st, scores)
-                })
+                .map(|(new_version, scores)| (new_version, flat, h, st, scores))
                 .into_log()
         })
-        .and_then_commutative(|(flat, mut h, st, scores)| {
+        .and_then_commutative(|(new_version, flat, mut h, st, scores)| {
             let segs = flat.flat_diagnostics.non_data_segments();
             FlatDatasetWithKwsOutput::h_read_with_header_and_text(
                 &mut h,
-                flat.version,
+                new_version,
                 &flat.keywords.std,
                 &segs,
                 &st,
@@ -202,11 +198,8 @@ pub fn fcs_read_std_dataset(
 #[allow(clippy::too_many_arguments)]
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
-    version: Version,
+    header: &Header,
     std: &StdKeywords,
-    data_seg: RelativeSegment<DataSegmentId>,
-    analysis_seg: RelativeSegment<AnalysisSegmentId>,
-    other_segs: RelativeOtherSegments,
     dataset_offset: DatasetOffset,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
@@ -220,32 +213,13 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
-            let data_res = data_seg
-                .relative_to_abs(dataset_offset, st.file_len)
-                .into_nowarn();
-            let anal_res = analysis_seg
-                .relative_to_abs(dataset_offset, st.file_len)
-                .into_nowarn();
-            let oss_res = if let Some((segs, width)) = other_segs {
-                segs.into_iter()
-                    .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
-                    .sequence_commutative()
-                    .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
-            } else {
-                LogResult::new_ok(None)
-            };
-            data_res
-                .zip3_commutative(anal_res, oss_res)
-                .map_errors(LookupAndReadDataAnalysisError::from)
-                .map_ok_value(|(d, a, o)| (d, a, o, st, file))
-                .nowarn_into_warn()
-                .group()
-                .map_error(IOErrorGroup::Pure)
-        })
-        .and_then_commutative(|(d, a, os, st, file)| {
+            let v = header.version;
+            let d = header.segments.data;
+            let a = header.segments.analysis;
+            let os = header.segments.other.clone();
             let segs = NonDataSegments::new_no_text(d, a, os);
             let mut h = BufReader::new(file);
-            FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, version, std, &segs, &st)
+            FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, v, std, &segs, &st)
         })
         .warnings_to_pure_errors(conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
@@ -382,9 +356,6 @@ pub fn fcs_summarize(
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTOutput {
-    /// FCS version
-    pub version: Version,
-
     /// Keywords from TEXT
     pub keywords: ValidKeywords,
 
@@ -464,11 +435,8 @@ pub struct FlatDatasetWithKwsOutput {
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTDiagnostics {
-    /// Corrected offsets read from HEADER
-    pub header_segments: ParsedHeaderSegments,
-
-    /// Uncorrected offsets read from HEADER
-    pub uncorrected_header_segments: UncorrectedHeaderSegments,
+    /// HEADER as parsed from dataset in file.
+    pub header: Header,
 
     /// Supplemental TEXT offsets (corrected and uncorrected)
     ///
@@ -586,22 +554,6 @@ pub struct DatasetSummary {
 
     /// The value of $DATATYPE
     pub datatype: Option<AlphaNumType>,
-}
-
-impl FlatDatasetOutput {
-    fn summarize(self) -> DatasetSummary {
-        DatasetSummary {
-            version: self.text.version,
-            text_len: self.text.flat_diagnostics.header_segments.text.len(),
-            data_len: self.dataset.dataset_segments.data.len(),
-            analysis_len: self.dataset.dataset_segments.analysis.len(),
-            n_events: self.dataset.data.nrows(),
-            n_measurements: self.dataset.data.ncols(),
-            n_other: self.dataset.others.0.len(),
-            others_len: self.dataset.others.0.iter().map(|x| x.0.len()).sum(),
-            datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
-        }
-    }
 }
 
 /// Warning when parsing [`Header`]
@@ -1007,6 +959,25 @@ struct TrimTEXTData {
     trailing: usize,
 }
 
+impl FlatDatasetOutput {
+    fn summarize(self) -> DatasetSummary {
+        let fd = self.text.flat_diagnostics;
+        let hdr = fd.header;
+        let ds = self.dataset;
+        DatasetSummary {
+            version: hdr.version,
+            text_len: hdr.segments.text.len(),
+            data_len: ds.dataset_segments.data.len(),
+            analysis_len: ds.dataset_segments.analysis.len(),
+            n_events: ds.data.nrows(),
+            n_measurements: ds.data.ncols(),
+            n_other: ds.others.0.len(),
+            others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
+            datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
+        }
+    }
+}
+
 impl FlatDatasetWithKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
     fn h_read_with_header_and_text<C, R>(
@@ -1167,8 +1138,7 @@ impl FlatTEXTOutput {
                     .map_error(IOErrorGroup::Pure)
                     .map_ok_value(|(nextdata, (), ())| {
                         let parse = FlatTEXTDiagnostics {
-                            header_segments: header.segments,
-                            uncorrected_header_segments: header.uncorrected_segments,
+                            header,
                             supp_text: supp_text_seg,
                             nextdata,
                             delimiter: delim,
@@ -1181,7 +1151,7 @@ impl FlatTEXTOutput {
                             primary_split: prim_out,
                             supp_split: supp_out,
                         };
-                        Self::new(header.version, vkws, parse)
+                        Self::new(vkws, parse)
                     })
             })
     }
@@ -1202,8 +1172,9 @@ impl FlatTEXTOutput {
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
     {
+        let version = self.flat_diagnostics.header.version;
         let segs = self.flat_diagnostics.non_data_segments();
-        AnyCoreTEXT::parse_flat(self.version, self.keywords, &segs, st).map_ok_value(
+        AnyCoreTEXT::parse_flat(version, self.keywords, &segs, st).map_ok_value(
             |(standardized, extra, offsets, scores)| {
                 let out = StdTEXTOutput::new(
                     offsets.tot,
@@ -1236,11 +1207,8 @@ impl FlatTEXTOutput {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let hs = self.flat_diagnostics.header_segments.clone();
-        let d = hs.data;
-        let a = hs.analysis;
-        let o = hs.other;
-        AnyCoreDataset::new_from_keywords(h, self.version, self.keywords, d, a, o, st).map_ok_value(
+        let hdr = &self.flat_diagnostics.header;
+        AnyCoreDataset::new_from_keywords(h, hdr, self.keywords, st).map_ok_value(
             |(core, out, scores)| {
                 let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
                 (core, dx)
@@ -1631,7 +1599,7 @@ impl SplitTEXTOutputInner {
 impl FlatTEXTDiagnostics {
     /// Extract HEADER offset data for use in reading offsets from TEXT
     fn non_data_segments(&self) -> NonDataSegments {
-        let hs = self.header_segments.clone();
+        let hs = self.header.segments.clone();
         NonDataSegments::new(hs, self.supp_text.as_ref().copied().map(|(c, _)| c))
     }
 }

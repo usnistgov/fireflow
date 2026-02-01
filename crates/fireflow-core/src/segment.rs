@@ -32,7 +32,6 @@ use nonempty::NonEmpty;
 use num_traits::identities::Zero;
 use thiserror::Error;
 
-use std::any::type_name;
 use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::iter::repeat;
@@ -56,7 +55,6 @@ pub struct OffsetCorrection<I, S> {
 }
 
 pub type Segment<I, S, T> = OffsetSegment<I, S, T, DatasetOffset>;
-pub type RelativeSegment<I> = OffsetSegment<I, SegmentFromHeader, u64, ()>;
 
 /// A segment that is specific to a region in the FCS file.
 #[derive(Clone, Copy, new, PartialEq, Debug)]
@@ -758,12 +756,6 @@ impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetCorrection<I, S> {
     }
 }
 
-impl<I> Default for RelativeSegment<I> {
-    fn default() -> Self {
-        Self::new(InnerSegment::Empty)
-    }
-}
-
 impl<I, S, T> Default for Segment<I, S, T> {
     fn default() -> Self {
         Self::new(InnerSegment::Empty)
@@ -920,51 +912,6 @@ impl<I, S, T> Segment<I, S, T> {
         T: TryFrom<i128>,
     {
         InnerSegment::try_new::<I, S>(begin, end, conf).map(Self::new)
-    }
-}
-
-impl<I> RelativeSegment<I> {
-    #[cfg(feature = "python")]
-    fn try_new_relative(begin: u64, end: u64) -> Result<Self, RelativeSegmentError>
-    where
-        I: HasRegion,
-    {
-        let ret = if begin > end {
-            return Err(RelativeSegmentError(I::REGION));
-        } else if begin == 0 && end == 0 {
-            InnerSegment::Empty
-        } else {
-            InnerSegment::NonEmpty(NonEmptySegment::new(begin, end, ()))
-        };
-        Ok(Self::new(ret))
-    }
-
-    pub(crate) fn relative_to_abs<T>(
-        self,
-        dso: DatasetOffset,
-        fl: FileLen,
-    ) -> Result<Segment<I, SegmentFromHeader, T>, RelativeToAbsSegmentError>
-    where
-        I: HasRegion,
-        T: TryFrom<u64>,
-    {
-        let ret = match self.inner {
-            InnerSegment::Empty => InnerSegment::Empty,
-            InnerSegment::NonEmpty(s) => {
-                debug_assert!(s.begin <= s.end, "begin is not before end");
-                if s.end + u64::from(dso) >= u64::from(fl) {
-                    let b = s.begin;
-                    let e = s.end;
-                    return Err(RelativeFileLenError::new(I::REGION, b, e, dso, fl).into());
-                }
-                let err = RelativeToAbsSegmentError::Conversion(type_name::<T>());
-                let b = s.begin.try_into().map_err(|_| err)?;
-                let e = s.end.try_into().map_err(|_| err)?;
-                let seg = NonEmptySegment::new(b, e, dso);
-                InnerSegment::NonEmpty(seg)
-            }
-        };
-        Ok(Segment::new(ret))
     }
 }
 
@@ -1673,34 +1620,6 @@ pub struct OtherOffsetsNoBytesError {
     required: NonZeroU64,
 }
 
-#[derive(From, Debug, Error, Clone, Copy)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub enum RelativeToAbsSegmentError {
-    #[error("{0}")]
-    Len(RelativeFileLenError),
-    #[error("Could not convert u64 to {0}")]
-    Conversion(&'static str),
-}
-
-/// Error when converting relative segment to absolute segment
-#[derive(Debug, Error, Clone, Copy, new)]
-#[error("{region} segment ({begin}, {end}) with offset {offset} exceeds length of file {len}")]
-pub struct RelativeFileLenError {
-    region: AnyRegion,
-    begin: u64,
-    end: u64,
-    offset: DatasetOffset,
-    len: FileLen,
-}
-
-/// Error when creating a new relative segment
-#[derive(Debug, Error)]
-#[error("Begin is after end for supplied {0} offset")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct RelativeSegmentError(AnyRegion);
-
 /// Error when creating a new segment
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1956,22 +1875,10 @@ mod python {
     use crate::config::DatasetOffset;
     use crate::python::ConfigError;
 
-    use super::{
-        HasRegion, InnerSegment, NonEmptySegment, RelativeSegment, Segment, UncorrectedSegment,
-        Zero,
-    };
+    use super::{InnerSegment, NonEmptySegment, Segment, UncorrectedSegment, Zero};
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
-
-    // segments will be returned as tuples like (u32, u32) reflecting their
-    // exact representation in an FCS file
-    impl<'py, I: HasRegion> FromPyObject<'py> for RelativeSegment<I> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (begin, end): (u64, u64) = ob.extract()?;
-            Ok(Self::try_new_relative(begin, end)?)
-        }
-    }
 
     // TODO this shouldn't be necessary. The only reason this is required for
     // the python interface is because the output classes which have segments

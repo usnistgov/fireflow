@@ -1358,11 +1358,9 @@ class CoreDataset2_0(
     def from_kws(
         cls,
         path: Path,
+        header: Header,
         std: StdKeywords,
         nonstd: NonStdKeywords,
-        data_seg: Segment,
-        analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: OtherSegments | None = None,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN,
@@ -1461,11 +1459,9 @@ class CoreDataset3_0(
     def from_kws(
         cls,
         path: Path,
+        header: Header,
         std: StdKeywords,
         nonstd: NonStdKeywords,
-        data_seg: Segment,
-        analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1583,11 +1579,9 @@ class CoreDataset3_1(
     def from_kws(
         cls,
         path: Path,
+        header: Header,
         std: StdKeywords,
         nonstd: NonStdKeywords,
-        data_seg: Segment,
-        analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1707,11 +1701,9 @@ class CoreDataset3_2(
     def from_kws(
         cls,
         path: Path,
+        header: Header,
         std: StdKeywords,
         nonstd: NonStdKeywords,
-        data_seg: Segment,
-        analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-        other_segs: OtherSegments | None = None,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1918,8 +1910,7 @@ class SplitTEXTDiagnostics:
 class FlatTEXTDiagnostics:
     def __new__(
         cls,
-        header_segments: HeaderSegments,
-        uncorrected_header_segments: UncorrectedHeaderSegments,
+        header: Header,
         supp_text: tuple[Segment, Segment] | None,
         nextdata: int | None,
         delimiter: int,
@@ -1934,9 +1925,7 @@ class FlatTEXTDiagnostics:
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def header_segments(self) -> HeaderSegments: ...
-    @property
-    def uncorrected_header_segments(self) -> UncorrectedHeaderSegments: ...
+    def header(self) -> Header: ...
     @property
     def supp_text(self) -> Segment | None: ...
     @property
@@ -1964,13 +1953,10 @@ class FlatTEXTDiagnostics:
 class FlatTEXTOutput:
     def __new__(
         cls,
-        version: FCSVersion,
         kws: ValidKeywords,
         flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
-    @property
-    def version(self) -> FCSVersion: ...
     @property
     def kws(self) -> ValidKeywords: ...
     @property
@@ -2736,11 +2722,8 @@ def fcs_read_std_datasets(
 #
 def fcs_read_flat_dataset_with_keywords(
     path: Path,
-    version: FCSVersion,
+    header: Header,
     std: dict[str, str],
-    data_seg: Segment,
-    analysis_seg: Segment = pfd._DEFAULT_SEGMENT,
-    other_segs: OtherSegments | None = None,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,

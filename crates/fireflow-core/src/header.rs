@@ -12,8 +12,8 @@ use crate::logging::{
 use crate::segment::{
     GenericSegment, GuessOtherWidthError, HasRegion, HasSource, HeaderAnalysisSegment,
     HeaderDataSegment, HeaderSegment, HeaderSegmentError, OtherSegment, OtherSegment20,
-    OtherSegmentId, PrimaryTextSegment, RelativeSegment, Segment, SegmentOverlapError,
-    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment, UncorrectedSegment,
+    PrimaryTextSegment, Segment, SegmentOverlapError, SupplementalTextSegment, TEXTAnalysisSegment,
+    TEXTDataSegment, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -116,7 +116,6 @@ pub type ParsedHeaderSegments = HeaderSegments<ParsedOtherSegments>;
 pub type WriteHeaderSegments<T> = HeaderSegments<WriteOtherSegments<T>>;
 
 pub type ParsedOtherSegments = Option<(NonEmpty<OtherSegment<UintSpacePad20>>, OtherWidth)>;
-pub type RelativeOtherSegments = Option<(NonEmpty<RelativeSegment<OtherSegmentId>>, OtherWidth)>;
 pub type WriteOtherSegments<T> = Vec<OtherSegment<T>>;
 
 /// The uncorrected segments from the HEADER

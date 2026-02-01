@@ -17,8 +17,8 @@ use crate::data::{
     ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, ParsedOtherSegments,
-    RelativeOtherSegments, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -30,11 +30,10 @@ use crate::logging::{
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
-    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderAnalysisSegment,
-    HeaderDataSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    NonDataSegments, OptSegmentWithDefaultWarning, OtherSegment20, RelativeSegment,
-    RelativeToAbsSegmentError, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
-    SegmentMismatchWarning, UncorrectedSegment,
+    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId,
+    KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, NonDataSegments,
+    OptSegmentWithDefaultWarning, OtherSegment20, ReqSegmentWithDefaultError,
+    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -541,11 +540,8 @@ impl AnyCoreDataset {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new_from_keywords<C, R>(
         h: &mut BufReader<R>,
-        version: Version,
+        header: &Header,
         kws: ValidKeywords,
-        data_seg: HeaderDataSegment,
-        analysis_seg: HeaderAnalysisSegment,
-        other_segs: ParsedOtherSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput, Option<KeywordVersionScores>),
@@ -561,7 +557,11 @@ impl AnyCoreDataset {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let segs = NonDataSegments::new_no_text(data_seg, analysis_seg, other_segs);
+        let version = header.version;
+        let d = header.segments.data;
+        let a = header.segments.analysis;
+        let os = header.segments.other.clone();
+        let segs = NonDataSegments::new_no_text(d, a, os);
 
         macro_rules! go {
             ($t:ident, $s:expr) => {
@@ -4796,10 +4796,8 @@ where
 {
     pub fn new_from_keywords<C>(
         p: &PathBuf,
+        header: &Header,
         kws: ValidKeywords,
-        data_seg: RelativeSegment<DataSegmentId>,
-        analysis_seg: RelativeSegment<AnalysisSegmentId>,
-        other_segs: RelativeOtherSegments,
         dataset_offset: DatasetOffset,
         conf: &C,
     ) -> WarningsAndIOGroupResult<
@@ -4825,29 +4823,9 @@ where
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(st, file)| {
-                let data_res = data_seg
-                    .relative_to_abs(dataset_offset, st.file_len)
-                    .into_nowarn();
-                let anal_res = analysis_seg
-                    .relative_to_abs(dataset_offset, st.file_len)
-                    .into_nowarn();
-                let oss_res = if let Some((segs, width)) = other_segs {
-                    segs.into_iter()
-                        .map(|s| s.relative_to_abs(dataset_offset, st.file_len).into_log())
-                        .sequence_commutative()
-                        .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
-                } else {
-                    LogResult::new_ok(None)
-                };
-                data_res
-                    .zip3_commutative(anal_res, oss_res)
-                    .map_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .map_ok_value(|(d, a, o)| (d, a, o, st, file))
-                    .nowarn_into_warn()
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-            })
-            .and_then_commutative(|(d, a, os, st, file)| {
+                let d = header.segments.data;
+                let a = header.segments.analysis;
+                let os = header.segments.other.clone();
                 let segs = NonDataSegments::new_no_text(d, a, os);
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
@@ -9524,7 +9502,6 @@ pub enum StdDatasetFromFlatTextErrorInner {
     TEXT(StdTEXTFromFlatTEXTErrorInner),
     Dataframe(ReadDataframeError),
     Offsets(LookupTEXTOffsetsError),
-    Segment(RelativeToAbsSegmentError),
     Warn(StdDatasetFromFlatTEXTWarning),
 }
 
@@ -9822,7 +9799,6 @@ pub enum LookupAndReadDataAnalysisError {
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),
     Dataframe(ReadDataframeError),
-    Segment(RelativeToAbsSegmentError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
 

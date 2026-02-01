@@ -457,11 +457,8 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let conf_path = config_path("ReadFlatDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let version_arg = DocArg::new_version_param();
+    let header_arg = DocArg::new_header_param();
     let std_arg = DocArg::new_std_keywords_param();
-    let data_arg = DocArg::new_rel_data_seg_param();
-    let analysis_arg = DocArg::new_rel_analysis_seg_param();
-    let other_arg = DocArg::new_rel_other_segs_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
@@ -483,11 +480,8 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
 
     let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
-        .arg(version_arg)
+        .arg(header_arg)
         .arg(std_arg)
-        .arg(data_arg)
-        .arg(analysis_arg)
-        .arg(other_arg)
         .args(offset_args)
         .args(layout_args)
         .args(data_args)
@@ -509,14 +503,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offset, layout, data, shared };
             let ret = #fun_path(
-                &path,
-                version,
-                &std,
-                data_seg,
-                analysis_seg,
-                other_segs.map(|(os, w)| (os.0, w)),
-                dataset_offset,
-                &conf
+                &path, &header.into(), &std, dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
         }
@@ -657,22 +644,20 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let version = DocArgROIvar::new_version_ivar();
-
     let kws =
         DocArg::new_valid_keywords_param().into_ro(|_, _| quote!(self.0.keywords.clone().into()));
 
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
 
-    let args = [version, kws, flat];
+    let args = [kws, flat];
 
     let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(version, kws.into(), flat_diagnostics.into()).into()
+                #path::new(kws.into(), flat_diagnostics.into()).into()
             }
         }
     };
@@ -1099,19 +1084,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let segments = DocArgROIvar::new_ivar_ro(
-        "header_segments",
-        PyClass::new_py(["api"], "HeaderSegments"),
-        "Corrected segments from *HEADER*.",
-        |_, _| quote!(self.0.header_segments.clone().into()),
-    );
-
-    let uncorrected_segments = DocArgROIvar::new_ivar_ro(
-        "uncorrected_header_segments",
-        PyClass::new_py(["api"], "UncorrectedHeaderSegments"),
-        "Uncorrected segments from *HEADER*.",
-        |_, _| quote!(self.0.uncorrected_header_segments.clone().into()),
-    );
+    let header = DocArg::new_header_param().into_ro(|_, _| quote!(self.0.header.clone().into()));
 
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
@@ -1202,8 +1175,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     );
 
     let args = [
-        segments,
-        uncorrected_segments,
+        header,
         supp,
         nextdata,
         delim,
@@ -2824,18 +2796,13 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .collect();
 
     let path_param = DocArg::new_path_param(true);
-
+    let header_param = DocArg::new_header_param();
     let std_param = DocArg::new_param("std", PyDict::new_std_keywords(), "Standard keywords.");
-
     let nonstd_param = DocArg::new_param(
         "nonstd",
         PyDict::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
-
-    let data_seg_param = DocArg::new_rel_data_seg_param();
-    let analysis_seg_param = DocArg::new_rel_analysis_seg_param();
-    let other_segs_param = DocArg::new_rel_other_segs_param();
     let dataset_offset_param = DocArg::new_dataset_offset_param();
 
     let exc0 = PyException::new_deprecated();
@@ -2851,11 +2818,9 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_fun("Make new instance from keywords.")
         .arg(path_param)
+        .arg(header_param)
         .arg(std_param)
         .arg(nonstd_param)
-        .arg(data_seg_param)
-        .arg(analysis_seg_param)
-        .arg(other_segs_param)
         .args(config_args)
         .arg(dataset_offset_param)
         .returns(
@@ -2905,10 +2870,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let conf = #core_conf { offset, standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
+                    &header.into(),
                     kws,
-                    data_seg,
-                    analysis_seg,
-                    other_segs.map(|(os, w)| (os.0, w)),
                     dataset_offset,
                     &conf
                 ).py_resolve_commutative()?;
@@ -6430,16 +6393,6 @@ impl<E: From<PyException>> PyTuple<E> {
             .rstype(keyword_path("Display"))
     }
 
-    fn new_relative_segment(n: &str) -> Self {
-        let t = format_ident!("{n}");
-        let i = quote!(fireflow_core::segment::#t);
-        let p = parse_quote!(fireflow_core::segment::RelativeSegment<#i>);
-        let desc = "if %x has offsets which exceed the end of the file or \
-                    are inverted (begin after end)";
-        let exc = PyException::new_value().desc(desc);
-        Self::new2(vec![RsInt::U64; 2]).exc(exc).rstype(p)
-    }
-
     fn new_uncorrected_segment() -> Self {
         let p = parse_quote!(fireflow_core::segment::UncorrectedSegment);
         Self::new2(vec![RsInt::I128; 2]).rstype(p)
@@ -7481,9 +7434,9 @@ impl DocArgParam {
         Self::new_param("path", pt, format!("Path to be {s}."))
     }
 
-    fn new_version_param() -> Self {
-        let desc = "Version to use when parsing *TEXT*.";
-        Self::new_param("version", PyLiteral::new_version(), desc)
+    fn new_header_param() -> Self {
+        let d = "The *HEADER* from parsed file";
+        Self::new_param("header", PyClass::new_py(["api"], "Header"), d)
     }
 
     fn new_std_keywords_param() -> Self {
@@ -7545,27 +7498,6 @@ impl DocArgParam {
     fn new_text_seg_param() -> Self {
         let desc = "The primary *TEXT* segment from *HEADER*.";
         Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
-    }
-
-    fn new_rel_data_seg_param() -> Self {
-        let desc = "The *DATA* segment from *HEADER*.";
-        let seg = PyTuple::new_relative_segment("DataSegmentId");
-        Self::new_param("data_seg", seg, desc)
-    }
-
-    fn new_rel_analysis_seg_param() -> Self {
-        let desc = "The *ANALYSIS* segment from *HEADER*.";
-        let seg = PyTuple::new_relative_segment("AnalysisSegmentId");
-        Self::new_param("analysis_seg", seg, desc).def_auto()
-    }
-
-    fn new_rel_other_segs_param() -> Self {
-        let seg = PyTuple::new_relative_segment("OtherSegmentId");
-        let width = PyInt::new_other_width();
-        let rstype = seg.rstype.clone().expect("no rstype for OTHER seg");
-        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(seg, &rstype)).add(width));
-        let d = "The *OTHER* segments from *HEADER*.";
-        Self::new_param("other_segs", pt, d).def_auto()
     }
 
     fn new_data_seg_param(src: SegmentSrc) -> Self {

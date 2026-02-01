@@ -899,26 +899,3 @@ fn supp_text_len() -> u64 {
 fn offsets_len() -> u64 {
     data_len() + analysis_len() + supp_text_len() + nextdata_len()
 }
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{HeaderSegments, UintSpacePad20};
-
-    use pyo3::prelude::*;
-    use pyo3::types::PyDict;
-
-    impl<'py> IntoPyObject<'py> for HeaderSegments<UintSpacePad20> {
-        type Target = PyDict;
-        type Output = Bound<'py, PyDict>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let dict = PyDict::new(py);
-            dict.set_item("text", self.text.into_pyobject(py)?)?;
-            dict.set_item("data", self.data.into_pyobject(py)?)?;
-            dict.set_item("analysis", self.analysis.into_pyobject(py)?)?;
-            dict.set_item("other", self.other.into_pyobject(py)?)?;
-            Ok(dict)
-        }
-    }
-}

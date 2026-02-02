@@ -1039,6 +1039,7 @@ impl<I, S, T> Segment<I, S, T> {
     }
 
     /// Convert offsets to u64
+    #[cfg(feature = "python")]
     pub(crate) fn as_u64(&self) -> Segment<I, S, u64>
     where
         T: Into<u64> + Copy,

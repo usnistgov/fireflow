@@ -104,7 +104,7 @@ impl<T> TrimmedKeyword<T> {
     }
 }
 
-impl_kind1!(StrDelimOutputFamily, TrimmedKeyword);
+impl_kind1!(pub StrDelimOutputFamily, TrimmedKeyword);
 
 impl_functor_once!(
     TrimmedKeyword,
@@ -165,7 +165,7 @@ impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
     }
 }
 
-impl_kind2!(DiagnosedOutputFamily, DiagnosedKeyword);
+impl_kind2!(pub DiagnosedOutputFamily, DiagnosedKeyword);
 
 impl<A, B> BifunctorOnce<A, B> for DiagnosedKeyword<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {

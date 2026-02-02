@@ -388,8 +388,8 @@ pub trait Pointed<A>: IsKind1 {
 
 #[macro_export]
 macro_rules! impl_kind1 {
-    ($f:ident, $t:ident) => {
-        pub struct $f;
+    ($vis:vis$f:ident, $t:ident) => {
+        $vis struct $f;
 
         impl $crate::Kind1 for $f {
             type Type<T> = $t<T>;
@@ -403,8 +403,8 @@ macro_rules! impl_kind1 {
 
 #[macro_export]
 macro_rules! impl_kind2 {
-    ($f:ident, $t:ident) => {
-        pub struct $f;
+    ($vis:vis$f:ident, $t:ident) => {
+        $vis struct $f;
 
         impl type_families::Kind2 for $f {
             type Type<A, B> = $t<A, B>;
@@ -418,8 +418,8 @@ macro_rules! impl_kind2 {
 
 pub struct HashMapFamily<K, S>(PhantomData<K>, PhantomData<S>);
 
-impl_kind1!(OptFamily, Option);
-impl_kind1!(VecFamily, Vec);
+impl_kind1!(pub OptFamily, Option);
+impl_kind1!(pub VecFamily, Vec);
 
 impl<K, S> Kind1 for HashMapFamily<K, S> {
     type Type<X> = HashMap<K, X, S>;

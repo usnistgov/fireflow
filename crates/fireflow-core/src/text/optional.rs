@@ -30,7 +30,7 @@ impl<T> IntoIterator for Identity<T> {
     }
 }
 
-impl_kind1!(IdFamily, Identity);
+impl_kind1!(pub IdFamily, Identity);
 
 impl_functor_once!(Identity, self, mut f, Identity(f(self.0)));
 
@@ -53,7 +53,7 @@ impl<T> IntoIterator for Nothing<T> {
     }
 }
 
-impl_kind1!(NullFamily, Nothing);
+impl_kind1!(pub NullFamily, Nothing);
 
 impl<T> Default for Nothing<T> {
     fn default() -> Self {

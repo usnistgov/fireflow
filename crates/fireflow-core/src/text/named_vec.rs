@@ -99,14 +99,14 @@ pub enum Element<U, V> {
     NonCenter(V),
 }
 
-impl_kind2!(ElementFamily, Element);
+impl_kind2!(pub ElementFamily, Element);
 
 /// Standalone wrapper representing a center value in [`NamedVec`]
 #[derive(Clone, From, Into)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct NonCenterElement<V>(pub Element<(), V>);
 
-impl_kind1!(NonCenterElementFamily, NonCenterElement);
+impl_kind1!(pub NonCenterElementFamily, NonCenterElement);
 impl_functor_once!(
     NonCenterElement,
     self,

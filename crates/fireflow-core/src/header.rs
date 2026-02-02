@@ -29,7 +29,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use type_families::{ApplyOnce as _, impl_functor_once, impl_kind1};
 
-use derive_more::{AsRef, Display, From};
+use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
@@ -92,18 +92,16 @@ impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
 /// The segments from the HEADER
-#[derive(Clone, PartialEq, AsRef, new)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct HeaderSegments<O> {
     pub text: PrimaryTextSegment,
-    #[as_ref(HeaderDataSegment)]
     pub data: HeaderDataSegment,
-    #[as_ref(HeaderAnalysisSegment)]
     pub analysis: HeaderAnalysisSegment,
     pub other: O,
 }
 
-impl_kind1!(HeaderSegmentsFamily, HeaderSegments);
+impl_kind1!(pub HeaderSegmentsFamily, HeaderSegments);
 
 impl_functor_once!(
     HeaderSegments,

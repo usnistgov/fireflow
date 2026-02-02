@@ -52,7 +52,6 @@ use thiserror::Error;
 use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
-use std::iter::once;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
@@ -217,7 +216,9 @@ pub fn fcs_read_flat_dataset_with_keywords(
             let d = header.segments.data;
             let a = header.segments.analysis;
             let os = header.segments.other.clone();
-            let segs = NonDataSegments::new_no_text(d, a, os);
+            let ud = header.uncorrected_segments.data;
+            let ua = header.uncorrected_segments.analysis;
+            let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
             let mut h = BufReader::new(file);
             FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, v, std, &segs, &st)
         })
@@ -1600,7 +1601,10 @@ impl FlatTEXTDiagnostics {
     /// Extract HEADER offset data for use in reading offsets from TEXT
     fn non_data_segments(&self) -> NonDataSegments {
         let hs = self.header.segments.clone();
-        NonDataSegments::new(hs, self.supp_text.as_ref().copied().map(|(c, _)| c))
+        let supp = self.supp_text.as_ref().copied().map(|(c, _)| c);
+        let ud = self.header.uncorrected_segments.data;
+        let ua = self.header.uncorrected_segments.analysis;
+        NonDataSegments::new(hs, supp, ud, ua)
     }
 }
 
@@ -1947,7 +1951,8 @@ where
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
             match SupplementalTextSegmentId::with_req_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(Some(seg)),
-                Err((e0, e1)) => {
+                Err(es) => {
+                    let (e0, e1) = es.split();
                     let flag = conf.allow_missing_supp_text;
                     SwitchableErrorsResult::new_deferred_switchable3(None, e0, flag)
                         .extend_deferred_switchable_errors3(e1)
@@ -1961,9 +1966,9 @@ where
             let pair = SupplementalTextSegmentId::get_opt_pair(kws);
             match SupplementalTextSegmentId::with_opt_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(seg),
-                Err((e0, e1)) => {
+                Err(es) => {
                     let mut res = DeferredWarningsAndErrors::new_ok(None);
-                    res.extend_commutative_warnings(once(e0).chain(e1));
+                    res.extend_commutative_warnings(es);
                     res.map_commutative_warnings(STextSegmentWarning::from)
                 }
             }

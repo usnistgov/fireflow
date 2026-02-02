@@ -391,7 +391,7 @@ pub struct NewLayout<T> {
     pub truncated_columns: Vec<Option<Range>>,
 }
 
-impl_kind1!(NewLayoutFamily, NewLayout);
+impl_kind1!(pub NewLayoutFamily, NewLayout);
 
 impl_functor_once!(
     NewLayout,
@@ -445,7 +445,7 @@ pub struct ConvertedRange<T> {
     pub(crate) non_truncated: Option<Range>,
 }
 
-impl_kind1!(ConvertedRangeFamily, ConvertedRange);
+impl_kind1!(pub ConvertedRangeFamily, ConvertedRange);
 
 impl_functor_once!(
     ConvertedRange,

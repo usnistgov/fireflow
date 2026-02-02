@@ -468,7 +468,7 @@ impl<E> FunctorOnce<E> for ImpureError<E> {
     }
 }
 
-impl_kind1!(ImpureErrorFamily, ImpureError);
+impl_kind1!(pub ImpureErrorFamily, ImpureError);
 
 /// Type for IOErrorGroup
 pub struct IOErrorGroupFamily<G>(PhantomData<G>);

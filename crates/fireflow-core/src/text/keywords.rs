@@ -1991,7 +1991,7 @@ pub struct IndexPair<I> {
     pub y: I,
 }
 
-impl_kind1!(IndexPairFamily, IndexPair);
+impl_kind1!(pub IndexPairFamily, IndexPair);
 impl_functor!(IndexPair, self, mut f, IndexPair::new(f(self.x), f(self.y)));
 
 impl<I> IndexPair<I> {

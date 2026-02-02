@@ -561,7 +561,11 @@ impl AnyCoreDataset {
         let d = header.segments.data;
         let a = header.segments.analysis;
         let os = header.segments.other.clone();
-        let segs = NonDataSegments::new_no_text(d, a, os);
+        let ud = header.uncorrected_segments.data;
+        let ua = header.uncorrected_segments.analysis;
+        // TODO technically we should include supp text offsets here too so all
+        // are considered when ensuring that the data segments don't overlap.
+        let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
 
         macro_rules! go {
             ($t:ident, $s:expr) => {
@@ -4826,7 +4830,9 @@ where
                 let d = header.segments.data;
                 let a = header.segments.analysis;
                 let os = header.segments.other.clone();
-                let segs = NonDataSegments::new_no_text(d, a, os);
+                let ud = header.uncorrected_segments.data;
+                let ua = header.uncorrected_segments.analysis;
+                let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
                 let mut h = BufReader::new(file);
                 Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
             })

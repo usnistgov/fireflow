@@ -1323,17 +1323,20 @@ pub enum AllowHeaderTEXTOffsetMismatch {
 pub struct AllowHeaderTEXTOffsetMismatchError;
 
 impl AllowHeaderTEXTOffsetMismatch {
-    pub(crate) fn into_tri_flag(self) -> DummyTriFlag {
-        let ret = match self {
-            Self::Error => TriFlag::False,
-            Self::HeaderWarn | Self::TextWarn => TriFlag::True,
-            Self::HeaderSilent | Self::TextSilent => TriFlag::Silent,
-        };
-        ret.into()
-    }
-
-    pub(crate) fn choose_header(self) -> bool {
-        matches!(self, Self::HeaderWarn | Self::HeaderSilent)
+    /// Return bool matrix representing chosen segment and warning.
+    ///
+    /// First bool is true if we want HEADER, otherwise TEXT. Second boolean
+    /// is true if we want a warning, false for no warning.
+    ///
+    /// None means throw an error and none of the above matters.
+    pub(crate) fn is_warning(self) -> Option<(bool, bool)> {
+        match self {
+            Self::Error => None,
+            Self::HeaderWarn => Some((true, true)),
+            Self::HeaderSilent => Some((true, false)),
+            Self::TextWarn => Some((false, true)),
+            Self::TextSilent => Some((false, false)),
+        }
     }
 }
 

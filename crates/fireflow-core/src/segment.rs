@@ -70,8 +70,9 @@ pub struct OffsetSegment<I, S, T, O> {
 /// Segment offsets as read straight from the file with no corrections.
 ///
 /// Useful for diagnostics.
-#[derive(Clone, Copy, PartialEq, new)]
+#[derive(Clone, Copy, PartialEq, Display, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[display("({begin}, {end})")]
 pub struct UncorrectedSegment {
     pub begin: i128,
     pub end: i128,
@@ -525,71 +526,97 @@ where
         Self::E: Copy,
     {
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let (default, uncorr_default) = Self::segment_pair(segs);
-        let header_seg = default.into_any();
+        let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
+        let header_pair = (header_seg.into_any(), None);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
 
-        match pair {
-            Ok((x0, x1)) => {
-                if i128::from(x0) == uncorr_default.begin && i128::from(x1) == uncorr_default.end {
-                    LogResult::new_ok((default.into_any(), None))
+        let default_warning = || {
+            let w = ReqSegmentWithDefaultWarning::from(SegmentDefaultWarning::default());
+            LogResult::new_ok(header_pair).set_commutative_warnings(vec![w])
+        };
+
+        let pair_to_text = |uncorr_txt: UncorrectedSegment, mismatch_warn| {
+            let seg_conf = NewSegmentConfig::from_read_config(corr, st);
+            let seg_res = Segment::try_new(uncorr_txt.begin, uncorr_txt.end, &seg_conf)
+                .map_err(ReqSegmentError::Segment);
+            match seg_res {
+                Ok(text_seg) => {
+                    let mut res = segs
+                        .validate::<_, Self::OtherDataId>(&text_seg)
+                        .nowarn_into_switchable3(missing_flag)
+                        .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
+                        .switchable_into_commutative()
+                        .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
+                        .set_ok_value((text_seg.into_any(), Some(uncorr_txt)));
+                    res.extend_commutative_warnings(mismatch_warn);
+                    res
+                }
+                Err(e) => default_warning().extend_warnings_or_errors3(
+                    Some(ReqSegmentWithDefaultErrorInner::from(e)),
+                    |_| (),
+                    |()| (),
+                    ReqSegmentWithDefaultWarning::Error,
+                    |x| x,
+                    missing_flag,
+                ),
+            }
+        };
+
+        let choose = |uncorr_txt| {
+            if header_seg.is_empty() {
+                // HEADER is empty, ignore the mismatch and get TEXT offsets
+                // without mismatch warning
+                pair_to_text(uncorr_txt, None)
+            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
+                // Not an error, choose offset and optionally throw warning
+                let e = SegmentMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
+                let w = do_warn
+                    .then_some(e)
+                    .map(ReqSegmentWithDefaultErrorInner::from)
+                    .map(ReqSegmentWithDefaultWarning::from);
+                if choose_header {
+                    // We choose HEADER, return it possibly with warning
+                    let ws = w.into_iter().collect::<Vec<_>>();
+                    LogResult::new_ok(header_pair).set_commutative_warnings(ws)
                 } else {
-                    let pair_res =
-                        Self::pair_to_segment(x0, x1, corr, st).map_err(ReqSegmentError::Segment);
-                    match pair_res {
-                        Ok((text_seg, uncorr_seg)) => {
-                            let tri_flag = mismatch_flag.into_tri_flag();
-                            let val_res = segs
-                                .validate::<_, Self::OtherDataId>(&text_seg)
-                                .nowarn_into_switchable3(missing_flag)
-                                .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                                .switchable_into_commutative();
-                            let (seg, warn) = default.unless(text_seg);
-                            let choosen_seg = if mismatch_flag.choose_header() {
-                                default.into_any()
-                            } else {
-                                seg
-                            };
-                            let mismatch_res = SwitchableErrorsResult::new_switchable_maybe3(
-                                choosen_seg,
-                                (),
-                                warn,
-                                tri_flag,
-                            )
-                            .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                            .switchable_into_commutative();
-                            val_res
-                                .zip_commutative(mismatch_res)
-                                .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                                .map_ok_value(|((), ret)| (ret, Some(uncorr_seg)))
-                        }
-                        Err(e) => {
-                            let mut res =
-                                SwitchableErrorsResult::new_switchable3((), (), e, missing_flag)
-                                    .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                                    .switchable_into_commutative()
-                                    .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                                    .set_ok_value((header_seg, None));
-                            let w = SegmentDefaultWarning::default().into();
-                            res.eval_warning(|_| Some(w));
-                            res
-                        }
-                    }
+                    // We choose TEXT, convert offsets to segment, validate, and
+                    // possibly attach warning for mismatch
+                    pair_to_text(uncorr_txt, w)
+                }
+            } else {
+                // Error for mismatch, don't bother processing offsets
+                let e = SegmentMismatchError::new(uncorr_hdr, uncorr_txt, None);
+                WarningsAndErrorsResult::new_err(e).map_errors(ReqSegmentWithDefaultError::from)
+            }
+        };
+
+        match pair {
+            // TEXT offsets found, compare with HEADER
+            Ok((x0, x1)) => {
+                let uncorr_txt = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
+                if uncorr_txt == uncorr_hdr {
+                    // Uncorrected offsets are identical, not a mismatch
+                    LogResult::new_ok(header_pair)
+                } else {
+                    // Offsets not identical, choose one
+                    choose(uncorr_txt)
                 }
             }
+            // TEXT offsets not found, throw error or warning depending on
+            // if we want to enforce required offsets
             Err(es) => {
-                let (e0, e1) = es.split();
-                let mut res = SwitchableErrorsResult::new_switchable3((), (), e0, missing_flag)
-                    .extend_deferred_switchable_errors3(e1)
-                    .map_switchable_errors(ReqSegmentError::Key)
-                    .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                    .switchable_into_commutative()
-                    .map_commutative_warnings(ReqSegmentWithDefaultWarning_::from)
-                    .set_ok_value((header_seg, None));
-                let w = SegmentDefaultWarning::default().into();
-                res.eval_warning(|_| Some(w));
-                res
+                let es0 = es
+                    .fmap(ReqSegmentError::Key)
+                    .fmap(ReqSegmentWithDefaultErrorInner::from);
+                default_warning().extend_warnings_or_errors3(
+                    es0,
+                    |_| (),
+                    |()| (),
+                    ReqSegmentWithDefaultWarning::Error,
+                    |e| e,
+                    missing_flag,
+                )
             }
         }
     }
@@ -717,63 +744,81 @@ where
         Self::E: Copy,
     {
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let (default, uncorr_default) = Self::segment_pair(segs);
-        let header_seg = default.into_any();
+        let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
+        let header_pair = (header_seg.into_any(), None);
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::Drop);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
 
-        match pair {
-            Ok(None) => LogResult::new_ok((default.into_any(), None)),
-            Ok(Some((x0, x1))) => {
-                if i128::from(x0) == uncorr_default.begin && i128::from(x1) == uncorr_default.end {
-                    LogResult::new_ok((default.into_any(), None))
+        let pair_to_text = |uncorr_txt: UncorrectedSegment, mismatch_warn| {
+            let seg_conf = NewSegmentConfig::from_read_config(corr, st);
+            let seg_res = Segment::try_new(uncorr_txt.begin, uncorr_txt.end, &seg_conf)
+                .map_err(OptSegmentError::Segment);
+            match seg_res {
+                Ok(text_seg) => {
+                    let mut res = segs
+                        .validate::<_, Self::OtherDataId>(&text_seg)
+                        .nowarn_into_switchable(drop_flag)
+                        .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                        .switchable_into_commutative()
+                        .set_ok_value((text_seg.into_any(), Some(uncorr_txt)));
+                    res.extend_commutative_warnings(mismatch_warn);
+                    res
+                }
+                Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
+                    .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                    .switchable_into_commutative()
+                    .set_ok_value(header_pair),
+            }
+        };
+
+        let choose = |uncorr_txt| {
+            if header_seg.is_empty() {
+                // HEADER is empty, ignore the mismatch and get TEXT offsets
+                // without mismatch warning
+                pair_to_text(uncorr_txt, None)
+            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
+                // Not an error, figure out which segment we want
+                let me = SegmentMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
+                let w = do_warn
+                    .then_some(me)
+                    .map(OptSegmentWithDefaultWarning::from);
+                if choose_header {
+                    // We choose HEADER, return it possibly with warning
+                    let ws = w.into_iter().collect::<Vec<_>>();
+                    LogResult::new_ok(header_pair).set_commutative_warnings(ws)
                 } else {
-                    let pair_res =
-                        Self::pair_to_segment(x0, x1, corr, st).map_err(OptSegmentError::Segment);
-                    match pair_res {
-                        Ok((text_seg, uncorr_seg)) => {
-                            let tri_flag = mismatch_flag.into_tri_flag();
-                            let val_res = segs
-                                .validate::<_, Self::OtherDataId>(&text_seg)
-                                .nowarn_into_switchable(drop_flag)
-                                .map_switchable_errors(OptSegmentWithDefaultWarning::from)
-                                .switchable_into_commutative();
-                            let (seg, warn) = default.unless(text_seg);
-                            let chosen_seg = if mismatch_flag.choose_header() {
-                                default.into_any()
-                            } else {
-                                seg
-                            };
-                            let mismatch_res = SwitchableErrorsResult::new_switchable_maybe3(
-                                chosen_seg,
-                                (),
-                                warn,
-                                tri_flag,
-                            )
-                            .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
-                            .switchable_into_commutative()
-                            .map_commutative_warnings(OptSegmentWithDefaultWarning::from);
-                            val_res
-                                .zip_commutative(mismatch_res)
-                                .map_ok_value(|((), ret)| (ret, Some(uncorr_seg)))
-                        }
-                        Err(e) => SwitchableErrorsResult::new_switchable(
-                            (header_seg, None),
-                            (),
-                            e,
-                            drop_flag,
-                        )
-                        .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
-                        .switchable_into_commutative(),
-                    }
+                    // We choose TEXT, create new TEXT segment from pairs,
+                    // validate it, and possibly attach a warning
+                    pair_to_text(uncorr_txt, w)
+                }
+            } else {
+                // Error, don't bother with any segment processing
+                let e = SegmentMismatchError::new(uncorr_hdr, uncorr_txt, None);
+                WarningsAndErrorsResult::new_err(e).map_errors(OptSegmentWithDefaultWarning::from)
+            }
+        };
+
+        match pair {
+            // No TEXT segment found, but no errors either, just use HEADER
+            Ok(None) => LogResult::new_ok(header_pair),
+            // TEXT offsets found without errors, compare with HEADER
+            Ok(Some((x0, x1))) => {
+                let uncorr_txt = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
+                if uncorr_txt == uncorr_hdr {
+                    // Uncorrected HEADER and TEXT are identical, just use HEADER
+                    LogResult::new_ok(header_pair)
+                } else {
+                    // Segments are mismatched, figure out what to do
+                    choose(uncorr_txt)
                 }
             }
+            // TEXT pairs found with errors, use HEADER
             Err(es) => {
                 let (e0, e1) = es.split();
                 SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
-                    .set_ok_value((header_seg, None))
+                    .set_ok_value(header_pair)
                     .map_switchable_errors(OptSegmentError::Key)
                     .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                     .switchable_into_commutative()
@@ -904,6 +949,13 @@ impl<I, S, T> Default for Segment<I, S, T> {
 }
 
 impl<I, S, T> Segment<I, S, T> {
+    pub(crate) fn into_any(self) -> AnySegment<I>
+    where
+        T: Into<u64> + Copy,
+    {
+        Segment::new(self.inner.as_u64())
+    }
+
     /// Return the first and last byte with offset or `None` if empty
     pub(crate) fn try_coords(&self) -> Option<(T, T, DatasetOffset)>
     where
@@ -1036,15 +1088,15 @@ impl<I, S, T> Segment<I, S, T> {
         })
     }
 
-    fn fmt_pair(&self) -> String
-    where
-        T: Default + Copy + fmt::Display,
-    {
-        let (b, e) = self
-            .try_coords()
-            .map_or((T::default(), T::default()), |(a, b, _)| (a, b));
-        format!("{b},{e}")
-    }
+    // fn fmt_pair(&self) -> String
+    // where
+    //     T: Default + Copy + fmt::Display,
+    // {
+    //     let (b, e) = self
+    //         .try_coords()
+    //         .map_or((T::default(), T::default()), |(a, b, _)| (a, b));
+    //     format!("{b},{e}")
+    // }
 
     fn try_new(begin: i128, end: i128, conf: &NewSegmentConfig<I, S>) -> Result<Self, SegmentError>
     where
@@ -1189,24 +1241,17 @@ impl<I: Copy> HeaderSegment<I> {
             .map_err(IOErrorGroup::Pure)
     }
 
-    pub(crate) fn unless(
-        self,
-        other: TEXTSegment<I>,
-    ) -> (AnySegment<I>, Option<SegmentMismatchWarning<I>>) {
-        if other.inner.as_u64() != self.inner.as_u64() && !self.inner.is_empty() {
-            let e = SegmentMismatchWarning {
-                header: self,
-                text: other,
-            };
-            (self.into_any(), Some(e))
-        } else {
-            (Segment::new(other.inner.as_u64()), None)
-        }
-    }
-
-    pub(crate) fn into_any(self) -> AnySegment<I> {
-        Segment::new(self.inner.as_u64())
-    }
+    // pub(crate) fn unless(
+    //     self,
+    //     other: TEXTSegment<I>,
+    // ) -> (AnySegment<I>, Option<SegmentMismatchWarning<I>>) {
+    //     if other.inner.as_u64() != self.inner.as_u64() && !self.inner.is_empty() {
+    //         let e = SegmentMismatchWarning::new(self, other);
+    //         (self.into_any(), Some(e))
+    //     } else {
+    //         (Segment::new(other.inner.as_u64()), None)
+    //     }
+    // }
 
     fn try_new_squish(
         begin: i128,
@@ -1865,20 +1910,21 @@ impl<I> Default for SegmentDefaultWarning<I> {
 }
 
 /// Error when segments from TEXT and HEADER do not match
-#[derive(Debug, Error, Display)]
+#[derive(Debug, Error, Display, new)]
 #[display(bound(I: HasRegion))]
 #[display(
-    "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
-    header.as_u64().fmt_pair(),
-    text.as_u64().fmt_pair(),
+    "segments differ in HEADER {header} and TEXT {text} for {}{}",
     I::REGION,
+    self.use_header.map_or("", |x| if x { ", using former" } else { ", using latter" })
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
-pub struct SegmentMismatchWarning<I> {
-    header: HeaderSegment<I>,
-    text: TEXTSegment<I>,
+pub struct SegmentMismatchError<I> {
+    header: UncorrectedSegment,
+    text: UncorrectedSegment,
+    use_header: Option<bool>,
+    _region: PhantomData<I>,
 }
 
 /// Error when parsing required segments from TEXT when HEADER is allowed to override
@@ -1887,7 +1933,7 @@ pub struct SegmentMismatchWarning<I> {
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
-    Mismatch(SegmentMismatchWarning<I>),
+    Mismatch(SegmentMismatchError<I>),
     Validation(TEXTSegmentOverlapError<I>),
 }
 
@@ -1897,7 +1943,7 @@ pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
     Error(ReqSegmentWithDefaultErrorInner<I, B, E>),
-    Lookup(SegmentDefaultWarning<I>),
+    Default(SegmentDefaultWarning<I>),
 }
 
 /// Warning when parsing optional segments from TEXT when HEADER is allowed to override
@@ -1906,7 +1952,7 @@ pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
 #[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
-    Mismatch(SegmentMismatchWarning<I>),
+    Mismatch(SegmentMismatchError<I>),
     Validation(TEXTSegmentOverlapError<I>),
 }
 

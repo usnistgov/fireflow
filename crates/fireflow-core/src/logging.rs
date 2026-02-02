@@ -2410,17 +2410,17 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         Succ(Success::new_flagged(value, flag))
     }
 
-    pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        X: ErrorFlag,
-    {
-        if flag.is_error() {
-            Fail(Failure::new_from_one(error, default))
-        } else {
-            Succ(Success::new(value, flag, EC::error_to_warning(error)))
-        }
-    }
+    // pub(crate) fn new_switchable(value: V, default: P, error: E, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     X: ErrorFlag,
+    // {
+    //     if flag.is_error() {
+    //         Fail(Failure::new_from_one(error, default))
+    //     } else {
+    //         Succ(Success::new(value, flag, EC::error_to_warning(error)))
+    //     }
+    // }
 
     pub(crate) fn new_switchable3(value: V, default: P, error: E, flag: X) -> Self
     where

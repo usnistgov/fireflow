@@ -33,7 +33,7 @@ use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId,
     KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, NonDataSegments,
     OptSegmentWithDefaultWarning, OtherSegment20, ReqSegmentWithDefaultError,
-    ReqSegmentWithDefaultWarning, SegmentMismatchWarning, UncorrectedSegment,
+    ReqSegmentWithDefaultWarning, SegmentMismatchError, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -9832,9 +9832,9 @@ pub enum LookupTEXTOffsetsError {
     /// required ANALYSIS keywords are missing (3.0/3.1)
     ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
     /// TEXT DATA segment does not match HEADER (3.0+)
-    MismatchData(SegmentMismatchWarning<DataSegmentId>),
+    MismatchData(SegmentMismatchError<DataSegmentId>),
     /// required TEXT ANALYSIS segment does not match HEADER (3.0/3.1)
-    MismatchAnalysis(SegmentMismatchWarning<AnalysisSegmentId>),
+    MismatchAnalysis(SegmentMismatchError<AnalysisSegmentId>),
     /// optional TEXT ANALYSIS segment does not match HEADER (3.2)
     MismatchAnalysisOpt(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
 }

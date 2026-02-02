@@ -9,9 +9,9 @@ use crate::header::{
     HEADER_LEN, HeaderSegments, ParsedHeaderSegments, ParsedOtherSegments, Version,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredErrors, DeferredWarningsAndErrors, ErrorsResult,
-    IOErrorGroup, LogResult, ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, io_to_log,
+    CommutativeResultIter as _, DeferredErrors, ErrorsResult, IOErrorGroup, LogResult,
+    ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
+    io_to_log,
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
@@ -23,7 +23,7 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
 
-use type_families::{ApplyOnce as _, Functor as _, impl_functor, impl_kind1};
+use type_families::{Functor as _, impl_functor, impl_kind1};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -210,8 +210,9 @@ pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
     ReqSegmentWithDefaultError<T>,
 >;
 
-pub(crate) type OptSegTentative<T> = DeferredWarningsAndErrors<
+pub(crate) type OptSegRes<T> = WarningsAndErrorsResult<
     (AnySegment<T>, Option<UncorrectedSegment>),
+    (),
     OptSegmentWithDefaultWarning<T>,
     OptSegmentWithDefaultWarning<T>,
 >;
@@ -538,17 +539,23 @@ where
                         Self::pair_to_segment(x0, x1, corr, st).map_err(ReqSegmentError::Segment);
                     match pair_res {
                         Ok((text_seg, uncorr_seg)) => {
+                            let tri_flag = mismatch_flag.into_tri_flag();
                             let val_res = segs
                                 .validate::<_, Self::OtherDataId>(&text_seg)
                                 .nowarn_into_switchable3(missing_flag)
                                 .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                                 .switchable_into_commutative();
                             let (seg, warn) = default.unless(text_seg);
+                            let choosen_seg = if mismatch_flag.choose_header() {
+                                default.into_any()
+                            } else {
+                                seg
+                            };
                             let mismatch_res = SwitchableErrorsResult::new_switchable_maybe3(
-                                seg,
+                                choosen_seg,
                                 (),
                                 warn,
-                                mismatch_flag,
+                                tri_flag,
                             )
                             .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                             .switchable_into_commutative();
@@ -652,7 +659,7 @@ where
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
+    ) -> OptSegRes<Self>
     where
         Self: HasSegmentPair,
         Self::OtherDataId: HasSegmentPair,
@@ -676,7 +683,7 @@ where
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
+    ) -> OptSegRes<Self>
     where
         Self: HasSegmentPair,
         Self::OtherDataId: HasSegmentPair,
@@ -700,7 +707,7 @@ where
         segs: &NonDataSegments,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> OptSegTentative<Self>
+    ) -> OptSegRes<Self>
     where
         Self: HasSegmentPair,
         Self::OtherDataId: HasSegmentPair,
@@ -726,25 +733,34 @@ where
                         Self::pair_to_segment(x0, x1, corr, st).map_err(OptSegmentError::Segment);
                     match pair_res {
                         Ok((text_seg, uncorr_seg)) => {
+                            let tri_flag = mismatch_flag.into_tri_flag();
                             let val_res = segs
                                 .validate::<_, Self::OtherDataId>(&text_seg)
                                 .nowarn_into_switchable(drop_flag)
                                 .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                                 .switchable_into_commutative();
                             let (seg, warn) = default.unless(text_seg);
+                            let chosen_seg = if mismatch_flag.choose_header() {
+                                default.into_any()
+                            } else {
+                                seg
+                            };
                             let mismatch_res = SwitchableErrorsResult::new_switchable_maybe3(
-                                seg,
-                                seg,
+                                chosen_seg,
+                                (),
                                 warn,
-                                mismatch_flag,
+                                tri_flag,
                             )
                             .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(OptSegmentWithDefaultWarning::from);
-                            val_res.lift_f2_once(mismatch_res, |(), ret| (ret, Some(uncorr_seg)))
+                            val_res
+                                .zip_commutative(mismatch_res)
+                                .map_ok_value(|((), ret)| (ret, Some(uncorr_seg)))
                         }
-                        Err(e) => SwitchableErrorsResult::new_deferred_switchable(
+                        Err(e) => SwitchableErrorsResult::new_switchable(
                             (header_seg, None),
+                            (),
                             e,
                             drop_flag,
                         )
@@ -755,8 +771,9 @@ where
             }
             Err(es) => {
                 let (e0, e1) = es.split();
-                SwitchableErrorsResult::new_deferred_switchable((header_seg, None), e0, drop_flag)
+                SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
+                    .set_ok_value((header_seg, None))
                     .map_switchable_errors(OptSegmentError::Key)
                     .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                     .switchable_into_commutative()

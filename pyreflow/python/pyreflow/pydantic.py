@@ -104,7 +104,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     text_analysis_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False
     ignore_text_analysis_offsets: bool = False
-    allow_header_text_offset_mismatch: pft.TriFlag = "false"
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error"
     allow_missing_required_offsets: pft.TriFlag = "false"
     process_optional_failure: pft.ProcessKeywordFailure = "error"
     integer_widths_from_byteord: bool = False

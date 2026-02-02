@@ -1290,6 +1290,53 @@ impl TruncateEventValues {
     }
 }
 
+/// Choose which offsets to use between TEXT and HEADER if they mismatch.
+///
+/// Only applies to DATA and ANALYSIS offsets in 3.0+
+#[derive(Default, Clone, Copy, FromStr)]
+#[cfg_attr(feature = "python", derive(FromPyString))]
+#[from_str(error(AllowHeaderTEXTOffsetMismatchError))]
+#[from_str(rename_all = "snake_case")]
+pub enum AllowHeaderTEXTOffsetMismatch {
+    /// Throw error on mismatch.
+    #[default]
+    Error,
+    /// Choose HEADER on mismatch and throw warning.
+    HeaderWarn,
+    /// Choose HEADER on mismatch and do nothing.
+    HeaderSilent,
+    /// Choose TEXT on mismatch and throw warning.
+    TextWarn,
+    /// Choose TEXT on mismatch and do nothing.
+    TextSilent,
+}
+
+/// Error when parsing [`TruncateEventValues`] from [`String`]
+#[derive(Error, Debug, From)]
+#[error(
+    "must be one of 'error', 'header_warn', \
+     'header_silent', 'text_warn', or 'text_silent'"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[from(FromStrError)]
+pub struct AllowHeaderTEXTOffsetMismatchError;
+
+impl AllowHeaderTEXTOffsetMismatch {
+    pub(crate) fn into_tri_flag(self) -> DummyTriFlag {
+        let ret = match self {
+            Self::Error => TriFlag::False,
+            Self::HeaderWarn | Self::TextWarn => TriFlag::True,
+            Self::HeaderSilent | Self::TextSilent => TriFlag::Silent,
+        };
+        ret.into()
+    }
+
+    pub(crate) fn choose_header(self) -> bool {
+        matches!(self, Self::HeaderWarn | Self::HeaderSilent)
+    }
+}
+
 pub trait ConfigFlag {
     fn is_set(&self) -> bool;
 }
@@ -1395,7 +1442,6 @@ impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
 impl_tri_error_flag!(false_is_error AllowMissingNextdata);
 impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_tri_error_flag!(false_is_error AllowTotMismatch);
-impl_tri_error_flag!(false_is_error AllowHeaderTEXTOffsetMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
 

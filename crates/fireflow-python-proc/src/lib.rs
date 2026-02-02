@@ -8456,10 +8456,24 @@ impl DocArgParam {
     }
 
     fn new_allow_header_text_offset_mismatch_param() -> Self {
+        let exc = PyreflowError::FileLayout.fmt_ref();
         let n = "allow_header_text_offset_mismatch";
-        let d = "Choose what happens when *TEXT* and *HEADER* offsets to mismatch.";
-        let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param(n, true, "AllowHeaderTEXTOffsetMismatch", d, e)
+        let d = format!(
+            "Allow *HEADER* and *TEXT* offsets to be different. If \
+             'header_warn' or 'header_silent', choose *HEADER* and throw \
+             a warning or nothing on mismatch. If 'text_warn' or 'text_silent` \
+             behave analogously for *TEXT*. If 'error' throw {exc}"
+        );
+        let choices = [
+            "error",
+            "header_warn",
+            "header_silent",
+            "text_warn",
+            "text_silent",
+        ];
+        let path = config_path("AllowHeaderTEXTOffsetMismatch");
+        let pt = PyLiteral::new2(choices, path);
+        Self::new_param(n, pt, d).def_auto()
     }
 
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {

@@ -63,6 +63,7 @@ from pyreflow.typing import (
     KeywordVersionScores,
     GuessOtherWidth,
     OtherSegments,
+    AllowHeaderTextOffsetMismatch,
 )
 import pyreflow._defaults as pfd
 
@@ -1083,7 +1084,7 @@ class CoreTEXT3_0(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
@@ -1187,7 +1188,7 @@ class CoreTEXT3_1(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
@@ -1293,7 +1294,7 @@ class CoreTEXT3_2(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
@@ -1490,7 +1491,7 @@ class CoreDataset3_0(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
@@ -1611,7 +1612,7 @@ class CoreDataset3_1(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
@@ -1734,7 +1735,7 @@ class CoreDataset3_2(
         text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: TriFlag = "false",
+        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
@@ -1769,7 +1770,7 @@ class HeaderSegments:
         text_seg: Segment,
         data_seg: Segment,
         analysis_seg: Segment,
-        other_segs: list[Segment],
+        other_segs: OtherSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1779,7 +1780,7 @@ class HeaderSegments:
     @property
     def analysis_seg(self) -> Segment: ...
     @property
-    def other_segs(self) -> list[Segment]: ...
+    def other_segs(self) -> OtherSegments: ...
 
 @final
 class UncorrectedHeaderSegments:
@@ -2268,7 +2269,7 @@ def fcs_read_std_text(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2328,7 +2329,7 @@ def fcs_read_flat_dataset(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2415,7 +2416,7 @@ def fcs_read_std_dataset(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2554,7 +2555,7 @@ def fcs_read_std_texts(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2615,7 +2616,7 @@ def fcs_read_flat_datasets(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2703,7 +2704,7 @@ def fcs_read_std_datasets(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2732,7 +2733,7 @@ def fcs_read_flat_dataset_with_keywords(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
@@ -2799,7 +2800,7 @@ def fcs_summarize(
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: TriFlag = "false",
+    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: TriFlag = "false",
     process_optional_failure: ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,

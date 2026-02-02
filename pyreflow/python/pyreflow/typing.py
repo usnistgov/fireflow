@@ -190,3 +190,7 @@ KeywordVersionScores: TypeAlias = tuple[
 GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
 
 OtherSegments: TypeAlias = tuple[list[Segment], int]
+
+AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
+    "error", "header_warn", "header_silent", "text_warn", "text_silent"
+]

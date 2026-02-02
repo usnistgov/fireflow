@@ -706,13 +706,16 @@ fn run() -> AppResult<()> {
         format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
 
-    let allow_header_text_offset_mismatch = tri_flag_arg::<AllowHeaderTEXTOffsetMismatch>(
-        ALLOW_HEADER_TEXT_OFFSET_MISMATCH,
-        format!(
-            "Allow {header_seg} and {text_seg} offsets to be different, \
-             in which case {header_seg} will be used."
-        ),
-    );
+    let allow_header_text_offset_mismatch = Arg::new(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
+        .long(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(AllowHeaderTEXTOffsetMismatch))
+        .help(format!(
+            "Allow {header_seg} and {text_seg} offsets to be different. If \
+             'header_warn' or 'header_silent', choose {header_seg} and throw \
+             a warning or nothing on mismatch. If 'text_warn' or 'text_silent` \
+             behave analogously for {text_seg}. If 'error' (default) throw error."
+        ));
 
     let allow_missing_required_offsets = tri_flag_arg::<AllowMissingRequiredOffsets>(
         ALLOW_MISSING_REQUIRED_OFFSETS,

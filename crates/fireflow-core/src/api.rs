@@ -14,12 +14,12 @@ use crate::core::{
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, HeaderValidationError, KeywordVersionScores, Version,
+    GuessVersionError, Header, HeaderError, KeywordVersionScores, SegmentValidationError, Version,
     Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
-    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, IOAnonErrorGroup,
-    IOErrorGroup, LogResult, ResultExt as _, Success, SuccessResultIter as _,
+    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult,
+    IOAnonErrorGroup, IOErrorGroup, LogResult, ResultExt as _, Success, SuccessResultIter as _,
     SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
     WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log, split_log,
 };
@@ -152,12 +152,12 @@ pub fn fcs_read_flat_dataset(
                 .into_log()
         })
         .and_then_commutative(|(new_version, flat, mut h, st, scores)| {
-            let segs = flat.flat_diagnostics.non_data_segments();
+            let mut segs = flat.flat_diagnostics.non_data_segments();
             FlatDatasetWithKwsOutput::h_read_with_header_and_text(
                 &mut h,
                 new_version,
                 &flat.keywords.std,
-                &segs,
+                &mut segs,
                 &st,
             )
             .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset, scores))
@@ -218,9 +218,9 @@ pub fn fcs_read_flat_dataset_with_keywords(
             let os = header.segments.other.clone();
             let ud = header.uncorrected_segments.data;
             let ua = header.uncorrected_segments.analysis;
-            let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
+            let mut segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
             let mut h = BufReader::new(file);
-            FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, v, std, &segs, &st)
+            FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, v, std, &mut segs, &st)
         })
         .warnings_to_pure_errors(conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
@@ -632,7 +632,8 @@ pub enum HeaderOrFlatTextError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
-    Overlap(HeaderValidationError),
+    Overlap(SegmentValidationError),
+    Duplicated(DuplicateSTextError),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -642,6 +643,13 @@ pub enum STextSegmentWarning {
     OptSegment(OptSegmentError<Beginstext, Endstext>),
     Error(STextSegmentError),
 }
+
+/// Error when supplement and primary TEXT offsets are identity
+#[derive(Error, Debug)]
+#[error("primary and supplemental TEXT have identical offsets ({0})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct DuplicateSTextError(UncorrectedSegment);
 
 /// Warning when parsing multiple [`FlatDatasetOutput`]s
 #[derive(From, Display, Error, Debug)]
@@ -985,7 +993,7 @@ impl FlatDatasetWithKwsOutput {
         h: &mut BufReader<R>,
         version: Version,
         kws: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Self,
@@ -1063,7 +1071,7 @@ impl FlatTEXTOutput {
     /// Read flat TEXT from file handle with offsets from HEADER.
     fn h_read_from_header<C, R>(
         h: &mut BufReader<R>,
-        header: Header,
+        mut header: Header,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<Self, ParseFlatTEXTWarning, ParseFlatTEXTError, ()>
     where
@@ -1096,7 +1104,7 @@ impl FlatTEXTOutput {
                 if conf.ignore_supp_text.is_set() {
                     LogResult::new_ok((delim, kws, None, prim_out, None))
                 } else {
-                    lookup_stext_offsets(&kws.std, &header, st)
+                    lookup_stext_offsets(&kws.std, &mut header, st)
                         .map_commutative_warnings(ParseFlatTEXTWarning::from)
                         .map_errors(ParseFlatTEXTError::from)
                         .group()
@@ -1174,8 +1182,8 @@ impl FlatTEXTOutput {
             + AsRef<ReadDataKeywordsConfig>,
     {
         let version = self.flat_diagnostics.header.version;
-        let segs = self.flat_diagnostics.non_data_segments();
-        AnyCoreTEXT::parse_flat(version, self.keywords, &segs, st).map_ok_value(
+        let mut segs = self.flat_diagnostics.non_data_segments();
+        AnyCoreTEXT::parse_flat(version, self.keywords, &mut segs, st).map_ok_value(
             |(standardized, extra, offsets, scores)| {
                 let out = StdTEXTOutput::new(
                     offsets.tot,
@@ -1867,7 +1875,7 @@ fn kws_to_df_analysis<C, R>(
     version: Version,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
-    segs: &NonDataSegments,
+    segs: &mut NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
@@ -1905,7 +1913,7 @@ fn split_first_delim<'a>(
 
 fn lookup_stext_offsets<C>(
     kws: &StdKeywords,
-    header: &Header,
+    header: &mut Header,
     st: &ReadState<C>,
 ) -> DeferredWarningsAndErrors<
     Option<(SupplementalTextSegment, UncorrectedSegment)>,
@@ -1915,9 +1923,10 @@ fn lookup_stext_offsets<C>(
 where
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
 {
-    let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+    let hconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+    let oconf: &ReadOffsetConfig = st.conf.as_ref();
     debug_assert!(
-        !conf.ignore_supp_text.is_set(),
+        !hconf.ignore_supp_text.is_set(),
         "tried to get supp TEXT offsets when supp TEXT is ignored"
     );
     // At this point, we have not yet overridden the version since we have not
@@ -1929,7 +1938,7 @@ where
     // practice this keyword is usually present despite it being optional
     // pre-3.2. This all likely doesn't matter much anyways since STEXT is
     // seldom used.
-    let ver = match conf.version_override {
+    let ver = match hconf.version_override {
         None => header.version,
         Some(VersionOverride::Force(v)) => v,
         Some(VersionOverride::AutoDetect(_)) => {
@@ -1944,7 +1953,7 @@ where
             }
         }
     };
-    let corr = conf.supp_text_correction;
+    let corr = hconf.supp_text_correction;
     let res = match ver {
         Version::FCS2_0 => LogResult::new_ok(None),
         Version::FCS3_0 | Version::FCS3_1 => {
@@ -1953,7 +1962,7 @@ where
                 Ok(seg) => LogResult::new_ok(Some(seg)),
                 Err(es) => {
                     let (e0, e1) = es.split();
-                    let flag = conf.allow_missing_supp_text;
+                    let flag = hconf.allow_missing_supp_text;
                     SwitchableErrorsResult::new_deferred_switchable3(None, e0, flag)
                         .extend_deferred_switchable_errors3(e1)
                         .map_switchable_errors(STextSegmentError::from)
@@ -1974,19 +1983,39 @@ where
             }
         }
     };
-    res.and_then_deferred(|x| {
-        x.map_or(LogResult::new_ok(None), |(seg, raw)| {
-            let flag = conf.allow_overlapping_supp_text;
-            header
-                .segments
-                .validate_text(&seg)
-                .set_ok_value(Some((seg, raw)))
-                .set_err_value(None)
-                .nowarn_into_switchable3(flag)
-                .map_switchable_errors(STextSegmentError::from)
-                .switchable_into_commutative()
-                .map_commutative_warnings(STextSegmentWarning::from)
-        })
+    res.and_then_deferred(|maybe| {
+        if let Some((mut seg_stxt, uncorr_stxt)) = maybe {
+            // Offsets found, check for validity
+            let uncorr_ptxt = header.uncorrected_segments.text;
+            if uncorr_ptxt == uncorr_stxt {
+                // Primary and supp are identical, maybe return error and None
+                // (if we returned Some we would parse TEXT twice which we don't
+                // want)
+                let flag = hconf.allow_duplicated_supp_text;
+                let e = DuplicateSTextError(uncorr_stxt);
+                SwitchableErrorsResult::new_switchable3(None, None, e, flag)
+                    .map_switchable_errors(STextSegmentError::from)
+                    .switchable_into_commutative()
+                    .map_commutative_warnings(STextSegmentWarning::from)
+            } else {
+                // Primary and supp not identical, check for overlaps. ASSUME
+                // the HEADER segments have already been validated and adjusted
+                // such that they do not overlap.
+                let limit = oconf.overlap_correction_limit;
+                let es = header
+                    .segments
+                    .validate_supp_text(&mut seg_stxt, limit)
+                    .map(STextSegmentError::from);
+                // TODO throw warnings sometimes for these?
+                ErrorsResult::new_err_from_iter(es, ())
+                    .set_ok_value(Some((seg_stxt, uncorr_stxt)))
+                    .set_err_value(None)
+                    .nowarn_into_warn()
+            }
+        } else {
+            // No offsets found
+            LogResult::new_ok(None)
+        }
     })
 }
 

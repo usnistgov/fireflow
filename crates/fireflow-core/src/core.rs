@@ -490,7 +490,7 @@ impl AnyCoreTEXT {
     pub(crate) fn parse_flat<C>(
         version: Version,
         kws: ValidKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (
@@ -565,11 +565,11 @@ impl AnyCoreDataset {
         let ua = header.uncorrected_segments.analysis;
         // TODO technically we should include supp text offsets here too so all
         // are considered when ensuring that the data segments don't overlap.
-        let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
+        let mut segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
 
         macro_rules! go {
             ($t:ident, $s:expr) => {
-                $t::new_from_keywords_inner(h, kws, &segs, st)
+                $t::new_from_keywords_inner(h, kws, &mut segs, st)
                     .map_ok_value(|(x, y)| (x.into(), y, $s))
                     .map_pure_errors(StdDatasetFromFlatTextError::from)
             };
@@ -1526,7 +1526,7 @@ pub(crate) trait PrivVersioned: Versioned {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
@@ -1873,7 +1873,7 @@ pub trait VersionedTEXTOffsets: Sized {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -1881,7 +1881,7 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn lookup_ro<C>(
         std: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -4301,7 +4301,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn new_from_keywords_with_offsets<C>(
         mut kws: ValidKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (Self, StdTEXTDiagnostics, <M::Ver as Versioned>::Offsets),
@@ -4832,9 +4832,9 @@ where
                 let os = header.segments.other.clone();
                 let ud = header.uncorrected_segments.data;
                 let ua = header.uncorrected_segments.analysis;
-                let segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
+                let mut segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
                 let mut h = BufReader::new(file);
-                Self::new_from_keywords_inner(&mut h, kws, &segs, &st)
+                Self::new_from_keywords_inner(&mut h, kws, &mut segs, &st)
             })
             .warnings_to_pure_errors(*conf.as_ref(), StdDatasetFromFlatTextErrorInner::from)
             .map_pure_errors(StdDatasetFromFlatTextError::from)
@@ -4844,7 +4844,7 @@ where
     pub(crate) fn new_from_keywords_inner<C, R>(
         h: &mut BufReader<R>,
         kws: ValidKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetWithKwsOutput),
@@ -7930,7 +7930,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -7955,7 +7955,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
 
     fn lookup_ro<C>(
         std: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         _: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -8016,7 +8016,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     fn lookup<C>(
         std: &mut StdKeywords,
         _: &mut NonStdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -8027,7 +8027,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup_ro<C>(
         std: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -8076,7 +8076,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     fn lookup<C>(
         std: &mut StdKeywords,
         _: &mut NonStdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where
@@ -8094,7 +8094,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup_ro<C>(
         std: &StdKeywords,
-        segs: &NonDataSegments,
+        segs: &mut NonDataSegments,
         st: &ReadState<C>,
     ) -> LookupTEXTOffsetsResult<Self>
     where

@@ -42,14 +42,15 @@ class _HeaderConfig(BaseModel):
 
 class _OffsetConfig(BaseModel):
     allow_pseudoempty: bool = False
-    truncate_offset_limit: bool = False
+    truncate_offset_limit: int = 0
+    overlap_correction_limit: int = 0
 
 
 class _ReadFlatTEXTConfig(BaseModel):
     version_override: pft.VersionOverride | None = None
     supp_text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     nextdata_correction: int = 0
-    allow_overlapping_supp_text: pft.TriFlag = "false"
+    allow_duplicated_supp_text: pft.TriFlag = "false"
     ignore_supp_text: bool = False
     delim_escape_mode: pft.DelimEscapeMode = "escaped"
     allow_non_ascii_delim: pft.TriFlag = "false"

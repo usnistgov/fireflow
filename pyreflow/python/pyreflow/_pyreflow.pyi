@@ -1466,6 +1466,7 @@ class CoreDataset3_0(
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
+        overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1586,6 +1587,7 @@ class CoreDataset3_1(
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
+        overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1708,6 +1710,7 @@ class CoreDataset3_2(
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
+        overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -2147,6 +2150,7 @@ def fcs_read_header(
     allow_pseudoempty: bool = False,
     # offset args
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     dataset_offset: int = 0,
 ) -> Header: ...
 
@@ -2165,11 +2169,12 @@ def fcs_read_flat_text(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2214,11 +2219,12 @@ def fcs_read_std_text(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2296,11 +2302,12 @@ def fcs_read_flat_dataset(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2361,11 +2368,12 @@ def fcs_read_std_dataset(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2450,11 +2458,12 @@ def fcs_read_flat_texts(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2500,11 +2509,12 @@ def fcs_read_std_texts(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2583,11 +2593,12 @@ def fcs_read_flat_datasets(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2649,11 +2660,12 @@ def fcs_read_std_datasets(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",
@@ -2728,6 +2740,7 @@ def fcs_read_flat_dataset_with_keywords(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # layout args
     text_data_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     text_analysis_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
@@ -2767,11 +2780,12 @@ def fcs_summarize(
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
+    overlap_correction_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = pfd._DEFAULT_CORRECTION,
     nextdata_correction: int = 0,
-    allow_overlapping_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: TriFlag = "false",
     ignore_supp_text: bool = False,
     delim_escape_mode: DelimEscapeMode = "escaped",
     allow_non_ascii_delim: TriFlag = "false",

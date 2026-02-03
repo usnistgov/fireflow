@@ -3,16 +3,16 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, AllowDelimAtBoundary, AllowEmptyKeys, AllowHeaderTEXTOffsetMismatch,
-    AllowMissingFinalDelim, AllowMissingNextdata, AllowMissingRequiredOffsets,
-    AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim, AllowNonAsciiKeywords,
-    AllowNonUtf8, AllowNonunique, AllowOdd, AllowOverlappingSuppTEXT, AllowSuppTEXTOwnDelim,
+    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys,
+    AllowHeaderTEXTOffsetMismatch, AllowMissingFinalDelim, AllowMissingNextdata,
+    AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim,
+    AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd, AllowSuppTEXTOwnDelim,
     AllowTotMismatch, AllowUnevenEventWidth, DatasetOffset, DelimEscapeMode, DisallowDeprecated,
-    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth, ProcessExtraTimestep,
-    ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard,
-    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern,
-    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit,
-    VersionOverride,
+    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
+    OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
+    ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
+    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
+    TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -239,7 +239,19 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(TruncateOffsetLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
-    let all_offset_args = [allow_pseudoempty, truncate_offset_limit];
+    let overlap_correction_limit = Arg::new(OVERLAP_CORRECTION_LIMIT)
+        .long(OVERLAP_CORRECTION_LIMIT)
+        .value_name("LIMIT")
+        .value_parser(value_parser!(OverlapCorrectionLimit))
+        .help(
+            "Limit by which ending segment offset can be truncated if they overlap another offset.",
+        );
+
+    let all_offset_args = [
+        allow_pseudoempty,
+        truncate_offset_limit,
+        overlap_correction_limit,
+    ];
 
     // "flat" args
 
@@ -263,7 +275,7 @@ fn run() -> AppResult<()> {
         .value_name("INT")
         .help(format!("Correction for {}", kw_style.paint("$NEXTDATA")));
 
-    let allow_overlapping_supp_text = tri_flag_arg::<AllowOverlappingSuppTEXT>(
+    let allow_overlapping_supp_text = tri_flag_arg::<AllowDuplicatedSuppTEXT>(
         ALLOW_OVERLAPPING_SUPP_TEXT,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
@@ -1111,6 +1123,7 @@ fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
     config::ReadOffsetConfig {
         allow_pseudoempty: sargs.get_flag(ALLOW_PSEUDOEMPTY).into(),
         truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
+        overlap_correction_limit: get_def(sargs, OVERLAP_CORRECTION_LIMIT),
     }
 }
 
@@ -1164,7 +1177,7 @@ fn get_header_and_text_config(
         version_override,
         supp_text_correction: get_correction(sargs, SUPP_TEXT_COR),
         nextdata_correction,
-        allow_overlapping_supp_text: get_def(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
+        allow_duplicated_supp_text: get_def(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
         ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
         delim_escape_mode: get_def(sargs, DELIM_ESCAPE_MODE),
         allow_non_ascii_delim: get_def(sargs, ALLOW_NON_ASCII_DELIM),
@@ -1514,6 +1527,8 @@ const SQUISH_OFFSETS: &str = "squish-offsets";
 const ALLOW_PSEUDOEMPTY: &str = "allow-pseudoempty";
 
 const TRUNCATE_OFFSET_LIMIT: &str = "truncate-offset-limit";
+
+const OVERLAP_CORRECTION_LIMIT: &str = "overlap-correction-limit";
 
 const VERSION_OVERRIDE: &str = "version-override";
 

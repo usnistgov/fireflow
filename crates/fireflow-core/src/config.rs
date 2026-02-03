@@ -330,6 +330,20 @@ pub struct ReadOffsetConfig {
     /// incompletely written, which is a larger problem itself. Setting this to
     /// a large value will at least allow these files to be read.
     pub truncate_offset_limit: TruncateOffsetLimit,
+
+    /// Number of bytes to adjust ending offsets in case of overlap.
+    ///
+    /// If one segment overlaps another, it will often be because the two are
+    /// adjacent and the final offset of the first segment is one greater than
+    /// it should be, which also means it is equal to the beginning offset of
+    /// the second segment. In basically all (sane) programming languages and
+    /// related, this makes sense since the ending index is non-inclusive. This
+    /// is not the way FCS works, thus it is a common mistake.
+    ///
+    /// If this is non-zero, the ending offset will be adjusted up to the number
+    /// of indicated bytes such that the two offsets no longer overlap (if
+    /// possible given the limit). For most cases, this only needs to be `1`.
+    pub overlap_correction_limit: OverlapCorrectionLimit,
 }
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
@@ -379,7 +393,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// The STEXT offsets will be ignored regardless of this flag if they are
     /// duplicated.
-    pub allow_overlapping_supp_text: AllowOverlappingSuppTEXT,
+    pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
     /// If `true`, totally ignore STEXT and its offsets.
     ///
@@ -1431,7 +1445,7 @@ macro_rules! impl_tri_error_flag {
     };
 }
 
-impl_tri_error_flag!(false_is_error AllowOverlappingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
 impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
 impl_tri_error_flag!(false_is_error AllowNonunique);
@@ -1754,6 +1768,10 @@ impl Default for TimeMeasNamePattern {
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 pub struct TruncateOffsetLimit(pub u64);
+
+/// The maximum number of bytes an ending offset may be decreased to avoid overlap.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+pub struct OverlapCorrectionLimit(pub u64);
 
 /// State pertinent to reading a file
 #[derive(new)]

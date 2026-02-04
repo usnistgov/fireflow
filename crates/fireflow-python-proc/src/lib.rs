@@ -7791,6 +7791,7 @@ impl DocArgParam {
                 Self::new_allow_pseudoempty_param(),
                 Self::new_truncate_offset_limit_param(),
                 Self::new_overlap_correction_limit_param(),
+                Self::new_data_remainder_limit_param(),
             ]
         };
         let js = ps.iter().map(IsDocArg::record_into).collect();
@@ -8291,6 +8292,12 @@ impl DocArgParam {
         let d = "Limit by which ending segment offset can be truncated if \
                  they overlap another offset.";
         Self::new_param("overlap_correction_limit", RsInt::U64, d).def_auto()
+    }
+
+    fn new_data_remainder_limit_param() -> Self {
+        let d = "Limit by which ending *DATA* offset can be truncated if \
+                 its length modulo event width produces a remainder.";
+        Self::new_param("data_remainder_limit", RsInt::U64, d).def_auto()
     }
 
     fn new_version_override() -> Self {

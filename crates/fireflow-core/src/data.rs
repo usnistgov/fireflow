@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, TriFlag, TruncateEventValues,
+    ReadEventsConfig, ReadOffsetConfig, TriFlag, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -592,13 +592,13 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
-    fn h_read_df_inner<R: Read>(
+    fn h_read_df_inner<R: Read, F>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
         tot: T,
-        seg: AnyDataSegment,
-        conf: &ReadEventsConfig,
+        seg: &mut AnyDataSegment,
+        conf: &F,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
@@ -606,7 +606,8 @@ pub trait LayoutOps<'a, T>: Sized {
         (),
     >
     where
-        T: IsTot;
+        T: IsTot,
+        F: AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>;
 
     fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError>;
 
@@ -730,18 +731,21 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError>;
 
-    fn h_read_df<R: Read + Seek>(
+    fn h_read_df<R: Read + Seek, F>(
         &self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
-        seg: AnyDataSegment,
-        conf: &ReadEventsConfig,
+        seg: &mut AnyDataSegment,
+        conf: &F,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
-    > {
+    >
+    where
+        F: AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
+    {
         // The only purpose of this buffer is to read ASCII since we don't
         // hardcode the buffer width into the type (unlike integers and floats).
         // It's passed down to each layer of the read stack to avoid making the
@@ -2395,19 +2399,22 @@ where
         Range::from(self.ranges.remove(index.into()).0)
     }
 
-    fn h_read_df_inner<R: Read>(
+    fn h_read_df_inner<R: Read, F>(
         &self,
         h: &mut BufReader<R>,
         _: &mut Vec<u8>,
         tot: T,
-        seg: AnyDataSegment,
-        conf: &ReadEventsConfig,
+        seg: &mut AnyDataSegment,
+        conf: &F,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
-    > {
+    >
+    where
+        F: AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
+    {
         macro_rules! go {
             ($x:expr) => {
                 $x.map_err(|e| {
@@ -2439,7 +2446,8 @@ where
                 );
                 let mut es = vec![];
                 let mut truncated = vec![None; rs.len()];
-                let trunc = conf.truncate_event_values;
+                let econf: &ReadEventsConfig = conf.as_ref();
+                let trunc = econf.truncate_event_values;
                 let col_iter = data.iter_mut().zip(rs).enumerate();
                 if trunc.matches_datatype(AlphaNumType::Ascii) {
                     // truncate values if we configured this behavior
@@ -2466,7 +2474,7 @@ where
                         }
                     }
                 }
-                let overrange_res = match conf.disallow_over_range.0 {
+                let overrange_res = match econf.disallow_over_range.0 {
                     TriFlag::False => ErrorGroup::try_new(es)
                         .map_err(ReadDataframeError::from)
                         .map_err(IOErrorGroup::new_pure_one)
@@ -2806,13 +2814,13 @@ where
         Range::from(&self.columns.remove(index.into()))
     }
 
-    fn h_read_df_inner<R: Read>(
+    fn h_read_df_inner<R: Read, F>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
         tot: T,
-        seg: AnyDataSegment,
-        conf: &ReadEventsConfig,
+        seg: &mut AnyDataSegment,
+        conf: &F,
     ) -> WarningsAndIOGroupResult<
         (FCSDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
@@ -2821,7 +2829,9 @@ where
     >
     where
         T: IsTot,
+        F: AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
+        let econf: &ReadEventsConfig = conf.as_ref();
         self.compute_nrows(seg, conf)
             .map_non_commutative_warnings(ReadDataframeWarning::from)
             .non_commutative_into_commutative()
@@ -2830,7 +2840,7 @@ where
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|nrow_out| {
-                T::check_tot(nrow_out.total_events, tot, conf.allow_tot_mismatch)
+                T::check_tot(nrow_out.total_events, tot, econf.allow_tot_mismatch)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .map_errors(ReadDataframeError::from)
@@ -2841,7 +2851,7 @@ where
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
                 let n = usize::try_from(nrow_out.total_events).expect("nrows exceeds usize");
-                self.h_read_unchecked_df(h, n, buf, conf)
+                self.h_read_unchecked_df(h, n, buf, conf.as_ref())
                     .map_error(IOErrorGroup::from)
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .repack_warnings()
@@ -3151,26 +3161,36 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn compute_nrows(
+    fn compute_nrows<F>(
         &self,
-        seg: AnyDataSegment,
-        conf: &ReadEventsConfig,
+        seg: &mut AnyDataSegment,
+        conf: &F,
     ) -> WarningOrErrorResult<ComputedRowsResult, (), UnevenEventWidthError, EventWidthError>
     where
         S: Clone,
         C: IsFixed,
+        F: AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
         let n = seg.len();
         let w = self.event_width();
         if w == 0 {
             LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         } else {
+            let oconf: &ReadOffsetConfig = conf.as_ref();
+            let limit = oconf.data_remainder_limit;
             let total_events = n / w;
             let remainder = n % w;
+            let out = ComputedRowsResult::new(total_events, w, remainder);
+            // If within remainder limit, truncate offset and return without
+            // error
+            if remainder <= limit.0 {
+                seg.truncate(remainder);
+                return LogResult::new_ok(out);
+            }
             let is_ok = remainder == 0;
             let e = UnevenEventWidthError::new(w, n, remainder);
-            let flag = conf.allow_uneven_event_width;
-            let out = ComputedRowsResult::new(total_events, w, remainder);
+            let econf: &ReadEventsConfig = conf.as_ref();
+            let flag = econf.allow_uneven_event_width;
             SwitchableErrorResult::new_switchable_ok_if3(is_ok, out, (), e, flag)
                 .switchable_into_non_commutative()
                 .map_errors(EventWidthError::from)

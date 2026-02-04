@@ -44,6 +44,7 @@ class _OffsetConfig(BaseModel):
     allow_pseudoempty: bool = False
     truncate_offset_limit: int = 0
     overlap_correction_limit: int = 0
+    data_remainder_limit: int = 0
 
 
 class _ReadFlatTEXTConfig(BaseModel):

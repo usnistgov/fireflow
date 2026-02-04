@@ -344,6 +344,21 @@ pub struct ReadOffsetConfig {
     /// of indicated bytes such that the two offsets no longer overlap (if
     /// possible given the limit). For most cases, this only needs to be `1`.
     pub overlap_correction_limit: OverlapCorrectionLimit,
+
+    /// The maximum number of bytes to correct DATA based on event width.
+    ///
+    /// For all but ASCII delimited layouts, dividing length of DATA by event
+    /// width should exactly equal $TOT. In some cases, DATA will be too long by
+    /// one byte, and thus this division will produce a remainder of 1. This
+    /// flag will permit remainders up to a certain limit which will then be
+    /// used to correct the ending offset so that DATA is a perfect multiple of
+    /// event width.
+    ///
+    /// Note, the ending offset will only be decreased, so this assumes that the
+    /// ending offset is between 0 and event width bytes too long. If it is too
+    /// short, this will trigger a different error for $TOT not matching the
+    /// computed number of events.
+    pub data_remainder_limit: DataRemainderLimit,
 }
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
@@ -1772,6 +1787,10 @@ pub struct TruncateOffsetLimit(pub u64);
 /// The maximum number of bytes an ending offset may be decreased to avoid overlap.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 pub struct OverlapCorrectionLimit(pub u64);
+
+/// The maximum number of bytes the DATA ending offset may be decreased based on event width.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+pub struct DataRemainderLimit(pub u64);
 
 /// State pertinent to reading a file
 #[derive(new)]

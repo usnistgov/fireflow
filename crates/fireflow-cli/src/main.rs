@@ -7,8 +7,8 @@ use fireflow_core::config::{
     AllowHeaderTEXTOffsetMismatch, AllowMissingFinalDelim, AllowMissingNextdata,
     AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim,
     AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd, AllowSuppTEXTOwnDelim,
-    AllowTotMismatch, AllowUnevenEventWidth, DatasetOffset, DelimEscapeMode, DisallowDeprecated,
-    DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
+    AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit, DatasetOffset, DelimEscapeMode,
+    DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
     OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
     ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
     SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
@@ -247,10 +247,20 @@ fn run() -> AppResult<()> {
             "Limit by which ending segment offset can be truncated if they overlap another offset.",
         );
 
+    let data_remainder_limit = Arg::new(DATA_REMAINDER_LIMIT)
+        .long(DATA_REMAINDER_LIMIT)
+        .value_name("LIMIT")
+        .value_parser(value_parser!(DataRemainderLimit))
+        .help(format!(
+            "Limit by which ending {data_seg} offset can be truncated if \
+             its length modulo event width produces a remainder."
+        ));
+
     let all_offset_args = [
         allow_pseudoempty,
         truncate_offset_limit,
         overlap_correction_limit,
+        data_remainder_limit,
     ];
 
     // "flat" args
@@ -1124,6 +1134,7 @@ fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
         allow_pseudoempty: sargs.get_flag(ALLOW_PSEUDOEMPTY).into(),
         truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
         overlap_correction_limit: get_def(sargs, OVERLAP_CORRECTION_LIMIT),
+        data_remainder_limit: get_def(sargs, DATA_REMAINDER_LIMIT),
     }
 }
 
@@ -1529,6 +1540,8 @@ const ALLOW_PSEUDOEMPTY: &str = "allow-pseudoempty";
 const TRUNCATE_OFFSET_LIMIT: &str = "truncate-offset-limit";
 
 const OVERLAP_CORRECTION_LIMIT: &str = "overlap-correction-limit";
+
+const DATA_REMAINDER_LIMIT: &str = "data-remainder-limit";
 
 const VERSION_OVERRIDE: &str = "version-override";
 

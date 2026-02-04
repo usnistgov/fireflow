@@ -1327,7 +1327,7 @@ pub struct StdDatasetFromKwsOutput {
 }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
-#[derive(Clone, Copy, new, PartialEq)]
+#[derive(Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatasetSegments {
@@ -1538,7 +1538,6 @@ pub(crate) trait PrivVersioned: Versioned {
     >
     where
         R: Read + Seek,
-        Self::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
@@ -1556,18 +1555,16 @@ pub(crate) trait PrivVersioned: Versioned {
             .zip_commutative(offset_res)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(layout_out, offsets)| {
-                let dataset_segs = offsets.as_ref();
-                let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReadEventsConfig = st.conf.as_ref();
+            .and_then_commutative(|(layout_out, mut offsets)| {
+                let ar = AnalysisReader::new(*offsets.analysis());
                 layout_out
                     .layout
-                    .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
+                    .h_read_df(h, offsets.tot(), offsets.data_mut(), &st.conf)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|(df, event_out)| {
                         ar.h_read(h)
-                            .map(|a| (df, a, *dataset_segs, event_out))
+                            .map(|a| (df, a, offsets.into_segs(), event_out))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -1891,29 +1888,33 @@ pub trait VersionedTEXTOffsets: Sized {
 
     fn tot(&self) -> Self::TotDef;
 
+    fn data_mut(&mut self) -> &mut AnyDataSegment;
+
+    fn analysis(&self) -> &AnyAnalysisSegment;
+
     fn into_common(self) -> TEXTOffsets<Option<Tot>>;
+
+    fn into_segs(self) -> DatasetSegments {
+        self.into_common().segs
+    }
 }
 
 /// Segment offsets and $TOT as read from TEXT segment
 ///
 /// This is used later to parse DATA and ANALYSIS.
-#[derive(AsRef, new)]
+#[derive(new)]
 pub struct TEXTOffsets<T> {
-    #[as_ref]
     pub segs: DatasetSegments,
     pub tot: T,
 }
 
-#[derive(From, AsRef)]
-#[as_ref(DatasetSegments)]
+#[derive(From)]
 pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
 
-#[derive(From, AsRef)]
-#[as_ref(DatasetSegments)]
+#[derive(From)]
 pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
 
-#[derive(From, AsRef)]
-#[as_ref(DatasetSegments)]
+#[derive(From)]
 pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
@@ -4817,7 +4818,6 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4858,7 +4858,6 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Offsets: AsRef<DatasetSegments>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4869,14 +4868,12 @@ where
             .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(text, extra, offsets)| {
-                let dataset_segs = offsets.as_ref();
+            .and_then_commutative(|(text, extra, mut offsets)| {
                 let os: Vec<_> = hns.header.segments.as_others().copied().collect();
                 let or = OthersReader::new(&os[..]);
-                let ar = AnalysisReader::new(dataset_segs.analysis);
-                let read_conf: &ReadEventsConfig = st.conf.as_ref();
+                let ar = AnalysisReader::new(*offsets.analysis());
                 text.layout
-                    .h_read_df(h, offsets.tot(), dataset_segs.data, read_conf)
+                    .h_read_df(h, offsets.tot(), offsets.data_mut(), &st.conf)
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|(data, event_out)| {
@@ -4884,8 +4881,11 @@ where
                             .and_then(|analysis| {
                                 let others = or.h_read(h)?;
                                 let c = text.into_coredataset_unchecked(data, analysis, others);
-                                let out =
-                                    StdDatasetFromKwsOutput::new(*dataset_segs, extra, event_out);
+                                let out = StdDatasetFromKwsOutput::new(
+                                    offsets.into_segs(),
+                                    extra,
+                                    event_out,
+                                );
                                 Ok((c, out))
                             })
                             .map_err(IOErrorGroup::from)
@@ -7980,6 +7980,14 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         self.0.tot
     }
 
+    fn data_mut(&mut self) -> &mut AnyDataSegment {
+        &mut self.0.segs.data
+    }
+
+    fn analysis(&self) -> &AnyAnalysisSegment {
+        &self.0.segs.analysis
+    }
+
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
         let x = self.0;
         TEXTOffsets::new(x.segs, x.tot)
@@ -8043,6 +8051,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn tot(&self) -> Self::TotDef {
         Identity(self.0.tot)
+    }
+
+    fn data_mut(&mut self) -> &mut AnyDataSegment {
+        &mut self.0.segs.data
+    }
+
+    fn analysis(&self) -> &AnyAnalysisSegment {
+        &self.0.segs.analysis
     }
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {
@@ -8115,6 +8131,15 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn tot(&self) -> Self::TotDef {
         Identity(self.0.tot)
+    }
+
+    // TODO this is silly (repeated 3x)
+    fn data_mut(&mut self) -> &mut AnyDataSegment {
+        &mut self.0.segs.data
+    }
+
+    fn analysis(&self) -> &AnyAnalysisSegment {
+        &self.0.segs.analysis
     }
 
     fn into_common(self) -> TEXTOffsets<Option<Tot>> {

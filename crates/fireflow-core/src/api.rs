@@ -1253,7 +1253,7 @@ impl FlatTEXTOutput {
             |(standardized, extra, offsets, scores)| {
                 let out = StdTEXTOutput::new(
                     offsets.tot,
-                    *offsets.as_ref(),
+                    offsets.segs,
                     extra,
                     self.flat_diagnostics,
                     scores,

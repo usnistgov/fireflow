@@ -240,10 +240,9 @@ pub fn fcs_read_flat_texts(
         let res = fcs_read_flat_text(path, dso, conf);
         let succ = split_log!(res);
         let nextdata_res = succ.fmap_once(|ret| {
-            dataset_offset = ret
-                .flat_diagnostics
-                .nextdata
-                .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+            let hns = &ret.flat_diagnostics.header_supp;
+            let nd = hns.nextdata.map(u64::from);
+            dataset_offset = nd.and_then(|n| (n > 0).then_some(DatasetOffset(dso.0 + n)));
             ret
         });
         results.push(nextdata_res);
@@ -276,7 +275,7 @@ pub fn fcs_read_std_texts(
         conf,
         StdTEXTSummary,
         fcs_read_std_text,
-        |ret| ret.1.flat_diagnostics.nextdata,
+        |ret| ret.1.flat_diagnostics.header_supp.nextdata,
     )
 }
 
@@ -300,7 +299,7 @@ pub fn fcs_read_flat_datasets(
         conf,
         FlatDatasetSummary,
         fcs_read_flat_dataset,
-        |ret| ret.text.flat_diagnostics.nextdata,
+        |ret| ret.text.flat_diagnostics.header_supp.nextdata,
     )
 }
 
@@ -324,7 +323,7 @@ pub fn fcs_read_std_datasets(
         conf,
         StdDatasetSummary,
         fcs_read_std_dataset,
-        |ret| ret.1.flat_diagnostics.nextdata,
+        |ret| ret.1.flat_diagnostics.header_supp.nextdata,
     )
 }
 
@@ -441,12 +440,6 @@ pub struct FlatTEXTDiagnostics {
     /// HEADER data and supplemental TEXT offsets
     pub header_supp: HeaderAndSuppOffsets,
 
-    /// NEXTDATA offset
-    ///
-    /// This will be copied as represented in TEXT. If it is 0, there is no next
-    /// dataset, otherwise it points to the next dataset in the file.
-    pub nextdata: Option<u64>,
-
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
@@ -498,6 +491,12 @@ pub struct HeaderAndSuppOffsets {
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
     pub supp_text: Option<(SupplementalTextSegment, UncorrectedSegment)>,
+
+    /// NEXTDATA offset
+    ///
+    /// This will be copied as represented in TEXT. If it is 0, there is no next
+    /// dataset, otherwise it points to the next dataset in the file.
+    pub nextdata: Option<Nextdata>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -1226,10 +1225,10 @@ impl FlatTEXTOutput {
                             .map_error(IOErrorGroup::Pure)
                     })
                     .map_ok_value(|nextdata| {
-                        let non_data_offsets = HeaderAndSuppOffsets::new(header, supp_text_seg);
+                        let header_supp =
+                            HeaderAndSuppOffsets::new(header, supp_text_seg, nextdata);
                         let parse = FlatTEXTDiagnostics {
-                            header_supp: non_data_offsets,
-                            nextdata: nextdata.map(u64::from),
+                            header_supp,
                             delimiter: delim,
                             byte_pairs: kws.byte_pairs,
                             non_unique_std_keywords: kws.non_unique_std_keywords,
@@ -1900,7 +1899,7 @@ fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
 ) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
 where
     Fsucc: FnMut(&PathBuf, DatasetOffset, &C) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
-    Fnext: FnMut(&X) -> Option<u64>,
+    Fnext: FnMut(&X) -> Option<Nextdata>,
     E: From<HeaderOrFlatTextError> + From<Ei>,
     W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadSharedConfig>,
@@ -1924,10 +1923,9 @@ where
                 .map_error(|e| e.set_group(g));
             let succ = split_log!(res);
             succ.fmap_once(|ret| {
-                dataset_offset = ret
-                    .flat_diagnostics
-                    .nextdata
-                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+                let hns = ret.flat_diagnostics.header_supp;
+                let nd = hns.nextdata.map(u64::from);
+                dataset_offset = nd.and_then(|n| (n > 0).then_some(DatasetOffset(dso.0 + n)));
                 None
             })
         } else {
@@ -1936,8 +1934,9 @@ where
                 .map_pure_errors(E::from);
             let succ = split_log!(res);
             succ.fmap_once(|ret| {
-                dataset_offset =
-                    fnext(&ret).and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+                dataset_offset = fnext(&ret)
+                    .map(u64::from)
+                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
                 Some(ret)
             })
         };

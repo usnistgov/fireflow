@@ -1,7 +1,7 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, ForceLinearScale, ReadDataKeywordsConfig,
-    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey, TriFlag,
-    TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, ForceLinearScale, OverlapCorrectionLimit,
+    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey,
+    TriFlag, TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -11,6 +11,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
+use crate::segment::{HasRegion, TEXTSegment};
 use crate::text::byteord::{
     BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
 };
@@ -37,6 +38,7 @@ use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime10
 use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
+use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
     AnyKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
     StdKeywords,
@@ -582,7 +584,8 @@ pub(crate) const REGION_INDEX_KW_SUFFIX: &str = "I";
 pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, UintZeroPad20)]
 pub struct Nextdata(pub UintZeroPad20);
@@ -614,6 +617,27 @@ impl Nextdata {
                 Self(UintZeroPad20(out))
             })
         })
+    }
+
+    pub(crate) fn validate_text_offset<I>(
+        self,
+        s: &mut TEXTSegment<I>,
+        limit: OverlapCorrectionLimit,
+    ) -> Option<NextdataOffsetsError>
+    where
+        I: HasRegion,
+    {
+        let q = s.try_as_generic()?;
+        let n = u64::from(self);
+        let overlap = (q.end + 1).saturating_sub(n);
+        if n == 0 {
+            None
+        } else if overlap <= limit.0 {
+            s.truncate(overlap);
+            None
+        } else {
+            Some(NextdataOffsetsError::new(self, q))
+        }
     }
 }
 

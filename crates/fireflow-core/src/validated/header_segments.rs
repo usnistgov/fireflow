@@ -383,7 +383,7 @@ pub struct InHeaderError(GenericSegment);
 
 /// Error when segment offsets exceed $NEXTDATA.
 #[derive(Debug, Error, new)]
-#[error("{offsets} exceed $NEXTDATA ({})", u64::from(self.nextdata))]
+#[error("{offsets} exceeds $NEXTDATA ({})", u64::from(self.nextdata))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct NextdataOffsetsError {

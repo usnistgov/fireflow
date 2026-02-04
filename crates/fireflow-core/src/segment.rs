@@ -19,7 +19,7 @@ use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
-use crate::validated::header_segments::{HEADER_LEN, SegmentValidationError};
+use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
 
 use type_families::{Functor as _, impl_functor, impl_kind1};
@@ -511,9 +511,14 @@ where
             match seg_res {
                 Ok(mut text_seg) => {
                     let es = segs.validate(&mut text_seg, limit);
+                    let ne = segs
+                        .nextdata
+                        .and_then(|nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map(ReqSegmentWithDefaultErrorInner::from);
                     let mut res =
                         SwitchableErrorsResult::new_switchable_iter3((), (), es, missing_flag)
                             .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
+                            .extend_deferred_switchable_errors3(ne)
                             .switchable_into_commutative()
                             .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
                             .set_ok_value((HeaderOrTextSegment::from(text_seg), Some(uncorr_txt)));
@@ -727,9 +732,14 @@ where
             match seg_res {
                 Ok(mut text_seg) => {
                     let es = segs.validate(&mut text_seg, limit);
+                    let ne = segs
+                        .nextdata
+                        .and_then(|nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map(OptSegmentWithDefaultWarning::from);
                     let mut res =
                         SwitchableErrorsResult::new_switchable_iter((), (), es, drop_flag)
                             .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                            .extend_deferred_switchable_errors(ne)
                             .switchable_into_commutative()
                             .set_ok_value((HeaderOrTextSegment::from(text_seg), Some(uncorr_txt)));
                     res.extend_commutative_warnings(mismatch_warn);
@@ -1882,6 +1892,7 @@ pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchError<I>),
     Validation(SegmentValidationError),
+    Nextdata(NextdataOffsetsError),
 }
 
 /// Warning when parsing required segments from TEXT when HEADER is allowed to override
@@ -1901,6 +1912,7 @@ pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchError<I>),
     Validation(SegmentValidationError),
+    Nextdata(NextdataOffsetsError),
 }
 
 /// Error when segment with TEXT offsets overlaps with HEADER or another segment

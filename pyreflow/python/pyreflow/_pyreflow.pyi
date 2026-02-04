@@ -1919,19 +1919,21 @@ class HeaderAndSuppOffsets:
         cls,
         header: Header,
         supp_text: tuple[Segment, Segment] | None,
+        nextdata: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header(self) -> Header: ...
     @property
     def supp_text(self) -> Segment | None: ...
+    @property
+    def nextdata(self) -> int | None: ...
 
 @final
 class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_supp: HeaderAndSuppOffsets,
-        nextdata: int | None,
         delimiter: int,
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
@@ -1945,8 +1947,6 @@ class FlatTEXTDiagnostics:
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_supp(self) -> HeaderAndSuppOffsets: ...
-    @property
-    def nextdata(self) -> int | None: ...
     @property
     def delimiter(self) -> int: ...
     @property

@@ -1149,7 +1149,15 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
     );
 
-    let args = [header, supp];
+    let rstype = keyword_path("Nextdata");
+    let nextdata = DocArgROIvar::new_ivar_ro(
+        "nextdata",
+        PyOpt::new1(PyInt::from(RsInt::U64).rstype(rstype)),
+        "The value of *$NEXTDATA*.",
+        |_, _| quote!(self.0.nextdata),
+    );
+
+    let args = [header, supp, nextdata];
 
     let doc = DocString::new_class("*HEADER* data and supplemental offsets.").args(args);
     let inner_args = doc.idents_into();
@@ -1175,13 +1183,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         PyClass::new_py(["api"], "HeaderAndSuppOffsets"),
         "*HEADER* data and supplemental *TEXT* offsets.",
         |_, _| quote!(self.0.header_supp.clone().into()),
-    );
-
-    let nextdata = DocArgROIvar::new_ivar_ro(
-        "nextdata",
-        PyOpt::new1(RsInt::U64),
-        "The value of *$NEXTDATA*.",
-        |_, _| quote!(self.0.nextdata),
     );
 
     let delim = DocArgROIvar::new_ivar_ro(
@@ -1258,7 +1259,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let args = [
         header_supp,
-        nextdata,
         delim,
         byte_pairs,
         non_unique_std,

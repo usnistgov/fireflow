@@ -25,9 +25,9 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    GuessOtherWidthError, HasRegion, IsDataOrAnalysis, KeyedOptSegment as _, KeyedReqSegment as _,
-    OptSegmentError, ReqSegmentError, SegmentOverlapError, SupplementalTextSegment,
-    SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
+    AnyRegion, GuessOtherWidthError, HasRegion, IsDataOrAnalysis, KeyedOptSegment as _,
+    KeyedReqSegment as _, OptSegmentError, ReqSegmentError, SegmentOverlapError,
+    SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -657,11 +657,14 @@ pub enum STextSegmentWarning {
 }
 
 /// Error when supplement and primary TEXT offsets are identity
-#[derive(Error, Debug)]
-#[error("primary and supplemental TEXT have identical offsets ({0})")]
+#[derive(Error, Debug, new)]
+#[error("{location} and supplemental TEXT have identical offsets: {offsets}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct DuplicateSTextError(UncorrectedSegment);
+pub struct DuplicateSTextError {
+    offsets: UncorrectedSegment,
+    location: AnyRegion,
+}
 
 /// Warning when parsing multiple [`FlatDatasetOutput`]s
 #[derive(From, Display, Error, Debug)]
@@ -2051,20 +2054,41 @@ where
         if let Some((mut seg_stxt, uncorr_stxt)) = maybe {
             // Offsets found, check for validity
             let uncorr_ptxt = header.uncorrected_segments.text;
-            if uncorr_ptxt == uncorr_stxt {
-                // Primary and supp are identical, maybe return error and None
-                // (if we returned Some we would parse TEXT twice which we don't
-                // want)
+            let uncorr_anal = header.uncorrected_segments.analysis;
+            let uncorr_others = &mut header.uncorrected_segments.other[..];
+
+            let go = |loc| {
+                // Supp TEXT is identical to another segment. Keep the other
+                // segment and return None for supp TEXT
+                //
+                // TODO it may be necessary to configure which segment to keep
+                // in the future.
                 let flag = hconf.allow_duplicated_supp_text;
-                let e = DuplicateSTextError(uncorr_stxt);
+                let e = DuplicateSTextError::new(uncorr_stxt, loc);
                 SwitchableErrorsResult::new_switchable3(None, None, e, flag)
                     .map_switchable_errors(STextSegmentError::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(STextSegmentWarning::from)
+            };
+
+            if seg_stxt.is_empty() {
+                // supp TEXT is empty, nothing else to do
+                LogResult::new_ok(None)
+            } else if uncorr_ptxt == uncorr_stxt {
+                // Primary and supp are identical, keep primary
+                go(AnyRegion::Text)
+            } else if uncorr_ptxt == uncorr_anal {
+                // Supp and ANALYSIS are the same, keep latter
+                go(AnyRegion::Analysis)
+            } else if uncorr_others.contains(&uncorr_stxt) {
+                // Supp and one OTHER offset are the same, keep the OTHER
+                // ASSUME all other offsets are unique.
+                go(AnyRegion::Other)
             } else {
-                // Primary and supp not identical, check for overlaps. ASSUME
-                // the HEADER segments have already been validated and adjusted
-                // such that they do not overlap.
+                // Supp not identical to anything else, check for overlaps and
+                // keep if there are none. ASSUME the HEADER segments have
+                // already been validated and adjusted such that they do not
+                // overlap.
                 let limit = oconf.overlap_correction_limit;
                 let es = header
                     .segments

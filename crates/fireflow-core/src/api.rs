@@ -4,7 +4,7 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, VersionOverride,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
@@ -18,10 +18,10 @@ use crate::header::{
     Version3_1, Version3_2,
 };
 use crate::logging::{
-    DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult,
-    IOAnonErrorGroup, IOErrorGroup, LogResult, ResultExt as _, Success, SuccessResultIter as _,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult,
-    WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log, split_log,
+    DeferredIter as _, DeferredWarningsAndErrors, ErrorsResult, IOAnonErrorGroup, IOErrorGroup,
+    LogResult, ResultExt as _, Success, SuccessResultIter as _, SwitchableErrorResult,
+    SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
@@ -33,11 +33,11 @@ use crate::segment::{
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
 };
-use crate::text::lookup::{
-    OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
-};
+use crate::text::lookup::{OptKeyError, ReqKeyError, ReqMetarootKey as _, truncate_string};
 use crate::validated::dataframe::FCSDataFrame;
-use crate::validated::header_segments::{ParsedHeaderSegments, SegmentValidationError};
+use crate::validated::header_segments::{
+    NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
+};
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey,
     StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
@@ -748,6 +748,7 @@ pub enum ParseFlatTEXTError {
     Nextdata(ReqKeyError<Nextdata>),
     NonUtf8(NonUtf8KeywordError),
     AppendSupp(StdPresent),
+    NextdataOffset(NextdataOffsetsError),
 }
 
 /// Error when parsing primary TEXT
@@ -1189,7 +1190,7 @@ impl FlatTEXTOutput {
                 }
             })
             .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_out, supp_out)| {
-                let nextdata_res = lookup_nextdata(&kws.std, conf)
+                let nextdata_res = Nextdata::lookup_ro(&kws.std, conf)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .into_semigroup();
@@ -1211,11 +1212,24 @@ impl FlatTEXTOutput {
                     .set_err_value(())
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|(nextdata, (), ())| {
+                    .and_then_commutative(|(nextdata, (), ())| {
+                        let es = if let Some(n) = nextdata {
+                            let oconf: &ReadOffsetConfig = st.conf.as_ref();
+                            let limit = oconf.overlap_correction_limit;
+                            header.segments.validate_nextdata(n, limit)
+                        } else {
+                            vec![]
+                        };
+                        WarningsAndErrorsResult::new_err_from_iter(es, nextdata)
+                            .map_errors(ParseFlatTEXTError::from)
+                            .group()
+                            .map_error(IOErrorGroup::Pure)
+                    })
+                    .map_ok_value(|nextdata| {
                         let non_data_offsets = HeaderAndSuppOffsets::new(header, supp_text_seg);
                         let parse = FlatTEXTDiagnostics {
                             header_supp: non_data_offsets,
-                            nextdata,
+                            nextdata: nextdata.map(u64::from),
                             delimiter: delim,
                             byte_pairs: kws.byte_pairs,
                             non_unique_std_keywords: kws.non_unique_std_keywords,
@@ -2104,34 +2118,6 @@ where
             // No offsets found
             LogResult::new_ok(None)
         }
-    })
-}
-
-fn lookup_nextdata(
-    kws: &StdKeywords,
-    conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningAndError<Option<u64>, OptKeyError<Nextdata>, ReqKeyError<Nextdata>> {
-    let ret = match conf.allow_missing_nextdata.0 {
-        TriFlag::True => LogResult::Succ(Nextdata::get_root_opt(kws).into_succ()),
-        TriFlag::False => Nextdata::get_metaroot_req(kws)
-            .map(Some)
-            .into_log()
-            .set_err_value(None),
-        TriFlag::Silent => LogResult::new_ok(
-            kws.get(&Nextdata::std())
-                .and_then(|s| s.parse::<Nextdata>().ok()),
-        ),
-    };
-    ret.map_deferred_value(|x| {
-        x.map(|y| {
-            let c = i128::from(conf.nextdata_correction);
-            let z = i128::from(y.0).saturating_add(c);
-            if z < 0 {
-                0_u64
-            } else {
-                u64::try_from(z).unwrap_or(u64::MAX)
-            }
-        })
     })
 }
 

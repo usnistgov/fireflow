@@ -7,6 +7,7 @@ use crate::segment::{
     IsDataOrAnalysis, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
     TEXTSegment, UncorrectedSegment,
 };
+use crate::text::keywords::Nextdata;
 use crate::validated::ascii_range::OtherWidth;
 
 use derive_more::{AsRef, Display, From};
@@ -133,6 +134,29 @@ impl ParsedHeaderSegments {
     /// Return reader for OTHER segments.
     pub(crate) fn others_reader(&self) -> OthersReader {
         OthersReader::new(self.as_others().copied().collect())
+    }
+
+    /// Fix offsets that exceed $NEXTDATA or return error if this fails.
+    pub(crate) fn validate_nextdata(
+        &mut self,
+        n: Nextdata,
+        limit: OverlapCorrectionLimit,
+    ) -> Vec<NextdataOffsetsError> {
+        let nn = u64::from(n);
+        if nn == 0 {
+            vec![]
+        } else {
+            let mut errors = vec![];
+            for (mut r, s) in self.as_mut_nonempty_segments() {
+                let overlap = (s.end + 1).saturating_sub(nn);
+                if overlap <= limit.0 {
+                    r.truncate(overlap);
+                } else {
+                    errors.push(NextdataOffsetsError::new(n, s));
+                }
+            }
+            errors
+        }
     }
 
     fn as_others(&self) -> impl Iterator<Item = &OtherSegment20> {
@@ -356,6 +380,16 @@ def_summary!(
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
+
+/// Error when segment offsets exceed $NEXTDATA.
+#[derive(Debug, Error, new)]
+#[error("{offsets} exceed $NEXTDATA ({})", u64::from(self.nextdata))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+pub struct NextdataOffsetsError {
+    nextdata: Nextdata,
+    offsets: GenericSegment,
+}
 
 /// The length of the HEADER without OTHER segments.
 pub(crate) const HEADER_LEN: u8 = 58;

@@ -1,11 +1,13 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, ForceLinearScale, ReadDataKeywordsConfig, ReadStdKeywordsConfig,
-    TemporalOpticalKey, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, ForceLinearScale, ReadDataKeywordsConfig,
+    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey, TriFlag,
+    TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
 use crate::logging::{
-    DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
+    DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
+    WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -52,21 +54,23 @@ use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
+use num_derive::Zero;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
+use thiserror::Error;
+use unicase::Ascii;
+
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
 use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
 use std::str::FromStr;
-use thiserror::Error;
-use unicase::Ascii;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::{DiagnosedKeyword, FromStrWithResult, Trimmed, TrimmedKeyword};
+use super::lookup::{DiagnosedKeyword, FromStrWithResult, OptKeyError, Trimmed, TrimmedKeyword};
 
 #[cfg(feature = "python")]
 use {
@@ -578,9 +582,40 @@ pub(crate) const REGION_INDEX_KW_SUFFIX: &str = "I";
 pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[into(u64, UintZeroPad20)]
 pub struct Nextdata(pub UintZeroPad20);
+
+impl Nextdata {
+    pub(crate) fn lookup_ro(
+        kws: &StdKeywords,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> DeferredWarningAndError<Option<Self>, OptKeyError<Self>, ReqKeyError<Self>> {
+        let ret = match conf.allow_missing_nextdata.0 {
+            TriFlag::True => LogResult::Succ(Self::get_root_opt(kws).into_succ()),
+            TriFlag::False => Self::get_metaroot_req(kws)
+                .map(Some)
+                .into_log()
+                .set_err_value(None),
+            TriFlag::Silent => {
+                LogResult::new_ok(kws.get(&Self::std()).and_then(|s| s.parse::<Self>().ok()))
+            }
+        };
+        ret.map_deferred_value(|x| {
+            x.map(|y| {
+                let c = i128::from(conf.nextdata_correction);
+                let z = i128::from(y.0).saturating_add(c);
+                let out = if z < 0 {
+                    0_u64
+                } else {
+                    u64::try_from(z).unwrap_or(u64::MAX)
+                };
+                Self(UintZeroPad20(out))
+            })
+        })
+    }
+}
 
 /// The value for the $PnE key (all versions).
 ///

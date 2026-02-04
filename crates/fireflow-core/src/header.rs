@@ -160,7 +160,7 @@ impl Header {
     {
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset.0)));
-        let req = io_to_log!(h_read_required_header(h, st));
+        let req = io_to_log!(ReqHeader::h_read(h, st));
         let (text, text_raw) = req.text;
         let (data, data_raw) = req.data;
         let (analysis, analysis_raw) = req.analysis;
@@ -202,69 +202,68 @@ struct ReqHeader {
     analysis: (HeaderAnalysisSegment, UncorrectedSegment),
 }
 
-fn h_read_required_header<C, R>(
-    h: &mut BufReader<R>,
-    st: &ReadState<C>,
-) -> IOGroupResult<ReqHeader, HeaderError, ()>
-where
-    R: Read + Seek,
-    C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
-{
-    let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
-    let text_cor = conf.text_correction;
-    let data_cor = conf.data_correction;
-    let anal_cor = conf.analysis_correction;
+impl ReqHeader {
+    fn h_read<C, R>(h: &mut BufReader<R>, st: &ReadState<C>) -> IOGroupResult<Self, HeaderError, ()>
+    where
+        R: Read + Seek,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+    {
+        let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let text_cor = conf.text_correction;
+        let data_cor = conf.data_correction;
+        let anal_cor = conf.analysis_correction;
 
-    let vers_res = split_io!(Version::h_read(h, st))
-        .ungroup()
-        .map_errors(HeaderError::from);
-    let space_res = split_io!(h_read_spaces(h, st))
-        .ungroup()
-        .map_errors(HeaderError::from);
+        let vers_res = split_io!(Version::h_read(h, st))
+            .ungroup()
+            .map_errors(HeaderError::from);
+        let space_res = split_io!(Self::h_read_spaces(h, st))
+            .ungroup()
+            .map_errors(HeaderError::from);
 
-    let (version, ()) = vers_res
-        .zip_commutative(space_res)
-        .group()
-        .resolve_nowarn()
-        .map_err(IOErrorGroup::Pure)?;
+        let (version, ()) = vers_res
+            .zip_commutative(space_res)
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)?;
 
-    let text_res = HeaderSegment::h_read_primary(h, true, text_cor, version, st);
-    let data_res = HeaderSegment::h_read_primary(h, false, data_cor, version, st);
-    let anal_res = HeaderSegment::h_read_primary(h, false, anal_cor, version, st);
+        let text_res = HeaderSegment::h_read_primary(h, true, text_cor, version, st);
+        let data_res = HeaderSegment::h_read_primary(h, false, data_cor, version, st);
+        let anal_res = HeaderSegment::h_read_primary(h, false, anal_cor, version, st);
 
-    let pure_text_res = split_io!(text_res).ungroup();
-    let pure_data_res = split_io!(data_res).ungroup();
-    let pure_anal_res = split_io!(anal_res).ungroup();
+        let pure_text_res = split_io!(text_res).ungroup();
+        let pure_data_res = split_io!(data_res).ungroup();
+        let pure_anal_res = split_io!(anal_res).ungroup();
 
-    pure_text_res
-        .zip3_commutative(pure_data_res, pure_anal_res)
-        .map_errors(HeaderError::from)
-        .group()
-        .resolve_nowarn()
-        .map_err(IOErrorGroup::Pure)
-        .map(|(t, d, a)| ReqHeader::new(version, t, d, a))
-}
-
-fn h_read_spaces<R, C>(
-    h: &mut BufReader<R>,
-    st: &ReadState<C>,
-) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
-where
-    R: Read + Seek,
-{
-    let remaining = st.remaining_bytes(h)?;
-    if remaining < 4 {
-        let e = HeaderSpacesNoBytesError(remaining).into();
-        return Err(IOAnonErrorGroup::new_pure_one(e));
+        pure_text_res
+            .zip3_commutative(pure_data_res, pure_anal_res)
+            .map_errors(HeaderError::from)
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
+            .map(|(t, d, a)| Self::new(version, t, d, a))
     }
-    let mut buf = [0_u8; 4];
-    h.read_exact(&mut buf)?;
-    if buf.iter().all(|x| *x == 32) {
-        Ok(())
-    } else {
-        Err(IOAnonErrorGroup::new_pure_one(
-            HeaderSpacesFormatError.into(),
-        ))
+
+    fn h_read_spaces<R, C>(
+        h: &mut BufReader<R>,
+        st: &ReadState<C>,
+    ) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
+    where
+        R: Read + Seek,
+    {
+        let remaining = st.remaining_bytes(h)?;
+        if remaining < 4 {
+            let e = HeaderSpacesNoBytesError(remaining).into();
+            return Err(IOAnonErrorGroup::new_pure_one(e));
+        }
+        let mut buf = [0_u8; 4];
+        h.read_exact(&mut buf)?;
+        if buf.iter().all(|x| *x == 32) {
+            Ok(())
+        } else {
+            Err(IOAnonErrorGroup::new_pure_one(
+                HeaderSpacesFormatError.into(),
+            ))
+        }
     }
 }
 

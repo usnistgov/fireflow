@@ -4,6 +4,7 @@ on:
   push:
     paths-ignore:
       - '**.md'
+      - 'pyreflow/docs/**'
 
 jobs:
   test-python-and-os:
@@ -61,23 +62,3 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: make all-dev
-
-  test-py-docs:
-    name: test python doc build
-
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: 3.11
-
-      - name: Install graphviz
-        run: sudo apt install -y graphviz
-
-      - uses: dtolnay/rust-toolchain@1.92
-
-      - uses: Swatinem/rust-cache@v2
-
-      - run: make docs

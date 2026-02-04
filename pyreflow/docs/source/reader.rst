@@ -174,15 +174,14 @@ above.
 .. autoclass:: pyreflow.api.StdDatasetOutput
    :members:
 
-.. autoclass:: pyreflow.api.FlatDatasetWithKwsOutput
+.. autoclass:: pyreflow.api.NewFlatDatasetFromKwsOutput
    :members:
 
-.. autoclass:: pyreflow.api.StdDatasetWithKwsOutput
+.. autoclass:: pyreflow.api.NewStdDatasetFromKwsOutput
    :members:
 
 .. autoclass:: pyreflow.api.DatasetSummary
    :members:
-  
   
 Common outputs
 --------------
@@ -214,4 +213,10 @@ These are which are reused when returning data from the above functions.
    :members:
 
 .. autoclass:: pyreflow.api.EventsDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.FlatDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.StdDatasetFromKwsOutput
    :members:

@@ -4,8 +4,6 @@ on:
   push:
     paths-ignore:
       - '**.md'
-      - 'pyreflow/docs/**'
-
 
 jobs:
   test-python-and-os:

@@ -83,7 +83,7 @@ use crate::text::lookup::{
     ReqMetarootKey as _,
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
-use crate::text::optional::{Identity, KeywordPairMaybe as _, Nothing};
+use crate::text::optional::{Identity, KeywordPairMaybe as _, MightHave, Nothing};
 use crate::validated::ascii_range::{
     AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
 };
@@ -536,11 +536,18 @@ pub trait IsNumType: Sized {
 }
 
 /// Methods for a type which may or may not have $TOT
-pub trait IsTot: Sized {
+pub trait IsTot: Sized + MightHave<Tot> {
     fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
     where
         F: FnOnce(I, Tot) -> X,
-        G: FnOnce(I) -> X;
+        G: FnOnce(I) -> X,
+    {
+        if let Some(t) = tot.to_opt() {
+            tot_f(input, t)
+        } else {
+            notot_f(input)
+        }
+    }
 
     fn check_tot(
         total_events: u64,
@@ -1351,29 +1358,8 @@ impl IsNumType for Option<NumType> {
     }
 }
 
-impl IsTot for Option<Tot> {
-    fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, notot_f: G) -> X
-    where
-        F: FnOnce(I, Tot) -> X,
-        G: FnOnce(I) -> X,
-    {
-        if let Some(t) = tot {
-            tot_f(input, t)
-        } else {
-            notot_f(input)
-        }
-    }
-}
-
-impl IsTot for Identity<Tot> {
-    fn with_tot<F, G, I, X>(input: I, tot: Self, tot_f: F, _: G) -> X
-    where
-        F: FnOnce(I, Tot) -> X,
-        G: FnOnce(I) -> X,
-    {
-        tot_f(input, tot.0)
-    }
-}
+impl IsTot for Option<Tot> {}
+impl IsTot for Identity<Tot> {}
 
 impl From<&NullMixedType> for Range {
     fn from(value: &NullMixedType) -> Self {

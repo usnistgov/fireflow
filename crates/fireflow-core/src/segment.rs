@@ -212,18 +212,18 @@ pub type OtherSegment<T> = Segment<OtherSegmentId, SegmentFromHeader, T>;
 pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
-pub(crate) type ReqSegResult<T> = WarningsAndErrorsResult<
-    (AnySegment<T>, Option<UncorrectedSegment>),
+pub(crate) type ReqSegResult<I> = WarningsAndErrorsResult<
+    (HeaderOrTextSegment<I>, Option<UncorrectedSegment>),
     (),
-    ReqSegmentWithDefaultWarning<T>,
-    ReqSegmentWithDefaultError<T>,
+    ReqSegmentWithDefaultWarning<I>,
+    ReqSegmentWithDefaultError<I>,
 >;
 
-pub(crate) type OptSegRes<T> = WarningsAndErrorsResult<
-    (AnySegment<T>, Option<UncorrectedSegment>),
+pub(crate) type OptSegRes<I> = WarningsAndErrorsResult<
+    (HeaderOrTextSegment<I>, Option<UncorrectedSegment>),
     (),
-    OptSegmentWithDefaultWarning<T>,
-    OptSegmentWithDefaultWarning<T>,
+    OptSegmentWithDefaultWarning<I>,
+    OptSegmentWithDefaultWarning<I>,
 >;
 
 pub type ReqSegmentWithDefaultWarning<T> =
@@ -317,6 +317,21 @@ pub(crate) trait HasSegmentPair: Sized {
             Self::corrected_segment(segs),
             Self::uncorrected_segment(segs),
         )
+    }
+}
+
+#[derive(Clone, Copy, From)]
+pub(crate) enum HeaderOrTextSegment<I> {
+    Header(HeaderSegment<I>),
+    Text(TEXTSegment<I>),
+}
+
+impl<I> HeaderOrTextSegment<I> {
+    pub(crate) fn into_any(self) -> AnySegment<I> {
+        match self {
+            Self::Header(x) => x.into_any(),
+            Self::Text(x) => x.into_any(),
+        }
     }
 }
 
@@ -428,7 +443,7 @@ where
     {
         if ignore.is_set() {
             let default = Self::corrected_segment(segs);
-            LogResult::new_ok((default.into_any(), None))
+            LogResult::new_ok((HeaderOrTextSegment::from(default), None))
         } else {
             Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, st)
         }
@@ -455,7 +470,7 @@ where
         if ignore.is_set() {
             let _ = Self::remove_req_pair(kws);
             let default = Self::corrected_segment(segs);
-            LogResult::new_ok((default.into_any(), None))
+            LogResult::new_ok((HeaderOrTextSegment::from(default), None))
         } else {
             Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, st)
         }
@@ -478,7 +493,7 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair = (header_seg.into_any(), None);
+        let header_pair = (HeaderOrTextSegment::from(header_seg), None);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
         let limit = oconf.overlap_correction_limit;
@@ -500,7 +515,7 @@ where
                             .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
-                            .set_ok_value((text_seg.into_any(), Some(uncorr_txt)));
+                            .set_ok_value((HeaderOrTextSegment::from(text_seg), Some(uncorr_txt)));
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
@@ -649,7 +664,7 @@ where
     {
         if ignore.is_set() {
             let default = Self::corrected_segment(segs);
-            LogResult::new_ok((default.into_any(), None))
+            LogResult::new_ok((HeaderOrTextSegment::from(default), None))
         } else {
             let pair = Self::get_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, corr, st)
@@ -674,7 +689,7 @@ where
         if ignore.is_set() {
             let default = Self::corrected_segment(segs);
             let _ = Self::remove_opt_pair(kws);
-            LogResult::new_ok((default.into_any(), None))
+            LogResult::new_ok((HeaderOrTextSegment::from(default), None))
         } else {
             let pair = Self::remove_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, corr, st)
@@ -698,7 +713,7 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair = (header_seg.into_any(), None);
+        let header_pair = (HeaderOrTextSegment::from(header_seg), None);
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::Drop);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
@@ -715,7 +730,7 @@ where
                         SwitchableErrorsResult::new_switchable_iter((), (), es, drop_flag)
                             .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                             .switchable_into_commutative()
-                            .set_ok_value((text_seg.into_any(), Some(uncorr_txt)));
+                            .set_ok_value((HeaderOrTextSegment::from(text_seg), Some(uncorr_txt)));
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }

@@ -3,9 +3,9 @@
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, ProcessKeywordFailure,
-    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig,
-    ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
+    DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, OverlapCorrectionLimit,
+    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig,
+    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
     TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, TriFlag,
     WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
     WriteTEXTInnerConfig,
@@ -31,10 +31,10 @@ use crate::logging::{
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
-    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId,
+    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
     KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, OptSegmentWithDefaultWarning,
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchError,
-    UncorrectedSegment,
+    SegmentOverlapError, UncorrectedSegment,
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
@@ -8004,8 +8004,13 @@ macro_rules! lookup_offsets_3_0 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, anal_res)
-            .map_ok_value(|(tot, (d, dr), (a, ar))| {
-                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            .and_then_commutative(|(tot, (d, dr), (a, ar))| {
+                let oconf: &ReadOffsetConfig = $st.conf.as_ref();
+                let limit = oconf.overlap_correction_limit;
+                DatasetSegments::try_new(d, a, dr, ar, limit)
+                    .map(|dos| TEXTOffsets::new(dos, tot).into())
+                    .map_err(LookupTEXTOffsetsError::from)
+                    .into_log()
             })
     }};
 }
@@ -8064,8 +8069,13 @@ macro_rules! lookup_offsets_3_2 {
             .map_errors(LookupTEXTOffsetsError::from);
         tot_res
             .zip3_commutative(data_res, anal_res)
-            .map_ok_value(|(tot, (d, dr), (a, ar))| {
-                TEXTOffsets::new(DatasetSegments::new(d, a, dr, ar), tot).into()
+            .and_then_commutative(|(tot, (d, dr), (a, ar))| {
+                let oconf: &ReadOffsetConfig = $st.conf.as_ref();
+                let limit = oconf.overlap_correction_limit;
+                DatasetSegments::try_new(d, a, dr, ar, limit)
+                    .map(|dos| TEXTOffsets::new(dos, tot).into())
+                    .map_err(LookupTEXTOffsetsError::from)
+                    .into_log()
             })
     }};
 }
@@ -9212,6 +9222,43 @@ impl OthersReader<'_> {
     }
 }
 
+impl DatasetSegments {
+    fn try_new(
+        data: HeaderOrTextSegment<DataSegmentId>,
+        analysis: HeaderOrTextSegment<AnalysisSegmentId>,
+        data_uncorr: Option<UncorrectedSegment>,
+        analysis_uncorr: Option<UncorrectedSegment>,
+        limit: OverlapCorrectionLimit,
+    ) -> Result<Self, SegmentOverlapError> {
+        if let (HeaderOrTextSegment::Text(mut dt), HeaderOrTextSegment::Text(mut at)) =
+            (data, analysis)
+            && let (Some(dq), Some(aq)) = (dt.try_as_generic(), at.try_as_generic())
+        {
+            if dq.begin < aq.begin {
+                let overlap = dq.get_tail_overlap(&aq);
+                if overlap <= limit.0 {
+                    dt.truncate(overlap);
+                } else {
+                    return Err(SegmentOverlapError::new(dq, aq));
+                }
+            } else {
+                let overlap = aq.get_tail_overlap(&dq);
+                if overlap <= limit.0 {
+                    at.truncate(overlap);
+                } else {
+                    return Err(SegmentOverlapError::new(aq, dq));
+                }
+            }
+        }
+        Ok(Self::new(
+            data.into_any(),
+            analysis.into_any(),
+            data_uncorr,
+            analysis_uncorr,
+        ))
+    }
+}
+
 /// Error when converting [`Core`] to new FCS version
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -9837,6 +9884,8 @@ pub enum LookupTEXTOffsetsError {
     MismatchAnalysis(SegmentMismatchError<AnalysisSegmentId>),
     /// optional TEXT ANALYSIS segment does not match HEADER (3.2)
     MismatchAnalysisOpt(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
+    /// DATA and ANALYSIS offsets are both non-empty and overlap each other
+    DataAnalysisOverlap(SegmentOverlapError),
 }
 
 /// Warning when looking up offsets for parsing DATA

@@ -6,7 +6,7 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
     ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
-use crate::header::{HEADER_LEN, SegmentValidationError, Version};
+use crate::header::Version;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
@@ -19,6 +19,7 @@ use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
+use crate::validated::header_segments::{HEADER_LEN, SegmentValidationError};
 use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
 
 use type_families::{Functor as _, impl_functor, impl_kind1};
@@ -817,7 +818,7 @@ pub(crate) trait IsDataOrAnalysis {
 
 impl HasSegmentPair for DataSegmentId {
     fn corrected_segment(segs: &HeaderAndSuppOffsets) -> HeaderSegment<Self> {
-        segs.header.segments.data
+        *AsRef::<HeaderSegment<Self>>::as_ref(&segs.header.segments)
     }
 
     fn uncorrected_segment(segs: &HeaderAndSuppOffsets) -> UncorrectedSegment {
@@ -827,7 +828,7 @@ impl HasSegmentPair for DataSegmentId {
 
 impl HasSegmentPair for AnalysisSegmentId {
     fn corrected_segment(segs: &HeaderAndSuppOffsets) -> HeaderSegment<Self> {
-        segs.header.segments.analysis
+        *AsRef::<HeaderSegment<Self>>::as_ref(&segs.header.segments)
     }
 
     fn uncorrected_segment(segs: &HeaderAndSuppOffsets) -> UncorrectedSegment {

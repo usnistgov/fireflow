@@ -18,8 +18,8 @@ use crate::data::{
     ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, ParsedHeaderSegments, Version,
-    Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
+    Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -94,6 +94,7 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
     BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, MeasHeader, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
@@ -1299,8 +1300,8 @@ pub struct AnalysisReader {
 
 /// Reader for OTHER segments
 #[derive(new)]
-pub struct OthersReader<'a> {
-    pub segs: &'a [OtherSegment20],
+pub struct OthersReader {
+    pub segs: Vec<OtherSegment20>,
 }
 
 /// Output of using keywords to crate new standardized TEXT+DATA
@@ -4865,8 +4866,7 @@ where
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, mut offsets)| {
-                let os: Vec<_> = hns.header.segments.as_others().copied().collect();
-                let or = OthersReader::new(&os[..]);
+                let or = hns.header.segments.others_reader();
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 text.layout
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, &st.conf)
@@ -7931,8 +7931,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     {
         Tot::remove_or_drop_root_opt(std, nonstd, st.conf.as_ref())
             .map_ok_value(|tot| {
-                let x = &segs.header.segments;
-                let s = DatasetSegments::new(x.data.into_any(), x.analysis.into_any(), None, None);
+                let s = segs.header.segments.as_dataset_segments(None, None);
                 TEXTOffsets::new(s, tot)
             })
             .set_err_value(())
@@ -7954,8 +7953,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let x = &segs.header.segments;
-                let s = DatasetSegments::new(x.data.into_any(), x.analysis.into_any(), None, None);
+                let s = segs.header.segments.as_dataset_segments(None, None);
                 TEXTOffsets::new(s, tot)
             });
         LogResult::Succ(succ)
@@ -9167,11 +9165,11 @@ impl AnalysisReader {
     }
 }
 
-impl OthersReader<'_> {
+impl OthersReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
         let mut buf = vec![];
         let mut others = vec![];
-        for s in self.segs {
+        for s in &self.segs {
             s.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();

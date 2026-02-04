@@ -8,14 +8,14 @@ use crate::config::{
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
-    StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetFromKwsOutput,
-    StdTEXTDiagnostics, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
+    LookupAndReadDataAnalysisWarning, Others, PrivVersioned as _, StdDatasetFromFlatTEXTWarning,
+    StdDatasetFromFlatTextError, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
+    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, KeywordVersionScores, ParsedHeaderSegments,
-    SegmentValidationError, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, KeywordVersionScores, Version, Version2_0, Version3_0,
+    Version3_1, Version3_2,
 };
 use crate::logging::{
     DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult,
@@ -26,8 +26,9 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnyRegion, GuessOtherWidthError, HasRegion, IsDataOrAnalysis, KeyedOptSegment as _,
-    KeyedReqSegment as _, OptSegmentError, ReqSegmentError, SegmentOverlapError,
-    SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
+    KeyedReqSegment as _, OptSegmentError, PrimaryTextSegment, ReqSegmentError,
+    SegmentOverlapError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment,
+    UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -36,6 +37,7 @@ use crate::text::lookup::{
     OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _, truncate_string,
 };
 use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::header_segments::{ParsedHeaderSegments, SegmentValidationError};
 use crate::validated::keys::{
     BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey,
     StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
@@ -1039,9 +1041,10 @@ impl FlatDatasetOutput {
         let fd = self.text.flat_diagnostics;
         let hdr = fd.header_supp.header;
         let ds = self.dataset;
+        let txt = AsRef::<PrimaryTextSegment>::as_ref(&hdr.segments);
         DatasetSummary {
             version: hdr.version,
-            text_len: hdr.segments.text.len(),
+            text_len: txt.len(),
             data_len: ds.dataset_segments.data.len(),
             analysis_len: ds.dataset_segments.analysis.len(),
             n_events: ds.data.nrows(),
@@ -1074,12 +1077,9 @@ impl FlatDatasetFromKwsOutput {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_segments, event_out)| {
-                let os: Vec<_> = hns.header.segments.as_others().copied().collect();
-                OthersReader::new(&os[..])
-                    .h_read(h)
-                    .map(|others| Self::new(data, analysis, others, dataset_segments, event_out))
-                    .map_err(IOErrorGroup::from)
-                    .into_log()
+                let or = hns.header.segments.others_reader();
+                let go = |others| Self::new(data, analysis, others, dataset_segments, event_out);
+                or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
             })
     }
 }
@@ -1146,7 +1146,7 @@ impl FlatTEXTOutput {
     {
         let conf = st.conf.as_ref();
         let mut buf = vec![];
-        let ptext_seg = header.segments.text;
+        let ptext_seg: &PrimaryTextSegment = header.segments.as_ref();
 
         io_to_log!(ptext_seg.h_read_contents(h, &mut buf));
         let delim_res = split_first_delim(&buf, conf)

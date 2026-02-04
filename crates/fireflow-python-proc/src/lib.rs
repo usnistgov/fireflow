@@ -520,7 +520,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 
     let segments = DocArgROIvar::new_ivar_ro(
         "segments",
-        PyClass::new_py(["api"], "HeaderSegments"),
+        PyClass::new_py(["api"], "ParsedHeaderSegments"),
         "The segments from *HEADER*.",
         |_, _| quote!(self.0.segments.clone().into()),
     );
@@ -576,13 +576,18 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_text_seg_param().into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_data_seg_param(SegmentSrc::Header).into_ro(|_, _| quote!(self.0.data));
+    let text = DocArg::new_text_seg_param().into_ro(|_, _| quote!(*self.0.as_ref()));
+    let data =
+        DocArg::new_data_seg_param(SegmentSrc::Header).into_ro(|_, _| quote!(*self.0.as_ref()));
     let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Header, false)
-        .into_ro(|_, _| quote!(self.0.analysis));
+        .into_ro(|_, _| quote!(*self.0.as_ref()));
 
-    let other = DocArg::new_other_segs_param()
-        .into_ro(|_, _| quote!(self.0.other.clone().map(|(os, w)| (os.into(), w))));
+    let other = DocArg::new_other_segs_param().into_ro(|_, _| {
+        quote! {
+            let os: &Option<_> = self.0.as_ref();
+            os.clone().map(|(os, w)| (os.into(), w))
+        }
+    });
 
     let args = [text, data, analysis, other];
 
@@ -590,13 +595,14 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> Self {
-                #bare_path::new(
+            fn new(#fun_args) -> PyResult<Self> {
+                let x = #bare_path::try_new(
                     text_seg,
                     data_seg,
                     analysis_seg,
                     other_segs.map(|(os, w)| (os.0, w)),
-                ).into()
+                )?;
+                Ok(x.into())
             }
         }
     };
@@ -740,7 +746,7 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
-        PyClass::new_py(["api"], "HeaderSegments"),
+        PyClass::new_py(["api"], "ParsedHeaderSegments"),
         "(Possibly modified) offsets used to parse HEADER.",
         |_, _| quote!(self.0.header.clone().into()),
     );
@@ -1106,7 +1112,7 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
-        PyClass::new_py(["api"], "HeaderSegments"),
+        PyClass::new_py(["api"], "ParsedHeaderSegments"),
         "(Possibly modified) offsets used to parse HEADER.",
         |_, _| quote!(self.0.header.clone().into()),
     );

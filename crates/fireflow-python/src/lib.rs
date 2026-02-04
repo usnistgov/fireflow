@@ -71,6 +71,7 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
+use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 
 use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
@@ -127,7 +128,7 @@ def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets)
 def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
 
 impl_py_header!(header::Header);
-impl_py_header_segments!(header::HeaderSegments<header::ParsedOtherSegments>);
+impl_py_header_segments!(header_segments::ParsedHeaderSegments);
 impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
 impl_py_valid_keywords!(keys::ValidKeywords);
 impl_py_std_diagnostics!(core::StdTEXTDiagnostics);

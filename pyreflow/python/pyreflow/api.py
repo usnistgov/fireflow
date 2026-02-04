@@ -13,7 +13,7 @@ from ._pyreflow import (
 from ._pyreflow import fcs_summarize as fcs_summarize
 
 from ._pyreflow import Header as Header
-from ._pyreflow import HeaderSegments as HeaderSegments
+from ._pyreflow import ParsedHeaderSegments as ParsedHeaderSegments
 from ._pyreflow import UncorrectedHeaderSegments as UncorrectedHeaderSegments
 from ._pyreflow import HeaderAndSuppOffsets as HeaderAndSuppOffsets
 

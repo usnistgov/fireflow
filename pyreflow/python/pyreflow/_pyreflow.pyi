@@ -1770,7 +1770,7 @@ class ConfigError(PyreflowError): ...
 class PyreflowWarning(Warning): ...
 
 @final
-class HeaderSegments:
+class ParsedHeaderSegments:
     def __new__(
         cls,
         text_seg: Segment,
@@ -1812,14 +1812,14 @@ class Header:
     def __new__(
         cls,
         version: FCSVersion,
-        segments: HeaderSegments,
+        segments: ParsedHeaderSegments,
         uncorrected_segments: UncorrectedHeaderSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> FCSVersion: ...
     @property
-    def segments(self) -> HeaderSegments: ...
+    def segments(self) -> ParsedHeaderSegments: ...
     @property
     def uncorrected_segments(self) -> UncorrectedHeaderSegments: ...
 
@@ -2050,13 +2050,13 @@ class NewFlatDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset: FlatDatasetFromKwsOutput,
-        header: HeaderSegments,
+        header: ParsedHeaderSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
-    def header(self) -> HeaderSegments: ...
+    def header(self) -> ParsedHeaderSegments: ...
 
 @final
 class FlatDatasetOutput:
@@ -2117,13 +2117,13 @@ class NewStdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset: StdDatasetFromKwsOutput,
-        header: HeaderSegments,
+        header: ParsedHeaderSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetFromKwsOutput: ...
     @property
-    def header(self) -> HeaderSegments: ...
+    def header(self) -> ParsedHeaderSegments: ...
 
 @final
 class StdDatasetOutput:
@@ -2937,7 +2937,7 @@ __all__ = [
     "EndianUintLayout",
     "MixedLayout",
     "Header",
-    "HeaderSegments",
+    "ParsedHeaderSegments",
     "HeaderAndSuppOffsets",
     "UncorrectedHeaderSegments",
     "FlatTEXTOutput",

@@ -1,33 +1,28 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, DatasetOffset, OverlapCorrectionLimit, ReadHeaderInnerConfig,
-    ReadOffsetConfig, ReadState, SelectVersionStrategy, VersionOverride,
+    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig,
+    ReadState, SelectVersionStrategy, VersionOverride,
 };
 use crate::core::Other;
 use crate::logging::{
-    ErrorsResult, IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
+    IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    GenericSegment, GuessOtherWidthError, HasRegion, HasSource, HeaderAnalysisSegment,
-    HeaderDataSegment, HeaderSegment, HeaderSegmentError, IsDataOrAnalysis, OtherSegment,
-    OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError, SupplementalTextSegment,
-    TEXTAnalysisSegment, TEXTDataSegment, TEXTSegment, UncorrectedSegment,
+    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
+    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
     KeywordVersionScore, Nextdata, Par,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::validated::ascii_range::OtherWidth;
-use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflowError, UintSpacePad20, UintZeroPad20,
-};
+use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
+use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, SegmentValidationError};
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::TEXTDelim;
-
-use type_families::{impl_functor_once, impl_kind1};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -48,12 +43,6 @@ use {
     crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
 };
-
-/// The length of the HEADER.
-///
-/// This should always be the same. This also assumes that there are no OTHER
-/// segments (which for now are not supported).
-pub const HEADER_LEN: u8 = 58;
 
 /// All FCS versions this library supports.
 ///
@@ -91,31 +80,6 @@ impl_version!(Version3_0, FCS3_0);
 impl_version!(Version3_1, FCS3_1);
 impl_version!(Version3_2, FCS3_2);
 
-/// The segments from the HEADER
-#[derive(Clone, PartialEq, new)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct HeaderSegments<O> {
-    pub text: PrimaryTextSegment,
-    pub data: HeaderDataSegment,
-    pub analysis: HeaderAnalysisSegment,
-    pub other: O,
-}
-
-impl_kind1!(pub HeaderSegmentsFamily, HeaderSegments);
-
-impl_functor_once!(
-    HeaderSegments,
-    self,
-    mut f,
-    HeaderSegments::new(self.text, self.data, self.analysis, f(self.other))
-);
-
-pub type ParsedHeaderSegments = HeaderSegments<ParsedOtherSegments>;
-pub type WriteHeaderSegments<T> = HeaderSegments<WriteOtherSegments<T>>;
-
-pub type ParsedOtherSegments = Option<(NonEmpty<OtherSegment<UintSpacePad20>>, OtherWidth)>;
-pub type WriteOtherSegments<T> = Vec<OtherSegment<T>>;
-
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -136,12 +100,13 @@ pub type KeywordVersionScores = (
     KeywordVersionScore,
 );
 
-/// Any mutable reference to segment from HEADER.
-pub(crate) enum AnyHeaderSegmentMut<'a> {
-    Text(&'a mut PrimaryTextSegment),
-    Data(&'a mut HeaderDataSegment),
-    Analysis(&'a mut HeaderAnalysisSegment),
-    Other(&'a mut OtherSegment20),
+/// The segments to be written in the HEADER.
+#[derive(Clone, new)]
+pub(crate) struct WriteHeaderSegments<T> {
+    pub(crate) text: PrimaryTextSegment,
+    pub(crate) data: HeaderDataSegment,
+    pub(crate) analysis: HeaderAnalysisSegment,
+    pub(crate) other: Vec<OtherSegment<T>>,
 }
 
 impl<T> WriteHeaderSegments<T> {
@@ -167,244 +132,6 @@ impl<T> WriteHeaderSegments<T> {
             h.write_all(s.as_bytes())?;
         }
         Ok(())
-    }
-}
-
-impl ParsedHeaderSegments {
-    /// Ensure that TEXT segment does not start in HEADER and does not overlap.
-    pub(crate) fn validate_supp_text<I>(
-        &mut self,
-        s: &mut TEXTSegment<I>,
-        limit: OverlapCorrectionLimit,
-    ) -> impl Iterator<Item = SegmentValidationError>
-    where
-        I: HasRegion,
-    {
-        let contains = self.contains_segment(s).map(SegmentValidationError::from);
-        let hs = self.as_mut_nonempty_segments();
-        let overlaps = Self::fix_text_overlap(hs, s, limit)
-            .into_iter()
-            .map(SegmentValidationError::from);
-        contains.into_iter().chain(overlaps)
-    }
-
-    pub(crate) fn validate_text_data_or_analysis<I>(
-        &mut self,
-        s: &mut TEXTSegment<I>,
-        limit: OverlapCorrectionLimit,
-    ) -> impl Iterator<Item = SegmentValidationError>
-    where
-        I: HasRegion + IsDataOrAnalysis,
-    {
-        let contains = self.contains_segment(s).map(SegmentValidationError::from);
-        let hs = self.as_mut_nonempty_segments_filtered::<I>();
-        let overlaps = Self::fix_text_overlap(hs, s, limit)
-            .into_iter()
-            .map(SegmentValidationError::from);
-        contains.into_iter().chain(overlaps)
-    }
-
-    pub(crate) fn fix_text_overlap<'a, I>(
-        xs: impl IntoIterator<Item = (AnyHeaderSegmentMut<'a>, GenericSegment)>,
-        s: &mut TEXTSegment<I>,
-        limit: OverlapCorrectionLimit,
-    ) -> Vec<SegmentOverlapError>
-    where
-        I: HasRegion,
-    {
-        if let Some(txt_seg) = s.try_as_generic() {
-            let mut errors = vec![];
-            let mut it = xs.into_iter();
-            debug_assert!(
-                it.by_ref().is_sorted_by_key(|x| x.1.as_pair()),
-                "not sorted"
-            );
-            let mut hdr_pair = None;
-            // Skip all HEADER segments that come before TEXT seg
-            while let p @ Some((_, hdr_seg)) = it.next() {
-                hdr_pair = p;
-                if txt_seg.begin <= hdr_seg.end {
-                    break;
-                }
-            }
-            // The next HEADER segment has an end offset that starts at or after
-            // the TEXT begin offset, and thus may overlap the beginning of
-            // TEXT, be totally within TEXT, or overlap the ending of TEXT.
-            if let Some((mut hdr_ref, hdr_seg)) = hdr_pair {
-                if hdr_seg.begin < txt_seg.begin {
-                    // HEADER starts before TEXT. Check if the HEADER segment is
-                    // the TEXT segment itself. If so, throw error regardless
-                    // since we already read it at this point and thus should
-                    // not alter it. If not, truncate if within the limit.
-                    let overlap = hdr_seg.get_tail_overlap(&txt_seg);
-                    if overlap <= limit.0 && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_)) {
-                        hdr_ref.truncate(overlap);
-                    } else if overlap > 0 {
-                        errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
-                    }
-                } else {
-                    // HEADER begins within TEXT or after. Truncate TEXT if
-                    // within limit or throw error. In former case, return early
-                    // since we know that no more HEADER segments can overlap.
-                    let overlap = txt_seg.get_tail_overlap(&hdr_seg);
-                    if overlap <= limit.0 {
-                        s.truncate(overlap);
-                        return vec![];
-                    }
-                    errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
-                }
-            }
-            // All the remaining HEADER segments should now begin within TEXT or
-            // after.
-            for (_, hdr_seg) in it {
-                let overlap = txt_seg.get_tail_overlap(&hdr_seg);
-                // If no overlaps, we can assume there are no more overlaps
-                // since the HEADER offsets are sorted. Break early to save
-                // time.
-                if overlap == 0 {
-                    break;
-                }
-                // If overlap within limit and we have not encountered an error
-                // yet, truncate TEXT and return early without error. Otherwise
-                // push error.
-                if overlap <= limit.0 && errors.is_empty() {
-                    s.truncate(overlap);
-                    return vec![];
-                }
-                errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
-            }
-            errors
-        } else {
-            vec![]
-        }
-    }
-
-    // TODO if we don't have TEXT, we can have ANALYSIS but not DATA
-    /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(
-        &mut self,
-        limit: OverlapCorrectionLimit,
-    ) -> impl Iterator<Item = SegmentValidationError> {
-        let overlap_errors = self.find_or_fix_header_overlaps(limit);
-        self.contains_header_segments()
-            .map(SegmentValidationError::from)
-            .chain(overlap_errors.into_iter().map(SegmentValidationError::from))
-    }
-
-    fn contains_header_segments(&self) -> impl Iterator<Item = InHeaderError> {
-        let t = self.contains_segment(&self.text);
-        let d = self.contains_segment(&self.data);
-        let a = self.contains_segment(&self.analysis);
-        let os = self.as_others().map(|o| self.contains_segment(o));
-        [t, d, a].into_iter().chain(os).flatten()
-    }
-
-    fn contains_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Option<InHeaderError>
-    where
-        I: HasRegion,
-        S: HasSource,
-        T0: Into<u64> + Copy,
-    {
-        let q = s.try_as_generic()?;
-        (q.begin < self.nbytes()).then_some(InHeaderError(q))
-    }
-
-    /// Return number of bytes required to encode HEADER (including OTHER)
-    pub(crate) fn nbytes(&self) -> u64 {
-        u64::from(HEADER_LEN) + self.other_offset_nbytes()
-    }
-
-    fn as_mut_segments(&mut self) -> impl Iterator<Item = AnyHeaderSegmentMut<'_>> {
-        self.other
-            .iter_mut()
-            .flat_map(|(os, _)| os.iter_mut())
-            .map(AnyHeaderSegmentMut::Other)
-            .chain([
-                AnyHeaderSegmentMut::Text(&mut self.text),
-                AnyHeaderSegmentMut::Data(&mut self.data),
-                AnyHeaderSegmentMut::Analysis(&mut self.analysis),
-            ])
-    }
-
-    fn as_mut_nonempty_segments(
-        &mut self,
-    ) -> impl Iterator<Item = (AnyHeaderSegmentMut<'_>, GenericSegment)> {
-        self.as_mut_segments()
-            .filter_map(|x| x.try_as_generic().map(|y| (x, y)))
-            .sorted_by_key(|x| x.1.as_pair())
-    }
-
-    fn as_mut_nonempty_segments_filtered<I>(
-        &mut self,
-    ) -> impl Iterator<Item = (AnyHeaderSegmentMut<'_>, GenericSegment)>
-    where
-        I: IsDataOrAnalysis,
-    {
-        self.as_mut_nonempty_segments().filter(|(k, _)| {
-            !matches!(
-                (k, I::IS_DATA),
-                (AnyHeaderSegmentMut::Data(_), true) | (AnyHeaderSegmentMut::Analysis(_), false)
-            )
-        })
-    }
-
-    fn find_or_fix_header_overlaps(
-        &mut self,
-        limit: OverlapCorrectionLimit,
-    ) -> Vec<SegmentOverlapError> {
-        let mut pairs: Vec<_> = self.as_mut_nonempty_segments().collect();
-        debug_assert!(pairs.is_sorted_by_key(|x| x.1.as_pair()), "not sorted");
-        let mut errors = vec![];
-        let mut remainder = &mut pairs[..];
-        while let Some(((ref0, seg0), rest)) = remainder.split_first_mut() {
-            for (_, seg1) in rest {
-                let overlap = seg0.get_tail_overlap(seg1);
-                if overlap <= limit.0 {
-                    // TODO throw warning here if we want
-                    ref0.truncate(overlap);
-                    // break early because any offset after this one is
-                    // guaranteed to be after the new truncated ending due
-                    // to sorting
-                    break;
-                }
-                errors.push(SegmentOverlapError::new(*seg0, *seg1));
-            }
-            if !remainder.is_empty() {
-                remainder = &mut remainder[1..];
-            }
-        }
-        errors
-    }
-
-    pub(crate) fn as_others(&self) -> impl Iterator<Item = &OtherSegment<UintSpacePad20>> {
-        self.other.iter().flat_map(|(os, _)| os.iter())
-    }
-
-    fn other_offset_nbytes(&self) -> u64 {
-        self.other.as_ref().map_or(0, |(os, width)| {
-            let n = u64::try_from(os.len()).expect("usize overflow");
-            n * u64::from(u8::from(*width))
-        })
-    }
-}
-
-impl AnyHeaderSegmentMut<'_> {
-    fn try_as_generic(&self) -> Option<GenericSegment> {
-        match self {
-            Self::Analysis(x) => x.try_as_generic(),
-            Self::Data(x) => x.try_as_generic(),
-            Self::Text(x) => x.try_as_generic(),
-            Self::Other(x) => x.try_as_generic(),
-        }
-    }
-
-    fn truncate(&mut self, n: u64) {
-        match self {
-            Self::Analysis(x) => x.truncate(n),
-            Self::Data(x) => x.truncate(n),
-            Self::Text(x) => x.truncate(n),
-            Self::Other(x) => x.truncate(n),
-        }
     }
 }
 
@@ -445,29 +172,25 @@ impl Header {
             LogResult::new_ok(None)
         };
         other_res
-            .map_ok_value(|other| {
+            .map_pure_errors(HeaderError::from)
+            .and_then_commutative(|other| {
                 let (os, os_raw) = if let Some((os, w)) = other {
                     let (parsed, raw) = os.into_iter().unzip();
                     (Some((NonEmpty::from_vec(parsed).unwrap(), w)), raw)
                 } else {
                     (None, vec![])
                 };
-                let ss = ParsedHeaderSegments::new(text, data, analysis, os);
-                let us = UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw);
-                Self::new(req.version, ss, us)
-            })
-            .map_pure_errors(HeaderError::from)
-            .and_then_commutative(|mut hdr| {
-                let es = hdr
-                    .segments
-                    .validate(oconf.overlap_correction_limit)
-                    .map(HeaderError::from);
-                ErrorsResult::new_err_from_iter(es, ())
-                    .set_ok_value(hdr)
+                let usegs =
+                    UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw);
+                let limit = oconf.overlap_correction_limit;
+                ParsedHeaderSegments::try_new_with_limit(text, data, analysis, os, limit)
+                    .map_errors(HeaderError::from)
                     .nowarn_into_warn()
                     .group()
                     .map_error(IOErrorGroup::Pure)
+                    .map_ok_value(|segs| (segs, usegs))
             })
+            .map_ok_value(|(segs, usegs)| Self::new(req.version, segs, usegs))
     }
 }
 
@@ -679,21 +402,6 @@ pub struct HeaderSpacesNoBytesError(u64);
 /// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SegmentValidationError {
-    Overlap(SegmentOverlapError),
-    InHeader(InHeaderError),
-}
-
-/// Error when a non-empty segment occurs within the first 58 bytes of the file.
-#[derive(Debug, Error)]
-#[error("{0} is within HEADER region")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-pub struct InHeaderError(GenericSegment);
-
-/// Error when validating segments in HEADER
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum VersionError {
     Format(VersionFormatError),
     NonUtf8(VersionNonUtf8Error),
@@ -780,12 +488,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             UintZeroPad20(0)
         });
 
-        let header = HeaderSegments {
-            text: text_seg,
-            data: data_seg,
-            analysis: analysis_seg,
-            other: other_segs,
-        };
+        let header = WriteHeaderSegments::new(text_seg, data_seg, analysis_seg, other_segs);
 
         let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
 
@@ -886,7 +589,8 @@ impl<T> HeaderKeywordsToWrite<T> {
             (all_req.collect(), opt)
         };
 
-        let header = HeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
+        let header =
+            WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
 
         Ok(Self::new(
             header,

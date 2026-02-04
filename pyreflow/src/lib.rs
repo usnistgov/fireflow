@@ -74,7 +74,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyMixedLayout>()?;
 
     m.add_class::<ff::PyHeader>()?;
-    m.add_class::<ff::PyHeaderSegments>()?;
+    m.add_class::<ff::PyParsedHeaderSegments>()?;
     m.add_class::<ff::PyUncorrectedHeaderSegments>()?;
 
     m.add_class::<ff::PyFlatTEXTOutput>()?;

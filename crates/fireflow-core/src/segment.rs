@@ -968,19 +968,21 @@ impl<I, S, T> Segment<I, S, T> {
         match self.inner {
             InnerSegment::Empty => Ok(()),
             InnerSegment::NonEmpty(s) => {
-                let begin = s.begin.into();
-                let end = begin + s.dataset_offset.0;
+                let begin = s.begin.into() + s.dataset_offset.0;
                 let nbytes = u64::from(s.nbytes());
 
                 #[cfg(debug_assertions)]
                 {
-                    let current_pos = h.stream_position()?;
+                    let end = begin + nbytes;
                     let file_size = h.seek(SeekFrom::End(0))?;
-                    h.seek(SeekFrom::Start(current_pos))?;
-                    assert!(end < file_size, "end of segment exceeds file");
+                    h.seek(SeekFrom::Start(begin))?;
+                    assert!(
+                        end <= file_size,
+                        "end of segment ({end}) exceeds file ({file_size})"
+                    );
                 }
 
-                h.seek(SeekFrom::Start(end))?;
+                h.seek(SeekFrom::Start(begin))?;
                 h.take(nbytes).read_to_end(buf)?;
                 Ok(())
             }

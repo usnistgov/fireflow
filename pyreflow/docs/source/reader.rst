@@ -191,7 +191,7 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.UncorrectedHeaderSegments
    :members:
 
-.. autoclass:: pyreflow.api.HeaderSegments
+.. autoclass:: pyreflow.api.ParsedHeaderSegments
    :members:
 
 .. autoclass:: pyreflow.api.HeaderAndSuppOffsets

@@ -9230,6 +9230,9 @@ impl DatasetSegments {
         analysis_uncorr: Option<UncorrectedSegment>,
         limit: OverlapCorrectionLimit,
     ) -> Result<Self, SegmentOverlapError> {
+        // Check for overlaps if we have two non-empty segments that are both
+        // from TEXT. We can assume that if they are both from HEADER that
+        // this has already been checked.
         if let (HeaderOrTextSegment::Text(mut dt), HeaderOrTextSegment::Text(mut at)) =
             (data, analysis)
             && let (Some(dq), Some(aq)) = (dt.try_as_generic(), at.try_as_generic())

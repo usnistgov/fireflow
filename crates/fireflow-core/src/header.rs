@@ -358,19 +358,16 @@ impl ParsedHeaderSegments {
         let mut remainder = &mut pairs[..];
         while let Some(((ref0, seg0), rest)) = remainder.split_first_mut() {
             for (_, seg1) in rest {
-                if let Some(overlap) = (seg0.end + 1).checked_sub(seg1.begin) {
-                    if overlap <= limit.0 {
-                        // TODO throw warning here if we want
-                        ref0.truncate(overlap);
-                        // break early because any offset after this one is
-                        // guaranteed to be after the new truncated ending due
-                        // to sorting
-                        break;
-                    }
-                    errors.push(SegmentOverlapError::new(*seg0, *seg1));
-                } else {
+                let overlap = seg0.get_tail_overlap(seg1);
+                if overlap <= limit.0 {
+                    // TODO throw warning here if we want
+                    ref0.truncate(overlap);
+                    // break early because any offset after this one is
+                    // guaranteed to be after the new truncated ending due
+                    // to sorting
                     break;
                 }
+                errors.push(SegmentOverlapError::new(*seg0, *seg1));
             }
             if !remainder.is_empty() {
                 remainder = &mut remainder[1..];

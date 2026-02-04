@@ -1,15 +1,12 @@
 //! Reading and writing offsets in an FCS file
 
+use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowPseudoempty, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, OverlapCorrectionLimit, ProcessKeywordFailure, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
-    TruncateOffsetLimit,
+    IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
-use crate::header::{
-    HEADER_LEN, HeaderSegments, ParsedHeaderSegments, ParsedOtherSegments, SegmentValidationError,
-    Version,
-};
+use crate::header::{HEADER_LEN, SegmentValidationError, Version};
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
@@ -97,8 +94,8 @@ impl GenericSegment {
         (self.begin, self.end)
     }
 
-    pub(crate) fn get_tail_overlap(&self, other: &Self) -> Option<u64> {
-        (self.end + 1).checked_sub(other.begin)
+    pub(crate) fn get_tail_overlap(&self, other: &Self) -> u64 {
+        (self.end + 1).saturating_sub(other.begin)
     }
 }
 
@@ -266,15 +263,6 @@ struct NonEmptySegment<T, O> {
     dataset_offset: O,
 }
 
-/// Helper struct to bundle all but the DATA and ANALYSIS segments from TEXT
-#[derive(new)]
-pub struct NonDataSegments {
-    pub(crate) header: ParsedHeaderSegments,
-    pub(crate) supp: Option<SupplementalTextSegment>,
-    pub(crate) uncorr_data: UncorrectedSegment,
-    pub(crate) uncorr_analysis: UncorrectedSegment,
-}
-
 pub(crate) enum OneOrTwo<X> {
     One(X),
     Two(X, X),
@@ -320,64 +308,11 @@ impl<X> OneOrTwo<X> {
     }
 }
 
-impl NonDataSegments {
-    pub(crate) fn new_no_text(
-        data: HeaderDataSegment,
-        analyis: HeaderAnalysisSegment,
-        other: ParsedOtherSegments,
-        uncorr_data: UncorrectedSegment,
-        uncorr_analysis: UncorrectedSegment,
-    ) -> Self {
-        let hdr = HeaderSegments::new(PrimaryTextSegment::default(), data, analyis, other);
-        Self::new(hdr, None, uncorr_data, uncorr_analysis)
-    }
-
-    /// Ensure this segment does not overlap with other segments.
-    ///
-    /// Specifically check that no other segment (except its analogue in HEADER
-    /// if non-empty) overlaps with this one. Also ensure that that these
-    /// segments don't overlap with HEADER itself.
-    fn validate<I>(
-        &mut self,
-        s: &mut TEXTSegment<I>,
-        limit: OverlapCorrectionLimit,
-    ) -> Vec<SegmentValidationError>
-    where
-        I: HasRegion + IsDataOrAnalysis,
-    {
-        if let Some(this_seg) = s.try_as_generic() {
-            // Check for overlap with STEXT segment. This segment should not be
-            // modified since it has already been read. Therefore, only change
-            // the offsets of the new segment if its ending offset is within
-            // STEXT.
-            let stxt_error = self.supp.as_ref().and_then(|supp| {
-                let stxt_seg = supp.try_as_generic()?;
-                let overlap = this_seg.get_tail_overlap(&stxt_seg)?;
-                if overlap <= limit.0 {
-                    s.truncate(overlap);
-                    None
-                } else {
-                    let e = SegmentOverlapError::new(this_seg, stxt_seg);
-                    Some(SegmentValidationError::from(e))
-                }
-            });
-            // Check for any errors between this segment and HEADER segments,
-            // modifying as necessary and as overlap limit permits.
-            self.header
-                .validate_text_data_or_analysis(s, limit)
-                .chain(stxt_error)
-                .collect()
-        } else {
-            vec![]
-        }
-    }
-}
-
 pub(crate) trait HasSegmentPair: Sized {
-    fn corrected_segment(segs: &NonDataSegments) -> HeaderSegment<Self>;
-    fn uncorrected_segment(segs: &NonDataSegments) -> UncorrectedSegment;
+    fn corrected_segment(segs: &HeaderAndSuppOffsets) -> HeaderSegment<Self>;
+    fn uncorrected_segment(segs: &HeaderAndSuppOffsets) -> UncorrectedSegment;
 
-    fn segment_pair(segs: &NonDataSegments) -> (HeaderSegment<Self>, UncorrectedSegment) {
+    fn segment_pair(segs: &HeaderAndSuppOffsets) -> (HeaderSegment<Self>, UncorrectedSegment) {
         (
             Self::corrected_segment(segs),
             Self::uncorrected_segment(segs),
@@ -478,7 +413,7 @@ where
 
     fn get_req_or<C>(
         kws: &StdKeywords,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
@@ -501,7 +436,7 @@ where
 
     fn remove_req_or<C>(
         kws: &mut StdKeywords,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
@@ -528,7 +463,7 @@ where
 
     fn with_req_pair_default<C>(
         pair: ReqPair<Self::B, Self::E>,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
@@ -699,7 +634,7 @@ where
 
     fn get_opt_or<C>(
         kws: &StdKeywords,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
@@ -723,7 +658,7 @@ where
 
     fn remove_opt_or<C>(
         kws: &mut StdKeywords,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
@@ -748,7 +683,7 @@ where
 
     fn with_opt_pair_default<C>(
         pair: OptPair<Self::B, Self::E>,
-        segs: &mut NonDataSegments,
+        segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> OptSegRes<Self>
@@ -866,22 +801,22 @@ pub(crate) trait IsDataOrAnalysis {
 }
 
 impl HasSegmentPair for DataSegmentId {
-    fn corrected_segment(segs: &NonDataSegments) -> HeaderSegment<Self> {
-        segs.header.data
+    fn corrected_segment(segs: &HeaderAndSuppOffsets) -> HeaderSegment<Self> {
+        segs.header.segments.data
     }
 
-    fn uncorrected_segment(segs: &NonDataSegments) -> UncorrectedSegment {
-        segs.uncorr_data
+    fn uncorrected_segment(segs: &HeaderAndSuppOffsets) -> UncorrectedSegment {
+        segs.header.uncorrected_segments.data
     }
 }
 
 impl HasSegmentPair for AnalysisSegmentId {
-    fn corrected_segment(segs: &NonDataSegments) -> HeaderSegment<Self> {
-        segs.header.analysis
+    fn corrected_segment(segs: &HeaderAndSuppOffsets) -> HeaderSegment<Self> {
+        segs.header.segments.analysis
     }
 
-    fn uncorrected_segment(segs: &NonDataSegments) -> UncorrectedSegment {
-        segs.uncorr_analysis
+    fn uncorrected_segment(segs: &HeaderAndSuppOffsets) -> UncorrectedSegment {
+        segs.header.uncorrected_segments.analysis
     }
 }
 
@@ -1233,18 +1168,6 @@ impl<I: Copy> HeaderSegment<I> {
             .resolve_nowarn()
             .map_err(IOErrorGroup::Pure)
     }
-
-    // pub(crate) fn unless(
-    //     self,
-    //     other: TEXTSegment<I>,
-    // ) -> (AnySegment<I>, Option<SegmentMismatchWarning<I>>) {
-    //     if other.inner.as_u64() != self.inner.as_u64() && !self.inner.is_empty() {
-    //         let e = SegmentMismatchWarning::new(self, other);
-    //         (self.into_any(), Some(e))
-    //     } else {
-    //         (Segment::new(other.inner.as_u64()), None)
-    //     }
-    // }
 
     fn try_new_squish(
         begin: i128,
@@ -1961,32 +1884,6 @@ pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Mismatch(SegmentMismatchError<I>),
     Validation(SegmentValidationError),
 }
-
-// /// Error when segment with TEXT offsets overlaps with HEADER or another segment
-// #[derive(From, Display, Debug, Error)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// #[cfg_attr(feature = "python", bound(I: HasRegion))]
-// pub enum TEXTSegmentOverlapError<I> {
-//     Header(TEXTSegmentInHeaderError<I>),
-//     OtherSeg(SegmentOverlapError),
-// }
-
-// /// Error when segment from TEXT begins in HEADER
-// #[derive(Debug, Display, Error, new)]
-// #[display(bound(I: HasRegion))]
-// #[display(
-//     "begin offset of {} segment is {begin} which starts within \
-//      HEADER which is {header_len} bytes long",
-//     I::REGION
-// )]
-// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// #[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
-// #[cfg_attr(feature = "python", bound(I: HasRegion))]
-// pub struct TEXTSegmentInHeaderError<I> {
-//     begin: u64,
-//     header_len: u64,
-//     _loc: PhantomData<I>,
-// }
 
 /// Error when segment with TEXT offsets overlaps with HEADER or another segment
 #[derive(Debug, Error, PartialEq)]

@@ -457,7 +457,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let conf_path = config_path("ReadFlatDatasetFromKeywordsConfig");
 
     let path_arg = DocArg::new_path_param(true);
-    let header_arg = DocArg::new_header_param();
+    let header_arg = DocArg::new_header_and_supp_param();
     let std_arg = DocArg::new_std_keywords_param();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
@@ -487,7 +487,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .args(data_args)
         .args(shared_args)
         .arg(dataset_offset_arg)
-        .returns(DocReturn::new(PyClass::new_py(["api"], "FlatDatasetWithKwsOutput")).exc(xs));
+        .returns(DocReturn::new(PyClass::new_py(["api"], "NewFlatDatasetFromKwsOutput")).exc(xs));
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -503,7 +503,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offset, layout, data, shared };
             let ret = #fun_path(
-                &path, &header.into(), &std, dataset_offset, &conf
+                &path, header.into(), &std, dataset_offset, &conf
             ).py_resolve_commutative()?;
             Ok(ret.into())
         }
@@ -676,12 +676,7 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
         |n, _| quote!(self.0.#n.clone().into()),
     );
 
-    let dataset = DocArg::new_ivar_ro(
-        "dataset",
-        PyClass::new_py(["api"], "FlatDatasetWithKwsOutput"),
-        "Parsed *DATA*, *ANALYSIS*, and *OTHER* segments.",
-        |n, _| quote!(self.0.#n.clone().into()),
-    );
+    let dataset = DocArgROIvar::new_flat_dataset_ivar();
 
     let scores = DocArg::new_version_scores_param();
 
@@ -730,6 +725,35 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     dataset_segs.into(),
                     events_diagnostics.into()
                 ).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let dataset = DocArgROIvar::new_flat_dataset_ivar();
+
+    let header = DocArgROIvar::new_ivar_ro(
+        "header",
+        PyClass::new_py(["api"], "HeaderSegments"),
+        "(Possibly modified) offsets used to parse HEADER.",
+        |_, _| quote!(self.0.header.clone().into()),
+    );
+
+    let args = [dataset, header];
+    let doc =
+        DocString::new_class("Output of using keywords to crate new standardized *TEXT*+*DATA*.")
+            .args(args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(dataset.into(), header.into()).into()
             }
         }
     };
@@ -1019,12 +1043,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset = DocArgROIvar::new_ivar_ro(
-        "dataset",
-        PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
-        "Data from parsing standardized *DATA*, *ANALYSIS*, and *OTHER* segments.",
-        |_, _| quote!(self.0.dataset.clone().into()),
-    );
+    let dataset = DocArgROIvar::new_std_dataset_ivar();
 
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
@@ -1078,9 +1097,38 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     doc.into_impl_class(name, &path, new).1.into()
 }
 
+#[proc_macro]
+pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let dataset = DocArgROIvar::new_std_dataset_ivar();
+
+    let header = DocArgROIvar::new_ivar_ro(
+        "header",
+        PyClass::new_py(["api"], "HeaderSegments"),
+        "(Possibly modified) offsets used to parse HEADER.",
+        |_, _| quote!(self.0.header.clone().into()),
+    );
+
+    let args = [dataset, header];
+    let doc =
+        DocString::new_class("Output of using keywords to crate new standardized *TEXT*+*DATA*.")
+            .args(args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(dataset.into(), header.into()).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
 #[allow(clippy::too_many_lines)]
 #[proc_macro]
-pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
+pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1093,6 +1141,34 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
         ),
         "Supplemental *TEXT* offsets if given (corrected and uncorrected).",
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
+    );
+
+    let args = [header, supp];
+
+    let doc = DocString::new_class("*HEADER* data and supplemental offsets.").args(args);
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[allow(clippy::too_many_lines)]
+#[proc_macro]
+pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let header_supp = DocArgROIvar::new_ivar_ro(
+        "header_supp",
+        PyClass::new_py(["api"], "HeaderAndSuppOffsets"),
+        "*HEADER* data and supplemental *TEXT* offsets.",
+        |_, _| quote!(self.0.header_supp.clone().into()),
     );
 
     let nextdata = DocArgROIvar::new_ivar_ro(
@@ -1175,8 +1251,7 @@ pub fn impl_py_flat_text_parse_data(input: TokenStream) -> TokenStream {
     );
 
     let args = [
-        header,
-        supp,
+        header_supp,
         nextdata,
         delim,
         byte_pairs,
@@ -2796,7 +2871,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .collect();
 
     let path_param = DocArg::new_path_param(true);
-    let header_param = DocArg::new_header_param();
+    let header_param = DocArg::new_header_and_supp_param();
     let std_param = DocArg::new_param("std", PyDict::new_std_keywords(), "Standard keywords.");
     let nonstd_param = DocArg::new_param(
         "nonstd",
@@ -2826,7 +2901,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .returns(
             DocReturn::new(PyTuple::new2([
                 PyClass::new_coredataset(version),
-                PyClass::new_py(["api"], "StdDatasetWithKwsOutput"),
+                PyClass::new_py(["api"], "NewStdDatasetFromKwsOutput"),
             ]))
             .exc(xs),
         );
@@ -2870,7 +2945,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                 let conf = #core_conf { offset, standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
-                    &header.into(),
+                    header.into(),
                     kws,
                     dataset_offset,
                     &conf
@@ -7335,6 +7410,24 @@ impl DocArgROIvar {
             )))
         })
     }
+
+    fn new_flat_dataset_ivar() -> Self {
+        Self::new_ivar_ro(
+            "dataset",
+            PyClass::new_py(["api"], "FlatDatasetFromKwsOutput"),
+            "Output when making flat TEXT+DATA.",
+            |n, _| quote!(self.0.#n.clone().into()),
+        )
+    }
+
+    fn new_std_dataset_ivar() -> Self {
+        Self::new_ivar_ro(
+            "dataset",
+            PyClass::new_py(["api"], "StdDatasetFromKwsOutput"),
+            "Output when making std TEXT+DATA.",
+            |n, _| quote!(self.0.#n.clone().into()),
+        )
+    }
 }
 
 impl DocArgParam {
@@ -7437,6 +7530,12 @@ impl DocArgParam {
     fn new_header_param() -> Self {
         let d = "The *HEADER* from parsed file";
         Self::new_param("header", PyClass::new_py(["api"], "Header"), d)
+    }
+
+    fn new_header_and_supp_param() -> Self {
+        let d = "The *HEADER* and supplemental *TEXT* offsets from parsed file";
+        let p = PyClass::new_py(["api"], "HeaderAndSuppOffsets");
+        Self::new_param("header", p, d)
     }
 
     fn new_std_keywords_param() -> Self {

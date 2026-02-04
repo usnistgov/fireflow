@@ -78,12 +78,15 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyUncorrectedHeaderSegments>()?;
 
     m.add_class::<ff::PyFlatTEXTOutput>()?;
+    m.add_class::<ff::PyHeaderAndSuppOffsets>()?;
     m.add_class::<ff::PyFlatDatasetOutput>()?;
-    m.add_class::<ff::PyFlatDatasetWithKwsOutput>()?;
+    m.add_class::<ff::PyFlatDatasetFromKwsOutput>()?;
+    m.add_class::<ff::PyNewFlatDatasetFromKwsOutput>()?;
 
     m.add_class::<ff::PyStdTEXTOutput>()?;
     m.add_class::<ff::PyStdDatasetOutput>()?;
-    m.add_class::<ff::PyStdDatasetWithKwsOutput>()?;
+    m.add_class::<ff::PyStdDatasetFromKwsOutput>()?;
+    m.add_class::<ff::PyNewStdDatasetFromKwsOutput>()?;
     m.add_class::<ff::PyEventsDiagnostics>()?;
     m.add_class::<ff::PyKeywordVersionScore>()?;
 

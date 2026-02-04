@@ -296,7 +296,7 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
         self,
         path: Path,
         dataset_offset: int = 0,
-    ) -> pfa.FlatDatasetWithKwsOutput:
+    ) -> pfa.FlatDatasetFromKwsOutput:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`."""
         return pfa.fcs_read_flat_dataset_with_keywords(
             path, dataset_offset=dataset_offset, **self.model_dump()

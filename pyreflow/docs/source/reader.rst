@@ -195,6 +195,9 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.HeaderSegments
    :members:
 
+.. autoclass:: pyreflow.api.HeaderAndSuppOffsets
+   :members:
+
 .. autoclass:: pyreflow.api.ValidKeywords
    :members:
 

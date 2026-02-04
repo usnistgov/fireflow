@@ -236,43 +236,42 @@ impl ParsedHeaderSegments {
                     // the TEXT segment itself. If so, throw error regardless
                     // since we already read it at this point and thus should
                     // not alter it. If not, truncate if within the limit.
-                    let overlap = hdr_seg.get_tail_overlap(&txt_seg).unwrap();
+                    let overlap = hdr_seg.get_tail_overlap(&txt_seg);
                     if overlap <= limit.0 && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_)) {
                         hdr_ref.truncate(overlap);
-                    } else {
+                    } else if overlap > 0 {
                         errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
                     }
                 } else {
                     // HEADER begins within TEXT or after. Truncate TEXT if
                     // within limit or throw error. In former case, return early
                     // since we know that no more HEADER segments can overlap.
-                    if let Some(overlap) = txt_seg.get_tail_overlap(&hdr_seg) {
-                        if overlap <= limit.0 {
-                            s.truncate(overlap);
-                            return vec![];
-                        }
-                        errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
+                    let overlap = txt_seg.get_tail_overlap(&hdr_seg);
+                    if overlap <= limit.0 {
+                        s.truncate(overlap);
+                        return vec![];
                     }
+                    errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
                 }
             }
             // All the remaining HEADER segments should now begin within TEXT or
             // after.
             for (_, hdr_seg) in it {
-                if let Some(overlap) = txt_seg.get_tail_overlap(&hdr_seg) {
-                    // If overlap within limit and we have not encountered an
-                    // error yet, truncate TEXT and return early without error.
-                    // Otherwise push error.
-                    if overlap <= limit.0 && errors.is_empty() {
-                        s.truncate(overlap);
-                        return vec![];
-                    }
-                    errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
-                } else {
-                    // If no overlaps, we can assume there are no more overlaps
-                    // since the HEADER offsets are sorted. Break early to save
-                    // time.
+                let overlap = txt_seg.get_tail_overlap(&hdr_seg);
+                // If no overlaps, we can assume there are no more overlaps
+                // since the HEADER offsets are sorted. Break early to save
+                // time.
+                if overlap == 0 {
                     break;
                 }
+                // If overlap within limit and we have not encountered an error
+                // yet, truncate TEXT and return early without error. Otherwise
+                // push error.
+                if overlap <= limit.0 && errors.is_empty() {
+                    s.truncate(overlap);
+                    return vec![];
+                }
+                errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
             }
             errors
         } else {

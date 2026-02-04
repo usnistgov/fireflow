@@ -1,21 +1,21 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
-    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadState, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
-    TriFlag, VersionOverride,
+    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, OverlapCorrectionLimit,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
+    ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, TriFlag, VersionOverride,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, OthersReader, PrivVersioned as _,
-    StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetWithKwsOutput,
+    StdDatasetFromFlatTEXTWarning, StdDatasetFromFlatTextError, StdDatasetFromKwsOutput,
     StdTEXTDiagnostics, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, KeywordVersionScores, SegmentValidationError, Version,
-    Version2_0, Version3_0, Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, KeywordVersionScores, ParsedHeaderSegments,
+    SegmentValidationError, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use crate::logging::{
     DeferredIter as _, DeferredWarningAndError, DeferredWarningsAndErrors, ErrorsResult,
@@ -25,9 +25,9 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    GuessOtherWidthError, KeyedOptSegment as _, KeyedReqSegment as _, NonDataSegments,
-    OptSegmentError, ReqSegmentError, SupplementalTextSegment, SupplementalTextSegmentId,
-    UncorrectedSegment,
+    GuessOtherWidthError, HasRegion, IsDataOrAnalysis, KeyedOptSegment as _, KeyedReqSegment as _,
+    OptSegmentError, ReqSegmentError, SegmentOverlapError, SupplementalTextSegment,
+    SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
@@ -143,7 +143,7 @@ pub fn fcs_read_flat_dataset(
         .map_pure_errors(FlatDatasetError::from)
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(flat, h, st)| {
-            let version = flat.flat_diagnostics.header.version;
+            let version = flat.flat_diagnostics.header_supp.header.version;
             version
                 .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
                 .map_err(FlatDatasetError::from)
@@ -151,18 +151,13 @@ pub fn fcs_read_flat_dataset(
                 .map(|(new_version, scores)| (new_version, flat, h, st, scores))
                 .into_log()
         })
-        .and_then_commutative(|(new_version, flat, mut h, st, scores)| {
-            let mut segs = flat.flat_diagnostics.non_data_segments();
-            FlatDatasetWithKwsOutput::h_read_with_header_and_text(
-                &mut h,
-                new_version,
-                &flat.keywords.std,
-                &mut segs,
-                &st,
-            )
-            .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset, scores))
-            .map_commutative_warnings(FlatDatasetWarning::from)
-            .map_pure_errors(FlatDatasetError::from)
+        .and_then_commutative(|(new_ver, mut flat, mut h, st, scores)| {
+            let hns = &mut flat.flat_diagnostics.header_supp;
+            let std = &flat.keywords.std;
+            FlatDatasetFromKwsOutput::h_read_with_header_and_text(&mut h, new_ver, std, hns, &st)
+                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset, scores))
+                .map_commutative_warnings(FlatDatasetWarning::from)
+                .map_pure_errors(FlatDatasetError::from)
         })
         .warnings_to_pure_errors(conf.shared, FlatDatasetError::from)
         .deanonymize()
@@ -197,12 +192,12 @@ pub fn fcs_read_std_dataset(
 #[allow(clippy::too_many_arguments)]
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
-    header: &Header,
+    mut hns: HeaderAndSuppOffsets,
     std: &StdKeywords,
     dataset_offset: DatasetOffset,
     conf: &ReadFlatDatasetFromKeywordsConfig,
 ) -> WarningsAndIOGroupResult<
-    FlatDatasetWithKwsOutput,
+    NewFlatDatasetFromKwsOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     FlatDatasetWithKwsSummary,
@@ -212,16 +207,11 @@ pub fn fcs_read_flat_dataset_with_keywords(
         .map_err(IOErrorGroup::from)
         .into_log()
         .and_then_commutative(|(st, file)| {
-            let v = header.version;
-            let d = header.segments.data;
-            let a = header.segments.analysis;
-            let os = header.segments.other.clone();
-            let ud = header.uncorrected_segments.data;
-            let ua = header.uncorrected_segments.analysis;
-            let mut segs = NonDataSegments::new_no_text(d, a, os, ud, ua);
+            let v = hns.header.version;
             let mut h = BufReader::new(file);
-            FlatDatasetWithKwsOutput::h_read_with_header_and_text(&mut h, v, std, &mut segs, &st)
+            FlatDatasetFromKwsOutput::h_read_with_header_and_text(&mut h, v, std, &mut hns, &st)
         })
+        .map_ok_value(|dataset| NewFlatDatasetFromKwsOutput::new(dataset, hns.header.segments))
         .warnings_to_pure_errors(conf.shared, LookupAndReadDataAnalysisError::from)
         .deanonymize()
 }
@@ -393,7 +383,7 @@ pub struct FlatDatasetOutput {
     pub text: FlatTEXTOutput,
 
     /// Output from parsing DATA+ANALYSIS
-    pub dataset: FlatDatasetWithKwsOutput,
+    pub dataset: FlatDatasetFromKwsOutput,
 
     /// Scores generated if version was guessed.
     pub version_scores: Option<KeywordVersionScores>,
@@ -403,7 +393,7 @@ pub struct FlatDatasetOutput {
 #[derive(Clone, new, PartialEq)]
 pub struct StdDatasetOutput {
     /// Standardized data from one FCS dataset
-    pub dataset: StdDatasetWithKwsOutput,
+    pub dataset: StdDatasetFromKwsOutput,
 
     /// Miscellaneous data from parsing TEXT
     pub flat_diagnostics: FlatTEXTDiagnostics,
@@ -412,9 +402,19 @@ pub struct StdDatasetOutput {
     pub version_scores: Option<KeywordVersionScores>,
 }
 
-/// Output of using keywords to read flat TEXT+DATA
+/// Output of using keywords to crate new flat TEXT+DATA
+#[derive(Clone, new, PartialEq)]
+pub struct NewFlatDatasetFromKwsOutput {
+    /// Standardized data from one FCS dataset
+    pub dataset: FlatDatasetFromKwsOutput,
+
+    /// (Possibly modified) offsets used to parse HEADER.
+    pub header: ParsedHeaderSegments,
+}
+
+/// Output when making flat TEXT+DATA
 #[derive(Clone, PartialEq, new)]
-pub struct FlatDatasetWithKwsOutput {
+pub struct FlatDatasetFromKwsOutput {
     /// DATA output
     pub data: FCSDataFrame,
 
@@ -436,14 +436,8 @@ pub struct FlatDatasetWithKwsOutput {
 #[derive(new, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct FlatTEXTDiagnostics {
-    /// HEADER as parsed from dataset in file.
-    pub header: Header,
-
-    /// Supplemental TEXT offsets (corrected and uncorrected)
-    ///
-    /// This is not needed downstream and included here for informational
-    /// purposes. It will always be None for 2.0 which does not include this.
-    pub supp_text: Option<(SupplementalTextSegment, UncorrectedSegment)>,
+    /// HEADER data and supplemental TEXT offsets
+    pub header_supp: HeaderAndSuppOffsets,
 
     /// NEXTDATA offset
     ///
@@ -484,6 +478,24 @@ pub struct FlatTEXTDiagnostics {
 
     /// Output from splitting supplemental TEXT
     pub supp_split: Option<SplitTEXTDiagnostics>,
+}
+
+/// HEADER data and supplemental offsets.
+///
+/// These are together because reading DATA and ANALYSIS from TEXT needs to be
+/// validated against everything here. Offsets here may even be modified.
+/// Keeping this together makes this easier.
+#[derive(new, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct HeaderAndSuppOffsets {
+    /// HEADER as parsed from dataset in file.
+    pub header: Header,
+
+    /// Supplemental TEXT offsets (corrected and uncorrected)
+    ///
+    /// This is not needed downstream and included here for informational
+    /// purposes. It will always be None for 2.0 which does not include this.
+    pub supp_text: Option<(SupplementalTextSegment, UncorrectedSegment)>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -968,10 +980,61 @@ struct TrimTEXTData {
     trailing: usize,
 }
 
+impl HeaderAndSuppOffsets {
+    /// Ensure this segment does not overlap with other segments.
+    ///
+    /// Specifically check that no other segment (except its analogue in HEADER
+    /// if non-empty) overlaps with this one. Also ensure that that these
+    /// segments don't overlap with HEADER itself.
+    pub(crate) fn validate<I>(
+        &mut self,
+        s: &mut TEXTSegment<I>,
+        limit: OverlapCorrectionLimit,
+    ) -> Vec<SegmentValidationError>
+    where
+        I: HasRegion + IsDataOrAnalysis,
+    {
+        if let Some(this_seg) = s.try_as_generic() {
+            // Check for overlap with STEXT segment. This segment should not be
+            // modified since it has already been read. Therefore, only change
+            // the offsets of the new segment if its ending offset is within
+            // STEXT.
+            let stxt_error = self.supp_text.as_ref().and_then(|(supp, _)| {
+                let stxt_seg = supp.try_as_generic()?;
+                if this_seg.as_pair() < stxt_seg.as_pair() {
+                    let overlap = this_seg.get_tail_overlap(&stxt_seg);
+                    if overlap <= limit.0 {
+                        s.truncate(overlap);
+                        None
+                    } else {
+                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
+                        Some(SegmentValidationError::from(e))
+                    }
+                } else {
+                    let overlap = stxt_seg.get_tail_overlap(&this_seg);
+                    (overlap > 0).then(|| {
+                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
+                        SegmentValidationError::from(e)
+                    })
+                }
+            });
+            // Check for any errors between this segment and HEADER segments,
+            // modifying as necessary and as overlap limit permits.
+            self.header
+                .segments
+                .validate_text_data_or_analysis(s, limit)
+                .chain(stxt_error)
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+}
+
 impl FlatDatasetOutput {
     fn summarize(self) -> DatasetSummary {
         let fd = self.text.flat_diagnostics;
-        let hdr = fd.header;
+        let hdr = fd.header_supp.header;
         let ds = self.dataset;
         DatasetSummary {
             version: hdr.version,
@@ -987,13 +1050,13 @@ impl FlatDatasetOutput {
     }
 }
 
-impl FlatDatasetWithKwsOutput {
+impl FlatDatasetFromKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
-        version: Version,
+        new_version: Version,
         kws: &StdKeywords,
-        segs: &mut NonDataSegments,
+        hns: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Self,
@@ -1005,10 +1068,10 @@ impl FlatDatasetWithKwsOutput {
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
     {
-        kws_to_df_analysis(version, h, kws, segs, st)
+        kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_segments, event_out)| {
-                let os: Vec<_> = segs.header.as_others().copied().collect();
+                let os: Vec<_> = hns.header.segments.as_others().copied().collect();
                 OthersReader::new(&os[..])
                     .h_read(h)
                     .map(|others| Self::new(data, analysis, others, dataset_segments, event_out))
@@ -1146,9 +1209,9 @@ impl FlatTEXTOutput {
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .map_ok_value(|(nextdata, (), ())| {
+                        let non_data_offsets = HeaderAndSuppOffsets::new(header, supp_text_seg);
                         let parse = FlatTEXTDiagnostics {
-                            header,
-                            supp_text: supp_text_seg,
+                            header_supp: non_data_offsets,
                             nextdata,
                             delimiter: delim,
                             byte_pairs: kws.byte_pairs,
@@ -1167,7 +1230,7 @@ impl FlatTEXTOutput {
 
     /// Convert flat TEXT into standardized TEXT.
     fn into_std_text<C>(
-        self,
+        mut self,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
@@ -1181,9 +1244,9 @@ impl FlatTEXTOutput {
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>,
     {
-        let version = self.flat_diagnostics.header.version;
-        let mut segs = self.flat_diagnostics.non_data_segments();
-        AnyCoreTEXT::parse_flat(version, self.keywords, &mut segs, st).map_ok_value(
+        let hns = &mut self.flat_diagnostics.header_supp;
+        let version = hns.header.version;
+        AnyCoreTEXT::parse_flat(version, self.keywords, hns, st).map_ok_value(
             |(standardized, extra, offsets, scores)| {
                 let out = StdTEXTOutput::new(
                     offsets.tot,
@@ -1199,7 +1262,7 @@ impl FlatTEXTOutput {
 
     /// Convert into standardized dataset, reading data as necessary.
     fn into_std_dataset<C, R>(
-        self,
+        mut self,
         h: &mut BufReader<R>,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
@@ -1216,7 +1279,7 @@ impl FlatTEXTOutput {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
     {
-        let hdr = &self.flat_diagnostics.header;
+        let hdr = &mut self.flat_diagnostics.header_supp;
         AnyCoreDataset::new_from_keywords(h, hdr, self.keywords, st).map_ok_value(
             |(core, out, scores)| {
                 let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
@@ -1605,16 +1668,16 @@ impl SplitTEXTOutputInner {
     }
 }
 
-impl FlatTEXTDiagnostics {
-    /// Extract HEADER offset data for use in reading offsets from TEXT
-    fn non_data_segments(&self) -> NonDataSegments {
-        let hs = self.header.segments.clone();
-        let supp = self.supp_text.as_ref().copied().map(|(c, _)| c);
-        let ud = self.header.uncorrected_segments.data;
-        let ua = self.header.uncorrected_segments.analysis;
-        NonDataSegments::new(hs, supp, ud, ua)
-    }
-}
+// impl FlatTEXTDiagnostics {
+//     /// Extract HEADER offset data for use in reading offsets from TEXT
+//     fn non_data_segments(&self) -> NonDataSegments {
+//         let hs = self.header_supp.header.segments.clone();
+//         let supp = self.header_supp.supp_text.as_ref().copied().map(|(c, _)| c);
+//         let ud = self.header_supp.header.uncorrected_segments.data;
+//         let ua = self.header_supp.header.uncorrected_segments.analysis;
+//         NonDataSegments::new(hs, supp, ud, ua)
+//     }
+// }
 
 impl GuessedEscapeMode {
     fn is_escaped(delim: u8, bytes: &[u8], mode: DelimEscapeMode) -> bool {
@@ -1872,10 +1935,11 @@ where
 }
 
 fn kws_to_df_analysis<C, R>(
-    version: Version,
+    new_version: Version,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
-    segs: &mut NonDataSegments,
+    hns: &mut HeaderAndSuppOffsets,
+    // segs: &mut NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
@@ -1887,11 +1951,11 @@ where
     R: Read + Seek,
     C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
 {
-    match version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, segs, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, segs, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, segs, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, segs, st),
+    match new_version {
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
     }
 }
 

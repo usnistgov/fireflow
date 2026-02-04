@@ -3040,4 +3040,4 @@ class TestReadWrite:
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
         # supp text should have non-zero offsets in new file
-        assert un_core.flat_diagnostics.supp_text is not None
+        assert un_core.flat_diagnostics.header_supp.supp_text is not None

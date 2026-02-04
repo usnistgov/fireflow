@@ -1911,11 +1911,23 @@ class SplitTEXTDiagnostics:
     def trailing_whitespace_length(self) -> int: ...
 
 @final
-class FlatTEXTDiagnostics:
+class HeaderAndSuppOffsets:
     def __new__(
         cls,
         header: Header,
         supp_text: tuple[Segment, Segment] | None,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def header(self) -> Header: ...
+    @property
+    def supp_text(self) -> Segment | None: ...
+
+@final
+class FlatTEXTDiagnostics:
+    def __new__(
+        cls,
+        header_supp: HeaderAndSuppOffsets,
         nextdata: int | None,
         delimiter: int,
         byte_pairs: list[tuple[bytes | str, bytes | str]],
@@ -1929,9 +1941,7 @@ class FlatTEXTDiagnostics:
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def header(self) -> Header: ...
-    @property
-    def supp_text(self) -> Segment | None: ...
+    def header_supp(self) -> HeaderAndSuppOffsets: ...
     @property
     def nextdata(self) -> int | None: ...
     @property
@@ -2011,7 +2021,7 @@ class KeywordVersionScore:
     def missing_absent(self) -> int: ...
 
 @final
-class FlatDatasetWithKwsOutput:
+class FlatDatasetFromKwsOutput:
     def __new__(
         cls,
         data: DataFrame,
@@ -2033,18 +2043,31 @@ class FlatDatasetWithKwsOutput:
     def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
+class NewFlatDatasetFromKwsOutput:
+    def __new__(
+        cls,
+        dataset: FlatDatasetFromKwsOutput,
+        header: HeaderSegments,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def dataset(self) -> FlatDatasetFromKwsOutput: ...
+    @property
+    def header(self) -> HeaderSegments: ...
+
+@final
 class FlatDatasetOutput:
     def __new__(
         cls,
         text: FlatTEXTOutput,
-        dataset: FlatDatasetWithKwsOutput,
+        dataset: FlatDatasetFromKwsOutput,
         version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def text(self) -> FlatTEXTOutput: ...
     @property
-    def dataset(self) -> FlatDatasetWithKwsOutput: ...
+    def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
     def version_scores(self) -> KeywordVersionScores | None: ...
 
@@ -2071,7 +2094,7 @@ class StdTEXTOutput:
     def version_scores(self) -> KeywordVersionScores | None: ...
 
 @final
-class StdDatasetWithKwsOutput:
+class StdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset_segs: DatasetSegments,
@@ -2087,16 +2110,29 @@ class StdDatasetWithKwsOutput:
     def events_diagnostics(self) -> EventsDiagnostics: ...
 
 @final
+class NewStdDatasetFromKwsOutput:
+    def __new__(
+        cls,
+        dataset: StdDatasetFromKwsOutput,
+        header: HeaderSegments,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def dataset(self) -> StdDatasetFromKwsOutput: ...
+    @property
+    def header(self) -> HeaderSegments: ...
+
+@final
 class StdDatasetOutput:
     def __new__(
         cls,
-        dataset: StdDatasetWithKwsOutput,
+        dataset: StdDatasetFromKwsOutput,
         flat_diagnostics: FlatTEXTDiagnostics,
         version_scores: KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def dataset(self) -> StdDatasetWithKwsOutput: ...
+    def dataset(self) -> StdDatasetFromKwsOutput: ...
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
@@ -2761,7 +2797,7 @@ def fcs_read_flat_dataset_with_keywords(
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> FlatDatasetWithKwsOutput: ...
+) -> FlatDatasetFromKwsOutput: ...
 
 #
 def fcs_summarize(
@@ -2888,14 +2924,17 @@ __all__ = [
     "MixedLayout",
     "Header",
     "HeaderSegments",
+    "HeaderAndSuppOffsets",
     "UncorrectedHeaderSegments",
     "FlatTEXTOutput",
     "FlatDatasetOutput",
-    "FlatDatasetWithKwsOutput",
+    "FlatDatasetFromKwsOutput",
+    "NewFlatDatasetFromKwsOutput",
     "FlatTEXTDiagnostics",
     "StdTEXTOutput",
     "StdDatasetOutput",
-    "StdDatasetWithKwsOutput",
+    "StdDatasetFromKwsOutput",
+    "NewStdDatasetFromKwsOutput",
     "StdTEXTDiagnostics",
     "ValidKeywords",
     "DatasetSegments",

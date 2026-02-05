@@ -80,7 +80,7 @@ class _ReadFlatTEXTConfig(BaseModel):
 class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
-    time_meas_pattern: str | None = pfd._DEFAULT_TIME_MEAS_PATTERN
+    time_meas_pattern: str = pfd._DEFAULT_TIME_MEAS_PATTERN
     allow_missing_time: pft.TriFlag = "false"
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []

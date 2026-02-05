@@ -6,9 +6,8 @@ use crate::config::{
     DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, OverlapCorrectionLimit,
     ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig,
     ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, TemporalOpticalKey, TimeMeasNamePattern, TriFlag,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    WriteTEXTInnerConfig,
+    TemporalHasOpticalKeyError, TemporalOpticalKey, TriFlag, WriteDatasetInnerConfig,
+    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -4144,8 +4143,8 @@ where
         let mut match_time_pattern = |i, wrapped| {
             let res = match M::Name::unwrap(wrapped) {
                 Ok(name) => {
-                    if let Some(tp) = sconf.time_meas_pattern.as_ref()
-                        && tp.0.is_match(name.as_ref())
+                    if let Some(tp) = sconf.time_meas_pattern.0.as_ref()
+                        && tp.is_match(name.as_ref())
                     {
                         if found_time {
                             let e = DuplicateTimeNameError(i, name);
@@ -4696,7 +4695,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
         let go = |ms: &NamedVec<_, _, _>| {
-            if let Some(pat) = sconf.time_meas_pattern.as_ref()
+            if let Some(pat) = sconf.time_meas_pattern.0.as_ref()
                 && ms.as_center().is_none()
                 && !ms.is_empty()
             {
@@ -10101,7 +10100,7 @@ pub enum LookupModifiedDataError {
 #[error("Could not find time measurement matching '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
-pub struct MissingTime(pub TimeMeasNamePattern);
+pub struct MissingTime(pub Regex);
 
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;

@@ -522,7 +522,7 @@ fn run() -> AppResult<()> {
             "Use REGEXP when matching time measurement (defaults to \
              '^Time|TIME$', pass 'NoTime' to not look for a time channel).",
         )
-        .value_parser(ValueParser::new(parse_time_meas_pattern));
+        .value_parser(value_parser!(TimeMeasNamePattern));
 
     let allow_missing_time = tri_flag_arg::<AllowMissingTime>(
         ALLOW_MISSING_TIME,
@@ -1217,9 +1217,9 @@ fn get_header_and_text_config(
 
 fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
     let time_meas_pattern = sargs
-        .get_one::<Option<TimeMeasNamePattern>>(TIME_MEAS_PATTERN)
+        .get_one(TIME_MEAS_PATTERN)
         .cloned()
-        .unwrap_or(Some(TimeMeasNamePattern::default()));
+        .unwrap_or_default();
 
     let ignore_time_optical_keys = sargs
         .get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS)
@@ -1383,14 +1383,6 @@ fn parse_offsets(s: &str) -> StrResult<(i32, i32)> {
 fn parse_other_width(s: &str) -> StrResult<OtherWidth> {
     let x = s.parse::<u8>().map_err(|e| e.to_string())?;
     OtherWidth::try_from(x).map_err(|e| e.to_string())
-}
-
-fn parse_time_meas_pattern(s: &str) -> Result<Option<TimeMeasNamePattern>, regex::Error> {
-    if s == "NoTime" {
-        Ok(None)
-    } else {
-        Ok(Some(s.parse::<config::TimeMeasNamePattern>()?))
-    }
 }
 
 fn parse_keystring_literal(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {

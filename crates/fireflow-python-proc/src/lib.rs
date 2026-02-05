@@ -7977,9 +7977,10 @@ impl DocArgParam {
 
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
-        let pytype = PyOpt::new1(PyStr::new_regexp().rstype(path));
+        let pytype = PyStr::new_regexp().rstype(path);
+        // TODO split off the constants into another crate so they can be used here
         let d = "A pattern to match the *$PnN* of the time measurement. \
-                 If ``None``, do not try to find a time measurement.";
+                 If ``\"NoTime\"``, do not try to find a time measurement.";
         Self::new_param("time_meas_pattern", pytype, d).def(DocDefault::Str("^(TIME|Time)$".into()))
     }
 

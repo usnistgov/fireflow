@@ -32,14 +32,16 @@ use crate::validated::timepattern::TimePattern;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
-use regex::Regex;
+use regex::{self, Regex};
+use thiserror::Error;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
 use std::path::PathBuf;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -345,6 +347,7 @@ pub struct ReadOffsetConfig {
     /// possible given the limit). For most cases, this only needs to be `1`.
     pub overlap_correction_limit: OverlapCorrectionLimit,
 
+    // TODO move this to event config since it only applies to reading DATA
     /// The maximum number of bytes to correct DATA based on event width.
     ///
     /// For all but ASCII delimited layouts, dividing length of DATA by event
@@ -653,7 +656,7 @@ pub struct ReadStdKeywordsConfig {
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to `"0,0"`.
-    pub time_meas_pattern: Option<TimeMeasNamePattern>,
+    pub time_meas_pattern: TimeMeasNamePattern,
 
     /// Allow time to be absent even [`Self::time_meas_pattern`] is set.
     pub allow_missing_time: AllowMissingTime,
@@ -803,35 +806,6 @@ pub struct ReadStdKeywordsConfig {
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
     pub nonstandard_measurement_pattern: NonStdMeasPatternOpt,
-}
-
-impl Default for ReadStdKeywordsConfig {
-    fn default() -> Self {
-        Self {
-            dedup_measurement_names: DedupMeasNames::default(),
-            trim_intra_value_whitespace: TrimIntraValueWhitespace::default(),
-            time_meas_pattern: None,
-            allow_missing_time: AllowMissingTime::default(),
-            force_linear_scale: ForceLinearScale::default(),
-            ignore_time_optical_keys: HashSet::default(),
-            process_time_optical_keys: ProcessTemporalOpticalKeys::default(),
-            spillover_measurement_mode: SpilloverMeasurementMode::default(),
-            date_pattern: None,
-            time_pattern: None,
-            datetime_pattern: None,
-            last_modified_pattern: None,
-            allow_other_feature: AllowOtherFeature::default(),
-            process_pseudostandard: ProcessPseudostandard::default(),
-            process_hyper_par: ProcessHyperPar::default(),
-            process_other_version: ProcessOtherVersion::default(),
-            process_extra_timestep: ProcessExtraTimestep::default(),
-            disallow_deprecated: DisallowDeprecated::default(),
-            fix_log_scale_offsets: FixLogScaleOffsets::default(),
-            disallow_localtime: DisallowLocaltime::default(),
-            // this default impl exists entirely so that this can be Some(...)
-            nonstandard_measurement_pattern: Some(NonStdMeasPattern::default()),
-        }
-    }
 }
 
 /// Specific instructions for reading a data layout.
@@ -1527,8 +1501,37 @@ impl AppendFlag {
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
-#[derive(Clone, FromStr, Display, Debug)]
-pub struct TimeMeasNamePattern(pub Regex);
+#[derive(Clone)]
+pub struct TimeMeasNamePattern(pub Option<Regex>);
+
+const DEFAULT_TIME_PATTERN: &str = "NoTime";
+
+impl fmt::Display for TimeMeasNamePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        if let Some(s) = self.0.as_ref() {
+            write!(f, "{s}")
+        } else {
+            f.write_str(DEFAULT_TIME_PATTERN)
+        }
+    }
+}
+
+impl FromStr for TimeMeasNamePattern {
+    type Err = regex::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == DEFAULT_TIME_PATTERN {
+            return Ok(Self(None));
+        }
+        s.parse::<Regex>().map(Some).map(Self)
+    }
+}
+
+impl Default for TimeMeasNamePattern {
+    fn default() -> Self {
+        Self(Some(Regex::new("^(TIME|Time)$").unwrap()))
+    }
+}
 
 /// Measurement keywords which are not allowed for temporal measurements.
 ///
@@ -1784,12 +1787,6 @@ pub type KeyPatterns = KeyStringsOrPatterns<()>;
 
 pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 
-impl Default for TimeMeasNamePattern {
-    fn default() -> Self {
-        Self(Regex::new("^(TIME|Time)$").unwrap())
-    }
-}
-
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 pub struct TruncateOffsetLimit(pub u64);
@@ -1869,10 +1866,8 @@ mod python {
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
-            let n = s
-                .parse::<Self>()
-                .map_err(|e| ConfigError::new_err(e.to_string()))?;
-            Ok(n)
+            s.parse::<Self>()
+                .map_err(|e| ConfigError::new_err(e.to_string()))
         }
     }
 

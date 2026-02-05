@@ -2818,7 +2818,7 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=None)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern="NoTime")
         self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
@@ -2849,7 +2849,7 @@ class TestReadWrite:
         p = d / "dataset1.fcs"
         core.write_dataset(p)
         nu_core, un_core = pf.api.fcs_read_std_dataset(
-            p, time_meas_pattern=None, warnings_are_errors=True
+            p, time_meas_pattern="NoTime", warnings_are_errors=True
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core

@@ -1836,7 +1836,7 @@ pub struct SegmentOverlapError {
 /// Error when parsing the offset for a segment
 #[derive(Debug, Error, new)]
 #[error(
-    "parse error for {which} offset in {location} segment from source '{src:?}': {error}",
+    "parse error for {which} offset in {location} segment from source '{src}': {error}",
     which = if self.is_begin { "begin" } else { "end" },
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

@@ -19,7 +19,7 @@ use crate::header::{
 };
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, ErrorsResult, IOAnonErrorGroup, IOErrorGroup,
-    LogResult, ResultExt as _, Success, SuccessResultIter as _, SwitchableErrorResult,
+    LogResult, ResultExt as _, SuccessResultIter as _, SwitchableErrorResult,
     SwitchableErrorsResult, WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
@@ -39,8 +39,8 @@ use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
 };
 use crate::validated::keys::{
-    BlankValueError, BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey,
-    StdKeywords, StdPresent, StringOrBytes, ValidKeywords,
+    BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey, StdKeywords,
+    StdPresent, StringOrBytes, ValidKeywords,
 };
 
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
@@ -771,8 +771,6 @@ pub enum ParseSupplementalTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
-    // TODO not necessary?
-    BlankValue(BlankValueError),
     Uneven(UnevenTokensError),
     Final(FinalDelimError),
     EvenFinal(EvenFinalDelimError),
@@ -1487,12 +1485,6 @@ impl SplitTEXTOutputInner {
             .iter()
             .map(|k| BlankKeyError::new(tk, k.clone()));
 
-        // TODO its a bit weird that only this error doesn't mention the TEXT from
-        // which is came
-        let blank_value_errors = keys_with_blank_values
-            .iter()
-            .map(|k| BlankValueError(k.clone()));
-
         let blank_key_res = SwitchableErrorsResult::new_switchable_iter3(
             (),
             (),
@@ -1501,11 +1493,6 @@ impl SplitTEXTOutputInner {
         )
         .map_switchable_errors(ParseKeywordsIssue::from)
         .switchable_into_commutative();
-
-        let blank_val_succ = Success::new_non_switchable(())
-            .set_warnings(blank_value_errors.collect::<Vec<_>>())
-            .map_warnings(ParseKeywordsIssue::from);
-        let blank_val_res = LogResult::Succ(blank_val_succ);
 
         let ret = Self {
             keys_with_blank_values,
@@ -1523,7 +1510,7 @@ impl SplitTEXTOutputInner {
         insert_results
             .into_iter()
             .map(LogResult::into_semigroup)
-            .chain([uneven_res, blank_key_res, blank_val_res, final_delim_res])
+            .chain([uneven_res, blank_key_res, final_delim_res])
             .sequence_def_void()
             .set_ok_value(ret)
     }

@@ -6360,6 +6360,10 @@ impl<E> PyOpt<E> {
         Self::new(self.inner, Some(rstype), self.default_from_inner)
     }
 
+    fn default_from_inner(self) -> Self {
+        Self::new(self.inner, self.rstype, true)
+    }
+
     fn doc_default(&self) -> (String, TokenStream2) {
         if self.default_from_inner {
             match self.rstype.as_ref() {
@@ -8168,9 +8172,12 @@ impl DocArgParam {
     }
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern);
+        let path = config_path("NonStdMeasPatternOpt");
         let exc = PyException::new_config().desc("if %x does not have ``\"%n\"``");
-        let pytype = PyStr::default().rstype(path).exc(exc);
+        // TODO this is really weird, why is path specified twice?
+        let pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
+            .default_from_inner()
+            .rstype(path);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
              be a regular expression pattern with ``%n`` which will \
@@ -8178,7 +8185,7 @@ impl DocArgParam {
              Otherwise should be a normal regular expression as defined in \
              {REGEXP_REF}."
         );
-        Self::new_param("nonstandard_measurement_pattern", PyOpt::new1(pytype), d)
+        Self::new_param("nonstandard_measurement_pattern", pytype, d)
             .def(DocDefault::Str("^P%n".into()))
     }
 

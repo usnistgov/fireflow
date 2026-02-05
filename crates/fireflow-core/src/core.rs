@@ -4057,15 +4057,15 @@ where
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
         let blank_meas_nonstd = || vec![HashMap::new(); par.0];
-        conf.nonstandard_measurement_pattern
-            .as_ref()
-            .map_or(Ok(blank_meas_nonstd()), |pat| {
+        let ns_pat_opt = conf.nonstandard_measurement_pattern.0.as_ref();
+        ns_pat_opt
+            .map_or(Ok(blank_meas_nonstd()), |ns_pat| {
                 // match largest indices first to avoid matching incomplete
                 // prefix (ie "P1" will match "P11")
                 (0..par.0)
                     .rev()
                     .map(|n| {
-                        pat.apply_index(n).map(|p| {
+                        ns_pat.apply_index(n).map(|p| {
                             let r: &Regex = p.as_ref();
                             nonstd.extract_if(|k, _| r.is_match(k.as_ref())).collect()
                         })

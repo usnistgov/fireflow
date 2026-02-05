@@ -9,8 +9,8 @@ use fireflow_core::config::{
     AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd, AllowSuppTEXTOwnDelim,
     AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit, DatasetOffset, DelimEscapeMode,
     DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
-    OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
-    ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
+    NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
     SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
     TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit, VersionOverride,
 };
@@ -1227,6 +1227,8 @@ fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .copied()
         .collect();
 
+    let ns_meas_pat = sargs.get_one::<NonStdMeasPattern>(NS_MEAS_PATTERN).cloned();
+
     config::ReadStdKeywordsConfig {
         dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
         trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
@@ -1248,7 +1250,7 @@ fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         disallow_deprecated: get_def(sargs, DISALLOW_DEPRECATED),
         fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
         disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
-        nonstandard_measurement_pattern: sargs.get_one(NS_MEAS_PATTERN).cloned(),
+        nonstandard_measurement_pattern: NonStdMeasPatternOpt(ns_meas_pat),
     }
 }
 

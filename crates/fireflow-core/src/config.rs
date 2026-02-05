@@ -628,7 +628,7 @@ pub struct ReadHeaderAndTEXTConfig {
 }
 
 /// Specific instructions for standardizing keywords from TEXT
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct ReadStdKeywordsConfig {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
@@ -802,7 +802,7 @@ pub struct ReadStdKeywordsConfig {
     /// This will match something like `"P7FOO"` which would be `"FOO"` for
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    pub nonstandard_measurement_pattern: NonStdMeasPatternOpt,
 }
 
 impl Default for ReadStdKeywordsConfig {
@@ -1753,6 +1753,16 @@ impl TemporalOpticalKey {
     }
 }
 
+/// [`NonStdMeasPattern`] wrapper to implement non-None default.
+#[derive(Clone)]
+pub struct NonStdMeasPatternOpt(pub Option<NonStdMeasPattern>);
+
+impl Default for NonStdMeasPatternOpt {
+    fn default() -> Self {
+        Self(Some(NonStdMeasPattern::default()))
+    }
+}
+
 /// Error when optical keyword is present in temporal measurement.
 #[derive(Debug, Error, new)]
 #[error("optical key $P{index}{key} found in temporal measurement")]
@@ -1847,11 +1857,11 @@ pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::ConfigError;
     use crate::segment::OffsetCorrection;
     use crate::validated::sub_pattern::SubPattern;
+    use crate::{python::ConfigError, validated::nonstd_meas_pattern::NonStdMeasPattern};
 
-    use super::{KeyPatterns, SubPatterns, TimeMeasNamePattern};
+    use super::{KeyPatterns, NonStdMeasPatternOpt, SubPatterns, TimeMeasNamePattern};
 
     use pyo3::prelude::*;
     use std::collections::HashMap;
@@ -1863,6 +1873,17 @@ mod python {
                 .parse::<Self>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))?;
             Ok(n)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for NonStdMeasPatternOpt {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if ob.is_none() {
+                Ok(Self(None))
+            } else {
+                let s: String = ob.extract()?;
+                Ok(Self(Some(s.parse::<NonStdMeasPattern>()?)))
+            }
         }
     }
 

@@ -1488,7 +1488,7 @@ impl OtherSegment20 {
             }
             Some(w)
         };
-        let candidates = (MIN_WIDTH..MAX_CHARS).filter_map(go);
+        let candidates = (MIN_WIDTH..=MAX_CHARS).filter_map(go);
 
         // TODO for now we are assuming that checking digit boundaries is good
         // enough to figure out what the offset width should be. We could also

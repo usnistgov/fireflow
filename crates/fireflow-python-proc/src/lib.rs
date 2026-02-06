@@ -27,6 +27,68 @@ use syn::{
     token::Comma,
 };
 
+/// Italic RST format
+macro_rules! italic {
+    ($s:expr) => {
+        formatcp!("*{}*", $s)
+    };
+}
+
+fn italic(s: impl fmt::Display) -> String {
+    format!("*{s}*")
+}
+
+/// Format for FCS keywords
+macro_rules! fcs_kw {
+    ($s:expr) => {
+        italic!($s)
+    };
+}
+
+fn fcs_kw(s: impl fmt::Display) -> String {
+    italic(s)
+}
+
+/// Format for segments
+macro_rules! fcs_seg {
+    ($s:expr) => {
+        italic!($s)
+    };
+}
+
+/// Format for python code and FCS literals
+macro_rules! code {
+    ($s:expr) => {
+        formatcp!("``{}``", $s)
+    };
+}
+
+fn code(s: impl fmt::Display) -> String {
+    format!("``{s}``")
+}
+
+/// Format for python arguments
+macro_rules! arg {
+    ($s:expr) => {
+        code!($s)
+    };
+}
+
+fn arg(s: impl fmt::Display) -> String {
+    code(s)
+}
+
+/// Format for literal python strings (to avoid annoying quotes)
+macro_rules! code_str {
+    ($s:expr) => {
+        code!(formatcp!("\"{}\"", $s))
+    };
+}
+
+fn code_str(s: impl fmt::Display) -> String {
+    code(format!("\"{s}\""))
+}
+
 #[proc_macro]
 pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let fun_path = parse_macro_input!(input as Path);
@@ -174,9 +236,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
 
     let skip_arg = DocArg::new_skip_param(format!(
         "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
-         datasets will still be read to obtain {nextdata} for the next \
+         datasets will still be read to obtain {NEXTDATA} for the next \
          dataset in the file.",
-        nextdata = fcs_kw("$NEXTDATA")
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
@@ -267,9 +328,8 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
 
     let skip_arg = DocArg::new_skip_param(format!(
         "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
-         datasets will still be read to obtain {nextdata} for the next \
+         datasets will still be read to obtain {NEXTDATA} for the next \
          dataset in the file.",
-        nextdata = fcs_kw("$NEXTDATA")
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
@@ -394,9 +454,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let skip_arg = DocArg::new_skip_param(format!(
         "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
-         datasets will still be read to obtain {nextdata} for the next \
+         datasets will still be read to obtain {NEXTDATA} for the next \
          dataset in the file.",
-        nextdata = fcs_kw("$NEXTDATA")
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
@@ -809,14 +868,14 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
     let tot_event_mismatch = DocArgROIvar::new_ivar_ro(
         "tot_event_mismatch",
         PyOpt::new1(PyBool::default()),
-        format!("{TRUE} if *$TOT* does not match the number of events computed via event width."),
+        format!("{TRUE} if {TOT} does not match the number of events computed via event width."),
         |_, _| quote!(self.0.tot_event_mismatch.clone()),
     );
 
     let truncated_columns = DocArgROIvar::new_ivar_ro(
         "truncated_columns",
         PyList::new1(PyOpt::new1(RsInt::Usize)),
-        "Columns for which at least one event was truncated to fit *$PnR*.",
+        format!("Columns for which at least one event was truncated to fit {PNR}."),
         |_, _| quote!(self.0.truncated_columns.clone()),
     );
 
@@ -916,7 +975,9 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
         PyDict::new_std_keywords(),
-        "Measurement keywords which are part of the standard but have an index outside *$PAR*.",
+        format!(
+            "Measurement keywords which are part of the standard but have an index outside {PAR}."
+        ),
         |_, _| quote!(self.0.hyper_par.clone()),
     );
 
@@ -937,21 +998,21 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let timestep = DocArgROIvar::new_ivar_ro(
         "timestep",
         PyOpt::new1(PyStr::default()),
-        "Unused *$TIMESTEP* keyword",
+        format!("Unused {TIMESTEP} keyword"),
         |_, _| quote!(self.0.timestep.clone()),
     );
 
     let original_names = DocArgROIvar::new_ivar_ro(
         "original_names",
         PyList::new1(PyOpt::new1(PyStr::new_shortname())),
-        "Original *$PnN* if they were renamed.",
+        format!("Original {PNN} if they were renamed."),
         |_, _| quote!(self.0.original_names.clone()),
     );
 
     let scale = DocArgROIvar::new_ivar_ro(
         "scale",
         PyList::new1(PyOpt::new_scale_diagnostic()),
-        "Diagnostic data from parsing *$PnE* keywords.",
+        format!("Diagnostic data from parsing {PNE} keywords."),
         |_, _| quote!(self.0.scale.clone()),
     );
 
@@ -1034,7 +1095,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let tot = DocArgROIvar::new_ivar_ro(
         "tot",
         PyOpt::new1(PyInt::new_int(RsInt::Usize).rstype(keyword_path("Tot"))),
-        format!("Value of *$TOT* from {TEXT}."),
+        format!("Value of {TOT} from {TEXT}."),
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
@@ -1182,7 +1243,7 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
     let nextdata = DocArgROIvar::new_ivar_ro(
         "nextdata",
         PyOpt::new1(PyInt::from(RsInt::U64).rstype(rstype)),
-        "The value of *$NEXTDATA*.",
+        format!("The value of {NEXTDATA}."),
         |_, _| quote!(self.0.nextdata),
     );
 
@@ -1415,14 +1476,14 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
     let n_events = DocArgROIvar::new_ivar_ro(
         "n_events",
         RsInt::Usize,
-        format!("Number of events ({tot})", tot = fcs_kw("$TOT")),
+        format!("Number of events ({TOT})"),
         |_, _| quote!(self.0.n_events),
     );
 
     let n_measurements = DocArgROIvar::new_ivar_ro(
         "n_measurements",
         RsInt::Usize,
-        format!("Number of measurements ({par})", par = fcs_kw("$PAR")),
+        format!("Number of measurements ({PAR})"),
         |_, _| quote!(self.0.n_measurements),
     );
 
@@ -1443,7 +1504,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
     let datatype = DocArgROIvar::new_ivar_ro(
         "datatype",
         PyOpt::new1(PyLiteral::new_datatype()),
-        format!("The value of {datatype}", datatype = fcs_kw("$DATATYPE")),
+        format!("The value of {DATATYPE}"),
         |_, _| quote!(self.0.datatype),
     );
 
@@ -1711,7 +1772,7 @@ pub fn impl_core_version(input: TokenStream) -> TokenStream {
 pub fn impl_core_par(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
-    let doc = DocString::new_ivar("The value for *$PAR*.", RsInt::Usize);
+    let doc = DocString::new_ivar(format!("The value for {PAR}."), RsInt::Usize);
     doc.into_impl_get(&t, "par", |_, _| quote!(self.0.par().0))
         .into()
 }
@@ -1758,10 +1819,10 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
         .para("Each key will be prefixed with *$*.")
-        .para(
-            "This will not include *$TOT*, *$NEXTDATA*, or any of the \
+        .para(format!(
+            "This will not include {TOT}, {NEXTDATA}, or any of the \
              offset keywords since these only matter if the dataset is written.",
-        )
+        ))
         .arg(req_or_opt)
         .arg(root_or_meas)
         .returns(DocReturn::new(PyDict::new_keywords()).desc("A list of standard keywords."));
@@ -1820,7 +1881,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let nextdata = PyInt::new_nextdata();
     let ret = DocReturn::new(nextdata)
         .exc([exc0, exc1])
-        .desc("the value of $NEXTDATA as written to the dataset");
+        .desc(format!("the value of {NEXTDATA} as written to the dataset"));
 
     let doc = DocString::new_method("Write data to path.")
         .para(format!(
@@ -1869,9 +1930,9 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let exc1 = PyException::new_other_overflow();
 
     let nextdata = PyInt::new_nextdata();
-    let ret = DocReturn::new(nextdata)
-        .exc([exc0, exc1])
-        .desc("the value of *$NEXTDATA* which would point to next dataset if written");
+    let ret = DocReturn::new(nextdata).exc([exc0, exc1]).desc(format!(
+        "the value of {NEXTDATA} which would point to next dataset if written"
+    ));
 
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(format!(
@@ -1963,7 +2024,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_pycore(&i).1;
 
     let doc = DocString::new_ivar(
-        "Value of *$PnN* for all measurements.",
+        format!("Value of {PNN} for all measurements."),
         PyList::new1(PyStr::new_shortname()),
     )
     .para("Strings are unique and cannot contain commas.");
@@ -1984,11 +2045,11 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_pycore(&i).1;
 
     let doc = DocString::new_ivar(
-        "The possibly-empty values of *$PnN* for all measurements.",
+        format!("The possibly-empty values of {PNN} for all measurements."),
         PyList::new1(PyOpt::new1(PyStr::new_shortname())),
     )
     .para(format!(
-        "*$PnN* is optional for this FCS version so values may be {NONE}."
+        "{PNN} is optional for this FCS version so values may be {NONE}."
     ));
 
     doc.into_impl_get_set(
@@ -2007,7 +2068,7 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_pycore(&i).1;
 
     let t = PyOpt::new1(PyFloat::new_timestep());
-    let get_doc = DocString::new_ivar("The value of *$TIMESTEP*", t.clone());
+    let get_doc = DocString::new_ivar(format!("The value of {TIMESTEP}"), t.clone());
 
     let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
 
@@ -2016,9 +2077,11 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
         PyFloat::new_timestep(),
         "The timestep to set. Must be greater than zero.",
     );
-    let set_doc = DocString::new_method("Set the *$TIMESTEP* if time measurement is present.")
-        .arg(param)
-        .returns(DocReturn::new(t.map_exc(|_| ())).desc("Previous *$TIMESTEP* if present."));
+    let set_doc = DocString::new_method(format!(
+        "Set the {TIMESTEP} if time measurement is present."
+    ))
+    .arg(param)
+    .returns(DocReturn::new(t.map_exc(|_| ())).desc(format!("Previous {TIMESTEP} if present.")));
 
     let set_ret = set_doc.ret_path();
     let set_fun_arg = set_doc.fun_args();
@@ -2055,7 +2118,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         let timestep = has_timestep.then_some(DocArg::new_param(
             "timestep",
             PyFloat::new_timestep(),
-            "The value of *$TIMESTEP* to use.",
+            format!("The value of {TIMESTEP} to use."),
         ));
         let allow_loss = DocArg::new_allow_loss_param(
             "Choose what happens if optical-specific metadata (detectors, \
@@ -2134,10 +2197,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let (rt, rd) = if has_timestep {
             (
                 PyOpt::new1(PyFloat::new_timestep()).into(),
-                format!(
-                    "Value of {timestep} if time measurement was present.",
-                    timestep = fcs_kw("$TIMESTEP")
-                ),
+                format!("Value of {TIMESTEP} if time measurement was present.",),
             )
         } else {
             (
@@ -2236,7 +2296,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
              Setting it to another value will raise {exc}."
         );
         let doc = DocString::new_ivar(
-            "The value for *$PnE* for all measurements.",
+            format!("The value for {PNE} for all measurements."),
             PyList::new1(PyOpt::new1(PyUnion::new_scale(false))),
         )
         .paras([s0, s1]);
@@ -2249,13 +2309,13 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             |n, _| quote!(Ok(self.0.set_scales(#n)?)),
         )
     } else {
-        let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
+        let sum = format!("The value for {PNE} and/or {PNG} for all measurements.");
         let s0 = "Collectively these keywords correspond to scale transforms.";
         let s1 = format!(
             "If scaling is linear, return a float which corresponds to the \
-             value of *$PnG* when *$PnE* is {linear}. If scaling is logarithmic, \
-             return a pair of floats, corresponding to unset *$PnG* and the \
-             non-{linear} value of *$PnE*."
+             value of {PNG} when {PNE} is {linear}. If scaling is logarithmic, \
+             return a pair of floats, corresponding to unset {PNG} and the \
+             non-{linear} value of {PNE}."
         );
         let s2 = "The FCS standards disallow any other combinations.";
         let s3 = format!(
@@ -2406,7 +2466,7 @@ pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
     };
     let ps = [format!(
         "Length of {measurements} must match number of columns in existing {s}.",
-        measurements = arg("measurements"),
+        measurements = arg(MEASUREMENTS),
     )];
     let doc = DocString::new_method("Set all measurements at once.")
         .paras(ps)
@@ -2822,15 +2882,18 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let other_kws = if version == Version::FCS2_0 {
-        "*$TOT*"
+        TOT
     } else {
-        "*$TOT*, *$BEGINDATA*, *$ENDDATA*, *$BEGINANALYSIS*, *$ENDANALYSIS*, \
-         or *$TIMESTEP* (if time measurement not included)"
+        formatcp!(
+            "{TOT}, {}, {}, {}, {}, or {TIMESTEP} (if time measurement not included)",
+            fcs_kw!("$BEGINDATA"),
+            fcs_kw!("$ENDDATA"),
+            fcs_kw!("$BEGINANALYSIS"),
+            fcs_kw!("$ENDANALYSIS")
+        )
     };
-    let no_kws = format!(
-        "Must not contain any *$Pn\\** keywords not indexed by \
-         *$PAR* or {other_kws}."
-    );
+    let no_kws =
+        format!("Must not contain any *$Pn\\** keywords not indexed by {PAR} or {other_kws}.");
 
     let std_param = DocArg::new_param(
         "std",
@@ -3029,7 +3092,9 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
     let xs = [exc0, exc1];
 
     let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
-        .desc("the value of *$NEXTDATA* as written in the last dataset")
+        .desc(format!(
+            "the value of {NEXTDATA} as written in the last dataset"
+        ))
         .exc(xs);
 
     let doc = DocString::new_fun("Write multiple datasets to path.")
@@ -3079,7 +3144,9 @@ pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
     let xs = [exc0, exc1];
 
     let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
-        .desc("the value of *$NEXTDATA* as written in the last dataset if written")
+        .desc(format!(
+            "the value of {NEXTDATA} as written in the last dataset if written"
+        ))
         .exc(xs);
 
     let doc = DocString::new_fun("Write multiple datasets to path.")
@@ -3126,7 +3193,7 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let s = "Remove measurements and clear the layout.";
     let p0 = format!(
         "This is equivalent to deleting all *$Pn\\** keywords and setting \
-         *$PAR* to {zero}.",
+         {PAR} to {zero}.",
         zero = code(0_u8)
     );
 
@@ -3477,7 +3544,9 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Calibration3_1",
         "calibration",
         |_| PyOpt::new1(PyTuple::new_calibration3_1()),
-        Some("Value of *$PnCALIBRATION*. Tuple encodes slope and calibration units."),
+        Some(formatcp!(
+            "Value of {PNCALIBRATION}. Tuple encodes slope and calibration units."
+        )),
         true,
     );
 
@@ -3485,10 +3554,10 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Calibration3_2",
         "calibration",
         |_| PyOpt::new1(PyTuple::new_calibration3_2()),
-        Some(
-            "Value of *$PnCALIBRATION*. Tuple encodes slope, intercept, \
-             and calibration units.",
-        ),
+        Some(formatcp!(
+            "Value of {PNCALIBRATION}. Tuple encodes slope, intercept, \
+             and calibration units."
+        )),
         true,
     );
 
@@ -3497,9 +3566,10 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "display",
         |_| PyOpt::new1(PyTuple::new_display()),
         Some(formatcp!(
-            "Value of *$PnD*. First member of tuple encodes linear or log display \
+            "Value of {pnd}. First member of tuple encodes linear or log display \
              ({FALSE} and {TRUE} respectively). The float members encode \
-             lower/upper and decades/offset for linear and log scaling respectively."
+             lower/upper and decades/offset for linear and log scaling respectively.",
+            pnd = fcs_kw!("$PnD")
         )),
         true,
     );
@@ -3526,7 +3596,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let timestep = DocArg::new_ivar_rw(
         "timestep",
         PyFloat::new_timestep(),
-        "Value of *$TIMESTEP*.",
+        format!("Value of {TIMESTEP}."),
         false,
         |_, _| quote!(self.0.specific.timestep),
         |_, _| quote!(self.0.specific.timestep = timestep),
@@ -3784,7 +3854,7 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
 
     let inner_rstype = inner_pytype.as_rust_type();
 
-    let doc_summary = "Value of *$PnFEATURE* (area/width/height) for all measurements.";
+    let doc_summary = format!("Value of {PNFEATURE} (area/width/height) for all measurements.");
     let p0 = format!(
         "This should be the preferred way to get and set this keyword if one \
          knows that only {area}, {width}, and {height} will be used for this \
@@ -3819,7 +3889,7 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
     let inner_pytype = PyOpt::new1(PyStr::default());
     let inner_rstype = inner_pytype.as_rust_type();
 
-    let doc_summary = "Value of *$PnFEATURE* (not area/width/height) for all measurements.";
+    let doc_summary = format!("Value of {PNFEATURE} (not area/width/height) for all measurements.");
     let p0 = format!(
         "Values which are not {area}, {width}, and {height} will be returned as {NONE}.",
         area = code_str("Area"),
@@ -3873,7 +3943,7 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
 
     let pytype = PyOpt::new1(PyLiteral::new_awh_feature());
 
-    let doc_summary = "Value of *$PnFEATURE* (area/width/height).";
+    let doc_summary = "Value of {PNFEATURE} (area/width/height).";
     let p = format!(
         "This should be the preferred way to get and set this keyword if one \
          knows that only {area}, {width}, and {height} will be used since it \
@@ -4152,9 +4222,11 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
     let chars_param = DocArg::new_ivar_ro(
         "ranges",
         PyList::new1(PyInt::new_ascii_range_value()),
-        "The range for each measurement. Equivalent to *$PnR*. The value of \
-         *$PnB* will be derived from these and will be equivalent to the number \
-         of digits for each value.",
+        format!(
+            "The range for each measurement. Equivalent to {PNR}. The value of \
+             {PNB} will be derived from these and will be equivalent to the \
+             number of digits for each value."
+        ),
         |_, _| quote!(self.0.columns().iter().map(|c| c.value()).collect()),
     );
 
@@ -4172,8 +4244,10 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 
     let char_widths_doc =
         DocString::new_ivar("The width of each measurement.", PyList::new1(RsInt::U64)).para(
-            "Equivalent to *$PnB*, which is the number of chars/digits used \
-             to encode data for a given measurement.",
+            format!(
+                "Equivalent to {PNB}, which is the number of chars/digits used \
+                 to encode data for a given measurement."
+            ),
         );
 
     let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
@@ -4199,8 +4273,10 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
         PyList::new1(PyInt::new_ascii_range_value()),
-        "The range for each measurement. Equivalent to the *$PnR* keyword. \
-         This is not used internally.",
+        format!(
+            "The range for each measurement. Equivalent to the {PNR} keyword. \
+             This is not used internally."
+        ),
         |_, _| quote!(self.0.as_ref().to_vec()),
     );
 
@@ -4231,10 +4307,9 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let (range_pytype, range_desc, what, base, range_path, dt) = if is_float {
         let range = format_ident!("F{:02}Range", nbits);
         let range_desc = format!(
-            "The range for each measurement. Corresponds to {pnr}. \
+            "The range for each measurement. Corresponds to {PNR}. \
              This is not used internally so only serves for users' \
              own purposes.",
-            pnr = fcs_kw("$PnR")
         );
         (
             PyFloat::new_float_range(nbytes).into(),
@@ -4248,11 +4323,10 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         let bitmask = format_ident!("Bitmask{:02}", nbits);
         let range_desc = format!(
             "The range for each measurement. Corresponds to \
-             {pnr} - 1, which implies that the value for each \
+             {PNR} - 1, which implies that the value for each \
              measurement must be less than or equal to the values \
              in {ranges}. A bitmask will be created which \
              corresponds to one less the next power of 2.",
-            pnr = fcs_kw("$PnR"),
             ranges = arg(RANGES),
         );
         (
@@ -4365,8 +4439,10 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let range_param = DocArg::new_ivar_ro(
         "ranges",
         PyList::new1(PyFloat::new_float_range(nbytes)),
-        "The range for each measurement. Corresponds to *$PnR*. This is not \
-         used internally.",
+        format!(
+            "The range for each measurement. Corresponds to {PNR}. This is not \
+             used internally."
+        ),
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
@@ -4406,11 +4482,11 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         "ranges",
         PyList::new1(PyInt::new_bitmask_value64()),
         format!(
-            "The range of each measurement. Corresponds to the *$PnR* \
+            "The range of each measurement. Corresponds to the {PNR} \
              keyword less one. The number of bytes used to encode each \
-             measurement (*$PnB*) will be the minimum required to express this \
-             value. For instance, a value of {v1023} will set *$PnB* to {v16}, \
-             will set *$PnR* to {v1024}, and encode values for this measurement as \
+             measurement ({PNB}) will be the minimum required to express this \
+             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
+             will set {PNR} to {v1024}, and encode values for this measurement as \
              16-bit integers. The values of a measurement will be less than or \
              equal to this value.",
             v16 = code(16_u8),
@@ -4469,8 +4545,8 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         "typed_ranges",
         range_pytype,
         format!(
-            "The type and range for each measurement corresponding to *$DATATYPE* \
-             and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
+            "The type and range for each measurement corresponding to {DATATYPE} \
+             and/or {PNDATATYPE} and {PNR} respectively. These are given \
              as 2-tuples like {tuple_pattern} where {tuple_first} is one of \
              {dt_ascii}, {dt_int}, {dt_f32}, or {dt_f64} corresponding to Ascii, \
              Integer, Float, or Double datatypes respectively.",
@@ -4503,10 +4579,10 @@ pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
         "The width of each measurement in bytes.",
         PyList::new1(RsInt::U32),
     )
-    .para(
-        "This corresponds to the value of *$PnB* for each measurement \
-         divided by 8. Values for each measurement may be different.",
-    );
+    .para(format!(
+        "This corresponds to the value of {PNB} for each measurement \
+         divided by 8. Values for each measurement may be different."
+    ));
 
     doc.into_impl_get(&t, "byte_widths", |_, _| {
         quote!(self.0.widths().fmap(|x| u32::from(u8::from(x)) / 8))
@@ -5846,7 +5922,8 @@ impl PyException {
     fn new_other_overflow() -> Self {
         let d = format!(
             "If any {OTHER} end offsets are greater than \
-             99,999,999 and ``big_other`` is {FALSE}",
+             99,999,999 and {big_other} is {FALSE}",
+            big_other = arg!(BIG_OTHER)
         );
         Self::new_overflow().desc(d)
     }
@@ -5854,7 +5931,8 @@ impl PyException {
     fn new_data_loss() -> Self {
         Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
             "If any values in {DATA} segment need to be truncated to \
-             fit layout and ``skip_conversion_check`` is {FALSE}"
+             fit layout and {skip_conversion_check} is {FALSE}",
+            skip_conversion_check = arg(SKIP_CONVERSION_CHECK)
         ))
     }
 
@@ -5878,7 +5956,8 @@ impl PyException {
     fn new_deprecated() -> Self {
         Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(format!(
             "If any keywords or their values are deprecated and \
-             ``disallow_deprecated`` is {TRUE}"
+             {disallow_deprecated} is {TRUE}",
+            disallow_deprecated = arg(DISALLOW_DEPRECATED),
         ))
     }
 
@@ -6183,13 +6262,15 @@ impl<E> PyFloat<E> {
 impl<E: From<PyException>> PyFloat<E> {
     fn new_non_negative_float() -> Self {
         let e = PyException::new_invalid_keyword()
-            .desc("if %x is negative, ``NaN``, ``inf``, or ``-inf``");
+            .desc(format!("if %x is negative, {NAN}, {INF}, or {NEG_INF}"));
         Self::from(RsFloat::F32).exc(e)
     }
 
     fn new_positive_float() -> Self {
-        let e = PyException::new_invalid_keyword()
-            .desc("if %x is negative, ``0.0``, ``NaN``, ``inf``, or ``-inf``");
+        let e = PyException::new_invalid_keyword().desc(format!(
+            "if %x is negative, {zero}, {NAN}, {INF}, or {NEG_INF}",
+            zero = code("0.0")
+        ));
         Self::from(RsFloat::F32).exc(e)
     }
 
@@ -6201,7 +6282,7 @@ impl<E: From<PyException>> PyFloat<E> {
             _ => panic!("invalid number of float bytes: {nbytes}"),
         };
         let msg = format!(
-            "if %x is ``NaN``, ``inf``, ``-inf``, \
+            "if %x is {NAN}, {INF}, {NEG_INF}, \
              or outside the bounds of a {}-bit float",
             nbytes * 8,
         );
@@ -6226,7 +6307,8 @@ impl<E> PyStr<E> {
 impl<E: From<PyException>> PyStr<E> {
     fn new_shortname() -> Self {
         let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        let e = PyException::new_parse_keyval().desc("if %x is ``\"\"`` or contains commas");
+        let d = format!("if %x is {blank} or contains commas", blank = code_str(""));
+        let e = PyException::new_parse_keyval().desc(d);
         Self::default().rstype(path).exc(e)
     }
 
@@ -6239,17 +6321,16 @@ impl<E: From<PyException>> PyStr<E> {
 
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(
-            "if %x is empty, does not start with \
-             ``\"$\"``, or is only a ``\"$\"``",
-        );
+        let d =
+            format!("if %x is empty, does not start with {DOLLAR_STR}, or is only a {DOLLAR_STR}");
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_nonstd_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey)
-            .desc("if %x is empty or starts with ``\"$\"``");
+        let d = format!("if %x is empty or starts with {DOLLAR_STR}");
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
@@ -7162,11 +7243,15 @@ impl DocArgRWIvar {
             }
         };
         let layout_desc = if version == Version::FCS3_2 {
-            "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-             *$DATATYPE*, and *$PnDATATYPE*."
+            format!(
+                "Layout to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
+                 {DATATYPE}, and {PNDATATYPE}"
+            )
         } else {
-            "Layout to describe data encoding. Represents *$PnB*, *$PnR*, *$BYTEORD*, \
-             and *$DATATYPE*."
+            format!(
+                "Layout to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
+                 and {DATATYPE}."
+            )
         };
 
         Self::new_ivar_rw(
@@ -7297,11 +7382,13 @@ impl DocArgRWIvar {
                 .add(PyClass::new1("~numpy.ndarray").exc(matrix_exc))
                 .rstype(rstype)
                 .exc(spill_exc),
-            "Value for *$SPILLOVER*. First element of tuple the list of measurement \
-             names and the second is the matrix. Each measurement name must \
-             correspond to a *$PnN*, must be unique, and the length of this list \
-             must match the number of rows and columns of the matrix. The matrix \
-             must be at least 2x2.",
+            format!(
+                "Value for *$SPILLOVER*. First element of tuple the list of measurement \
+                 names and the second is the matrix. Each measurement name must \
+                 correspond to a {PNN}, must be unique, and the length of this list \
+                 must match the number of rows and columns of the matrix. The matrix \
+                 must be at least 2x2."
+            ),
             true,
             |_, _| quote!(self.0.spillover().map(|x| x.clone())),
             |n, _| quote!(Ok(self.0.set_spillover(#n)?)),
@@ -7327,8 +7414,10 @@ impl DocArgRWIvar {
         Self::new_opt_ivar_rw(
             "tr",
             PyTuple::new_tr(),
-            "Value for *$TR*. First member of tuple is threshold and second is the \
-             measurement name which must match a *$PnN*.",
+            format!(
+                "Value for *$TR*. First member of tuple is threshold and second \
+                 is the measurement name which must match a {PNN}."
+            ),
             true,
             |_, _| quote!(self.0.metaroot_opt().cloned()),
             |n, _| quote!(Ok(self.0.set_trigger(#n)?)),
@@ -7341,7 +7430,7 @@ impl DocArgRWIvar {
         Self::new_ivar_rw(
             "unstainedcenters",
             PyDict::new(PyStr::new_shortname(), RsFloat::F32, path.clone(), None),
-            "Value for *$UNSTAINEDCENTERS. Each key must match a *$PnN*.",
+            format!("Value for *$UNSTAINEDCENTERS. Each key must match a {PNN}."),
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(Ok(self.0.set_unstained_centers(#n)?)),
@@ -7431,8 +7520,10 @@ impl DocArgRWIvar {
         Self::new_opt_ivar_rw(
             "scale",
             PyUnion::new_scale(false),
-            "Value for *$PnE*. Empty tuple means linear scale; 2-tuple encodes \
-             decades and offset for log scale",
+            format!(
+                "Value for {PNE}. Empty tuple means linear scale; 2-tuple encodes \
+                 decades and offset for log scale"
+            ),
             false,
             |_, _| quote!(self.0.specific.scale.as_ref().map(|&x| x)),
             |n, _| quote!(self.0.specific.scale = #n.into()),
@@ -7441,11 +7532,9 @@ impl DocArgRWIvar {
 
     fn new_transform_ivar() -> Self {
         let d = format!(
-            "Value for {pne} and/or {png}. Singleton float encodes gain ({png}) \
-             and implies linear scaling (ie {pne} is {linear}). 2-tuple encodes \
-             decades and offset for log scale, and implies {png} is not set.",
-            pne = fcs_kw("$PnE"),
-            png = fcs_kw("$PnG"),
+            "Value for {PNE} and/or {PNG}. Singleton float encodes gain ({PNG}) \
+             and implies linear scaling (ie {PNE} is {linear}). 2-tuple encodes \
+             decades and offset for log scale, and implies {PNG} is not set.",
             linear = code("0,0"),
         );
         Self::new_ivar_rw(
@@ -7767,71 +7856,75 @@ impl DocArgParam {
 
     fn new_big_other_param() -> Self {
         let desc = format!("If {TRUE} use 20 chars for {OTHER} segment offsets, and 8 otherwise.");
-        Self::new_bool_param("big_other", desc)
+        Self::new_bool_param(BIG_OTHER, desc)
     }
 
     fn new_skip_conversion_check_param() -> Self {
         let conv_exc = PyreflowError::DataLoss.fmt_ref();
         let d = format!(
             "Skip check to ensure that types of the dataframe match the \
-             columns (*$PnB*, *$DATATYPE*, etc). If this is {FALSE}, \
+             columns ({PNB}, {DATATYPE}, etc). If this is {FALSE}, \
              perform this check before writing, and raise {conv_exc} on \
              failure. If {TRUE}, raise warnings as file is being \
              written. Skipping this is faster since the data needs to be \
              traversed twice to perform the conversion check, but may \
              result in loss of precision and/or truncation.",
         );
-        Self::new_bool_param("skip_conversion_check", d)
+        Self::new_bool_param(SKIP_CONVERSION_CHECK, d)
     }
 
     fn new_appendable_param() -> Self {
+        const APPENDABLE: &str = "appendable";
         let d = format!(
-            "If {TRUE}, set *$NEXTDATA* in written dataset so it points to \
-             the next dataset. This obviously assumes the next dataset is actually \
-             written, which will require another call to this method with ``append`` \
-             set to {TRUE}."
+            "If {TRUE}, set {NEXTDATA} in written dataset so it points to the \
+             next dataset. This assumes the next dataset is written, which will \
+             require another call to this method with {arg} set to {TRUE}.",
+            arg = arg(APPENDABLE),
         );
-        Self::new_bool_param("appendable", d)
+        Self::new_bool_param(APPENDABLE, d)
     }
 
     fn new_append_param() -> Self {
+        const APPEND: &str = "append";
         let d = format!(
             "If {TRUE}, append this dataset to the end of the file if it exists \
              and already has at least one dataset in it. This assumes that the \
-             previous dataset was written with ``appendable`` set to {TRUE} so \
-             that *$NEXTDATA* is properly set."
+             previous dataset was written with {arg} set to {TRUE} so \
+             that {NEXTDATA} is properly set.",
+            arg = arg(APPEND)
         );
-        Self::new_bool_param("append", d)
+        Self::new_bool_param(APPEND, d)
     }
 
     fn new_paired_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
-        Self::new_param("measurements", PyTuple::new_meas(version), meas_desc)
+        Self::new_param(MEASUREMENTS, PyTuple::new_meas(version), meas_desc)
     }
 
     fn new_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
         let pt = PyList::new1(PyUnion::new_measurement(version));
-        Self::new_param("measurements", pt, meas_desc)
+        Self::new_param(MEASUREMENTS, pt, meas_desc)
     }
 
     fn new_set_meas_param(version: Version) -> Self {
         let d = "The new measurements. The first member of the tuple corresponds to \
                  the measurement name and the second is the measurement object.";
-        Self::new_param("measurements", PyTuple::new_meas(version), d)
+        Self::new_param(MEASUREMENTS, PyTuple::new_meas(version), d)
     }
 
     fn new_allow_shared_names_param() -> Self {
         let exc = PyreflowError::Relational.fmt_ref();
         let d = format!(
             "If {FALSE}, raise {exc} if any non-measurement keywords reference \
-             any *$PnN* keywords. If {TRUE} raise {exc} if any non-measurement \
-             keywords reference a *$PnN* which is not present in ``measurements``. \
+             any {PNN} keywords. If {TRUE} raise {exc} if any non-measurement \
+             keywords reference a {PNN} which is not present in {measurements}. \
              In other words, {FALSE} forbids named references to exist, and \
              {TRUE} allows named references to be updated. References cannot \
-             be broken in either case."
+             be broken in either case.",
+            measurements = arg(MEASUREMENTS)
         );
         Self::new_bool_param("allow_shared_names", d)
     }
@@ -7845,7 +7938,8 @@ impl DocArgParam {
              have an index reference to the current measurements. If \
              {TRUE} allow such references to exist as long as they do \
              not break (which really means that the length of \
-             ``measurements`` is such that existing indices are satisfied)."
+             {measurements} is such that existing indices are satisfied).",
+            measurements = arg(MEASUREMENTS)
         );
         Self::new_bool_param("skip_index_check", desc)
     }
@@ -7860,12 +7954,12 @@ impl DocArgParam {
     }
 
     fn new_name_param(short_desc: &str) -> Self {
-        let desc = format!("{short_desc} Corresponds to *$PnN*.");
+        let desc = format!("{short_desc} Corresponds to {PNN}.");
         Self::new_param("name", PyStr::new_shortname(), desc)
     }
 
     fn new_range_param() -> Self {
-        let desc = "Range of measurement. Corresponds to *$PnR*.";
+        let desc = format!("Range of measurement. Corresponds to {PNR}.");
         Self::new_param("range", PyDecimal::new_range(), desc)
     }
 
@@ -8098,7 +8192,7 @@ impl DocArgParam {
 
     fn new_dedup_meas_names_param() -> Self {
         let d = format!(
-            "If {TRUE}, force all *$PnN* to be unique by appending \
+            "If {TRUE}, force all {PNN} to be unique by appending \
              ``\"{DEDUP_PNN_SEP}X\"`` to each duplicate and incrementing \
              ``X`` starting at 0."
         );
@@ -8119,7 +8213,7 @@ impl DocArgParam {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
         let pytype = PyStr::new_regexp().rstype(path);
         let d = format!(
-            "A pattern to match the *$PnN* of the time measurement. \
+            "A pattern to match the {PNN} of the time measurement. \
              If {none}, do not try to find a time measurement.",
             none = code_str(TIME_MEAS_NAME_PATTERN_NONE),
         );
@@ -8136,9 +8230,11 @@ impl DocArgParam {
     fn new_force_linear_scale_param() -> Self {
         let path = config_path("ForceLinearScale");
         let pt = PyLiteral::new2(["none", "time_only", "all"], path);
-        let d = "Force *$PnE* to be linear. Use ``\"time_only\"`` to only \
-                 change the temporal measurement, ``\"all\"`` to change all \
-                 measurements, and ``\"none\"`` to change no measurements.";
+        let d = format!(
+            "Force {PNE} to be linear. Use ``\"time_only\"`` to only \
+             change the temporal measurement, ``\"all\"`` to change all \
+             measurements, and ``\"none\"`` to change no measurements."
+        );
         Self::new_param("force_linear_scale", pt, d).def_auto()
     }
 
@@ -8148,13 +8244,15 @@ impl DocArgParam {
             Some(parse_quote!(TemporalOpticalKeys)),
             None,
         );
-        let d = "Ignore optical keys in temporal measurement. These keys are \
-                 *$PnG* which is explicitly forbidden by the standard but \
-                 allowed in this library to be set to ``\"1.0\"`` (noop), or \
-                 others which are nonsensical for time measurements but are not \
-                 explicitly forbidden in the the standard (such as *$PnL*). \
-                 Provided keys are the string after the \"Pn\" in the \"PnX\" \
-                 keywords.";
+        let d = format!(
+            "Ignore optical keys in temporal measurement. These keys are \
+             {PNG} which is explicitly forbidden by the standard but \
+             allowed in this library to be set to ``\"1.0\"`` (noop), or \
+             others which are nonsensical for time measurements but are not \
+             explicitly forbidden in the the standard (such as *$PnL*). \
+             Provided keys are the string after the \"Pn\" in the \"PnX\" \
+             keywords."
+        );
         Self::new_param("ignore_time_optical_keys", p, d).def_auto()
     }
 
@@ -8174,7 +8272,7 @@ impl DocArgParam {
     fn new_spillover_meas_mode_param() -> Self {
         let d = "Choose how to interpret measurement strings in *$SPILLOVER*. \
                  Set to ``\"named\"`` to interpret as names which link to \
-                 *$PnN*. Set to ``\"indexed\"`` to interpret as 1-indices which \
+                 {PNN}. Set to ``\"indexed\"`` to interpret as 1-indices which \
                  point to measurements. Set to ``\"guess\"`` to automatically \
                  choose the prior two modes.";
         let choices = ["named", "indexed", "guess"];
@@ -8199,26 +8297,30 @@ impl DocArgParam {
 
     fn new_datetime_pattern_param() -> Self {
         let pytype = PyStr::default();
-        let d = "If supplied, will be used as an alternative pattern when parsing \
-                 *$BEGINDATETIME* and *ENDDATETIME*. The pattern must follow the \
-                 format outlined in {CHRONO_REF}. If not supplied, these will \
-                 be parsed as ISO timestamps with optional timezone.";
+        let d = format!(
+            "If supplied, will be used as an alternative pattern when parsing \
+             *$BEGINDATETIME* and *ENDDATETIME*. The pattern must follow the \
+             format outlined in {CHRONO_REF}. If not supplied, these will \
+             be parsed as ISO timestamps with optional timezone."
+        );
         Self::new_opt_param("datetime_pattern", pytype, d)
     }
 
     fn new_last_modified_pattern_param() -> Self {
         let pytype = PyStr::default();
-        let d = "If supplied, will be used as an alternative pattern when parsing \
-                 *$LAST_MODIFIED*. The pattern must follow the format outlined in \
-                 {CHRONO_REF}. If not supplied, these will be parsed according to \
-                 the default pattern which is  ``\"%d-%b-%Y %H:%M:%S\"`` possibly \
-                 with centiseconds after.";
+        let d = format!(
+            "If supplied, will be used as an alternative pattern when parsing \
+             *$LAST_MODIFIED*. The pattern must follow the format outlined in \
+             {CHRONO_REF}. If not supplied, these will be parsed according to \
+             the default pattern which is  ``\"%d-%b-%Y %H:%M:%S\"`` possibly \
+             with centiseconds after."
+        );
         Self::new_opt_param("last_modified_pattern", pytype, d)
     }
 
     fn new_allow_other_feature_param() -> Self {
         let d = format!(
-            "If {TRUE}, allow *$PnFEATURE* to be a value other than {area}, {width}, or {height}.",
+            "If {TRUE}, allow {PNFEATURE} to be a value other than {area}, {width}, or {height}.",
             area = code_str("Area"),
             width = code_str("Width"),
             height = code_str("Height"),
@@ -8279,7 +8381,7 @@ impl DocArgParam {
     }
 
     fn new_process_hyper_par_param() -> Self {
-        let d = "Process measurement keywords whose index is greater than *$PAR*.";
+        let d = format!("Process measurement keywords whose index is greater than {PAR}.");
         Self::new_proc_kw_fail("process_hyper_par", "ProcessHyperPar", d)
     }
 
@@ -8289,8 +8391,10 @@ impl DocArgParam {
     }
 
     fn new_process_extra_timestep_param() -> Self {
-        let d = "Process *$TIMESTEP* to be present which may indicate \
-                 a time measurement is present but not identified.";
+        let d = format!(
+            "Process {TIMESTEP} to be present which may indicate \
+             a time measurement is present but not identified."
+        );
         Self::new_proc_kw_fail("process_extra_timestep", "ProcessExtraTimestep", d)
     }
 
@@ -8302,12 +8406,12 @@ impl DocArgParam {
     fn new_disallow_deprecated_param() -> Self {
         let d = "Choose how to handle deprecated key if encountered.";
         let e = PyreflowError::FCSDeprecated;
-        Self::new_tri_flag_param("disallow_deprecated", false, "DisallowDeprecated", d, e)
+        Self::new_tri_flag_param(DISALLOW_DEPRECATED, false, "DisallowDeprecated", d, e)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
         let d = format!(
-            "If {TRUE} fix log-scale *PnE* and keywords which have zero offset \
+            "If {TRUE} fix log-scale {PNE} and keywords which have zero offset \
              (ie ``X,0.0`` where ``X`` is non-zero)."
         );
         Self::new_bool_param("fix_log_scale_offsets", d)
@@ -8345,8 +8449,8 @@ impl DocArgParam {
 
     fn new_integer_widths_from_byteord_param() -> Self {
         let d = format!(
-            "If {TRUE} set all *$PnB* to the number of bytes from *$BYTEORD*. \
-             Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``."
+            "If {TRUE} set all {PNB} to the number of bytes from {BYTEORD}. \
+             Only has an effect for FCS 2.0/3.0 where {DATATYPE} is ``I``."
         );
         Self::new_bool_param("integer_widths_from_byteord", d)
     }
@@ -8360,14 +8464,16 @@ impl DocArgParam {
         Self::new_opt_param(
             "integer_byteord_override",
             PyList::new(RsInt::U32, Some(path), Some(exc.into())),
-            "Override *$BYTEORD* for integer layouts.",
+            format!("Override {BYTEORD} for integer layouts."),
         )
     }
 
     fn new_disallow_range_truncation_param() -> Self {
         let n = "disallow_range_truncation";
-        let d = "Choose how to handle *$PnR* values that need to be truncated \
-                 to match the number of bytes specified by *$PnB* and *$DATATYPE*.";
+        let d = format!(
+            "Choose how to handle {PNR} values that need to be truncated \
+             to match the number of bytes specified by {PNB} and {DATATYPE}."
+        );
         let e = PyreflowError::Relational;
         Self::new_tri_flag_param(n, false, "DisallowRangeTrunc", d, e)
     }
@@ -8404,7 +8510,8 @@ impl DocArgParam {
                 "Corrections for {OTHER} offsets if they exist. Each correction will \
                  be applied in order. If an offset does not need to be corrected, \
                  use ``(0, 0)``. This will not affect the number of {OTHER} segments \
-                 that are read; this is controlled by ``max_other``."
+                 that are read; this is controlled by {max_other}.",
+                max_other = arg(MAX_OTHER),
             ),
         )
         .def_auto()
@@ -8415,7 +8522,7 @@ impl DocArgParam {
             "Maximum number of {OTHER} segments that can be parsed. \
              {NONE} means limitless."
         );
-        Self::new_opt_param("max_other", RsInt::Usize, desc)
+        Self::new_opt_param(MAX_OTHER, RsInt::Usize, desc)
     }
 
     fn new_other_width_param() -> Self {
@@ -8509,7 +8616,7 @@ impl DocArgParam {
     }
 
     fn new_nextdata_correction() -> Self {
-        let d = "Correction for *$NEXTDATA*.";
+        let d = format!("Correction for {NEXTDATA}.");
         Self::new_param("nextdata_correction", PyInt::new_int(RsInt::I32), d).def_auto()
     }
 
@@ -8642,9 +8749,11 @@ impl DocArgParam {
 
     fn new_allow_missing_nextdata() -> Self {
         let n = "allow_missing_nextdata";
-        let d = "Choose how to handle missing *$NEXTDATA*. This is a required \
-                 keyword in all versions. However, most files only have one dataset \
-                 in which case this keyword is meaningless.";
+        let d = format!(
+            "Choose how to handle missing {NEXTDATA}. This is a required \
+             keyword in all versions. However, most files only have one dataset \
+             in which case this keyword is meaningless."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingNextdata", d, e)
     }
@@ -8788,7 +8897,7 @@ impl DocArgParam {
         let d = format!(
             "Allow {HEADER} and {TEXT} offsets to be different. If \
              'header_warn' or 'header_silent', choose {HEADER} and throw \
-             a warning or nothing on mismatch. If 'text_warn' or 'text_silent` \
+             a warning or nothing on mismatch. If 'text_warn' or 'text_silent' \
              behave analogously for {TEXT}. If 'error' throw {exc}"
         );
         let choices = [
@@ -8830,7 +8939,7 @@ impl DocArgParam {
 
     fn new_allow_tot_mismatch_param() -> Self {
         let d = format!(
-            "Choose what happens when *$TOT* does not match number of events as \
+            "Choose what happens when {TOT} does not match number of events as \
              computed by the event width and length of {DATA}. \
              Does not apply to delimited ASCII layouts."
         );
@@ -8840,17 +8949,18 @@ impl DocArgParam {
 
     fn new_truncate_event_values() -> Self {
         let path = config_path("TruncateEventValues");
-        let d = "Control which measurements will be truncated via *$PnR*";
+        let d = format!("Control which measurements will be truncated via {PNR}");
         let pt = PyLiteral::new2(["int_only", "all", "none"], path);
-        Self::new_param("truncate_event_values", pt, d).def_auto()
+        Self::new_param(TRUNCATE_EVENT_VALUES, pt, d).def_auto()
     }
 
     fn new_disallow_over_range() -> Self {
         let n = "disallow_over_range";
         let d = format!(
-            "Choose how to handle event values in {DATA} which exceed *$PnR*. \
+            "Choose how to handle event values in {DATA} which exceed {PNR}. \
              This only has an effect if the column is not truncated \
-             according to ``truncate_event_values``."
+             according to {truncate_event_values}.",
+            truncate_event_values = arg(TRUNCATE_EVENT_VALUES)
         );
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
@@ -9630,7 +9740,7 @@ fn pytemporal(version: Version) -> Ident {
 }
 
 fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
-    let d = format!("The value of {datatype}.", datatype = fcs_kw("$DATATYPE"));
+    let d = format!("The value of {DATATYPE}.");
     let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
         .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
     doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
@@ -9639,39 +9749,13 @@ fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
 fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
     let s0 = format!("Will always return {}.", code(nbytes));
     let s1 = format!(
-        "This corresponds to the value of {pnb} divided by 8, which are \
+        "This corresponds to the value of {PNB} divided by 8, which are \
          all equal for this layout.",
-        pnb = fcs_kw("$PnB")
     );
     let doc = DocString::new_ivar("The width of each measurement in bytes.", RsInt::Usize)
         .paras([s0, s1]);
 
     doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
-}
-
-/// Italic RST format
-fn italic(s: impl fmt::Display) -> String {
-    format!("*{s}*")
-}
-
-/// Format for FCS keywords
-fn fcs_kw(s: impl fmt::Display) -> String {
-    italic(s)
-}
-
-/// Format for python code and FCS literals
-fn code(s: impl fmt::Display) -> String {
-    format!("``{s}``")
-}
-
-/// Format for python arguments
-fn arg(s: impl fmt::Display) -> String {
-    code(s)
-}
-
-/// Format for literal python strings (to avoid annoying quotes)
-fn code_str(s: impl fmt::Display) -> String {
-    code(format!("\"{s}\""))
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
@@ -9735,27 +9819,85 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_2,
 ];
 
-const HEADER: &str = "*HEADER*";
-
-const TEXT: &str = "*TEXT*";
-
-const DATA: &str = "*DATA*";
-
-const ANALYSIS: &str = "*ANALYSIS*";
-
-const OTHER: &str = "*OTHER*";
-
-const TRUE: &str = "``True``";
-
-const FALSE: &str = "``False``";
-
-const NONE: &str = "``None``";
-
-const UNIT: &str = "``()``";
-
 const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
+
+// formatted links used in many places
 
 const CHRONO_REF: &str =
     "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
 
 const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__";
+
+// formatted python constants used all over the place
+
+const TRUE: &str = code!("True");
+
+const FALSE: &str = code!("False");
+
+const NONE: &str = code!("None");
+
+const UNIT: &str = code!("()");
+
+const NAN: &str = code!("NaN");
+
+const INF: &str = code!("inf");
+
+const NEG_INF: &str = code!("-inf");
+
+const DOLLAR_STR: &str = code_str!("$");
+
+// argument names that are referenced in doc strings
+
+const BIG_OTHER: &str = "big_other";
+
+const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
+
+const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
+
+const MEASUREMENTS: &str = "measurements";
+
+const MAX_OTHER: &str = "max_other";
+
+const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
+
+// formatted segment names
+
+const HEADER: &str = fcs_seg!("HEADER");
+
+const TEXT: &str = fcs_seg!("TEXT");
+
+const DATA: &str = fcs_seg!("DATA");
+
+const ANALYSIS: &str = fcs_seg!("ANALYSIS");
+
+const OTHER: &str = fcs_seg!("OTHER");
+
+// formatted keywords
+
+const NEXTDATA: &str = fcs_kw!("$NEXTDATA");
+
+const DATATYPE: &str = fcs_kw!("$DATATYPE");
+
+const BYTEORD: &str = fcs_kw!("$BYTEORD");
+
+const TOT: &str = fcs_kw!("$TOT");
+
+const TIMESTEP: &str = fcs_kw!("$TIMESTEP");
+
+const PAR: &str = fcs_kw!("$PAR");
+
+const PNR: &str = fcs_kw!("$PnR");
+
+const PNB: &str = fcs_kw!("$PnB");
+
+const PNN: &str = fcs_kw!("$PnN");
+
+const PNE: &str = fcs_kw!("$PnE");
+
+const PNG: &str = fcs_kw!("$PnG");
+
+const PNCALIBRATION: &str = fcs_kw!("$PnCALIBRATION");
+
+const PNDATATYPE: &str = fcs_kw!("$PnDATATYPE");
+
+const PNFEATURE: &str = fcs_kw!("$PnFEATURE");

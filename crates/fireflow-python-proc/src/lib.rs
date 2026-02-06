@@ -1,5 +1,10 @@
 extern crate proc_macro;
 
+use fireflow_types::{
+    DEDUP_PNN_SEP, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
+    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
+};
+
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -7,6 +12,7 @@ use nonempty::NonEmpty;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::Hash;
@@ -7963,9 +7969,11 @@ impl DocArgParam {
     }
 
     fn new_dedup_meas_names_param() -> Self {
-        let d = "If ``True``, force all *$PnN* to be unique by appending \
-                 ``\"~X\"`` to each duplicate and incrementing ``X`` starting \
-                 at 0.";
+        let d = format!(
+            "If ``True``, force all *$PnN* to be unique by appending \
+             ``\"{DEDUP_PNN_SEP}X\"`` to each duplicate and incrementing \
+             ``X`` starting at 0."
+        );
         Self::new_bool_param("dedup_measurement_names", d)
     }
 
@@ -7978,10 +7986,13 @@ impl DocArgParam {
     fn new_time_meas_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
         let pytype = PyStr::new_regexp().rstype(path);
-        // TODO split off the constants into another crate so they can be used here
-        let d = "A pattern to match the *$PnN* of the time measurement. \
-                 If ``\"NoTime\"``, do not try to find a time measurement.";
-        Self::new_param("time_meas_pattern", pytype, d).def(DocDefault::Str("^(TIME|Time)$".into()))
+        let d = format!(
+            "A pattern to match the *$PnN* of the time measurement. \
+             If ``\"{TIME_MEAS_NAME_PATTERN_NONE}\"``, do not try to find a \
+             time measurement."
+        );
+        Self::new_param("time_meas_pattern", pytype, d)
+            .def(DocDefault::Str(TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
     }
 
     fn new_allow_missing_time_param() -> Self {
@@ -8174,20 +8185,21 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = config_path("NonStdMeasPatternOpt");
-        let exc = PyException::new_config().desc("if %x does not have ``\"%n\"``");
+        let ed = format!("if %x does not have ``\"{NON_STD_MEAS_INDEX_PAT}\"``");
+        let exc = PyException::new_config().desc(ed);
         // TODO this is really weird, why is path specified twice?
         let pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
             .default_from_inner()
             .rstype(path);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
-             be a regular expression pattern with ``%n`` which will \
-             represent the measurement index and should not start with *$*. \
-             Otherwise should be a normal regular expression as defined in \
+             be a regular expression pattern with ``\"{NON_STD_MEAS_INDEX_PAT}\"`` \
+             which will represent the measurement index and should not start with \
+             *$*. Otherwise should be a normal regular expression as defined in \
              {REGEXP_REF}."
         );
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
-            .def(DocDefault::Str("^P%n".into()))
+            .def(DocDefault::Str(NON_STD_MEAS_PAT_DEFAULT.into()))
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {

@@ -1,0 +1,13 @@
+[package]
+name = "fireflow-types"
+version = { workspace = true }
+edition = { workspace = true }
+description = """
+Simple types and constants used throughout other fireflow crates.
+"""
+
+[dependencies]
+const_format = { workspace = true }
+
+[lints]
+workspace = true

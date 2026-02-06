@@ -1,5 +1,7 @@
 use crate::text::index::MeasIndex;
 
+use fireflow_types::DEDUP_PNN_SEP;
+
 use derive_more::{AsRef, Display, Into};
 use std::str::FromStr;
 use thiserror::Error;
@@ -30,7 +32,7 @@ impl Shortname {
     }
 
     pub(crate) fn increment(&self, i: usize) -> Self {
-        Self(format!("{}~{i}", self.0))
+        Self(format!("{}{DEDUP_PNN_SEP}{i}", self.0))
     }
 }
 

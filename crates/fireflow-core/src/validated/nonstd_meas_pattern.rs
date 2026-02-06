@@ -1,6 +1,8 @@
 use crate::text::index::IndexFromOne;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
+use fireflow_types::{NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT};
+
 use derive_more::{AsRef, Display};
 use derive_new::new;
 use regex::Regex;
@@ -24,7 +26,7 @@ impl Default for NonStdMeasPattern {
     fn default() -> Self {
         // ASSUME this wouldn't have caused an error if parsed directly from
         // a string
-        Self("^P%n".into())
+        Self(NON_STD_MEAS_PAT_DEFAULT.into())
     }
 }
 
@@ -39,7 +41,7 @@ impl FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
     fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
-        if s.match_indices("%n").count() == 1 {
+        if s.match_indices(NON_STD_MEAS_INDEX_PAT).count() == 1 {
             Ok(Self(s.into()))
         } else {
             Err(NonStdMeasPatternError(s.into()))
@@ -53,7 +55,10 @@ impl NonStdMeasPattern {
         n: impl Into<IndexFromOne> + Clone,
     ) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         self.0
-            .replace("%n", n.clone().into().to_string().as_str())
+            .replace(
+                NON_STD_MEAS_INDEX_PAT,
+                n.clone().into().to_string().as_str(),
+            )
             .as_str()
             .parse::<CaseInsRegex>()
             .map_err(|error| NonStdMeasRegexError::new(error, n))
@@ -63,7 +68,10 @@ impl NonStdMeasPattern {
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
 #[derive(Error, Debug)]
-#[error("non standard measurement pattern should have one '%n', found '{0}'")]
+#[error(
+    "non standard measurement pattern should have one \
+     '{NON_STD_MEAS_INDEX_PAT}', found '{0}'"
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct NonStdMeasPatternError(String);

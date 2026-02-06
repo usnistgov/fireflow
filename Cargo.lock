@@ -450,6 +450,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "const_format"
+version = "0.2.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7faa7469a93a566e9ccc1c73fe783b4a65c274c5ace346038dca9c39fe0030ad"
+dependencies = [
+ "const_format_proc_macros",
+]
+
+[[package]]
+name = "const_format_proc_macros"
+version = "0.2.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d57c2eccfb16dbac1f4e61e206105db5820c9d26c3c472bc17c774259ef7744"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-xid",
+]
+
+[[package]]
 name = "constant_time_eq"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -730,6 +750,7 @@ dependencies = [
  "ansi_term",
  "clap",
  "fireflow-core",
+ "fireflow-types",
  "itertools 0.14.0",
  "regex",
  "serde",
@@ -746,6 +767,7 @@ dependencies = [
  "derive-new",
  "derive_more",
  "fireflow-core-proc",
+ "fireflow-types",
  "itertools 0.14.0",
  "nalgebra",
  "nonempty",
@@ -793,11 +815,19 @@ version = "0.1.0"
 dependencies = [
  "derive-new",
  "derive_more",
+ "fireflow-types",
  "itertools 0.14.0",
  "nonempty",
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "fireflow-types"
+version = "0.1.0"
+dependencies = [
+ "const_format",
 ]
 
 [[package]]

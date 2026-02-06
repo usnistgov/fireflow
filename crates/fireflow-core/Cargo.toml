@@ -19,6 +19,7 @@ num-derive = { workspace = true }
 bigdecimal = { workspace = true }
 ambassador = { workspace = true }
 unicase = { workspace = true }
+fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }

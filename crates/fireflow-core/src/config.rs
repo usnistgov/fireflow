@@ -30,6 +30,8 @@ use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
+use fireflow_types::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
+
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
 use regex::{self, Regex};
@@ -1504,14 +1506,12 @@ impl AppendFlag {
 #[derive(Clone)]
 pub struct TimeMeasNamePattern(pub Option<Regex>);
 
-const DEFAULT_TIME_PATTERN: &str = "NoTime";
-
 impl fmt::Display for TimeMeasNamePattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         if let Some(s) = self.0.as_ref() {
             write!(f, "{s}")
         } else {
-            f.write_str(DEFAULT_TIME_PATTERN)
+            f.write_str(TIME_MEAS_NAME_PATTERN_NONE)
         }
     }
 }
@@ -1520,7 +1520,7 @@ impl FromStr for TimeMeasNamePattern {
     type Err = regex::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == DEFAULT_TIME_PATTERN {
+        if s == TIME_MEAS_NAME_PATTERN_NONE {
             return Ok(Self(None));
         }
         s.parse::<Regex>().map(Some).map(Self)
@@ -1529,7 +1529,7 @@ impl FromStr for TimeMeasNamePattern {
 
 impl Default for TimeMeasNamePattern {
     fn default() -> Self {
-        Self(Some(Regex::new("^(TIME|Time)$").unwrap()))
+        Self(Some(Regex::new(TIME_MEAS_NAME_PATTERN_DEFAULT).unwrap()))
     }
 }
 

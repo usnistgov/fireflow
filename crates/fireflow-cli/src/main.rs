@@ -1,4 +1,3 @@
-use clap::builder::ValueParser;
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
@@ -27,18 +26,23 @@ use fireflow_core::validated::keystring_pairs::KeyStringPairs;
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
-use regex::Regex;
+use fireflow_types::{
+    DEDUP_PNN_SEP, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
+    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
+};
 
 use ansi_term::{ANSIString, Style};
 use clap::{
     Arg, ArgAction, ArgMatches, Command,
-    builder::{IntoResettable, StyledStr},
+    builder::{IntoResettable, StyledStr, ValueParser},
     error::ErrorKind,
     value_parser,
 };
 use itertools::Itertools as _;
+use regex::Regex;
 use serde::ser::Serialize;
 use serde_json::json;
+
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
@@ -506,8 +510,11 @@ fn run() -> AppResult<()> {
 
     let dedup_meas_names = flag_arg(
         DEDUP_MEAS_NAMES,
-        "Force all $PnN to be unique by appending '~X' to each duplicate \
-         and appending 'X' (starting at 0)",
+        format!(
+            "Force all {} to be unique by appending '{DEDUP_PNN_SEP}X' to each \
+             duplicate and appending 'X' (starting at 0)",
+            fmt_arg("$PnN"),
+        ),
     );
 
     let trim_intra_value_whitespace = flag_arg(
@@ -518,10 +525,11 @@ fn run() -> AppResult<()> {
     let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
         .long(TIME_MEAS_PATTERN)
         .value_name("REGEXP")
-        .help(
+        .help(format!(
             "Use REGEXP when matching time measurement (defaults to \
-             '^Time|TIME$', pass 'NoTime' to not look for a time channel).",
-        )
+             '{TIME_MEAS_NAME_PATTERN_DEFAULT}', pass \
+             '{TIME_MEAS_NAME_PATTERN_NONE}' to not look for a time channel)."
+        ))
         .value_parser(value_parser!(TimeMeasNamePattern));
 
     let allow_missing_time = tri_flag_arg::<AllowMissingTime>(
@@ -684,10 +692,12 @@ fn run() -> AppResult<()> {
         .long(NS_MEAS_PATTERN)
         .value_name("REGEXP")
         .value_parser(value_parser!(NonStdMeasPattern))
-        .help(
+        .help(format!(
             "Pattern to use when matching non-standard measurement keywords. \
-             It must include '%n' which will be replaced with measurement index.",
-        );
+             It must include '{NON_STD_MEAS_INDEX_PAT}' which will be \
+             replaced with measurement index. Defaults to \
+             '{NON_STD_MEAS_PAT_DEFAULT}'.",
+        ));
 
     let all_std_args = [
         dedup_meas_names,

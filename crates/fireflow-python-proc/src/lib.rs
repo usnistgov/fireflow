@@ -4529,7 +4529,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let dt_f64 = code("D");
 
     let desc = format!(
-        "if field 2 of %x is less than {min} or greater than {max} \
+        "if field 2 of {ARG_TOKEN} is less than {min} or greater than {max} \
          when field 1 is {dt_ascii} or {dt_int}",
         min = code("0"),
         max = code("2**64-1"),
@@ -6211,7 +6211,8 @@ impl<E: From<PyException>> PyInt<E> {
 
     fn new_other_width() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let e = PyException::new_config().desc("if %x is less than ``8`` and greater than ``20``");
+        let d = format!("if {ARG_TOKEN} is less than ``8`` and greater than ``20``");
+        let e = PyException::new_config().desc(d);
         Self::new_int(RsInt::NonZeroU8).rstype(path).exc(e)
     }
 
@@ -6261,16 +6262,17 @@ impl<E> PyFloat<E> {
 
 impl<E: From<PyException>> PyFloat<E> {
     fn new_non_negative_float() -> Self {
-        let e = PyException::new_invalid_keyword()
-            .desc(format!("if %x is negative, {NAN}, {INF}, or {NEG_INF}"));
+        let d = format!("if {ARG_TOKEN} is negative, {NAN}, {INF}, or {NEG_INF}");
+        let e = PyException::new_invalid_keyword().desc(d);
         Self::from(RsFloat::F32).exc(e)
     }
 
     fn new_positive_float() -> Self {
-        let e = PyException::new_invalid_keyword().desc(format!(
-            "if %x is negative, {zero}, {NAN}, {INF}, or {NEG_INF}",
+        let d = format!(
+            "if {ARG_TOKEN} is negative, {zero}, {NAN}, {INF}, or {NEG_INF}",
             zero = code("0.0")
-        ));
+        );
+        let e = PyException::new_invalid_keyword().desc(d);
         Self::from(RsFloat::F32).exc(e)
     }
 
@@ -6282,7 +6284,7 @@ impl<E: From<PyException>> PyFloat<E> {
             _ => panic!("invalid number of float bytes: {nbytes}"),
         };
         let msg = format!(
-            "if %x is {NAN}, {INF}, {NEG_INF}, \
+            "if {ARG_TOKEN} is {NAN}, {INF}, {NEG_INF}, \
              or outside the bounds of a {}-bit float",
             nbytes * 8,
         );
@@ -6307,50 +6309,63 @@ impl<E> PyStr<E> {
 impl<E: From<PyException>> PyStr<E> {
     fn new_shortname() -> Self {
         let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        let d = format!("if %x is {blank} or contains commas", blank = code_str(""));
+        let d = format!(
+            "if {ARG_TOKEN} is {blank} or contains commas",
+            blank = code_str("")
+        );
         let e = PyException::new_parse_keyval().desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey)
-            .desc("if %x contains non-ASCII characters or is empty");
+        let d = format!("if {ARG_TOKEN} contains non-ASCII characters or is empty");
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let d =
-            format!("if %x is empty, does not start with {DOLLAR_STR}, or is only a {DOLLAR_STR}");
+        let d = format!(
+            "if {ARG_TOKEN} is empty, does not start with {DOLLAR_STR}, \
+             or is only a {DOLLAR_STR}"
+        );
         let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_nonstd_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let d = format!("if %x is empty or starts with {DOLLAR_STR}");
+        let d = format!("if {ARG_TOKEN} is empty or starts with {DOLLAR_STR}");
         let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_regexp() -> Self {
-        let desc = format!("if %x is not a valid regular expression as described in {REGEXP_REF}");
+        let desc = format!(
+            "if {ARG_TOKEN} is not a valid regular expression \
+             as described in {REGEXP_REF}"
+        );
         let exc = PyException::new_config().desc(desc);
         Self::default().exc(exc)
     }
 
     fn new_meas_or_gate_index() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::MeasOrGateIndex);
-        let e = PyException::new_pyreflow(PyreflowError::ParseKeywordValue).desc(
-            "if %x is not like ``P<X>`` or ``G<X>`` \
-             where ``X`` is an integer one or greater",
+        let d = format!(
+            "if {ARG_TOKEN} is not like {px} or {gx} \
+             where {x} is an integer one or greater",
+            px = code("P<X>"),
+            gx = code("P<X>"),
+            x = code("X"),
         );
+        let e = PyException::new_pyreflow(PyreflowError::ParseKeywordValue).desc(d);
         Self::default().rstype(path).exc(e)
     }
 
     fn new_non_empty_str(path: Path) -> Self {
-        let e = PyException::new_invalid_keyword().desc("if %x is empty");
+        let d = format!("if {ARG_TOKEN} is empty");
+        let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
     }
 
@@ -6461,7 +6476,8 @@ impl<E> PyList<E> {
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
         let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
-        let e = PyException::new_invalid_keyword().desc("if %x is empty");
+        let d = format!("if {ARG_TOKEN} is empty");
+        let e = PyException::new_invalid_keyword().desc(d);
         Self::new(
             inner,
             Some(parse_quote!(#nonempty<#inner_path>)),
@@ -6645,8 +6661,10 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_sub_pattern() -> Self {
-        let desc = "if references in replacement string in %x \
-                    do not match captures in regular expression";
+        let desc = format!(
+            "if references in replacement string in {ARG_TOKEN} \
+             do not match captures in regular expression"
+        );
         let exc = PyException::new_config().desc(desc);
         Self::new1(PyStr::new_regexp())
             .add(PyStr::default())
@@ -6669,7 +6687,7 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_display() -> Self {
         let desc = format!(
-            "if %x represents a log display (field 1 is {TRUE}) and \
+            "if {ARG_TOKEN} represents a log display (field 1 is {TRUE}) and \
              the two floats are not both positive"
         );
         let exc = PyException::new_value().desc(desc);
@@ -6688,9 +6706,12 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_segment(n: &str) -> Self {
         let t = format_ident!("{n}");
         let p = parse_quote!(fireflow_core::segment::#t);
-        let desc = "if %x has offsets which exceed the end of the file, \
-                    are inverted (begin after end), or are either negative \
-                    or greater than ``2**64-1``";
+        let desc = format!(
+            "if {ARG_TOKEN} has offsets which exceed the end of the file, \
+             are inverted (begin after end), or are either negative \
+             or greater than {max}",
+            max = code("2**64-1")
+        );
         let exc = PyException::new_value().desc(desc);
         // NOTE don't use ints with overflow exceptions since this is captured
         // in the overall exception for the entire type
@@ -6816,8 +6837,8 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_scale(is_gate: bool) -> Self {
         let name = if is_gate { "GateScale" } else { "Scale" };
-        let exc = PyException::new_invalid_keyword()
-            .desc("if %x has log scale floats which are not both positive");
+        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword().desc(d);
         Self::new2(
             PyTuple::default(),
             PyTuple::new2(vec![RsFloat::F32; 2]),
@@ -6828,18 +6849,21 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_transform() -> Self {
         let path = parse_quote! {fireflow_core::core::ScaleTransform};
-        let exc = PyException::new_invalid_keyword()
-            .desc("if %x has log scale floats which are not both positive");
+        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword().desc(d);
         // TODO the linear gain should also be positive
         Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
     }
 
     fn new_byteord(nbytes: usize) -> Self {
         let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
-        let exc = PyException::new_invalid_keyword().desc(format!(
-            "if %x is not \"little\", \"big\", or a list of \
-             all integers from 1 to {nbytes} in any order"
-        ));
+        let d = format!(
+            "if {ARG_TOKEN} is not {little}, {big}, or a list of \
+             all integers from 1 to {nbytes} in any order",
+            little = code_str("little"),
+            big = code_str("big"),
+        );
+        let exc = PyException::new_invalid_keyword().desc(d);
         let path = parse_quote!(#sizedbyteord_path<#nbytes>);
         Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32), path).exc(exc)
     }
@@ -7088,7 +7112,7 @@ impl RsInt {
 
     fn exc_desc(&self) -> String {
         format!(
-            "if %x is less than {} or greater than {}",
+            "if {ARG_TOKEN} is less than {} or greater than {}",
             code(self.lower()),
             code(self.upper())
         )
@@ -7369,12 +7393,13 @@ impl DocArgRWIvar {
 
     fn new_spillover_ivar() -> Self {
         let rstype: Path = parse_quote!(fireflow_core::text::spillover::Spillover);
-        let matrix_exc = PyException::new_invalid_keyword()
-            .desc("if %x is not a square matrix that is 2x2 or larger");
-        let spill_exc = PyException::new_invalid_keyword().desc(
-            "if matrix in %x does not have the same number of rows \
+        let ed = format!("if {ARG_TOKEN} is not a square matrix that is 2x2 or larger");
+        let matrix_exc = PyException::new_invalid_keyword().desc(ed);
+        let d = format!(
+            "if matrix in {ARG_TOKEN} does not have the same number of rows \
              and columns as the measurement vector",
         );
+        let spill_exc = PyException::new_invalid_keyword().desc(d);
         // TODO add exception for when $PnN don't match
         Self::new_opt_ivar_rw(
             "spillover",
@@ -7848,7 +7873,8 @@ impl DocArgParam {
 
     fn new_textdelim_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
-        let exc = PyException::new_config().desc("if %x is not between 1 and 126");
+        let d = format!("if {ARG_TOKEN} is not between 1 and 126");
+        let exc = PyException::new_config().desc(d);
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = format!("Delimiter to use when writing {TEXT}.");
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
@@ -7981,10 +8007,11 @@ impl DocArgParam {
              Types do not necessarily need to correspond to those in the \
              data layout but mismatches may result in truncation."
         );
-        let exc = PyException::new_pyreflow(PyreflowError::EventData).desc(
-            "If %x contains columns which are not \
-             unsigned 8/16/32/64-bit integers or 32/64-bit floats",
+        let d = format!(
+            "If {ARG_TOKEN} contains columns which are not \
+             unsigned 8/16/32/64-bit integers or 32/64-bit floats"
         );
+        let exc = PyException::new_pyreflow(PyreflowError::EventData).desc(d);
         let pt = PyClass::new_dataframe(polars_type).exc(exc);
         Self::new_param("data", pt, desc)
     }
@@ -8284,7 +8311,7 @@ impl DocArgParam {
     fn new_date_pattern_param() -> Self {
         let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
         let desc = format!(
-            "if %x does not have year, month, and day specifiers \
+            "if {ARG_TOKEN} does not have year, month, and day specifiers \
              as outlined in {CHRONO_REF}"
         );
         let exc = PyException::new_config().desc(desc);
@@ -8340,7 +8367,7 @@ impl DocArgParam {
 
         // format exception description
         let exc_desc = format!(
-            "if %x does not have specifiers for hours, minutes, \
+            "if {ARG_TOKEN} does not have specifiers for hours, minutes, \
              seconds, and optionally sub-seconds (where {sub3_0} and {sub3_1} \
              correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
              in {CHRONO_REF}"
@@ -8430,7 +8457,10 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = config_path("NonStdMeasPatternOpt");
-        let ed = format!("if %x does not have ``\"{NON_STD_MEAS_INDEX_PAT}\"``");
+        let ed = format!(
+            "if {ARG_TOKEN} does not have {pat}",
+            pat = code_str(NON_STD_MEAS_INDEX_PAT)
+        );
         let exc = PyException::new_config().desc(ed);
         // TODO this is really weird, why is path specified twice?
         let pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
@@ -8457,10 +8487,12 @@ impl DocArgParam {
 
     fn new_integer_byteord_override_param() -> Self {
         let path = keyword_path("ByteOrd2_0");
-        let exc = PyException::new_invalid_keyword().desc(
-            "if %x is not a list of integers including all from 1 to ``N`` \
-             where ``N`` is the length of the list (up to 8)",
+        let d = format!(
+            "if {ARG_TOKEN} is not a list of integers including all from 1 to {n} \
+             where {n} is the length of the list (up to 8)",
+            n = code("N"),
         );
+        let exc = PyException::new_invalid_keyword().desc(d);
         Self::new_opt_param(
             "integer_byteord_override",
             PyList::new(RsInt::U32, Some(path), Some(exc.into())),
@@ -9420,8 +9452,11 @@ impl fmt::Display for NamedPyException {
         let ns_ = fmt_comma_sep_list(&ns[..], "or");
         let n = self.inner.argmod.fmt(&ns_);
         if let Some(d) = self.inner.inner.desc.as_ref() {
-            assert!(d.contains("%x"), "does not contain name ref ('%x'): {d}");
-            let dd = d.replace("%x", &n);
+            assert!(
+                d.contains(ARG_TOKEN),
+                "does not contain name ref ('{ARG_TOKEN}'): {d}"
+            );
+            let dd = d.replace(ARG_TOKEN, &n);
             write!(f, ":raises {pn}: {dd}")
         } else {
             write!(f, ":raises {pn}:")
@@ -9820,6 +9855,9 @@ const ALL_VERSIONS: [Version; 4] = [
 ];
 
 const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
+
+/// String to replace with argument name in exceptions attached to arguments.
+const ARG_TOKEN: &str = "%x";
 
 // formatted links used in many places
 

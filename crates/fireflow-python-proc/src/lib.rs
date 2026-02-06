@@ -5,6 +5,7 @@ use fireflow_types::{
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
 };
 
+use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -36,9 +37,9 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
 
     let exc = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc("if *HEADER* segment is unparsable");
+        .desc(format!("if {HEADER} segment is unparsable"));
 
-    let doc = DocString::new_fun("Read the *HEADER* of an FCS file.")
+    let doc = DocString::new_fun(format!("Read the {HEADER} of an FCS file."))
         .arg(DocArg::new_path_param(true))
         .args(header_args)
         .args(offset_args)
@@ -89,24 +90,27 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         .collect();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc("If *HEADER* or *TEXT* are not parsable");
+        .desc(format!("If {HEADER} or {TEXT} are not parsable"));
     let xs = [exc0];
 
     let ret_pt = PyClass::new_py(["api"], "FlatTEXTOutput");
 
-    let one_doc = DocString::new_fun("Read *HEADER* and *TEXT* from first dataset in FCS file.")
-        .arg(path_arg.clone())
-        .args(conf_args.clone())
-        .arg(dataset_offset_arg)
-        .returns(DocReturn::new(ret_pt.clone()).exc(xs.clone()));
+    let one_doc = DocString::new_fun(format!(
+        "Read {HEADER} and {TEXT} from first dataset in FCS file."
+    ))
+    .arg(path_arg.clone())
+    .args(conf_args.clone())
+    .arg(dataset_offset_arg)
+    .returns(DocReturn::new(ret_pt.clone()).exc(xs.clone()));
 
-    let many_doc =
-        DocString::new_fun("Read *HEADER* and *TEXT* from multiple datasets in FCS file.")
-            .arg(path_arg)
-            .arg(skip_arg)
-            .arg(limit_arg)
-            .args(conf_args)
-            .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
+    let many_doc = DocString::new_fun(format!(
+        "Read {HEADER} and {TEXT} from multiple datasets in FCS file."
+    ))
+    .arg(path_arg)
+    .arg(skip_arg)
+    .arg(limit_arg)
+    .args(conf_args)
+    .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
     let one_ret_path = one_doc.ret_path();
@@ -168,15 +172,16 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         .chain(layout_args)
         .chain(shared_args);
 
-    let skip_arg = DocArg::new_skip_param(
-        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
-         datasets will still be read to obtain *$NEXTDATA* for the next \
+    let skip_arg = DocArg::new_skip_param(format!(
+        "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
+         datasets will still be read to obtain {nextdata} for the next \
          dataset in the file.",
-    );
+        nextdata = fcs_kw("$NEXTDATA")
+    ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc("If *HEADER* or *TEXT* are unparsable");
+        .desc(format!("If {HEADER} or {TEXT} are unparsable"));
     let exc1 = PyException::new_extra();
     let exc2 = PyException::new_deprecated();
     let exc3 = PyException::new_parse_keyval();
@@ -188,19 +193,22 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let pt_ret =
         PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
 
-    let one_doc = DocString::new_fun("Read standardized *TEXT* from first dataset in FCS file.")
-        .arg(path_arg.clone())
-        .args(conf_args.clone())
-        .arg(dataset_offset_arg)
-        .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
+    let one_doc = DocString::new_fun(format!(
+        "Read standardized {TEXT} from first dataset in FCS file."
+    ))
+    .arg(path_arg.clone())
+    .args(conf_args.clone())
+    .arg(dataset_offset_arg)
+    .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
-    let many_doc =
-        DocString::new_fun("Read standardized *TEXT* from multiple datasets in FCS file.")
-            .arg(path_arg)
-            .arg(skip_arg)
-            .arg(limit_arg)
-            .args(conf_args)
-            .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
+    let many_doc = DocString::new_fun(format!(
+        "Read standardized {TEXT} from multiple datasets in FCS file."
+    ))
+    .arg(path_arg)
+    .arg(skip_arg)
+    .arg(limit_arg)
+    .args(conf_args)
+    .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
 
     let one_fun_args = one_doc.fun_args();
     let one_ret_path = one_doc.ret_path();
@@ -257,11 +265,12 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
-    let skip_arg = DocArg::new_skip_param(
-        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
-         datasets will still be read to obtain *$NEXTDATA* for the next \
+    let skip_arg = DocArg::new_skip_param(format!(
+        "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
+         datasets will still be read to obtain {nextdata} for the next \
          dataset in the file.",
-    );
+        nextdata = fcs_kw("$NEXTDATA")
+    ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let conf_args = header_args
@@ -273,14 +282,15 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .chain(shared_args);
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
+        .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
     let exc1 = PyException::new_deprecated()
         .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
-        .desc("If keywords are incompatible with indicated layout of *DATA*");
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+        "If keywords are incompatible with indicated layout of {DATA}"
+    ));
     let exc4 = PyException::new_event_data();
 
     let xs = [exc0, exc1, exc2, exc3, exc4];
@@ -382,21 +392,22 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .chain(data_args)
         .chain(shared_args);
 
-    let skip_arg = DocArg::new_skip_param(
-        "Number of datasets to skip. The *HEADER* and *TEXT* from skipped \
-         datasets will still be read to obtain *$NEXTDATA* for the next \
+    let skip_arg = DocArg::new_skip_param(format!(
+        "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
+         datasets will still be read to obtain {nextdata} for the next \
          dataset in the file.",
-    );
+        nextdata = fcs_kw("$NEXTDATA")
+    ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc("If *HEADER*, *TEXT*, or *DATA* are unparsable");
+        .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
     let exc1 = PyException::new_deprecated();
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(
-        "If keywords are incompatible with indicated layout of *DATA* or \
-         if keywords that are referenced by other keywords do not exist",
-    );
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+        "If keywords are incompatible with indicated layout of {DATA} or \
+         if keywords that are referenced by other keywords do not exist"
+    ));
     let exc4 = PyException::new_event_data();
     let exc5 = PyException::new_extra();
 
@@ -472,14 +483,16 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
-    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout).desc("If *DATA* is unparsable");
+    let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
+        .desc(format!("If {DATA} is unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
     let exc1 = PyException::new_deprecated()
         .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
     let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
-        .desc("If keywords are incompatible with indicated layout of *DATA*");
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+        "If keywords are incompatible with indicated layout of {DATA}"
+    ));
     let exc4 = PyException::new_event_data();
 
     let xs = [exc0, exc1, exc2, exc3, exc4];
@@ -527,20 +540,20 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let segments = DocArgROIvar::new_ivar_ro(
         "segments",
         PyClass::new_py(["api"], "ParsedHeaderSegments"),
-        "The segments from *HEADER*.",
+        format!("The segments from {HEADER}."),
         |_, _| quote!(self.0.segments.clone().into()),
     );
 
     let uncorrected_segments = DocArgROIvar::new_ivar_ro(
         "uncorrected_segments",
         PyClass::new_py(["api"], "UncorrectedHeaderSegments"),
-        "The uncorrected segments from *HEADER*.",
+        format!("The uncorrected segments from {HEADER}."),
         |_, _| quote!(self.0.uncorrected_segments.clone().into()),
     );
 
     let args = [version, segments, uncorrected_segments];
 
-    let doc = DocString::new_class("The *HEADER* segment from an FCS dataset.").args(args);
+    let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -597,7 +610,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 
     let args = [text, data, analysis, other];
 
-    let doc = DocString::new_class("The segments from *HEADER*").args(args);
+    let doc = DocString::new_class(format!("The segments from {HEADER}.")).args(args);
 
     let new = |fun_args| {
         quote! {
@@ -621,6 +634,7 @@ pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
+    // TODO use enum for seg identity here
     let text = DocArg::new_uncorrected_seg_param("text_seg", "TEXT", UncorrSegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.text));
     let data = DocArg::new_uncorrected_seg_param("data_seg", "DATA", UncorrSegmentSrc::Header)
@@ -632,13 +646,13 @@ pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
     let other = DocArg::new_param(
         "other_segs",
         PyList::new1(PyTuple::new_uncorrected_segment()),
-        "The uncorrected *OTHER* segments from *HEADER*.",
+        format!("The uncorrected {OTHER} segments from {HEADER}."),
     )
     .into_ro(|_, _| quote!(self.0.other.clone()));
 
     let args = [text, data, analysis, other];
 
-    let doc = DocString::new_class("The uncorrected segments from *HEADER*").args(args);
+    let doc = DocString::new_class(format!("The uncorrected segments from {HEADER}")).args(args);
     let inner_args = doc.idents();
 
     let new = |fun_args| {
@@ -664,7 +678,7 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
 
     let args = [kws, flat];
 
-    let doc = DocString::new_class("Parsed *HEADER* and *TEXT*.").args(args);
+    let doc = DocString::new_class(format!("Parsed {HEADER} and {TEXT}.")).args(args);
 
     let new = |fun_args| {
         quote! {
@@ -684,7 +698,7 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
     let text = DocArg::new_ivar_ro(
         "text",
         PyClass::new_py(["api"], "FlatTEXTOutput"),
-        "Parsed *TEXT* segment.",
+        format!("Parsed {TEXT} segment."),
         |n, _| quote!(self.0.#n.clone().into()),
     );
 
@@ -725,7 +739,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
     let args = [data, analysis, others, dataset_segs, event];
-    let doc = DocString::new_class("Dataset from parsing flat *TEXT*.").args(args);
+    let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
         quote! {
@@ -753,14 +767,15 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
     let header = DocArgROIvar::new_ivar_ro(
         "header",
         PyClass::new_py(["api"], "ParsedHeaderSegments"),
-        "(Possibly modified) offsets used to parse HEADER.",
+        format!("(Possibly modified) offsets used to parse {HEADER}."),
         |_, _| quote!(self.0.header.clone().into()),
     );
 
     let args = [dataset, header];
-    let doc =
-        DocString::new_class("Output of using keywords to crate new standardized *TEXT*+*DATA*.")
-            .args(args);
+    let doc = DocString::new_class(format!(
+        "Output of using keywords to crate new standardized {TEXT}+{DATA}."
+    ))
+    .args(args);
 
     let new = |fun_args| {
         quote! {
@@ -794,7 +809,7 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
     let tot_event_mismatch = DocArgROIvar::new_ivar_ro(
         "tot_event_mismatch",
         PyOpt::new1(PyBool::default()),
-        "``True`` if *$TOT* does not match the number of events computed via event width.",
+        format!("{TRUE} if *$TOT* does not match the number of events computed via event width."),
         |_, _| quote!(self.0.tot_event_mismatch.clone()),
     );
 
@@ -811,7 +826,8 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
         tot_event_mismatch,
         truncated_columns,
     ];
-    let doc = DocString::new_class("Diagnostic output from reading *DATA* segment.").args(args);
+    let doc =
+        DocString::new_class(format!("Diagnostic output from reading {DATA} segment.")).args(args);
     let inner_args = doc.idents();
 
     let new = |fun_args| {
@@ -953,17 +969,18 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
 
-    let doc = DocString::new_class("Diagnostic output from *TEXT* standardization.").args([
-        pseudostandard,
-        hyper_par,
-        hyper_gate,
-        other_version,
-        timestep,
-        original_names,
-        scale,
-        trimmed,
-        tmp_opt_pairs,
-    ]);
+    let doc =
+        DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
+            pseudostandard,
+            hyper_par,
+            hyper_gate,
+            other_version,
+            timestep,
+            original_names,
+            scale,
+            trimmed,
+            tmp_opt_pairs,
+        ]);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -995,7 +1012,8 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
 
     let args = [data, analysis, data_uncorrected, analysis_uncorrected];
-    let doc = DocString::new_class("Segments used to parse *DATA* and *ANALYSIS*").args(args);
+    let doc =
+        DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1016,7 +1034,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let tot = DocArgROIvar::new_ivar_ro(
         "tot",
         PyOpt::new1(PyInt::new_int(RsInt::Usize).rstype(keyword_path("Tot"))),
-        "Value of *$TOT* from *TEXT*.",
+        format!("Value of *$TOT* from {TEXT}."),
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
@@ -1032,7 +1050,8 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let scores = DocArg::new_version_scores_param();
 
     let args = [tot, dataset_segs, std, flat, scores];
-    let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
+    let doc =
+        DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
 
     let new = |fun_args| {
         quote! {
@@ -1064,7 +1083,8 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
 
     let args = [dataset, flat, scores];
 
-    let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT*.").args(args);
+    let doc =
+        DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
 
     let new = |fun_args| {
         quote! {
@@ -1092,8 +1112,10 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
-    let doc = DocString::new_class("Miscellaneous data when standardizing *TEXT* from keywords.")
-        .args([dataset_segs, std, event]);
+    let doc = DocString::new_class(format!(
+        "Miscellaneous data when standardizing {TEXT} from keywords."
+    ))
+    .args([dataset_segs, std, event]);
 
     let new = |fun_args| {
         quote! {
@@ -1119,14 +1141,15 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
     let header = DocArgROIvar::new_ivar_ro(
         "header",
         PyClass::new_py(["api"], "ParsedHeaderSegments"),
-        "(Possibly modified) offsets used to parse HEADER.",
+        format!("(Possibly modified) offsets used to parse {HEADER}."),
         |_, _| quote!(self.0.header.clone().into()),
     );
 
     let args = [dataset, header];
-    let doc =
-        DocString::new_class("Output of using keywords to crate new standardized *TEXT*+*DATA*.")
-            .args(args);
+    let doc = DocString::new_class(format!(
+        "Output of using keywords to crate new standardized {TEXT}+{DATA}."
+    ))
+    .args(args);
 
     let new = |fun_args| {
         quote! {
@@ -1151,7 +1174,7 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
         PyOpt::new1(
             PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_uncorrected_segment()),
         ),
-        "Supplemental *TEXT* offsets if given (corrected and uncorrected).",
+        format!("Supplemental {TEXT} offsets if given (corrected and uncorrected)."),
         |_, _| quote!(self.0.supp_text.as_ref().copied()),
     );
 
@@ -1165,7 +1188,7 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
 
     let args = [header, supp, nextdata];
 
-    let doc = DocString::new_class("*HEADER* data and supplemental offsets.").args(args);
+    let doc = DocString::new_class(format!("{HEADER} data and supplemental offsets.")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1187,14 +1210,14 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let header_supp = DocArgROIvar::new_ivar_ro(
         "header_supp",
         PyClass::new_py(["api"], "HeaderAndSuppOffsets"),
-        "*HEADER* data and supplemental *TEXT* offsets.",
+        format!("{HEADER} data and supplemental {TEXT} offsets."),
         |_, _| quote!(self.0.header_supp.clone().into()),
     );
 
     let delim = DocArgROIvar::new_ivar_ro(
         "delimiter",
         RsInt::U8,
-        "Delimiter used to parse *TEXT*.",
+        format!("Delimiter used to parse {TEXT}."),
         |_, _| quote!(self.0.delimiter),
     );
 
@@ -1211,7 +1234,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             PyType::from(PyStr::new_std_keyword()),
             PyStr::default().into(),
         ])),
-        "Standard keys which already appeared in *TEXT* previously.",
+        format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
     );
 
@@ -1221,7 +1244,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             PyType::from(PyStr::new_nonstd_keyword()),
             PyStr::default().into(),
         ])),
-        "Nonstandard keys which already appeared in *TEXT* previously.",
+        format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
     );
 
@@ -1252,14 +1275,14 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let primary_split = DocArgROIvar::new_ivar_ro(
         "primary_split",
         PyClass::new_py(["api"], "SplitTEXTDiagnostics"),
-        "Additional parsing diagnostics for primary *TEXT*.",
+        format!("Additional parsing diagnostics for primary {TEXT}."),
         |_, _| quote!(self.0.primary_split.clone().into()),
     );
 
     let supp_split = DocArgROIvar::new_ivar_ro(
         "supp_split",
         PyOpt::new1(PyClass::new_py(["api"], "SplitTEXTDiagnostics")),
-        "Additional parsing diagnostics for supplemental *TEXT*.",
+        format!("Additional parsing diagnostics for supplemental {TEXT}."),
         |_, _| quote!(self.0.supp_split.as_ref().map(|x| x.clone().into())),
     );
 
@@ -1276,7 +1299,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         supp_split,
     ];
 
-    let doc = DocString::new_class("Diagnostic data from parsing *TEXT*.").args(args);
+    let doc = DocString::new_class(format!("Diagnostic data from parsing {TEXT}.")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1297,7 +1320,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let escaped = DocArgROIvar::new_ivar_ro(
         "escaped",
         PyBool::default(),
-        "``True`` if delimiters were escaped.",
+        format!("{TRUE} if delimiters were escaped."),
         |_, _| quote!(self.0.escaped),
     );
 
@@ -1332,14 +1355,14 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let missing_final_delim = DocArgROIvar::new_ivar_ro(
         "missing_final_delim",
         PyBool::default(),
-        "``True`` if *TEXT* does not end with a delimiter.",
+        format!("{TRUE} if {TEXT} does not end with a delimiter."),
         |_, _| quote!(self.0.missing_final_delim),
     );
 
     let trailing_whitespace_length = DocArgROIvar::new_ivar_ro(
         "trailing_whitespace_length",
         RsInt::Usize,
-        "Number of whitespace characters after *TEXT*",
+        format!("Number of whitespace characters after {TEXT}"),
         |_, _| quote!(self.0.trailing_whitespace_length),
     );
 
@@ -1353,8 +1376,10 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         trailing_whitespace_length,
     ];
 
-    let doc =
-        DocString::new_class("Diagnostic data when parsing a specific *TEXT* segment.").args(args);
+    let doc = DocString::new_class(format!(
+        "Diagnostic data when parsing a specific {TEXT} segment."
+    ))
+    .args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1374,59 +1399,51 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
 
     let version = DocArgROIvar::new_version_ivar();
 
-    let text_len = DocArgROIvar::new_ivar_ro(
-        "text_len",
-        RsInt::U64,
-        "Length of *TEXT* (in bytes)",
-        |_, _| quote!(self.0.text_len),
-    );
+    let seg_len = |argname, which| {
+        DocArgROIvar::new_ivar_ro(
+            argname,
+            RsInt::U64,
+            format!("Length of {which} (in bytes)"),
+            |n, _| quote!(self.0.#n),
+        )
+    };
 
-    let data_len = DocArgROIvar::new_ivar_ro(
-        "data_len",
-        RsInt::U64,
-        "Length of *DATA* (in bytes)",
-        |_, _| quote!(self.0.data_len),
-    );
-
-    let analysis_len = DocArgROIvar::new_ivar_ro(
-        "analysis_len",
-        RsInt::U64,
-        "Length of *ANALYSIS* (in bytes)",
-        |_, _| quote!(self.0.analysis_len),
-    );
+    let text_len = seg_len("text_len", TEXT);
+    let data_len = seg_len("data_len", DATA);
+    let analysis_len = seg_len("analysis_len", ANALYSIS);
 
     let n_events = DocArgROIvar::new_ivar_ro(
         "n_events",
         RsInt::Usize,
-        "Number of events (*$TOT*)",
+        format!("Number of events ({tot})", tot = fcs_kw("$TOT")),
         |_, _| quote!(self.0.n_events),
     );
 
     let n_measurements = DocArgROIvar::new_ivar_ro(
         "n_measurements",
         RsInt::Usize,
-        "Number of measurements (*$PAR*)",
+        format!("Number of measurements ({par})", par = fcs_kw("$PAR")),
         |_, _| quote!(self.0.n_measurements),
     );
 
     let n_other = DocArgROIvar::new_ivar_ro(
         "n_other",
         RsInt::Usize,
-        "Number of *OTHER* segments",
+        format!("Number of {OTHER} segments"),
         |_, _| quote!(self.0.n_other),
     );
 
     let others_len = DocArgROIvar::new_ivar_ro(
         "others_len",
         RsInt::Usize,
-        "Total length of *OTHER* segments (in bytes)",
+        format!("Total length of {OTHER} segments (in bytes)"),
         |_, _| quote!(self.0.others_len),
     );
 
     let datatype = DocArgROIvar::new_ivar_ro(
         "datatype",
         PyOpt::new1(PyLiteral::new_datatype()),
-        "The value of *$DATATYPE*",
+        format!("The value of {datatype}", datatype = fcs_kw("$DATATYPE")),
         |_, _| quote!(self.0.datatype),
     );
 
@@ -1633,7 +1650,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 
     let meas_layout_args = [meas, layout];
 
-    let coretext_doc = DocString::new_class(format!("Represents *TEXT* for an FCS {vs} file."))
+    let coretext_doc = DocString::new_class(format!("Represents {TEXT} for an FCS {vs} file."))
         .args(meas_layout_args.clone())
         .args(all_kws.clone());
 
@@ -1773,7 +1790,8 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let doc = DocString::new_method("Set the threshold for *$TR*.")
         .arg(p)
         .returns(
-            DocReturn::new(PyBool::default()).desc("``True`` if trigger is set and was updated."),
+            DocReturn::new(PyBool::default())
+                .desc(format!("{TRUE} if trigger is set and was updated.")),
         );
 
     let fun_arg = doc.fun_args();
@@ -1805,7 +1823,9 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         .desc("the value of $NEXTDATA as written to the dataset");
 
     let doc = DocString::new_method("Write data to path.")
-        .para("Resulting FCS file will include *HEADER* and *TEXT*.")
+        .para(format!(
+            "Resulting FCS file will include {HEADER} and {TEXT}."
+        ))
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
@@ -1854,10 +1874,10 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .desc("the value of *$NEXTDATA* which would point to next dataset if written");
 
     let doc = DocString::new_method("Write data as an FCS file.")
-        .para(
-            "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
-             *ANALYSIS*, and *OTHER* as they present from this class.",
-        )
+        .para(format!(
+            "The resulting file will include {HEADER}, {TEXT}, {DATA}, \
+             {ANALYSIS}, and {OTHER} as they present from this class."
+        ))
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
@@ -1967,7 +1987,9 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         "The possibly-empty values of *$PnN* for all measurements.",
         PyList::new1(PyOpt::new1(PyStr::new_shortname())),
     )
-    .para("*$PnN* is optional for this FCS version so values may be ``None``.");
+    .para(format!(
+        "*$PnN* is optional for this FCS version so values may be {NONE}."
+    ));
 
     doc.into_impl_get_set(
         &i,
@@ -2042,9 +2064,10 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         DocString::new_method(format!("Set the temporal measurement to a given {i}."))
             .args(once(p).chain(timestep).chain([allow_loss]))
             .returns(DocReturn::new(PyBool::default()).desc(format!(
-                "``True`` if temporal measurement was set, which will \
+                "{TRUE} if temporal measurement was set, which will \
                  happen for all cases except when the time measurement is \
-                 already set to ``{i}``."
+                 already set to {index_or_name}.",
+                index_or_name = code(i),
             )))
     };
 
@@ -2111,13 +2134,18 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let (rt, rd) = if has_timestep {
             (
                 PyOpt::new1(PyFloat::new_timestep()).into(),
-                "Value of *$TIMESTEP* if time measurement was present.",
+                format!(
+                    "Value of {timestep} if time measurement was present.",
+                    timestep = fcs_kw("$TIMESTEP")
+                ),
             )
         } else {
             (
                 PyType::from(PyBool::default()),
-                "``True`` if temporal measurement was present and converted, \
-                 ``False`` if there was not a temporal measurement.",
+                format!(
+                    "{TRUE} if temporal measurement was present and converted, \
+                     {FALSE} if there was not a temporal measurement."
+                ),
             )
         };
         DocString::new_method(s)
@@ -2194,20 +2222,24 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
+    let linear = code("0,0");
+
     let exc = PyreflowError::Relational.fmt_ref();
 
     if version == Version::FCS2_0 {
-        let s0 = "Will be ``()`` for linear scaling (``0,0`` in FCS encoding), \
-                   a 2-tuple for log scaling, or ``None`` if missing.";
+        let s0 = format!(
+            "Will be {UNIT} for linear scaling ({linear} in FCS encoding), \
+             a 2-tuple for log scaling, or {NONE} if missing.",
+        );
         let s1 = format!(
-            "The temporal measurement must always be ``()``. \
+            "The temporal measurement must always be {UNIT}. \
              Setting it to another value will raise {exc}."
         );
         let doc = DocString::new_ivar(
             "The value for *$PnE* for all measurements.",
             PyList::new1(PyOpt::new1(PyUnion::new_scale(false))),
         )
-        .paras([s0.into(), s1]);
+        .paras([s0, s1]);
 
         doc.into_impl_get_set(
             &i,
@@ -2219,17 +2251,20 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
     } else {
         let sum = "The value for *$PnE* and/or *$PnG* for all measurements.";
         let s0 = "Collectively these keywords correspond to scale transforms.";
-        let s1 = "If scaling is linear, return a float which corresponds to the \
-                  value of *$PnG* when *$PnE* is ``0,0``. If scaling is logarithmic, \
-                  return a pair of floats, corresponding to unset *$PnG* and the \
-                  non-``0,0`` value of *$PnE*.";
+        let s1 = format!(
+            "If scaling is linear, return a float which corresponds to the \
+             value of *$PnG* when *$PnE* is {linear}. If scaling is logarithmic, \
+             return a pair of floats, corresponding to unset *$PnG* and the \
+             non-{linear} value of *$PnE*."
+        );
         let s2 = "The FCS standards disallow any other combinations.";
         let s3 = format!(
-            "The temporal measurement will always be ``1.0``, corresponding \
+            "The temporal measurement will always be {unity}, corresponding \
              to an identity transform. Setting it to another value will \
-             raise {exc}."
+             raise {exc}.",
+            unity = code("1.0"),
         );
-        let ss = [s0, s1, s2, s3.as_str()];
+        let ss = [s0.into(), s1, s2.into(), s3];
         let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_transform())).paras(ss);
 
         doc.into_impl_get_set(
@@ -2295,7 +2330,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
                 .add(PyClass::new_temporal(version)),
         ),
     )
-    .ret_desc("Index, name, and measurement or ``None``.");
+    .ret_desc(format!("Index, name, and measurement or {NONE}."));
 
     doc.into_impl_get(&i, "temporal", |_, _| {
         quote! {
@@ -2312,7 +2347,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let exc = PyException::new_index().desc("If ``index`` not found");
+    let exc = PyException::new_index().desc(format!("If {index} not found", index = arg("index")));
     let doc = DocString::new_method("Return measurement at index.")
         .arg(DocArg::new_index_param("Index to retrieve."))
         .returns(DocReturn::new(PyUnion::new_measurement(version)).exc([exc]));
@@ -2338,7 +2373,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let exc = PyException::new_key().desc("If ``name`` not found");
+    let exc = PyException::new_key().desc(format!("If {name} not found", name = arg("name")));
     let doc = DocString::new_method("Return measurement with name.")
         .arg(DocArg::new_name_param("Name to retrieve."))
         .returns(DocReturn::new(PyUnion::new_measurement(version)).exc([exc]));
@@ -2370,7 +2405,8 @@ pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
         "layout"
     };
     let ps = [format!(
-        "Length of ``measurements`` must match number of columns in existing {s}."
+        "Length of {measurements} must match number of columns in existing {s}.",
+        measurements = arg("measurements"),
     )];
     let doc = DocString::new_method("Set all measurements at once.")
         .paras(ps)
@@ -2472,13 +2508,15 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 .add(PyUnion::new_measurement(version))
                 .add(PyDecimal::new_range())
         };
-        let (which, exc) = if is_index {
-            let exc = PyException::new_index().desc("If ``index`` not found");
-            ("Index", exc)
+        let (which, argname) = if is_index {
+            ("Index", "index")
         } else {
-            let exc = PyException::new_key().desc("If ``name`` not found");
-            ("Name", exc)
+            ("Name", "name")
         };
+        let exc = PyException::new_index().desc(format!(
+            "If {index_or_name} not found",
+            index_or_name = arg(argname)
+        ));
         let desc = if is_dataset {
             format!("{which}, measurement object, data, and range.")
         } else {
@@ -2631,9 +2669,9 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
                 PyException::new_key(),
             )
         };
-        let i = &i_param.argname;
-        let meas_desc = format!("Optical measurement to replace measurement at ``{i}``.");
-        let exc_desc = format!("If ``{i}`` does not exist.");
+        let i = arg(&i_param.argname);
+        let meas_desc = format!("Optical measurement to replace measurement at {i}.");
+        let exc_desc = format!("If {i} does not exist.");
         let exc = e.desc(exc_desc);
         let ret = PyUnion::new_measurement(version);
         DocString::new_method(format!("Replace {m} with given optical measurement."))
@@ -2717,9 +2755,9 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 PyException::new_key(),
             )
         };
-        let i = &i_param.argname;
-        let meas_desc = format!("Temporal measurement to replace measurement at ``{i}``.");
-        let exc0 = e.desc(format!("If ``{i}`` does not exist"));
+        let i = arg(&i_param.argname);
+        let meas_desc = format!("Temporal measurement to replace measurement at {i}.");
+        let exc0 = e.desc(format!("If {i} does not exist"));
         let exc1 = PyException::new_pyreflow(PyreflowError::Relational)
             .desc("If a temporal measurement already exists at a different position");
         let xs = [exc0, exc1];
@@ -2894,10 +2932,10 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_deprecated();
     let exc1 = PyException::new_parse_keyval();
-    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(
-        "If keywords are incompatible with indicated layout of *DATA* or \
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+        "If keywords are incompatible with indicated layout of {DATA} or \
          if keywords that are referenced by other keywords do not exist",
-    );
+    ));
     let exc3 = PyException::new_event_data();
     let exc4 = PyException::new_extra();
 
@@ -2995,7 +3033,9 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
         .exc(xs);
 
     let doc = DocString::new_fun("Write multiple datasets to path.")
-        .para("The resulting file will have *HEADER* and *TEXT* from each object")
+        .para(format!(
+            "The resulting file will have {HEADER} and {TEXT} from each object"
+        ))
         .arg(path_arg)
         .arg(cores_arg)
         .args(args)
@@ -3043,10 +3083,10 @@ pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
         .exc(xs);
 
     let doc = DocString::new_fun("Write multiple datasets to path.")
-        .para(
-            "The resulting file will include *HEADER*, *TEXT*, *DATA*, \
-             *ANALYSIS*, and *OTHER* as they present from this class.",
-        )
+        .para(format!(
+            "The resulting file will include {HEADER}, {TEXT}, {DATA}, \
+             {ANALYSIS}, and {OTHER} as they present from this class."
+        ))
         .arg(path_arg)
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
@@ -3084,8 +3124,11 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreTEXT", &i);
     let s = "Remove measurements and clear the layout.";
-    let p0 = "This is equivalent to deleting all *$Pn\\** keywords and setting \
-              *$PAR* to ``0``.";
+    let p0 = format!(
+        "This is equivalent to deleting all *$Pn\\** keywords and setting \
+         *$PAR* to {zero}.",
+        zero = code(0_u8)
+    );
 
     let exc = PyException::new_existing();
     let ret = DocReturn::new(PyTuple::default()).exc([exc]);
@@ -3131,8 +3174,10 @@ pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
 
     let p = DocArg::new_bool_param(
         "skip_conv_check",
-        "If ``True``, silently truncate data; otherwise return warnings when \
-         truncation is performed.",
+        format!(
+            "If {TRUE}, silently truncate data; otherwise return warnings when \
+             truncation is performed."
+        ),
     );
 
     let exc = PyException::new_data_loss();
@@ -3164,6 +3209,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let layout = DocArg::new_layout_ivar(version);
+    let measurements = DocArg::new_measurements_param(version);
 
     let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
 
@@ -3172,8 +3218,11 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
     } else {
         ""
     };
-    let length_para =
-        format!("Length of ``measurements`` must match number of columns in ``layout`` {s}.");
+    let length_para = format!(
+        "Length of {measurements_arg} must match number of columns in {layout_arg} {s}.",
+        measurements_arg = arg(&measurements.argname),
+        layout_arg = arg(&layout.argname)
+    );
 
     let named_doc = DocString::new_method("Set all measurements, names, and layout at once.")
         .para(length_para.clone())
@@ -3184,7 +3233,7 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
 
     let unnamed_doc = DocString::new_method("Set all measurements and layout at once.")
         .para(length_para)
-        .arg(DocArg::new_measurements_param(version))
+        .arg(measurements)
         .arg(param_type_set_layout);
 
     let named_fun_args = named_doc.fun_args();
@@ -3221,12 +3270,19 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
+    let measurements = DocArg::new_measurements_param(version);
+
     let param_type_set_df =
         DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
-    let len_para = "Length of ``measurements`` must match number of columns in ``data``.";
+
+    let len_para = format!(
+        "Length of {measurements_arg} must match number of columns in {data_arg}.",
+        measurements_arg = arg(&measurements.argname),
+        data_arg = arg(&param_type_set_df.argname)
+    );
 
     let named_doc = DocString::new_method("Set measurements, names, and data at once.")
-        .para(len_para)
+        .para(len_para.clone())
         .arg(DocArg::new_set_meas_param(version))
         .arg(param_type_set_df.clone())
         .arg(DocArg::new_allow_shared_names_param())
@@ -3234,7 +3290,7 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
 
     let unnamed_doc = DocString::new_method("Set measurements and data at once.")
         .para(len_para)
-        .arg(DocArg::new_measurements_param(version))
+        .arg(measurements)
         .arg(param_type_set_df);
 
     let named_fun_args = named_doc.fun_args();
@@ -3271,18 +3327,24 @@ pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> 
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
+    let measurements = DocArg::new_measurements_param(version);
     let layout = DocArg::new_layout_ivar(version);
 
     let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
 
     let param_type_set_df =
         DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
-    let len_para =
-        "Length of ``measurements`` and ``layout`` must match number of columns in ``data``.";
+
+    let len_para = format!(
+        "Length of {measurements_arg} and {layout_arg} must match number of columns in {data_arg}.",
+        measurements_arg = arg(&measurements.argname),
+        layout_arg = arg(&layout.argname),
+        data_arg = arg(&param_type_set_df.argname),
+    );
 
     let doc = DocString::new_method("Set measurements, layout, and data at once.")
         .para(len_para)
-        .arg(DocArg::new_measurements_param(version))
+        .arg(measurements)
         .arg(param_type_set_layout)
         .arg(param_type_set_df);
 
@@ -3308,10 +3370,10 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
     let version = split_ident_version_checked("PyCoreTEXT", &i);
 
     let doc = DocString::new_method("Convert to a dataset object.")
-        .para(
+        .para(format!(
             "This will fully represent an FCS file, as opposed to \
-             just representing *HEADER* and *TEXT*.",
-        )
+             just representing {HEADER} and {TEXT}."
+        ))
         .arg(DocArg::new_data_param(false))
         .arg(DocArg::new_analysis_param(true))
         .arg(DocArg::new_others_param(true))
@@ -3434,11 +3496,11 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Display",
         "display",
         |_| PyOpt::new1(PyTuple::new_display()),
-        Some(
+        Some(formatcp!(
             "Value of *$PnD*. First member of tuple encodes linear or log display \
-             (``False`` and ``True`` respectively). The float members encode \
-             lower/upper and decades/offset for linear and log scaling respectively.",
-        ),
+             ({FALSE} and {TRUE} respectively). The float members encode \
+             lower/upper and decades/offset for linear and log scaling respectively."
+        )),
         true,
     );
 
@@ -3683,8 +3745,11 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let inner_tmp_rstype = tmp_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnTYPE* for all measurements.";
-    let doc_middle = "A bool will be returned for the time measurement where \
-                      ``True`` indicates it is set to ``\"Time\"``.";
+    let doc_middle = format!(
+        "A bool will be returned for the time measurement where \
+         {TRUE} indicates it is set to {time}.",
+        time = code_str("Time"),
+    );
 
     let nce_path =
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
@@ -3720,10 +3785,15 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
     let inner_rstype = inner_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnFEATURE* (area/width/height) for all measurements.";
-    let p0 = "This should be the preferred way to get and set this keyword if \
-              one knows that only ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
-              will be used for this dataset since it has a well-defined type.";
-    let p1 = "``()`` will be returned for the time measurement.";
+    let p0 = format!(
+        "This should be the preferred way to get and set this keyword if one \
+         knows that only {area}, {width}, and {height} will be used for this \
+         dataset since it has a well-defined type.",
+        area = code_str("Area"),
+        width = code_str("Width"),
+        height = code_str("Height"),
+    );
+    let p1 = format!("{UNIT} will be returned for the time measurement.");
 
     let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
 
@@ -3750,9 +3820,13 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
     let inner_rstype = inner_pytype.as_rust_type();
 
     let doc_summary = "Value of *$PnFEATURE* (not area/width/height) for all measurements.";
-    let p0 = "Values which are not ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
-              will be returned as ``None``.";
-    let p1 = "``()`` will be returned for the time measurement.";
+    let p0 = format!(
+        "Values which are not {area}, {width}, and {height} will be returned as {NONE}.",
+        area = code_str("Area"),
+        width = code_str("Width"),
+        height = code_str("Height"),
+    );
+    let p1 = format!("{UNIT} will be returned for the time measurement.");
 
     let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
 
@@ -3800,9 +3874,14 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
     let pytype = PyOpt::new1(PyLiteral::new_awh_feature());
 
     let doc_summary = "Value of *$PnFEATURE* (area/width/height).";
-    let p = "This should be the preferred way to get and set this keyword if \
-             one knows that only ``\"Area\"``, ``\"Width\"``, and ``\"Height\"`` \
-             will be used since it has a well-defined type.";
+    let p = format!(
+        "This should be the preferred way to get and set this keyword if one \
+         knows that only {area}, {width}, and {height} will be used since it \
+         has a well-defined type.",
+        area = code_str("Area"),
+        width = code_str("Width"),
+        height = code_str("Height"),
+    );
 
     let doc = DocString::new_ivar(doc_summary, pytype).para(p);
 
@@ -3850,7 +3929,7 @@ where
 
     let doc_summary = format!("Value of {kw_doc} for all measurements.");
     let doc_middle = optical_only.then_some(format!(
-        "``()`` will be returned for time since {kw_doc} is not \
+        "{UNIT} will be returned for time since {kw_doc} is not \
          defined for temporal measurements."
     ));
 
@@ -3934,16 +4013,17 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
             } else {
                 PyClass::new_coretext(v)
             };
+            let param = DocArg::new_allow_loss_param(param_desc);
             let exc0 = PyException::new_pyreflow(PyreflowError::Conversion).desc(format!(
                 "If keywords which are unsupported in FCS {vs} exist in current \
-                 data and ``allow_loss`` is ``False``"
+                 data and {loss_arg} is {FALSE}",
+                loss_arg = arg(&param.argname),
             ));
             let exc1 = PyException::new_pyreflow(PyreflowError::Conversion).desc(format!(
                 "If optional keywords are that are missing in current \
                  version are required in FCS {vs}"
             ));
             let target_pytype = target_type.as_rust_type();
-            let param = DocArg::new_allow_loss_param(param_desc);
             let doc = DocString::new_method(format!("Convert to FCS {vs}."))
                 .arg(param)
                 .returns(
@@ -3980,8 +4060,10 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let scale = DocArg::new_opt_ivar_rw(
         "scale",
         PyUnion::new_scale(true),
-        "The *$GmE* keyword. ``()`` means linear scaling and 2-tuple \
-         specifies decades and offset for log scaling.",
+        format!(
+            "The *$GmE* keyword. {UNIT} means linear scaling and 2-tuple \
+             specifies decades and offset for log scaling."
+        ),
         false,
         |n, _| quote!(self.0.#n.as_ref().cloned()),
         |n, _| quote!(self.0.#n = #n.into()),
@@ -4138,7 +4220,9 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
+    const RANGES: &str = "ranges";
     let info = parse_macro_input!(input as OrderedLayoutInfo);
     let nbytes = info.nbytes;
     let is_float = info.is_float;
@@ -4146,9 +4230,12 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let (range_pytype, range_desc, what, base, range_path, dt) = if is_float {
         let range = format_ident!("F{:02}Range", nbits);
-        let range_desc = "The range for each measurement. Corresponds to *$PnR*. \
-                          This is not used internally so only serves for users' \
-                          own purposes.";
+        let range_desc = format!(
+            "The range for each measurement. Corresponds to {pnr}. \
+             This is not used internally so only serves for users' \
+             own purposes.",
+            pnr = fcs_kw("$PnR")
+        );
         (
             PyFloat::new_float_range(nbytes).into(),
             range_desc,
@@ -4159,11 +4246,15 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
         )
     } else {
         let bitmask = format_ident!("Bitmask{:02}", nbits);
-        let range_desc = "The range for each measurement. Corresponds to \
-                          *$PnR* - 1, which implies that the value for each \
-                          measurement must be less than or equal to the values \
-                          in ``ranges``. A bitmask will be created which \
-                          corresponds to one less the next power of 2.";
+        let range_desc = format!(
+            "The range for each measurement. Corresponds to \
+             {pnr} - 1, which implies that the value for each \
+             measurement must be less than or equal to the values \
+             in {ranges}. A bitmask will be created which \
+             corresponds to one less the next power of 2.",
+            pnr = fcs_kw("$PnR"),
+            ranges = arg(RANGES),
+        );
         (
             PyType::from(PyInt::new_bitmask(nbytes)),
             range_desc,
@@ -4186,7 +4277,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let summary = format!("{nbits}-bit ordered {what} layout.");
 
     let range_param =
-        DocArg::new_ivar_ro("ranges", PyList::new1(range_pytype), range_desc, |_, _| {
+        DocArg::new_ivar_ro(RANGES, PyList::new1(range_pytype), range_desc, |_, _| {
             quote!(self.0.columns().iter().map(|c| c.clone()).collect())
         });
 
@@ -4198,7 +4289,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     )
     .def_auto();
 
-    let is_big_param = DocArgROIvar::new_endian_ord_param(2);
+    let is_big_param = DocArgROIvar::new_endian_param(2, true);
 
     let make_doc = |args| DocString::new_class(summary).args(args);
 
@@ -4279,7 +4370,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
     let doc = DocString::new_class(format!("{nbits}-bit endian float layout"))
         .args([range_param, is_big_param]);
@@ -4314,17 +4405,22 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
         PyList::new1(PyInt::new_bitmask_value64()),
-        "The range of each measurement. Corresponds to the *$PnR* \
-         keyword less one. The number of bytes used to encode each \
-         measurement (*$PnB*) will be the minimum required to express this \
-         value. For instance, a value of ``1023`` will set *$PnB* to ``16``, \
-         will set *$PnR* to ``1024``, and encode values for this measurement as \
-         16-bit integers. The values of a measurement will be less than or \
-         equal to this value.",
+        format!(
+            "The range of each measurement. Corresponds to the *$PnR* \
+             keyword less one. The number of bytes used to encode each \
+             measurement (*$PnB*) will be the minimum required to express this \
+             value. For instance, a value of {v1023} will set *$PnB* to {v16}, \
+             will set *$PnR* to {v1024}, and encode values for this measurement as \
+             16-bit integers. The values of a measurement will be less than or \
+             equal to this value.",
+            v16 = code(16_u8),
+            v1023 = code(1023_u32),
+            v1024 = code(1024_u32),
+        ),
         |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
     let doc =
         DocString::new_class("A mixed-width integer layout.").args([ranges_param, is_big_param]);
@@ -4351,8 +4447,17 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let null = quote!(fireflow_core::data::NullMixedType);
     let fixed = quote!(fireflow_core::data::FixedLayout);
 
-    let desc = "if field 2 of %x is less than ``0`` or greater than ``2**64-1`` \
-                when field 1 is ``\"A\"`` or ``\"I\"``";
+    let dt_ascii = code("A");
+    let dt_int = code("I");
+    let dt_f32 = code("F");
+    let dt_f64 = code("D");
+
+    let desc = format!(
+        "if field 2 of %x is less than {min} or greater than {max} \
+         when field 1 is {dt_ascii} or {dt_int}",
+        min = code("0"),
+        max = code("2**64-1"),
+    );
     let exc = PyException::new_invalid_keyword().desc(desc);
     let range_pytype = PyList::new1(PyUnion::new2(
         PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
@@ -4363,15 +4468,19 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
         range_pytype,
-        "The type and range for each measurement corresponding to *$DATATYPE* \
-         and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
-         as 2-tuples like ``(<type>, <range>)`` where ``type`` is one of \
-         ``\"A\"``, ``\"I\"``, ``\"F\"``, or ``\"D\"`` corresponding to Ascii, \
-         Integer, Float, or Double datatypes respectively.",
+        format!(
+            "The type and range for each measurement corresponding to *$DATATYPE* \
+             and/or *$PnDATATYPE* and *$PnR* respectively. These are given \
+             as 2-tuples like {tuple_pattern} where {tuple_first} is one of \
+             {dt_ascii}, {dt_int}, {dt_f32}, or {dt_f64} corresponding to Ascii, \
+             Integer, Float, or Double datatypes respectively.",
+            tuple_pattern = code("(<type>, <range>)"),
+            tuple_first = code("type"),
+        ),
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
-    let is_big_param = DocArgROIvar::new_endian_param(4);
+    let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
     let doc = DocString::new_class("A mixed-type layout.").args([types_param, is_big_param]);
 
@@ -5724,26 +5833,29 @@ impl PyException {
 
     fn new_segment_overflow(version: Version) -> Self {
         let overflow_desc = if version == Version::FCS2_0 {
-            "If *TEXT*, *DATA*, or *ANALYSIS* offsets \
-             are greater than 99,999,999"
+            format!(
+                "If {TEXT}, {DATA}, or {ANALYSIS} end offset \
+                 is greater than 99,999,999 bytes"
+            )
         } else {
-            "If *TEXT* offsets are greater than 99,999,999 bytes"
+            format!("If {TEXT} ending offset is greater than 99,999,999 bytes")
         };
         Self::new_overflow().desc(overflow_desc)
     }
 
     fn new_other_overflow() -> Self {
-        Self::new_overflow().desc(
-            "If any *OTHER* offsets are greater than \
-             99,999,999 and ``big_other`` is ``False``",
-        )
+        let d = format!(
+            "If any {OTHER} end offsets are greater than \
+             99,999,999 and ``big_other`` is {FALSE}",
+        );
+        Self::new_overflow().desc(d)
     }
 
     fn new_data_loss() -> Self {
-        Self::new_pyreflow(PyreflowError::DataLoss).desc(
-            "If any values in *DATA* segment need to be truncated to \
-             fit layout and ``skip_conversion_check`` is ``False``",
-        )
+        Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
+            "If any values in {DATA} segment need to be truncated to \
+             fit layout and ``skip_conversion_check`` is {FALSE}"
+        ))
     }
 
     fn new_pyreflow(p: PyreflowError) -> Self {
@@ -5764,10 +5876,10 @@ impl PyException {
     }
 
     fn new_deprecated() -> Self {
-        Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(
+        Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(format!(
             "If any keywords or their values are deprecated and \
-             ``disallow_deprecated`` is ``True``",
-        )
+             ``disallow_deprecated`` is {TRUE}"
+        ))
     }
 
     fn new_parse_keyval() -> Self {
@@ -5776,7 +5888,8 @@ impl PyException {
     }
 
     fn new_event_data() -> Self {
-        Self::new_pyreflow(PyreflowError::EventData).desc("If values in *DATA* cannot be read")
+        Self::new_pyreflow(PyreflowError::EventData)
+            .desc(format!("If values in {DATA} cannot be read"))
     }
 
     fn new_existing() -> Self {
@@ -6474,8 +6587,10 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_display() -> Self {
-        let desc = "if %x represents a log display (field 1 is ``True``) and \
-                    the two floats are not both positive";
+        let desc = format!(
+            "if %x represents a log display (field 1 is {TRUE}) and \
+             the two floats are not both positive"
+        );
         let exc = PyException::new_value().desc(desc);
         Self::new1(PyBool::default())
             .add(RsFloat::F32)
@@ -6892,9 +7007,9 @@ impl RsInt {
 
     fn exc_desc(&self) -> String {
         format!(
-            "if %x is less than ``{}`` or greater than ``{}``",
-            self.lower(),
-            self.upper()
+            "if %x is less than {} or greater than {}",
+            code(self.lower()),
+            code(self.upper())
         )
     }
 }
@@ -6990,7 +7105,7 @@ impl DocArgRWIvar {
         F: FnOnce(Path) -> T,
         T: Into<ArgPyType>,
     {
-        let desc = format!("Value for *$Pn{abbr}*.");
+        let desc = format!("Value for {kw}.", kw = fcs_kw(format!("$Pn{abbr}")));
         Self::new_meas_kw_ivar(kw, name, f, Some(desc.as_str()), true)
     }
 
@@ -7325,12 +7440,18 @@ impl DocArgRWIvar {
     }
 
     fn new_transform_ivar() -> Self {
+        let d = format!(
+            "Value for {pne} and/or {png}. Singleton float encodes gain ({png}) \
+             and implies linear scaling (ie {pne} is {linear}). 2-tuple encodes \
+             decades and offset for log scale, and implies {png} is not set.",
+            pne = fcs_kw("$PnE"),
+            png = fcs_kw("$PnG"),
+            linear = code("0,0"),
+        );
         Self::new_ivar_rw(
             "transform",
             PyUnion::new_transform(),
-            "Value for *$PnE* and/or *$PnG*. Singleton float encodes gain (*$PnG*) \
-             and implies linear scaling (ie *$PnE* is ``0,0``). 2-tuple encodes \
-             decades and offset for log scale, and implies *$PnG* is not set.",
+            d,
             false,
             |_, _| quote!(self.0.specific.scale),
             |n, _| quote!(self.0.specific.scale = #n),
@@ -7382,34 +7503,27 @@ impl DocArgROIvar {
         Self::new_ivar_ro("version", p, d, |_, _| quote!(self.0.version))
     }
 
-    fn new_endian_param(n: usize) -> Self {
+    fn new_endian_param(n: usize, is_ord: bool) -> Self {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
-        let d = format!(
-            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
-             if ``\"little\"`` use little endian (``{xs}``)."
-        );
-        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| {
-            quote!(*self.0.as_ref())
-        })
-        .def_auto()
-    }
-
-    fn new_endian_ord_param(n: usize) -> Self {
-        let xs = (1..=n).join(",");
-        let ys = (1..=n).rev().join(",");
-        let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
-        let d = format!(
-            "If ``\"big\"`` use big endian (``{ys}``) for encoding values; \
-                 if ``\"little\"`` use little endian (``{xs}``)."
-        );
-        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| {
+        let body = if is_ord {
+            let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
             quote! {
                 let m: #sizedbyteord_path<2> = *self.0.as_ref();
                 m.endian()
             }
-        })
-        .def_auto()
+        } else {
+            quote!(*self.0.as_ref())
+        };
+        let d = format!(
+            "If {big} use big endian ({bigval}) for encoding values; \
+             if {little} use little endian ({littleval}).",
+            big = code_str("big"),
+            little = code_str("little"),
+            bigval = code(ys),
+            littleval = code(xs),
+        );
+        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| body).def_auto()
     }
 
     fn new_version_scores_param() -> Self {
@@ -7431,16 +7545,17 @@ impl DocArgROIvar {
         Self::new_ivar_ro(
             "dataset",
             PyClass::new_py(["api"], "FlatDatasetFromKwsOutput"),
-            "Output when making flat TEXT+DATA.",
+            format!("Output when making flat {TEXT} and {DATA}."),
             |n, _| quote!(self.0.#n.clone().into()),
         )
     }
 
+    // TODO not dry
     fn new_std_dataset_ivar() -> Self {
         Self::new_ivar_ro(
             "dataset",
             PyClass::new_py(["api"], "StdDatasetFromKwsOutput"),
-            "Output when making std TEXT+DATA.",
+            format!("Output when making standardized {TEXT} and {DATA}."),
             |n, _| quote!(self.0.#n.clone().into()),
         )
     }
@@ -7471,8 +7586,11 @@ impl DocArgParam {
         let w = "throw warning".into();
         let (false_action, true_action) = if false_is_error { (e, w) } else { (w, e) };
         let d = format!(
-            "{desc} If ``\"false\"``, {false_action}. If ``\"true\"``, \
-             {true_action}. If ``\"silent\"``, do nothing."
+            "{desc} If {false_}, {false_action}. If {true_}, {true_action}. \
+             If {silent}, do nothing.",
+            false_ = code_str("false"),
+            true_ = code_str("true"),
+            silent = code_str("silent"),
         );
         let pt = PyLiteral::new_tri_flag(ident_name);
         Self::new_param(name, pt, d).def_auto()
@@ -7489,11 +7607,15 @@ impl DocArgParam {
             path,
         );
         let d = format!(
-            "{desc} Use ``\"error\"`` to throw error on failure, \
-             ``\"demote\"`` to demote to non-standard with warning, \
-             ``\"demote\"`` to demote to non-standard with no warning, \
-             ``\"drop\"`` to drop with warning, or ``\"drop_silent\"`` \
-             to drop with no warning"
+            "{desc} Use {error} to throw error on failure, {demote} to demote \
+             to non-standard with warning, {demote_silent} to demote to \
+             non-standard with no warning, {drop} to drop with warning, or \
+             {drop_silent} to drop with no warning",
+            error = code_str("error"),
+            demote = code_str("demote"),
+            demote_silent = code_str("demote_silent"),
+            drop = code_str("drop"),
+            drop_silent = code_str("drop_silent"),
         );
         Self::new_param(name, pt, d).def_auto()
     }
@@ -7527,7 +7649,7 @@ impl DocArgParam {
         Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
     }
 
-    fn new_skip_param(desc: &str) -> Self {
+    fn new_skip_param(desc: impl fmt::Display) -> Self {
         let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
         Self::new_param("skip", pt, desc).def_auto()
     }
@@ -7544,12 +7666,12 @@ impl DocArgParam {
     }
 
     fn new_header_param() -> Self {
-        let d = "The *HEADER* from parsed file";
+        let d = format!("The {HEADER} from parsed file");
         Self::new_param("header", PyClass::new_py(["api"], "Header"), d)
     }
 
     fn new_header_and_supp_param() -> Self {
-        let d = "The *HEADER* and supplemental *TEXT* offsets from parsed file";
+        let d = format!("The {HEADER} and supplemental {TEXT} offsets from parsed file");
         let p = PyClass::new_py(["api"], "HeaderAndSuppOffsets");
         Self::new_param("header", p, d)
     }
@@ -7569,25 +7691,25 @@ impl DocArgParam {
     }
 
     fn new_std_diagnostics_param() -> Self {
-        let desc = "Diagnostic output from *TEXT* standardization";
+        let desc = format!("Diagnostic output from {TEXT} standardization");
         let p = PyClass::new_py(["api"], "StdTEXTDiagnostics");
         Self::new_param("std_diagnostics", p, desc)
     }
 
     fn new_dataset_segments_param() -> Self {
-        let desc = "Offsets used to parse *DATA* and *ANALYSIS*.";
+        let desc = format!("Offsets used to parse {DATA} and {ANALYSIS}.");
         let p = PyClass::new_py(["api"], "DatasetSegments");
         Self::new_param("dataset_segs", p, desc)
     }
 
     fn new_flat_diagnostics_param() -> Self {
-        let desc = "Diagnostic data obtained when parsing *TEXT*.";
+        let desc = format!("Diagnostic data obtained when parsing {TEXT}.");
         let p = PyClass::new_py(["api"], "FlatTEXTDiagnostics");
         Self::new_param("flat_diagnostics", p, desc)
     }
 
     fn new_event_diagnostics_param() -> Self {
-        let d = "Diagnostic output from parsing DATA segment.";
+        let d = format!("Diagnostic output from parsing {DATA} segment.");
         let p = PyClass::new_py(["api"], "EventsDiagnostics");
         Self::new_param("events_diagnostics", p, d)
     }
@@ -7611,17 +7733,17 @@ impl DocArgParam {
     }
 
     fn new_text_seg_param() -> Self {
-        let desc = "The primary *TEXT* segment from *HEADER*.";
+        let desc = format!("The primary {TEXT} segment from {HEADER}.");
         Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
     }
 
     fn new_data_seg_param(src: SegmentSrc) -> Self {
-        let desc = format!("The *DATA* segment from {src}.");
+        let desc = format!("The {DATA} segment from {src}.");
         Self::new_param("data_seg", PyTuple::new_data_segment(src), desc)
     }
 
     fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
-        let desc = format!("The *ANALYSIS* segment from {src}.");
+        let desc = format!("The {ANALYSIS} segment from {src}.");
         let p = PyTuple::new_analysis_segment(src);
         Self::new_param("analysis_seg", p, desc).def_auto_if(default)
     }
@@ -7631,7 +7753,7 @@ impl DocArgParam {
         let width = PyInt::new_other_width();
         let rstype = seg.rstype.clone().expect("no rstype for OTHER seg");
         let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(seg, &rstype)).add(width));
-        let d = "The *OTHER* segments from *HEADER*.";
+        let d = format!("The {OTHER} segments from {HEADER}.");
         Self::new_param("other_segs", pt, d)
     }
 
@@ -7639,12 +7761,12 @@ impl DocArgParam {
         let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
         let exc = PyException::new_config().desc("if %x is not between 1 and 126");
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
-        let desc = "Delimiter to use when writing *TEXT*.";
+        let desc = format!("Delimiter to use when writing {TEXT}.");
         Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
     }
 
     fn new_big_other_param() -> Self {
-        let desc = "If ``True`` use 20 chars for OTHER segment offsets, and 8 otherwise.";
+        let desc = format!("If {TRUE} use 20 chars for {OTHER} segment offsets, and 8 otherwise.");
         Self::new_bool_param("big_other", desc)
     }
 
@@ -7652,29 +7774,33 @@ impl DocArgParam {
         let conv_exc = PyreflowError::DataLoss.fmt_ref();
         let d = format!(
             "Skip check to ensure that types of the dataframe match the \
-             columns (*$PnB*, *$DATATYPE*, etc). If this is ``False``, \
+             columns (*$PnB*, *$DATATYPE*, etc). If this is {FALSE}, \
              perform this check before writing, and raise {conv_exc} on \
-             failure. If ``True``, raise warnings as file is being \
+             failure. If {TRUE}, raise warnings as file is being \
              written. Skipping this is faster since the data needs to be \
              traversed twice to perform the conversion check, but may \
-             result in loss of precision and/or truncation."
+             result in loss of precision and/or truncation.",
         );
         Self::new_bool_param("skip_conversion_check", d)
     }
 
     fn new_appendable_param() -> Self {
-        let d = "If ``True``, set *$NEXTDATA* in written dataset so it points to \
-                 the next dataset. This obviously assumes the next dataset is actually \
-                 written, which will require another call to this method with ``append`` \
-                 set to ``True``.";
+        let d = format!(
+            "If {TRUE}, set *$NEXTDATA* in written dataset so it points to \
+             the next dataset. This obviously assumes the next dataset is actually \
+             written, which will require another call to this method with ``append`` \
+             set to {TRUE}."
+        );
         Self::new_bool_param("appendable", d)
     }
 
     fn new_append_param() -> Self {
-        let d = "If ``True``, append this dataset to the end of the file if it exists \
-                 and already has at least one dataset in it. This assumes that the \
-                 previous dataset was written with ``appendable`` set to ``True`` so \
-                 that *$NEXTDATA* is properly set.";
+        let d = format!(
+            "If {TRUE}, append this dataset to the end of the file if it exists \
+             and already has at least one dataset in it. This assumes that the \
+             previous dataset was written with ``appendable`` set to {TRUE} so \
+             that *$NEXTDATA* is properly set."
+        );
         Self::new_bool_param("append", d)
     }
 
@@ -7700,11 +7826,11 @@ impl DocArgParam {
     fn new_allow_shared_names_param() -> Self {
         let exc = PyreflowError::Relational.fmt_ref();
         let d = format!(
-            "If ``False``, raise {exc} if any non-measurement keywords reference \
-             any *$PnN* keywords. If ``True`` raise {exc} if any non-measurement \
+            "If {FALSE}, raise {exc} if any non-measurement keywords reference \
+             any *$PnN* keywords. If {TRUE} raise {exc} if any non-measurement \
              keywords reference a *$PnN* which is not present in ``measurements``. \
-             In other words, ``False`` forbids named references to exist, and \
-             ``True`` allows named references to be updated. References cannot \
+             In other words, {FALSE} forbids named references to exist, and \
+             {TRUE} allows named references to be updated. References cannot \
              be broken in either case."
         );
         Self::new_bool_param("allow_shared_names", d)
@@ -7715,9 +7841,9 @@ impl DocArgParam {
     fn new_skip_index_check_param() -> Self {
         let exc = PyreflowError::Relational.fmt_ref();
         let desc = format!(
-            "If ``False``, raise {exc} if any non-measurement keyword \
+            "If {FALSE}, raise {exc} if any non-measurement keyword \
              have an index reference to the current measurements. If \
-             ``True`` allow such references to exist as long as they do \
+             {TRUE} allow such references to exist as long as they do \
              not break (which really means that the length of \
              ``measurements`` is such that existing indices are satisfied)."
         );
@@ -7755,10 +7881,12 @@ impl DocArgParam {
     }
 
     fn new_data_param(polars_type: bool) -> Self {
-        let desc = "A dataframe encoding the contents of *DATA*. Number of \
-                    columns must match number of measurements. May be empty. \
-                    Types do not necessarily need to correspond to those in the \
-                    data layout but mismatches may result in truncation.";
+        let desc = format!(
+            "A dataframe encoding the contents of {DATA}. Number of \
+             columns must match number of measurements. May be empty. \
+             Types do not necessarily need to correspond to those in the \
+             data layout but mismatches may result in truncation."
+        );
         let exc = PyException::new_pyreflow(PyreflowError::EventData).desc(
             "If %x contains columns which are not \
              unsigned 8/16/32/64-bit integers or 32/64-bit floats",
@@ -7768,12 +7896,12 @@ impl DocArgParam {
     }
 
     fn new_analysis_param(default: bool) -> Self {
-        let desc = "Contents of the *ANALYSIS* segment.";
+        let desc = format!("Contents of the {ANALYSIS} segment.");
         Self::new_param("analysis", PyBytes::new_analysis(), desc).def_auto_if(default)
     }
 
     fn new_others_param(default: bool) -> Self {
-        let desc = "A list of byte strings encoding the *OTHER* segments.";
+        let desc = format!("A list of byte strings encoding the {OTHER} segments.");
         Self::new_param("others", PyList::new_others(), desc).def_auto_if(default)
     }
 
@@ -7970,7 +8098,7 @@ impl DocArgParam {
 
     fn new_dedup_meas_names_param() -> Self {
         let d = format!(
-            "If ``True``, force all *$PnN* to be unique by appending \
+            "If {TRUE}, force all *$PnN* to be unique by appending \
              ``\"{DEDUP_PNN_SEP}X\"`` to each duplicate and incrementing \
              ``X`` starting at 0."
         );
@@ -7978,8 +8106,12 @@ impl DocArgParam {
     }
 
     fn new_trim_intra_value_whitespace_param() -> Self {
-        let d = "If ``True``, trim whitespace between delimiters such as ``,`` \
-                 and ``;`` within keyword value strings.";
+        let d = format!(
+            "If {TRUE}, trim whitespace between delimiters such as {comma} \
+             and {semicolon} within keyword value strings.",
+            comma = code_str(","),
+            semicolon = code_str(";"),
+        );
         Self::new_bool_param("trim_intra_value_whitespace", d)
     }
 
@@ -7988,8 +8120,8 @@ impl DocArgParam {
         let pytype = PyStr::new_regexp().rstype(path);
         let d = format!(
             "A pattern to match the *$PnN* of the time measurement. \
-             If ``\"{TIME_MEAS_NAME_PATTERN_NONE}\"``, do not try to find a \
-             time measurement."
+             If {none}, do not try to find a time measurement.",
+            none = code_str(TIME_MEAS_NAME_PATTERN_NONE),
         );
         Self::new_param("time_meas_pattern", pytype, d)
             .def(DocDefault::Str(TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
@@ -8085,8 +8217,12 @@ impl DocArgParam {
     }
 
     fn new_allow_other_feature_param() -> Self {
-        let d = "If ``true``, allow *$PnFEATURE* to be a value other than \
-                 `\"Area\"`, `\"Width\"`, or `\"Height\"`.";
+        let d = format!(
+            "If {TRUE}, allow *$PnFEATURE* to be a value other than {area}, {width}, or {height}.",
+            area = code_str("Area"),
+            width = code_str("Width"),
+            height = code_str("Height"),
+        );
         Self::new_bool_param("allow_other_feature", d)
     }
 
@@ -8097,9 +8233,8 @@ impl DocArgParam {
         const NAME3_0: &str = "1/60 seconds";
         const NAME3_1: &str = "centiseconds";
 
-        let fmt = |s: &str| format!("``\"{s}\"``");
-        let sub3_0 = fmt(SUB3_0);
-        let sub3_1 = fmt(SUB3_1);
+        let sub3_0 = code_str(SUB3_0);
+        let sub3_1 = code_str(SUB3_1);
 
         // format exception description
         let exc_desc = format!(
@@ -8113,9 +8248,9 @@ impl DocArgParam {
         // format arg description
         let std_pat = match version {
             None => "version-specific".into(),
-            Some(Version::FCS2_0) => fmt(CORE_PAT),
-            Some(Version::FCS3_0) => fmt(&format!("{CORE_PAT}:{SUB3_0}")),
-            _ => fmt(&format!("{CORE_PAT}.{SUB3_1}")),
+            Some(Version::FCS2_0) => code_str(CORE_PAT),
+            Some(Version::FCS3_0) => code_str(format!("{CORE_PAT}:{SUB3_0}")),
+            _ => code_str(format!("{CORE_PAT}.{SUB3_1}")),
         };
         let line1 = "If supplied, will be used as an alternative pattern when \
                      parsing *$BTIM* and *$ETIM*.";
@@ -8135,9 +8270,11 @@ impl DocArgParam {
     }
 
     fn new_process_pseudostandard_param() -> Self {
-        let d = "Process non-standard keywords with a leading *$*. The \
-                 presence of such keywords often means the version in *HEADER* \
-                 is incorrect.";
+        let d = format!(
+            "Process non-standard keywords with a leading *$*. The \
+             presence of such keywords often means the version in {HEADER} \
+             is incorrect."
+        );
         Self::new_proc_kw_fail("process_pseudostandard", "ProcessPseudostandard", d)
     }
 
@@ -8169,17 +8306,21 @@ impl DocArgParam {
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
-        let d = "If ``True`` fix log-scale *PnE* and keywords which have zero offset \
-                 (ie ``X,0.0`` where ``X`` is non-zero).";
+        let d = format!(
+            "If {TRUE} fix log-scale *PnE* and keywords which have zero offset \
+             (ie ``X,0.0`` where ``X`` is non-zero)."
+        );
         Self::new_bool_param("fix_log_scale_offsets", d)
     }
 
     fn new_disallow_localtime_param() -> Self {
-        let d = "If ``true``, require that *$BEGINDATETIME* and *$ENDDATETIME* \
-                 have a timezone if provided. This is not required by the \
-                 standard, but not having a timezone is ambiguous since the \
-                 absolute value of the timestamp is dependent on localtime and \
-                 therefore is location-dependent. Only affects FCS 3.2.";
+        let d = format!(
+            "If {TRUE}, require that *$BEGINDATETIME* and *$ENDDATETIME* \
+             have a timezone if provided. This is not required by the \
+             standard, but not having a timezone is ambiguous since the \
+             absolute value of the timestamp is dependent on localtime and \
+             therefore is location-dependent. Only affects FCS 3.2."
+        );
         Self::new_bool_param("disallow_localtime", d)
     }
 
@@ -8203,8 +8344,10 @@ impl DocArgParam {
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {
-        let d = "If ``True`` set all *$PnB* to the number of bytes from *$BYTEORD*. \
-                 Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``.";
+        let d = format!(
+            "If {TRUE} set all *$PnB* to the number of bytes from *$BYTEORD*. \
+             Only has an effect for FCS 2.0/3.0 where *$DATATYPE* is ``I``."
+        );
         Self::new_bool_param("integer_widths_from_byteord", d)
     }
 
@@ -8229,6 +8372,7 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, false, "DisallowRangeTrunc", d, e)
     }
 
+    // TODO use enum for segment identity
     fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
         let location = if is_header { "HEADER" } else { "TEXT" };
         let d = format!("Corrections for {what} offsets in *{location}*.");
@@ -8256,23 +8400,27 @@ impl DocArgParam {
         Self::new_param(
             "other_corrections",
             PyList::new1(PyTuple::new_correction(true, "OtherSegmentId")),
-            "Corrections for OTHER offsets if they exist. Each correction will \
-             be applied in order. If an offset does not need to be corrected, \
-             use ``(0, 0)``. This will not affect the number of OTHER segments \
-             that are read; this is controlled by ``max_other``.",
+            format!(
+                "Corrections for {OTHER} offsets if they exist. Each correction will \
+                 be applied in order. If an offset does not need to be corrected, \
+                 use ``(0, 0)``. This will not affect the number of {OTHER} segments \
+                 that are read; this is controlled by ``max_other``."
+            ),
         )
         .def_auto()
     }
 
     fn new_max_other_param() -> Self {
-        let desc = "Maximum number of OTHER segments that can be parsed. \
-                    ``None`` means limitless.";
+        let desc = format!(
+            "Maximum number of {OTHER} segments that can be parsed. \
+             {NONE} means limitless."
+        );
         Self::new_opt_param("max_other", RsInt::Usize, desc)
     }
 
     fn new_other_width_param() -> Self {
         let pt = PyInt::new_other_width();
-        let desc = "Width (in bytes) to use when parsing *OTHER* offsets.";
+        let desc = format!("Width (in bytes) to use when parsing {OTHER} offsets.");
         Self::new_param("other_width", pt, desc).def(DocDefault::Int(8))
     }
 
@@ -8280,32 +8428,38 @@ impl DocArgParam {
         let path = config_path("GuessOtherWidth");
         let choices = ["none", "error", "warn", "silent"];
         let pt = PyLiteral::new2(choices, path);
-        let d = "Guess the width of *OTHER* segments. Valid values are ``\"none\"`` \
-                 (no guessing) or ``\"error\"``, ``\"warn\"`` or ``\"silent\"`` \
-                 which will guess and throw an error, warning, or nothing on \
-                 failure. For ``\"warn\"`` and ``\"silent\"``, failure will fall \
-                 back to the 8 or whatever was given in ``other_width``";
+        let d = format!(
+            "Guess the width of {OTHER} segments. Valid values are ``\"none\"`` \
+             (no guessing) or ``\"error\"``, ``\"warn\"`` or ``\"silent\"`` \
+             which will guess and throw an error, warning, or nothing on \
+             failure. For ``\"warn\"`` and ``\"silent\"``, failure will fall \
+             back to the 8 or whatever was given in ``other_width``"
+        );
         Self::new_param("guess_other_width", pt, d).def_auto()
     }
 
     // this only matters for 3.0+ files
     fn new_squish_offsets_param() -> Self {
-        let d = "If ``True`` and a segment's ending offset is zero, treat entire \
-                 offset as empty. This might happen if the ending offset is longer \
-                 than 8 digits, in which case it must be written in *TEXT*. If this \
-                 happens, the standards mandate that both offsets be written to \
-                 *TEXT* and that the *HEADER* offsets be set to ``0,0``, so only \
-                 writing one is an error unless this flag is set. This should only \
-                 happen in FCS 3.0 files and above.";
+        let d = format!(
+            "If {TRUE} and a segment's ending offset is zero, treat entire \
+             offset as empty. This might happen if the ending offset is longer \
+             than 8 digits, in which case it must be written in {TEXT}. If this \
+             happens, the standards mandate that both offsets be written to \
+             {TEXT} and that the {HEADER} offsets be set to ``0,0``, so only \
+             writing one is an error unless this flag is set. This should only \
+             happen in FCS 3.0 files and above."
+        );
         Self::new_bool_param("squish_offsets", d)
     }
 
     fn new_allow_pseudoempty_param() -> Self {
-        let d = "If ``True``, allow offsets like ``X,X-1``. Some files \
-                 will denote an \"empty\" offset as ``0,-1`` or ``1000,999``, \
-                 which is logically correct since the last offset points to the \
-                 last byte, thus ``0,0`` is actually 1 byte long. If this flat \
-                 is set, such offsets will be treated as if they were ``0,0``.";
+        let d = format!(
+            "If {TRUE}, allow offsets like ``X,X-1``. Some files \
+             will denote an \"empty\" offset as ``0,-1`` or ``1000,999``, \
+             which is logically correct since the last offset points to the \
+             last byte, thus ``0,0`` is actually 1 byte long. If this flat \
+             is set, such offsets will be treated as if they were ``0,0``."
+        );
         Self::new_bool_param("allow_pseudoempty", d)
     }
 
@@ -8321,23 +8475,27 @@ impl DocArgParam {
     }
 
     fn new_data_remainder_limit_param() -> Self {
-        let d = "Limit by which ending *DATA* offset can be truncated if \
-                 its length modulo event width produces a remainder.";
+        let d = format!(
+            "Limit by which ending {DATA} offset can be truncated if \
+             its length modulo event width produces a remainder."
+        );
         Self::new_param("data_remainder_limit", RsInt::U64, d).def_auto()
     }
 
     fn new_version_override() -> Self {
-        let d = "Override the FCS version as seen in *HEADER*. Use an FCS \
-                 version string like ``\"FCS3.2\"`` to force to a specific \
-                 version. Alternatively, autodetect the version from keywords in \
-                 *TEXT* using one of ``\"latest\"``, ``\"earliest\"``, \
-                 ``\"strict\"``, or ``\"loose\"``. These will be used to select \
-                 the latest version, earliest version, version with least \
-                 optional keywords, or version with most optional keywords \
-                 respectively in the event that more than one version can \
-                 accommodate the keywords from *TEXT*. Autodetection will fail \
-                 if no versions can be found which accommodate all required \
-                 keywords in *TEXT*.";
+        let d = format!(
+            "Override the FCS version as seen in {HEADER}. Use an FCS \
+             version string like ``\"FCS3.2\"`` to force to a specific \
+             version. Alternatively, autodetect the version from keywords in \
+             {TEXT} using one of ``\"latest\"``, ``\"earliest\"``, \
+             ``\"strict\"``, or ``\"loose\"``. These will be used to select \
+             the latest version, earliest version, version with least \
+             optional keywords, or version with most optional keywords \
+             respectively in the event that more than one version can \
+             accommodate the keywords from {TEXT}. Autodetection will fail \
+             if no versions can be found which accommodate all required \
+             keywords in {TEXT}."
+        );
         Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }
 
@@ -8357,25 +8515,29 @@ impl DocArgParam {
 
     fn new_allow_duplicate_supp_text() -> Self {
         let n = "allow_duplicated_supp_text";
-        let d = "Choose what happens if supplemental *TEXT* offsets overlap the \
-                 primary *TEXT* offsets from *HEADER* or *HEADER*. The offsets \
-                 will not be used if an overlap is found.";
+        let d = format!(
+            "Choose what happens if supplemental {TEXT} offsets overlap the \
+             primary {TEXT} offsets from {HEADER} or {HEADER}. The offsets \
+             will not be used if an overlap is found."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowDuplicatedSuppTEXT", d, e)
     }
 
     fn new_ignore_supp_text() -> Self {
-        let d = "If ``True``, ignore supplemental *TEXT* entirely.";
+        let d = format!("If {TRUE}, ignore supplemental {TEXT} entirely.");
         Self::new_bool_param("ignore_supp_text", d)
     }
 
     fn new_delim_escape_mode() -> Self {
         let path = config_path("DelimEscapeMode");
-        let d = "Determine how to escape delims in *TEXT*. If ``\"escaped\"`` \
-                 or ``\"unescaped\"``, escape or do not escape delimiters \
-                 respectively. If ``\"guess_escaped\"`` or  ``\"guess_unescaped\"``, \
-                 attempt to guess how delimiters should be treated, falling back \
-                 to escaped or unescaped mode respectively if the choice is ambiguous.";
+        let d = format!(
+            "Determine how to escape delims in {TEXT}. If ``\"escaped\"`` \
+             or ``\"unescaped\"``, escape or do not escape delimiters \
+             respectively. If ``\"guess_escaped\"`` or  ``\"guess_unescaped\"``, \
+             attempt to guess how delimiters should be treated, falling back \
+             to escaped or unescaped mode respectively if the choice is ambiguous."
+        );
         let choices = ["escaped", "unescaped", "guess_escaped", "guess_unescaped"];
         let pt = PyLiteral::new2(choices, path);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
@@ -8390,21 +8552,25 @@ impl DocArgParam {
 
     fn new_allow_missing_final_delim() -> Self {
         let n = "allow_missing_final_delim";
-        let d = "Choose what happens if *TEXT* does not end with a delimiter.";
+        let d = format!("Choose what happens if {TEXT} does not end with a delimiter.");
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingFinalDelim", d, e)
     }
 
     fn new_allow_nonunique() -> Self {
-        let d = "Choose how to handle non-unique keys in *TEXT*. In such cases, \
-                 only the first will be used regardless of this setting.";
+        let d = format!(
+            "Choose how to handle non-unique keys in {TEXT}. In such cases, \
+             only the first will be used regardless of this setting."
+        );
         let e = PyreflowError::ParseKey;
         Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d, e)
     }
 
     fn new_allow_odd() -> Self {
-        let d = "Choose what happens if *TEXT* contains an odd number of tokens. \
-                 The last 'dangling' token will be dropped regardless.";
+        let d = format!(
+            "Choose what happens if {TEXT} contains an odd number of tokens. \
+             The last 'dangling' token will be dropped regardless."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d, e)
     }
@@ -8428,15 +8594,19 @@ impl DocArgParam {
     }
 
     fn new_allow_non_utf8() -> Self {
-        let d = "Choose what happens if non-UTF8 characters are in *TEXT*. \
-                 Tokens with such characters will be dropped regardless.";
+        let d = format!(
+            "Choose what happens if non-UTF8 characters are in {TEXT}. \
+             Tokens with such characters will be dropped regardless."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d, e)
     }
 
     fn new_use_latin1() -> Self {
-        let d = "If ``True`` interpret all characters in *TEXT* as Latin-1 (aka \
-             ISO/IEC 8859-1) instead of UTF-8.";
+        let d = format!(
+            "If {TRUE} interpret all characters in {TEXT} as Latin-1 (aka \
+             ISO/IEC 8859-1) instead of UTF-8."
+        );
         Self::new_bool_param("use_latin1", d)
     }
 
@@ -8452,16 +8622,20 @@ impl DocArgParam {
 
     fn new_allow_missing_supp_text() -> Self {
         let n = "allow_missing_supp_text";
-        let d = "Choose how to handle supplemental missing *TEXT* offsets in \
-                 primary *TEXT*.";
+        let d = format!(
+            "Choose how to handle supplemental missing {TEXT} offsets in \
+             primary {TEXT}."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingSuppTEXT", d, e)
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
         let n = "allow_supp_text_own_delim";
-        let d = "Choose what happens if supplemental *TEXT* has a different \
-                 delimiter compared to primary *TEXT*.";
+        let d = format!(
+            "Choose what happens if supplemental {TEXT} has a different \
+             delimiter compared to primary {TEXT}."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowSuppTEXTOwnDelim", d, e)
     }
@@ -8489,34 +8663,38 @@ impl DocArgParam {
     }
 
     fn new_trim_text_end() -> Self {
-        let d = "If ``True`` fix the final offset of *TEXT*. This \
-                 will actually do two things (in this order). First, it will \
-                 move the ending offset to the last delimiter in *TEXT*, thereby \
-                 removing any non-delimiter characters (usually spaces if \
-                 present). Second, it will decrease the offset by \
-                 one if the number of delimiters is even and the number of final \
-                 consecutive delimiters is more than one. This will effectively \
-                 remove the last delimiter, which sometimes erroneously exists.";
+        let d = format!(
+            "If {TRUE} fix the final offset of {TEXT}. This \
+             will actually do two things (in this order). First, it will \
+             move the ending offset to the last delimiter in {TEXT}, thereby \
+             removing any non-delimiter characters (usually spaces if \
+             present). Second, it will decrease the offset by \
+             one if the number of delimiters is even and the number of final \
+             consecutive delimiters is more than one. This will effectively \
+             remove the last delimiter, which sometimes erroneously exists."
+        );
         Self::new_bool_param("trim_text_end", d)
     }
 
     fn new_ignore_standard_keys() -> Self {
-        let d = "Remove standard keys from *TEXT*. The leading *$* is implied \
-                 so do not include it.";
+        let d = format!(
+            "Remove standard keys from {TEXT}. The leading *$* is implied \
+             so do not include it."
+        );
         Self::new_key_patterns_param("ignore_standard_keys", d)
     }
 
     fn new_promote_to_standard() -> Self {
-        let d = "Promote nonstandard keys to standard keys in *TEXT*";
+        let d = format!("Promote nonstandard keys to standard keys in {TEXT}");
         Self::new_key_patterns_param("promote_to_standard", d)
     }
 
     fn new_demote_from_standard() -> Self {
-        let d = "Demote nonstandard keys from standard keys in *TEXT*";
+        let d = format!("Demote nonstandard keys from standard keys in {TEXT}");
         Self::new_key_patterns_param("demote_from_standard", d)
     }
 
-    fn new_key_patterns_param(argname: &str, desc: &str) -> Self {
+    fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
         let common = format!(
             "The first member of the tuples is a list of strings which \
              match literally. The second member is a list of regular \
@@ -8527,9 +8705,11 @@ impl DocArgParam {
     }
 
     fn new_rename_standard_keys() -> Self {
-        let d = "Rename standard keys in *TEXT*. Keys matching the first part of \
-                 the pair will be replaced by the second. Comparisons are case \
-                 insensitive. The leading *$* is implied so do not include it.";
+        let d = format!(
+            "Rename standard keys in {TEXT}. Keys matching the first part of \
+             the pair will be replaced by the second. Comparisons are case \
+             insensitive. The leading *$* is implied so do not include it."
+        );
         Self::new_param("rename_standard_keys", PyDict::new_keystring_pairs(), d).def_auto()
     }
 
@@ -8537,25 +8717,31 @@ impl DocArgParam {
         Self::new_param(
             "replace_standard_key_values",
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
-            "Replace values for standard keys in *TEXT* Comparisons are case \
-             insensitive. The leading *$* is implied so do not include it.",
+            format!(
+                "Replace values for standard keys in {TEXT} Comparisons are case \
+                 insensitive. The leading *$* is implied so do not include it."
+            ),
         )
         .def_auto()
     }
 
     fn new_substitute_standard_key_values() -> Self {
-        let d = "Apply sed-like substitution operation on matching standard \
-                 keys. The leading *$* is implied when matching keys. The first \
-                 dict corresponds to keys which are matched literally, and the \
-                 second corresponds to keys which are matched via regular \
-                 expression. The members in the 3-tuple values correspond to a \
-                 regular expression, replacement string, and global flag \
-                 respectively. The regular expression may contain capture \
-                 expressions which must be matched exactly in the replacement \
-                 string. If the global flag is ``True``, replace all found \
-                 matches, otherwise only replace the first. Any references in \
-                 replacement string must be given with surrounding brackets \
-                 like ``\"${1}\"`` or ``\"${cygnus}\"``.";
+        let d = format!(
+            "Apply sed-like substitution operation on matching standard \
+             keys. The leading *$* is implied when matching keys. The first \
+             dict corresponds to keys which are matched literally, and the \
+             second corresponds to keys which are matched via regular \
+             expression. The members in the 3-tuple values correspond to a \
+             regular expression, replacement string, and global flag \
+             respectively. The regular expression may contain capture \
+             expressions which must be matched exactly in the replacement \
+             string. If the global flag is {TRUE}, replace all found \
+             matches, otherwise only replace the first. Any references in \
+             replacement string must be given with surrounding brackets \
+             like {bracket0} or {bracket1}.",
+            bracket0 = code_str("${1}"),
+            bracket1 = code_str("${cygnus}"),
+        );
         let p = PyTuple::new_sub_patterns();
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
@@ -8564,9 +8750,11 @@ impl DocArgParam {
         Self::new_param(
             "append_standard_keywords",
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
-            "Append standard key/value pairs to *TEXT*. All keys and values \
-             will be included as they appear here. The leading *$* is implied so \
-             do not include it.",
+            format!(
+                "Append standard key/value pairs to {TEXT}. All keys and values \
+                 will be included as they appear here. The leading *$* is implied \
+                 so do not include it."
+            ),
         )
         .def_auto()
     }
@@ -8585,12 +8773,12 @@ impl DocArgParam {
     }
 
     fn new_ignore_text_data_offsets_param() -> Self {
-        let d = "If ``True`` ignore *DATA* offsets in *TEXT*";
+        let d = format!("If {TRUE} ignore {DATA} offsets in {TEXT}");
         Self::new_bool_param("ignore_text_data_offsets", d)
     }
 
     fn new_ignore_text_analysis_offsets_param() -> Self {
-        let d = "If ``True`` ignore *ANALYSIS* offsets in *TEXT*";
+        let d = format!("If {TRUE} ignore {ANALYSIS} offsets in {TEXT}");
         Self::new_bool_param("ignore_text_analysis_offsets", d)
     }
 
@@ -8598,10 +8786,10 @@ impl DocArgParam {
         let exc = PyreflowError::FileLayout.fmt_ref();
         let n = "allow_header_text_offset_mismatch";
         let d = format!(
-            "Allow *HEADER* and *TEXT* offsets to be different. If \
-             'header_warn' or 'header_silent', choose *HEADER* and throw \
+            "Allow {HEADER} and {TEXT} offsets to be different. If \
+             'header_warn' or 'header_silent', choose {HEADER} and throw \
              a warning or nothing on mismatch. If 'text_warn' or 'text_silent` \
-             behave analogously for *TEXT*. If 'error' throw {exc}"
+             behave analogously for {TEXT}. If 'error' throw {exc}"
         );
         let choices = [
             "error",
@@ -8618,13 +8806,13 @@ impl DocArgParam {
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
         let n = "allow_missing_required_offsets";
         let s = match version {
-            Some(Version::FCS3_2) => "*DATA*",
-            Some(_) => "*DATA* and *ANALYSIS*",
-            None => "*DATA* and *ANALYSIS* (3.1 or lower)",
+            Some(Version::FCS3_2) => DATA.into(),
+            Some(_) => format!("{DATA} and {ANALYSIS}"),
+            None => format!("{DATA} and {ANALYSIS} (3.1 or lower)"),
         };
         let d = format!(
-            "Choose what happens when required {s} offsets in *TEXT* are be missing. \
-                 If missing, fall back to offsets from *HEADER*."
+            "Choose what happens when required {s} offsets in {TEXT} are be missing. \
+             If missing, fall back to offsets from {HEADER}."
         );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingRequiredOffsets", d, e)
@@ -8632,16 +8820,20 @@ impl DocArgParam {
 
     fn new_allow_uneven_event_width_param() -> Self {
         let n = "allow_uneven_event_width";
-        let d = "Choose what to do when event width does not perfectly divide length \
-                 of *DATA*. Does not apply to delimited ASCII layouts.";
+        let d = format!(
+            "Choose what to do when event width does not perfectly divide length \
+             of {DATA}. Does not apply to delimited ASCII layouts."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowUnevenEventWidth", d, e)
     }
 
     fn new_allow_tot_mismatch_param() -> Self {
-        let d = "Choose what happens when *$TOT* does not match number of events as \
-                 computed by the event width and length of *DATA*. \
-                 Does not apply to delimited ASCII layouts.";
+        let d = format!(
+            "Choose what happens when *$TOT* does not match number of events as \
+             computed by the event width and length of {DATA}. \
+             Does not apply to delimited ASCII layouts."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
@@ -8655,20 +8847,22 @@ impl DocArgParam {
 
     fn new_disallow_over_range() -> Self {
         let n = "disallow_over_range";
-        let d = "Choose how to handle event values in *DATA* which exceed *$PnR*. \
-                 This only has an effect if the column is not truncated \
-                 according to ``truncate_event_values``.";
+        let d = format!(
+            "Choose how to handle event values in {DATA} which exceed *$PnR*. \
+             This only has an effect if the column is not truncated \
+             according to ``truncate_event_values``."
+        );
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
     }
 
     fn new_warnings_are_errors_param() -> Self {
-        let d = "If ``True`` all warnings will be regarded as errors.";
+        let d = format!("If {TRUE} all warnings will be regarded as errors.");
         Self::new_bool_param("warnings_are_errors", d)
     }
 
     fn new_hide_warnings_param() -> Self {
-        Self::new_bool_param("hide_warnings", "If ``True`` hide all warnings.")
+        Self::new_bool_param("hide_warnings", format!("If {TRUE} hide all warnings."))
     }
 }
 
@@ -9112,7 +9306,7 @@ impl<A: fmt::Display + IsDocArg, S> fmt::Display
 impl fmt::Display for NamedPyException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let pn = &self.inner.inner.pyname;
-        let ns: Vec<_> = self.names.iter().map(|n| format!("``{n}``")).collect();
+        let ns: Vec<_> = self.names.iter().map(arg).collect();
         let ns_ = fmt_comma_sep_list(&ns[..], "or");
         let n = self.inner.argmod.fmt(&ns_);
         if let Some(d) = self.inner.inner.desc.as_ref() {
@@ -9150,7 +9344,7 @@ impl<T: IsArgType> fmt::Display for DocArg<T> {
             .as_ref()
             .map(|d| d.as_value(pt).0)
             .map_or(self.desc.clone(), |def| {
-                format!("{} Defaults to ``{def}``.", self.desc)
+                format!("{} Defaults to {}.", self.desc, code(def))
             });
         let tn = T::TYPENAME;
         let at = T::ARGTYPE;
@@ -9436,20 +9630,48 @@ fn pytemporal(version: Version) -> Ident {
 }
 
 fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
-    let doc = DocString::new_ivar("The value of *$DATATYPE*.", PyLiteral::new_datatype())
-        .paras([format!("Will always return ``\"{dt}\"``.")]);
+    let d = format!("The value of {datatype}.", datatype = fcs_kw("$DATATYPE"));
+    let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
+        .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
     doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
 
 fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
-    let s0 = format!("Will always return ``{nbytes}``.");
-    let s1 = "This corresponds to the value of *$PnB* divided by 8, which are \
-              all equal for this layout."
-        .into();
+    let s0 = format!("Will always return {}.", code(nbytes));
+    let s1 = format!(
+        "This corresponds to the value of {pnb} divided by 8, which are \
+         all equal for this layout.",
+        pnb = fcs_kw("$PnB")
+    );
     let doc = DocString::new_ivar("The width of each measurement in bytes.", RsInt::Usize)
         .paras([s0, s1]);
 
     doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
+}
+
+/// Italic RST format
+fn italic(s: impl fmt::Display) -> String {
+    format!("*{s}*")
+}
+
+/// Format for FCS keywords
+fn fcs_kw(s: impl fmt::Display) -> String {
+    italic(s)
+}
+
+/// Format for python code and FCS literals
+fn code(s: impl fmt::Display) -> String {
+    format!("``{s}``")
+}
+
+/// Format for python arguments
+fn arg(s: impl fmt::Display) -> String {
+    code(s)
+}
+
+/// Format for literal python strings (to avoid annoying quotes)
+fn code_str(s: impl fmt::Display) -> String {
+    code(format!("\"{s}\""))
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
@@ -9512,6 +9734,24 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_1,
     Version::FCS3_2,
 ];
+
+const HEADER: &str = "*HEADER*";
+
+const TEXT: &str = "*TEXT*";
+
+const DATA: &str = "*DATA*";
+
+const ANALYSIS: &str = "*ANALYSIS*";
+
+const OTHER: &str = "*OTHER*";
+
+const TRUE: &str = "``True``";
+
+const FALSE: &str = "``False``";
+
+const NONE: &str = "``None``";
+
+const UNIT: &str = "``()``";
 
 const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
 

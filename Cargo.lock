@@ -813,6 +813,7 @@ dependencies = [
 name = "fireflow-python-proc"
 version = "0.1.0"
 dependencies = [
+ "const_format",
  "derive-new",
  "derive_more",
  "fireflow-types",

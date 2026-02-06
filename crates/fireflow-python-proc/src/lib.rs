@@ -9556,7 +9556,7 @@ macro_rules! impl_display_pytype {
     ($t:ident, $s:expr) => {
         impl<R> fmt::Display for $t<R> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                f.write_str(formatcp!(":py:class:`{}`", $s))
+                write!(f, ":py:class:`{}`", $s)
             }
         }
     };
@@ -9575,8 +9575,8 @@ impl_display_pytype!(PyDatetime, "~datetime.datetime");
 impl fmt::Display for SegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
-            Self::Header => "*HEADER*",
-            Self::Any => "*HEADER* or *TEXT*",
+            Self::Header => HEADER,
+            Self::Any => formatcp!("{HEADER} or {TEXT}"),
         };
         f.write_str(s)
     }
@@ -9585,8 +9585,8 @@ impl fmt::Display for SegmentSrc {
 impl fmt::Display for UncorrSegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
-            Self::Header => "*HEADER*",
-            Self::Text => "*TEXT*",
+            Self::Header => HEADER,
+            Self::Text => TEXT,
         };
         f.write_str(s)
     }

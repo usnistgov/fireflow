@@ -1,7 +1,9 @@
 extern crate proc_macro;
 
 use fireflow_types::{
-    DEDUP_PNN_SEP, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
+    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
+    DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
+    DEFAULT_TIME_FORMAT_3_1, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
 };
 
@@ -6211,7 +6213,11 @@ impl<E: From<PyException>> PyInt<E> {
 
     fn new_other_width() -> Self {
         let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
-        let d = format!("if {ARG_TOKEN} is less than ``8`` and greater than ``20``");
+        let d = format!(
+            "if {ARG_TOKEN} is less than {min} and greater than {max}",
+            min = code("8"),
+            max = code("20")
+        );
         let e = PyException::new_config().desc(d);
         Self::new_int(RsInt::NonZeroU8).rstype(path).exc(e)
     }
@@ -8220,8 +8226,9 @@ impl DocArgParam {
     fn new_dedup_meas_names_param() -> Self {
         let d = format!(
             "If {TRUE}, force all {PNN} to be unique by appending \
-             ``\"{DEDUP_PNN_SEP}X\"`` to each duplicate and incrementing \
-             ``X`` starting at 0."
+             {suffix} to each duplicate and incrementing {x} starting at 0.",
+            suffix = code_str(format!("{DEDUP_PNN_SEP}X")),
+            x = code("X"),
         );
         Self::new_bool_param("dedup_measurement_names", d)
     }
@@ -8274,11 +8281,12 @@ impl DocArgParam {
         let d = format!(
             "Ignore optical keys in temporal measurement. These keys are \
              {PNG} which is explicitly forbidden by the standard but \
-             allowed in this library to be set to ``\"1.0\"`` (noop), or \
+             allowed in this library to be set to {noop} (noop), or \
              others which are nonsensical for time measurements but are not \
              explicitly forbidden in the the standard (such as *$PnL*). \
              Provided keys are the string after the \"Pn\" in the \"PnX\" \
-             keywords."
+             keywords.",
+            noop = code("1.0")
         );
         Self::new_param("ignore_time_optical_keys", p, d).def_auto()
     }
@@ -8316,9 +8324,11 @@ impl DocArgParam {
         );
         let exc = PyException::new_config().desc(desc);
         let pytype = PyStr::default().rstype(path).exc(exc);
-        let d = "If supplied, will be used as an alternative pattern when parsing \
-                 *$DATE*. If not supplied, *$DATE* will be parsed according to \
-                 the standard pattern which is ``%d-%b-%Y``.";
+        let d = format!(
+            "If supplied, will be used as an alternative pattern when parsing \
+             *$DATE*. If not supplied, *$DATE* will be parsed according to \
+             the standard pattern which is {DEFAULT_DATE_FORMAT}."
+        );
         Self::new_opt_param("date_pattern", pytype, d)
     }
 
@@ -8339,8 +8349,8 @@ impl DocArgParam {
             "If supplied, will be used as an alternative pattern when parsing \
              *$LAST_MODIFIED*. The pattern must follow the format outlined in \
              {CHRONO_REF}. If not supplied, these will be parsed according to \
-             the default pattern which is  ``\"%d-%b-%Y %H:%M:%S\"`` possibly \
-             with centiseconds after."
+             the default pattern which is {DEFAULT_LAST_MODIFIED_FORMAT} \
+             possibly with centiseconds after."
         );
         Self::new_opt_param("last_modified_pattern", pytype, d)
     }
@@ -8356,36 +8366,33 @@ impl DocArgParam {
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {
-        const CORE_PAT: &str = "%H:%M:%S";
-        const SUB3_0: &str = "%!";
-        const SUB3_1: &str = "%@";
         const NAME3_0: &str = "1/60 seconds";
         const NAME3_1: &str = "centiseconds";
-
-        let sub3_0 = code_str(SUB3_0);
-        let sub3_1 = code_str(SUB3_1);
 
         // format exception description
         let exc_desc = format!(
             "if {ARG_TOKEN} does not have specifiers for hours, minutes, \
-             seconds, and optionally sub-seconds (where {sub3_0} and {sub3_1} \
-             correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
-             in {CHRONO_REF}"
+             seconds, and optionally sub-seconds (where {BASE60_SECOND_SPEC} \
+             and {BASE100_SECOND_SPEC} correspond to {NAME3_0} and {NAME3_1} \
+             respectively) as outlined in {CHRONO_REF}"
         );
         let exc = PyException::new_config().desc(exc_desc);
 
         // format arg description
         let std_pat = match version {
-            None => "version-specific".into(),
-            Some(Version::FCS2_0) => code_str(CORE_PAT),
-            Some(Version::FCS3_0) => code_str(format!("{CORE_PAT}:{SUB3_0}")),
-            _ => code_str(format!("{CORE_PAT}.{SUB3_1}")),
+            None => formatcp!(
+                "{DEFAULT_TIME_FORMAT_2_0} for 2.0, {DEFAULT_TIME_FORMAT_3_0} \
+                 for 3.0 and {DEFAULT_TIME_FORMAT_3_1} for 3.1 and up"
+            ),
+            Some(Version::FCS2_0) => DEFAULT_TIME_FORMAT_2_0,
+            Some(Version::FCS3_0) => DEFAULT_TIME_FORMAT_3_0,
+            _ => DEFAULT_TIME_FORMAT_3_1,
         };
         let line1 = "If supplied, will be used as an alternative pattern when \
                      parsing *$BTIM* and *$ETIM*.";
         let line2 = format!(
-            "The values {sub3_0} or {sub3_1} may be used to \
-             match {NAME3_0} or {NAME3_1} respectively."
+            "The values {BASE60_SECOND_SPEC} or {BASE100_SECOND_SPEC} may be \
+             used to match {NAME3_0} or {NAME3_1} respectively."
         );
         let line3 = format!(
             "If not supplied, *$BTIM* and *$ETIM* will be parsed \

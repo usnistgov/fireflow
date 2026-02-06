@@ -27,8 +27,10 @@ use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::{
-    DEDUP_PNN_SEP, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
-    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
+    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
+    DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1,
+    NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, TIME_MEAS_NAME_PATTERN_DEFAULT,
+    TIME_MEAS_NAME_PATTERN_NONE,
 };
 
 use ansi_term::{ANSIString, Style};
@@ -144,7 +146,7 @@ fn run() -> AppResult<()> {
              parsing {kw}. It should have specifiers for year, month, and \
              day as outlined in {CHRONO_REF}. If not supplied, {kw} will \
              be parsed according to the standard pattern which is \
-             '%d-%b-%Y'.",
+             '{DEFAULT_DATE_FORMAT}'.",
             pat = fmt_arg(DATE_PATTERN),
             kw = kw_style.paint("$DATE"),
         )],
@@ -157,10 +159,12 @@ fn run() -> AppResult<()> {
              parsing {b} and {e} It should have specifiers for \
              hours, minutes, and seconds as outlined in {CHRONO_REF}. It may \
              optionally also have a sub-seconds specifier as shown in the \
-             same link. Furthermore, the specifiers '%!' and %@' may be used \
-             to match 1/60 and centiseconds respectively. If not supplied, \
-             {b} and {e} will be parsed according to the standard \
-             pattern which is version-specific.",
+             same link. Furthermore, the specifiers '{BASE60_SECOND_SPEC}' and \
+             '{BASE100_SECOND_SPEC}' may be used to match 1/60 and centiseconds \
+             respectively. If not supplied, {b} and {e} will be parsed according \
+             to the standard pattern which is {DEFAULT_TIME_FORMAT_2_0} for 2.0, \
+             '{DEFAULT_TIME_FORMAT_3_0} for 3.0, and {DEFAULT_TIME_FORMAT_3_1} \
+             for 3.1 and up.",
             b = kw_style.paint("$BTIM"),
             e = kw_style.paint("$ETIM"),
         )],

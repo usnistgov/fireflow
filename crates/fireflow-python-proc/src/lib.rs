@@ -9556,21 +9556,21 @@ macro_rules! impl_display_pytype {
     ($t:ident, $s:expr) => {
         impl<R> fmt::Display for $t<R> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                f.write_str($s)
+                f.write_str(formatcp!(":py:class:`{}`", $s))
             }
         }
     };
 }
 
-impl_display_pytype!(PyBool, ":py:class:`bool`");
-impl_display_pytype!(PyStr, ":py:class:`str`");
-impl_display_pytype!(PyBytes, ":py:class:`bytes`");
-impl_display_pytype!(PyInt, ":py:class:`int`");
-impl_display_pytype!(PyFloat, ":py:class:`float`");
-impl_display_pytype!(PyDecimal, ":py:class:`~decimal.Decimal`");
-impl_display_pytype!(PyDate, ":py:class:`~datetime.date`");
-impl_display_pytype!(PyTime, ":py:class:`~datetime.time`");
-impl_display_pytype!(PyDatetime, ":py:class:`~datetime.datetime`");
+impl_display_pytype!(PyBool, "bool");
+impl_display_pytype!(PyStr, "str");
+impl_display_pytype!(PyBytes, "bytes");
+impl_display_pytype!(PyInt, "int");
+impl_display_pytype!(PyFloat, "float");
+impl_display_pytype!(PyDecimal, "~decimal.Decimal");
+impl_display_pytype!(PyDate, "~datetime.date");
+impl_display_pytype!(PyTime, "~datetime.time");
+impl_display_pytype!(PyDatetime, "~datetime.datetime");
 
 impl fmt::Display for SegmentSrc {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

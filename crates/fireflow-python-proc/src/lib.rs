@@ -4624,6 +4624,7 @@ pub fn impl_new_gate_bi_regions(input: TokenStream) -> TokenStream {
 }
 
 // TODO doc exceptions here
+#[allow(clippy::too_many_lines)]
 fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     let index_name = if is_uni { "index" } else { "x/y indices" };
     let region_ident = path.segments.last().unwrap().ident.clone();
@@ -4651,7 +4652,9 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
             "2_0",
             format!(
                 "The {index_name} corresponding to a gating measurement \
-                 (the *m* in the *$Gm\\** keywords)."
+                 (the {m} in the {gm} keywords).",
+                gm = fcs_kw("$Gm\\*"),
+                m = fcs_kw("m")
             ),
             PyInt::new_gate_index().into(),
         ),
@@ -4661,11 +4664,18 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
                 "3.0/3.1",
                 "3_0",
                 format!(
-                    "The {index_name} corresponding to either a gating or a physical \
-                     measurement (the *m* and *n* in the *$Gm\\** or *$Pn\\** \
-                     keywords). {k} be a string like either ``Gm`` or ``Pn`` where \
-                     ``m`` is an integer and the prefix corresponds to a gating or \
-                     physical measurement respectively."
+                    "The {index_name} corresponding to either a gating or a \
+                     physical measurement (the {m} and {n} in the {gm} or {pn} \
+                     keywords). {k} be a string like either {gi} or {pi} where \
+                     {i} is an integer and the prefix corresponds to a gating or \
+                     physical measurement respectively.",
+                    gm = fcs_kw("$Gm\\*"),
+                    pn = fcs_kw("$Pn\\*"),
+                    m = fcs_kw("m"),
+                    n = fcs_kw("n"),
+                    gi = code_str("G<I>"),
+                    pi = code_str("P<I>"),
+                    i = code("<I>"),
                 ),
                 PyType::from(PyStr::new_meas_or_gate_index()),
             )
@@ -4675,7 +4685,9 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
             "3_2",
             format!(
                 "The {index_name} corresponding to a physical measurement \
-                 (the *n* in the *$Pn\\** keywords)."
+                 (the {n} in the {pn} keywords).",
+                pn = fcs_kw("$Pn\\*"),
+                n = fcs_kw("n"),
             ),
             PyInt::new_prefixed_meas_index().into(),
         ),
@@ -8463,7 +8475,9 @@ impl DocArgParam {
     fn new_fix_log_scale_offsets_param() -> Self {
         let d = format!(
             "If {TRUE} fix log-scale {PNE} and keywords which have zero offset \
-             (ie ``X,0.0`` where ``X`` is non-zero)."
+             (ie {x_zero} where {x} is non-zero).",
+            x_zero = code("<X>,0.0"),
+            x = code("X"),
         );
         Self::new_bool_param("fix_log_scale_offsets", d)
     }
@@ -8504,7 +8518,8 @@ impl DocArgParam {
     fn new_integer_widths_from_byteord_param() -> Self {
         let d = format!(
             "If {TRUE} set all {PNB} to the number of bytes from {BYTEORD}. \
-             Only has an effect for FCS 2.0/3.0 where {DATATYPE} is ``I``."
+             Only has an effect for FCS 2.0/3.0 where {DATATYPE} is {int}.",
+            int = code("I"),
         );
         Self::new_bool_param("integer_widths_from_byteord", d)
     }
@@ -8565,8 +8580,9 @@ impl DocArgParam {
             format!(
                 "Corrections for {OTHER} offsets if they exist. Each correction will \
                  be applied in order. If an offset does not need to be corrected, \
-                 use ``(0, 0)``. This will not affect the number of {OTHER} segments \
+                 use {zero_zero}. This will not affect the number of {OTHER} segments \
                  that are read; this is controlled by {max_other}.",
+                zero_zero = code("(0,0)"),
                 max_other = arg(MAX_OTHER),
             ),
         )
@@ -8612,20 +8628,25 @@ impl DocArgParam {
              offset as empty. This might happen if the ending offset is longer \
              than 8 digits, in which case it must be written in {TEXT}. If this \
              happens, the standards mandate that both offsets be written to \
-             {TEXT} and that the {HEADER} offsets be set to ``0,0``, so only \
+             {TEXT} and that the {HEADER} offsets be set to {empty}, so only \
              writing one is an error unless this flag is set. This should only \
-             happen in FCS 3.0 files and above."
+             happen in FCS 3.0 files and above.",
+            empty = code("0,0"),
         );
         Self::new_bool_param("squish_offsets", d)
     }
 
     fn new_allow_pseudoempty_param() -> Self {
         let d = format!(
-            "If {TRUE}, allow offsets like ``X,X-1``. Some files \
-             will denote an \"empty\" offset as ``0,-1`` or ``1000,999``, \
+            "If {TRUE}, allow offsets like {x_x_minus_one}. Some files \
+             will denote an \"empty\" offset as {fake_empty0} or {fake_empty1000}, \
              which is logically correct since the last offset points to the \
-             last byte, thus ``0,0`` is actually 1 byte long. If this flat \
-             is set, such offsets will be treated as if they were ``0,0``."
+             last byte, thus {empty} is actually 1 byte long. If this flat \
+             is set, such offsets will be treated as if they were {empty}.",
+            x_x_minus_one = code("X,X-1"),
+            fake_empty0 = code("0,-1"),
+            fake_empty1000 = code("1000,999"),
+            empty = code("0,0"),
         );
         Self::new_bool_param("allow_pseudoempty", d)
     }
@@ -8652,10 +8673,10 @@ impl DocArgParam {
     fn new_version_override() -> Self {
         let d = format!(
             "Override the FCS version as seen in {HEADER}. Use an FCS \
-             version string like {verstr} to force to a specific \
-             version. Alternatively, autodetect the version from keywords in \
-             {TEXT} using one of {latest}, {earliest}, {strict}, or {loose}. \
-             These will be used to select the latest version, earliest version, \
+             version string like {verstr} to force to a specific version. \
+             Alternatively, autodetect the version from keywords in {TEXT} \
+             using one of {latest}, {earliest}, {strict}, or {loose}. These \
+             will be used to select the latest version, earliest version, \
              version with least optional keywords, or version with most optional \
              keywords respectively in the event that more than one version can \
              accommodate the keywords from {TEXT}. Autodetection will fail \

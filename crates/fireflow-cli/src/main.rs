@@ -30,14 +30,15 @@ use fireflow_types::config::{
     DELIM_ESCAPED_LEVEL, DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL,
     DELIM_UNESCAPED_LEVEL, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL,
     FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL,
-    KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, SPILLOVER_GUESS_LEVEL,
-    SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL, TMP_OPT_DEMOTE_SILENT_LEVEL,
-    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
-    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
-    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL,
-    TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL,
+    MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL,
+    OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL,
+    OTHER_WIDTH_WARN_LEVEL, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
+    TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
+    TMP_OPT_DROP_WARN_LEVEL, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL,
+    TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL,
+    TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
@@ -102,8 +103,8 @@ fn run() -> AppResult<()> {
              to be escaped."
                 .into(),
             format!(
-                "If '{DELIM_ESCAPED_LEVEL}' or '{DELIM_UNESCAPED_LEVEL}', escape or do not \
-                 escape delimiters respectively."
+                "If '{DELIM_ESCAPED_LEVEL}' or '{DELIM_UNESCAPED_LEVEL}', escape \
+                 or do not escape delimiters respectively."
             ),
             format!(
                 "If {DELIM_GUESS_ESCAPED_LEVEL} or {DELIM_GUESS_UNESCAPED_LEVEL} attempt to \
@@ -123,7 +124,7 @@ fn run() -> AppResult<()> {
                  will be too high (if at all) therefore all delimiters should be in \
                  the {text_seg} segment and can be counted. Keys likely will not have \
                  escaped delimiters in them. Keys should almost never be blank in \
-                 unescaped mode since `\"\"` is almost never a sensible key value."
+                 unescaped mode since '\"\"' is almost never a sensible key value."
             ),
             format!(
                 "The guessing algorithm is independent of {trim} since it will ignore \
@@ -175,8 +176,8 @@ fn run() -> AppResult<()> {
              same link. Furthermore, the specifiers '{BASE60_SECOND_SPEC}' and \
              '{BASE100_SECOND_SPEC}' may be used to match 1/60 and centiseconds \
              respectively. If not supplied, {b} and {e} will be parsed according \
-             to the standard pattern which is {DEFAULT_TIME_FORMAT_2_0} for 2.0, \
-             '{DEFAULT_TIME_FORMAT_3_0} for 3.0, and {DEFAULT_TIME_FORMAT_3_1} \
+             to the standard pattern which is '{DEFAULT_TIME_FORMAT_2_0}' for 2.0, \
+             '{DEFAULT_TIME_FORMAT_3_0}' for 3.0, and '{DEFAULT_TIME_FORMAT_3_1}' \
              for 3.1 and up.",
             b = kw_style.paint("$BTIM"),
             e = kw_style.paint("$ETIM"),
@@ -225,7 +226,7 @@ fn run() -> AppResult<()> {
              '{OTHER_WIDTH_NONE_LEVEL}' (no guessing) or '{OTHER_WIDTH_ERROR_LEVEL}', \
              '{OTHER_WIDTH_WARN_LEVEL}' or '{OTHER_WIDTH_SILENT_LEVEL}' which will \
              guess and throw an error, warning, or nothing on failure. For 'warn' \
-             and 'silent', failure will fall back to the 8 or whatever was given in {}",
+             and 'silent', failure will fall back to 8 or whatever was given in {}",
             fmt_arg(OTHER_WIDTH),
         ));
 
@@ -766,9 +767,11 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(AllowHeaderTEXTOffsetMismatch))
         .help(format!(
             "Allow {header_seg} and {text_seg} offsets to be different. If \
-             'header_warn' or 'header_silent', choose {header_seg} and throw \
-             a warning or nothing on mismatch. If 'text_warn' or 'text_silent` \
-             behave analogously for {text_seg}. If 'error' (default) throw error."
+             {MISMATCH_HEADER_WARN_LEVEL} or {MISMATCH_HEADER_SILENT_LEVEL}, \
+             choose {header_seg} and throw a warning or nothing on mismatch. \
+             If {MISMATCH_TEXT_WARN_LEVEL} or {MISMATCH_TEXT_SILENT_LEVEL} \
+             behave analogously for {text_seg}. If {MISMATCH_ERROR_LEVEL} \
+             (default) throw error."
         ));
 
     let allow_missing_required_offsets = tri_flag_arg::<AllowMissingRequiredOffsets>(

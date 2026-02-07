@@ -7,7 +7,15 @@ Simple types and constants used throughout other fireflow crates.
 """
 
 [dependencies]
+derive_more = { workspace = true, features = ["from", "into", "display"] }
+thiserror = { workspace = true }
+itertools = { workspace = true }
 const_format = { workspace = true }
+pyo3 = { workspace = true, optional = true }
+fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
+
+[features]
+python = ["dep:pyo3", "dep:fireflow-core-proc"]
 
 [lints]
 workspace = true

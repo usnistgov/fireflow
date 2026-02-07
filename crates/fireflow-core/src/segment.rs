@@ -2,9 +2,9 @@
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
-    AllowPseudoempty, ConfigFlag, DatasetOffset, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig,
-    ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TruncateOffsetLimit,
+    AllowPseudoempty, ConfigFlag, DatasetOffset, DummyTriFlag, FileLen, IgnoreTEXTAnalysisOffsets,
+    IgnoreTEXTDataOffsets, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
+    ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
 use crate::header::Version;
 use crate::logging::{
@@ -21,6 +21,8 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
+
+use fireflow_types::config::ProcessKeywordFailure;
 
 use type_families::{Functor as _, impl_functor, impl_kind1};
 
@@ -42,7 +44,10 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+};
 
 /// Denotes a correction for a segment
 #[derive(Default, Clone, Copy, new)]
@@ -721,7 +726,7 @@ where
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
         let header_pair = (HeaderOrTextSegment::from(header_seg), None);
         // TODO configure this
-        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::Drop);
+        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let limit = oconf.overlap_correction_limit;
 
@@ -1296,7 +1301,8 @@ impl OtherSegment20 {
         }
 
         // Guess offset width if desired.
-        let width_res = if let Some(guess) = hconf.guess_other_width.into_tri_flag() {
+        let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
+        let width_res = if let Some(guess) = guess_maybe {
             match Self::guess_other_width(valid_buf, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
@@ -1753,7 +1759,7 @@ pub enum HeaderSegmentError {
 /// Error when there are not enough bytes in file to read offsets
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[error(
     "needed {required} bytes to parse {location} offset from {src} at byte \
      {position}, only {remaining} bytes left in file"
@@ -1769,7 +1775,7 @@ pub struct OffsetsNoBytesError {
 /// Error when there are not enough bytes in file to read OTHER segments
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[error(
     "needed {required} bytes to parse OTHER offsets at byte 58
      only {remaining} bytes left in file"
@@ -1782,7 +1788,7 @@ pub struct OtherOffsetsNoBytesError {
 /// Error when creating a new segment
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct SegmentError {
     coords: (i128, i128),
     correction: (i32, i32),
@@ -1827,7 +1833,7 @@ impl fmt::Display for SegmentError {
 #[derive(Debug, Error, new)]
 #[error("{seg0} overlaps with {seg1}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct SegmentOverlapError {
     seg0: GenericSegment,
     seg1: GenericSegment,
@@ -1840,7 +1846,7 @@ pub struct SegmentOverlapError {
     which = if self.is_begin { "begin" } else { "end" },
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ParseOffsetError {
     error: ParseFixedUintError,
     is_begin: bool,
@@ -1856,7 +1862,7 @@ pub struct ParseOffsetError {
     I::REGION
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
@@ -1875,7 +1881,7 @@ impl<I> Default for SegmentDefaultWarning<I> {
     self.use_header.map_or("", |x| if x { ", using former" } else { ", using latter" })
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentMismatchError<I> {
     header: UncorrectedSegment,
@@ -1918,7 +1924,7 @@ pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
 /// Error when segment with TEXT offsets overlaps with HEADER or another segment
 #[derive(Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum GuessOtherWidthError {
     #[error("No width for OTHER offsets could be found.")]
     NoWidth,
@@ -2008,8 +2014,9 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
+    use fireflow_types::python::ConfigError;
+
     use crate::config::DatasetOffset;
-    use crate::python::ConfigError;
 
     use super::{InnerSegment, NonEmptySegment, Segment, UncorrectedSegment, Zero};
 

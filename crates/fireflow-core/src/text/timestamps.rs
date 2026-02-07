@@ -23,7 +23,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+    fireflow_types::python as py,
+};
 
 use super::lookup::DiagnosedKeyword;
 
@@ -256,11 +259,12 @@ impl Timestamps<FCSTime100> {
 #[derive(Debug, Error)]
 #[error("$ETIM is before $BTIM and $DATE is given")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ReversedTimestampsError;
 
 type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 
+// TODO redundant
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
 // "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";

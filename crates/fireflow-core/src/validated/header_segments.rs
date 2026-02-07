@@ -20,7 +20,10 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+};
 
 /// The segment offsets as read from HEADER.
 ///
@@ -378,14 +381,14 @@ def_summary!(
 #[derive(Debug, Error)]
 #[error("{0} is within HEADER region")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
 /// Error when segment offsets exceed $NEXTDATA.
 #[derive(Debug, Error, new)]
 #[error("{offsets} exceeds $NEXTDATA ({})", u64::from(self.nextdata))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct NextdataOffsetsError {
     nextdata: Nextdata,
     offsets: GenericSegment,

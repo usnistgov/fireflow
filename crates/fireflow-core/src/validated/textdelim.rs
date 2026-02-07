@@ -30,7 +30,7 @@ impl TryFrom<u8> for TEXTDelim {
 #[derive(Debug, Error)]
 #[error("delimiter should be char b/t 1 and 126, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
 pub struct TEXTDelimError(u8);
 
 #[cfg(test)]

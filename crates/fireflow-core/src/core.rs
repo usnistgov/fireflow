@@ -4,10 +4,11 @@ use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
     DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, OverlapCorrectionLimit,
-    ProcessKeywordFailure, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig,
-    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig,
+    ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
     TemporalHasOpticalKeyError, TemporalOpticalKey, TriFlag, WriteDatasetInnerConfig,
     WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    remove_temporal_optical_keys,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -129,6 +130,7 @@ use {crate::data::req_meas_headers, serde::Serialize, std::string::ToString as _
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -4448,7 +4450,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
             if let Some(t) = mem::take(&mut extra.timestep) {
-                let flag = sconf.process_extra_timestep.0;
+                let flag = sconf.process_extra_timestep;
                 core_res = core_res
                     .map_ok_value(|mut core| {
                         if flag.is_demote() {
@@ -4471,7 +4473,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
             macro_rules! go_extra {
                 ($proc:ident, $keyvals:ident, $errors:ident) => {
-                    let flag: ProcessKeywordFailure = sconf.$proc.into();
+                    let flag = sconf.$proc;
                     core_res = core_res
                         .map_ok_value(|mut core| {
                             if flag.is_demote() {
@@ -7485,7 +7487,8 @@ impl LookupTemporal for InnerTemporal2_0 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tmp_opt_res = TemporalOpticalKey::remove_keys_2_0(ignore, std, nonstd, i, flag)
+        let tgts = TemporalOpticalKey::TARGETS_2_0;
+        let tmp_opt_res = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         scale
             .zip3_commutative(peak, tmp_opt_res)
@@ -7515,7 +7518,8 @@ impl LookupTemporal for InnerTemporal3_0 {
             .switchable_into_commutative();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tmp_opt = TemporalOpticalKey::remove_keys_3_0(ignore, std, nonstd, i, flag)
+        let tgts = TemporalOpticalKey::TARGETS_3_0;
+        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -7553,7 +7557,8 @@ impl LookupTemporal for InnerTemporal3_1 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tmp_opt = TemporalOpticalKey::remove_keys_3_1(ignore, std, nonstd, i, flag)
+        let tgts = TemporalOpticalKey::TARGETS_3_1;
+        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -7595,7 +7600,8 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let tmp_opt = TemporalOpticalKey::remove_keys_3_2(ignore, std, nonstd, i, flag)
+        let tgts = TemporalOpticalKey::TARGETS_3_2;
+        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -9257,7 +9263,7 @@ pub enum OpticalConvertWarning {
 #[derive(Debug, Error)]
 #[error("{0} is required in target version but missing in current version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NameConversionError(Key1<Shortname>);
 
 /// Error when writing [`CoreDataset`] to file
@@ -9426,7 +9432,7 @@ pub enum InsertOpticalInDatasetError {
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MeasDataMismatchError {
     meas_n: usize,
     data_n: usize,
@@ -9436,14 +9442,14 @@ pub struct MeasDataMismatchError {
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE to nonlinear scale")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NonLinearTemporalScaleError;
 
 /// Error when attempting to set temporal $PnE/$PnG to non-unitary transform (3.0+)
 #[derive(Debug, Error)]
 #[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NonLinearTemporalTransformError;
 
 /// Error when reading standardized TEXT from keyword pairs
@@ -9529,7 +9535,7 @@ pub enum StdDatasetFromFlatTEXTWarning {
 #[derive(Debug, Error)]
 #[error("{} must be set before converting measurement", Scale::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NoScaleError(MeasIndex);
 
 /// Error when replacing temporal measurement by index
@@ -9611,7 +9617,7 @@ pub enum OpticalToTemporalError {
 /// Error when optical measurement is non-unitary but is to be converted to temporal.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
     version: Version,
@@ -9982,7 +9988,7 @@ pub enum LookupMeasurementError {
     k = Shortname::std(self.0),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 
 /// Warning when parsing any measurement keyword.
@@ -10099,7 +10105,7 @@ pub enum LookupModifiedDataError {
 #[derive(Debug, Error)]
 #[error("Could not find time measurement matching '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MissingTime(pub Regex);
 
 type LookupTEXTOffsetsResult<T> =
@@ -10110,7 +10116,7 @@ type LookupTEXTOffsetsResult<T> =
 #[display(bound(T: Key))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 #[cfg_attr(feature = "python", bound(T: Key))]
 pub struct UnitaryKeyLossError<T>(pub Key0<T>);
 
@@ -10125,7 +10131,7 @@ impl<T> Default for UnitaryKeyLossError<T> {
 #[display(bound(T: IndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 #[cfg_attr(feature = "python", bound(T: IndexedKey))]
 pub struct IndexedKeyLossError<T>(pub Key1<T>);
 
@@ -10134,7 +10140,7 @@ pub struct IndexedKeyLossError<T>(pub Key1<T>);
 #[display(bound(T: BiIndexedKey))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 #[cfg_attr(feature = "python", bound(T: BiIndexedKey))]
 pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
@@ -10145,7 +10151,7 @@ pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
      '{scale}' and non-unit gain '{gain}'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
@@ -10155,7 +10161,7 @@ pub struct ScaleTransformError {
 #[derive(Debug, Error)]
 #[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
@@ -10190,7 +10196,7 @@ def_summary!(
 /// Error when temporal type is assigned to optical measurement and vice versa.
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MeasMismatchError {
     key_is_optical: bool,
     index: MeasIndex,
@@ -10301,12 +10307,11 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::InvalidKeywordValueError;
+    use super::{IncludeReqOrOpt, IncludeRootOrMeas, ScaleTransform};
+
     use crate::text::ranged_float::PositiveFloat;
 
-    use super::IncludeReqOrOpt;
-    use super::IncludeRootOrMeas;
-    use super::ScaleTransform;
+    use fireflow_types::python::InvalidKeywordValueError;
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;

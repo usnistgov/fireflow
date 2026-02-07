@@ -63,7 +63,10 @@ impl_ranged_float!(NonNegFloat, <=, true);
 /// Error when parsing either [`NonNegFloat`] or [`PositiveFloat`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(
+    feature = "python",
+    pyerr(fireflow_types::python::InvalidKeywordValueError)
+)]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },

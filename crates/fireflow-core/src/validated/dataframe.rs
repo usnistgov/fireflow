@@ -13,6 +13,7 @@ use thiserror::Error;
 use {
     crate::validated::shortname::Shortname,
     fireflow_core_proc::DisplayAsPyErr,
+    fireflow_types::python as py,
     itertools::Itertools as _,
     polars::prelude::*,
     polars_arrow::array::{Array, PrimitiveArray},
@@ -210,14 +211,14 @@ impl AnyFCSColumn {
 #[derive(Debug, Error)]
 #[error("column lengths to not match")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NewDataframeError;
 
 /// Error when new column has number of rows which are not equal to that in [`FCSDataFrame`]
 #[derive(Debug, Error)]
 #[error("column length ({col_len}) is different from number of rows in dataframe ({df_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ColumnLengthError {
     df_len: usize,
     col_len: usize,
@@ -868,6 +869,7 @@ pub(crate) mod python {
     use polars_arrow::array::PrimitiveArray;
     use pyo3::prelude::*;
     use pyo3_polars::{PyDataFrame, PySeries};
+
     use std::fmt;
 
     impl<'py> IntoPyObject<'py> for FCSDataFrame {
@@ -974,7 +976,7 @@ pub(crate) mod python {
     }
 
     #[derive(DisplayAsPyErr)]
-    #[pyerr(crate::python::EventDataError)]
+    #[pyerr(fireflow_types::python::EventDataError)]
     pub enum SeriesToColumnError {
         InvalidDatatype(PlSmallStr, DataType),
         HasNull(PlSmallStr),

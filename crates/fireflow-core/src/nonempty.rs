@@ -106,7 +106,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::InvalidKeywordValueError;
+    use fireflow_types::python::InvalidKeywordValueError;
 
     use super::FCSNonEmpty;
 

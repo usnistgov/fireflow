@@ -62,8 +62,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
 };
 
 /// Read HEADER from an FCS file.

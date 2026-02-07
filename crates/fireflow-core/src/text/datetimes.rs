@@ -219,7 +219,7 @@ impl FromStrWith for FCSDateTime {
 #[derive(Debug, Error)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::RelationalError))]
 pub struct ReversedDatetimesError;
 
 /// Error when parsing [`FCSDateTime`] from string

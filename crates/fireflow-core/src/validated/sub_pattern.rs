@@ -81,7 +81,7 @@ impl SubPattern {
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
 pub struct SubPatternError {
     from: Regex,
     to: String,
@@ -141,7 +141,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::ConfigError;
+    use fireflow_types::python::ConfigError;
 
     use super::SubPattern;
 

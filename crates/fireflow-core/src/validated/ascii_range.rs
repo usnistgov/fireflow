@@ -20,6 +20,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -228,7 +229,7 @@ pub enum AsciiRangeFromKeywordsError {
 /// Error when $PnB could not be converted to number of characters
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct IndexedWidthToCharsError(IndexedError<WidthToFixedError<CharsError>>);
 
 impl fmt::Display for IndexedWidthToCharsError {
@@ -255,14 +256,14 @@ impl fmt::Display for IndexedWidthToCharsError {
     b = _0.error.chars,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
 /// Error when creating [`OtherWidth`] for configuration struct
 #[derive(Debug, Error)]
-#[error("OTHER width should be integer b/t 8 and 20, got {0}")]
+#[error("OTHER width should be integer b/t {MIN_OTHER_WIDTH} and {MAX_CHARS}, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct OtherWidthError(u8);
 
 /// Error when $PnR exceeds number of characters allowed by $PnB.
@@ -279,7 +280,7 @@ pub(crate) struct NotEnoughCharsError {
 ///
 /// This is a helper type meant to be used in making more specific errors.
 #[derive(Debug, Display)]
-#[display("bits must be <= 20 to be used as number of characters, got {_0}")]
+#[display("bits must be <= {MAX_CHARS} to be used as number of characters, got {_0}")]
 pub(crate) struct CharsError(u8);
 
 #[cfg(test)]

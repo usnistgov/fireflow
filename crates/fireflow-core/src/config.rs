@@ -17,12 +17,11 @@ use crate::segment::{
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{self as kws, AlphaNumType};
+use crate::text::keywords as kws;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    IndexedKey as _, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKey, StdKeywords,
+    KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
 };
 use crate::validated::keystring_pairs::KeyStringPairs;
 use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
@@ -30,6 +29,20 @@ use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
+// pub export here to keep the docs for all configuration flags in this crate
+pub use fireflow_types::config::{
+    AllowHeaderTEXTOffsetMismatch, AllowHeaderTEXTOffsetMismatchError, DelimEscapeMode,
+    DelimEscapeModeError, ForceLinearScale, ForceLinearScaleError, GuessOtherWidth,
+    GuessOtherWidthError, ProcessKeywordFailureError, ProcessTemporalOpticalKeys,
+    ProcessTemporalOpticalKeysError, SpilloverMeasurementMode, SpilloverMeasurementModeError,
+    TemporalOpticalKey, TemporalOpticalKeyError, TriFlag, TriFlagError, TrimValueWhitespace,
+    TrimValueWhitespaceError, TruncateEventValues, TruncateEventValuesError,
+};
+
+use fireflow_types::config::{
+    ProcessKeywordFailure, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
+    VERSION_STRICT_LEVEL,
+};
 use fireflow_types::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
@@ -51,6 +64,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -955,48 +969,6 @@ pub struct ReadSharedConfig {
     pub hide_warnings: bool,
 }
 
-/// Configuration to deal with optional standard keywords that cause errors
-#[derive(Clone, Copy, Default, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(rename_all = "snake_case")]
-#[from_str(error(ParseGuessOtherWidthError))]
-pub enum GuessOtherWidth {
-    /// Do not guess
-    #[default]
-    None,
-    /// Guess, throw error on failure.
-    Error,
-    /// Guess, throw warning on failure.
-    ///
-    /// Fall back to [`ReadHeaderInnerConfig::other_width`].
-    Warn,
-    /// Guess, do not throw warning or error on failure.
-    ///
-    /// Fall back to [`ReadHeaderInnerConfig::other_width`].
-    Silent,
-}
-
-/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'none', 'error', 'warn', or 'silent'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct ParseGuessOtherWidthError;
-
-impl GuessOtherWidth {
-    // TODO not DRY
-    pub(crate) fn into_tri_flag(self) -> Option<DummyTriFlag> {
-        let r = match self {
-            Self::None => None,
-            Self::Error => Some(TriFlag::False),
-            Self::Warn => Some(TriFlag::True),
-            Self::Silent => Some(TriFlag::Silent),
-        };
-        r.map(Into::into)
-    }
-}
-
 /// Configuration to override/detect FCS version
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
@@ -1023,7 +995,7 @@ impl FromStr for VersionOverride {
 #[derive(Error, Debug)]
 #[error("must be an FCS version string or one of 'latest', 'earliest', 'loose', or 'strict'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct VersionOverrideError;
 
 macro_rules! impl_proc_key_fail {
@@ -1037,6 +1009,28 @@ macro_rules! impl_proc_key_fail {
                 matches!(&self.0, ProcessKeywordFailure::Error)
             }
         }
+
+        impl $t {
+            pub(crate) fn as_triflag(self) -> DummyTriFlag {
+                let flag = match self.0 {
+                    ProcessKeywordFailure::Error => TriFlag::False,
+                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DropWarn => {
+                        TriFlag::True
+                    }
+                    ProcessKeywordFailure::DemoteSilent | ProcessKeywordFailure::DropSilent => {
+                        TriFlag::Silent
+                    }
+                };
+                flag.into()
+            }
+
+            pub(crate) fn is_demote(self) -> bool {
+                matches!(
+                    self.0,
+                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DemoteSilent
+                )
+            }
+        }
     };
 }
 
@@ -1046,57 +1040,8 @@ impl_proc_key_fail!(ProcessHyperPar);
 impl_proc_key_fail!(ProcessPseudostandard);
 impl_proc_key_fail!(ProcessExtraTimestep);
 
-impl ProcessOptionalFailure {
-    pub(crate) fn is_demote(self) -> bool {
-        matches!(&self.0, ProcessKeywordFailure::Demote)
-    }
-}
-
-/// Configuration to deal with optional standard keywords that cause errors
-#[derive(Clone, Copy, Default, FromStr)]
-#[from_str(rename_all = "snake_case")]
-#[from_str(error(ProcessKeywordFailureError))]
-pub enum ProcessKeywordFailure {
-    /// Throw an error
-    #[default]
-    Error,
-    /// Demote to nonstandard with warning
-    Demote,
-    /// Demote to nonstandard with no warning
-    DemoteSilent,
-    /// Drop with warning
-    Drop,
-    /// Drop with no warning
-    DropSilent,
-}
-
-/// Error when parsing [`ProcessKeywordFailure`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'error', 'demote', 'drop', or 'drop_silent'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct ProcessKeywordFailureError;
-
-impl ProcessKeywordFailure {
-    pub(crate) fn as_triflag(self) -> DummyTriFlag {
-        let flag = match self {
-            Self::Error => TriFlag::False,
-            Self::Demote | Self::Drop => TriFlag::True,
-            Self::DemoteSilent | Self::DropSilent => TriFlag::Silent,
-        };
-        flag.into()
-    }
-
-    pub(crate) fn is_demote(self) -> bool {
-        matches!(self, Self::Demote | Self::DemoteSilent)
-    }
-}
-
 /// Strategy to use when autodetecting FCS version
-#[derive(Clone, Copy, FromStr)]
-#[from_str(error(SelectVersionStrategyError))]
-#[from_str(rename_all = "snake_case")]
+#[derive(Clone, Copy)]
 pub enum SelectVersionStrategy {
     /// Choose the latest version
     Latest,
@@ -1108,6 +1053,20 @@ pub enum SelectVersionStrategy {
     Strict,
 }
 
+impl FromStr for SelectVersionStrategy {
+    type Err = SelectVersionStrategyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            VERSION_LATEST_LEVEL => Ok(Self::Latest),
+            VERSION_EARLIEST_LEVEL => Ok(Self::Earliest),
+            VERSION_LOOSE_LEVEL => Ok(Self::Loose),
+            VERSION_STRICT_LEVEL => Ok(Self::Strict),
+            _ => Err(SelectVersionStrategyError),
+        }
+    }
+}
+
 /// Error when parsing [`SelectVersionStrategy`] from [`String`].
 ///
 /// This is never used directly and exists to satisfy the [`FromStr`] impl for
@@ -1115,235 +1074,6 @@ pub enum SelectVersionStrategy {
 #[derive(From)]
 #[from(FromStrError)]
 pub struct SelectVersionStrategyError;
-
-/// Choose how to escape delims in TEXT segment.
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(DelimEscapeModeError))]
-#[from_str(rename_all = "snake_case")]
-pub enum DelimEscapeMode {
-    /// Use escaped delimiters.
-    #[default]
-    Escaped,
-    /// Use unescaped delimiters.
-    Unescaped,
-    /// Guess, falling back to escaped mode.
-    GuessEscaped,
-    /// Guess, falling back to unescaped mode.
-    GuessUnescaped,
-}
-
-/// Error when parsing [`DelimEscapeMode`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'escaped', 'unescaped', 'guess_escaped', or 'guess_unescaped'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct DelimEscapeModeError;
-
-/// Choose how to trim values and deal with blanks that may result.
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(TrimValueWhitespaceError))]
-#[from_str(rename_all = "snake_case")]
-pub enum TrimValueWhitespace {
-    /// Do not trim at all.
-    #[default]
-    Notrim,
-    /// Trim whitespace and throw error if blank is created.
-    Trim,
-    /// Trim whitespace and throw warning if blank is created.
-    TrimBlankWarn,
-    /// Trim whitespace and do nothing if blank is created.
-    TrimBlankNowarn,
-}
-
-/// Error when parsing [`TrimValueWhitespace`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'notrim', 'trim', 'trim_blank_warn', or 'trim_blank_nowarn'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct TrimValueWhitespaceError;
-
-impl TrimValueWhitespace {
-    /// Emit a flag for handling blank values after trimming.
-    ///
-    /// Will be `None` if trimming is not set.
-    pub(crate) fn into_allow_empty_flag(self) -> Option<DummyTriFlag> {
-        let f = match self {
-            Self::Notrim => None,
-            Self::Trim => Some(TriFlag::False),
-            Self::TrimBlankWarn => Some(TriFlag::True),
-            Self::TrimBlankNowarn => Some(TriFlag::Silent),
-        };
-        f.map(Into::into)
-    }
-}
-
-/// Choose which $PnE to force as linear.
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(ForceLinearScaleError))]
-#[from_str(rename_all = "snake_case")]
-pub enum ForceLinearScale {
-    /// Do not force.
-    #[default]
-    None,
-    /// Only force the temporal measurement.
-    TimeOnly,
-    /// Force all measurements.
-    All,
-}
-
-/// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'time_only', 'all', or 'none'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct ForceLinearScaleError;
-
-impl ForceLinearScale {
-    pub(crate) fn time_selected(self) -> bool {
-        matches!(self, Self::TimeOnly | Self::All)
-    }
-}
-
-/// Choose what to do with optical keys in time measurement when found.
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(ProcessTimeOpticalKeysError))]
-#[from_str(rename_all = "snake_case")]
-pub enum ProcessTemporalOpticalKeys {
-    /// Demote to nonstandard with warning
-    #[default]
-    Demote,
-    /// Demote to nonstandard with no warning
-    DemoteSilent,
-    /// Drop with warning
-    Drop,
-    /// Drop with no warning
-    DropSilent,
-}
-
-/// Error when parsing [`ProcessTemporalOpticalKeys`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'demote', 'demote_silent', 'drop', or 'drop_silent'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct ProcessTimeOpticalKeysError;
-
-/// Choose how to parse measurements for $SPILLOVER key
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(SpilloverMeasurementModeError))]
-#[from_str(rename_all = "snake_case")]
-pub enum SpilloverMeasurementMode {
-    /// Interpret measurements as names which match $PnN.
-    #[default]
-    Named,
-    /// Interpret measurements as 1-indices (numbers) which point to measurements.
-    Indexed,
-    /// Guess how measurements should be interpreted.
-    ///
-    /// If they are all numbers and all do not point to $PnN, interpret as
-    /// indices, otherwise names.
-    Guess,
-}
-
-/// Error when parsing [`SpilloverMeasurementMode`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'named', 'indexed', or 'guess'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct SpilloverMeasurementModeError;
-
-/// Choose which event types are truncated.
-///
-/// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(TruncateEventValuesError))]
-#[from_str(rename_all = "snake_case")]
-pub enum TruncateEventValues {
-    /// Only truncate integer events.
-    #[default]
-    IntOnly,
-    /// Truncate all events.
-    All,
-    /// Truncate no events.
-    None,
-}
-
-/// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'int_only', 'all', or 'none'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct TruncateEventValuesError;
-
-impl TruncateEventValues {
-    pub(crate) fn matches_datatype(self, dt: AlphaNumType) -> bool {
-        matches!(
-            (self, dt),
-            (Self::IntOnly, AlphaNumType::Integer) | (Self::All, _)
-        )
-    }
-}
-
-/// Choose which offsets to use between TEXT and HEADER if they mismatch.
-///
-/// Only applies to DATA and ANALYSIS offsets in 3.0+
-#[derive(Default, Clone, Copy, FromStr)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-#[from_str(error(AllowHeaderTEXTOffsetMismatchError))]
-#[from_str(rename_all = "snake_case")]
-pub enum AllowHeaderTEXTOffsetMismatch {
-    /// Throw error on mismatch.
-    #[default]
-    Error,
-    /// Choose HEADER on mismatch and throw warning.
-    HeaderWarn,
-    /// Choose HEADER on mismatch and do nothing.
-    HeaderSilent,
-    /// Choose TEXT on mismatch and throw warning.
-    TextWarn,
-    /// Choose TEXT on mismatch and do nothing.
-    TextSilent,
-}
-
-/// Error when parsing [`TruncateEventValues`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error(
-    "must be one of 'error', 'header_warn', \
-     'header_silent', 'text_warn', or 'text_silent'"
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct AllowHeaderTEXTOffsetMismatchError;
-
-impl AllowHeaderTEXTOffsetMismatch {
-    /// Return bool matrix representing chosen segment and warning.
-    ///
-    /// First bool is true if we want HEADER, otherwise TEXT. Second boolean
-    /// is true if we want a warning, false for no warning.
-    ///
-    /// None means throw an error and none of the above matters.
-    pub(crate) fn is_warning(self) -> Option<(bool, bool)> {
-        match self {
-            Self::Error => None,
-            Self::HeaderWarn => Some((true, true)),
-            Self::HeaderSilent => Some((true, false)),
-            Self::TextWarn => Some((false, true)),
-            Self::TextSilent => Some((false, false)),
-        }
-    }
-}
 
 pub trait ConfigFlag {
     fn is_set(&self) -> bool;
@@ -1464,28 +1194,35 @@ impl_tri_error_flag!(false_is_error AllowLoss);
 #[derive(From, Into, Clone, Copy)]
 pub(crate) struct DummyTriFlag(pub(crate) TriFlag);
 
+impl DummyTriFlag {
+    /// Emit a flag for handling blank values after trimming.
+    ///
+    /// Will be `None` if trimming is not set.
+    pub(crate) fn from_trim_value_whitespace(x: TrimValueWhitespace) -> Option<Self> {
+        let f = match x {
+            TrimValueWhitespace::Notrim => None,
+            TrimValueWhitespace::Trim => Some(TriFlag::False),
+            TrimValueWhitespace::TrimBlankWarn => Some(TriFlag::True),
+            TrimValueWhitespace::TrimBlankSilent => Some(TriFlag::Silent),
+        };
+        f.map(Into::into)
+    }
+
+    // TODO not DRY
+    pub(crate) fn from_guess_other_width(x: GuessOtherWidth) -> Option<Self> {
+        let r = match x {
+            GuessOtherWidth::None => None,
+            GuessOtherWidth::Error => Some(TriFlag::False),
+            GuessOtherWidth::Warn => Some(TriFlag::True),
+            GuessOtherWidth::Silent => Some(TriFlag::Silent),
+        };
+        r.map(Into::into)
+    }
+}
+
 impl TriErrorFlag for DummyTriFlag {
     const FALSE_IS_ERROR: bool = true;
 }
-
-/// Tri-state flag to throw warning, throw error, or do nothing
-#[derive(Clone, Copy, FromStr, Default)]
-#[from_str(error(TriFlagError))]
-#[from_str(rename_all = "snake_case")]
-pub enum TriFlag {
-    #[default]
-    False,
-    True,
-    Silent,
-}
-
-/// Error when parsing [`TriFlag`] from [`String`]
-#[derive(Error, Debug, From)]
-#[error("must be one of 'false', 'true', or 'silent'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-#[from(FromStrError)]
-pub struct TriFlagError;
 
 impl AppendFlag {
     pub(crate) fn file_options(self) -> OpenOptions {
@@ -1533,229 +1270,6 @@ impl Default for TimeMeasNamePattern {
     }
 }
 
-/// Measurement keywords which are not allowed for temporal measurements.
-///
-/// These can optionally be ignored via config.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Display, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
-pub enum TemporalOpticalKey {
-    /// PnG
-    #[display("G")]
-    Gain,
-    /// PnF
-    #[display("F")]
-    Filter,
-    /// PnL
-    #[display("W")]
-    Wavelength,
-    /// PnO
-    #[display("O")]
-    Power,
-    /// PnT
-    #[display("T")]
-    DetectorType,
-    /// PnV
-    #[display("V")]
-    DetectorVoltage,
-    /// PnP
-    #[display("P")]
-    PercentEmitted,
-    /// PnCALIBRATION
-    #[display("CALIBRATION")]
-    Calibration,
-    /// PnDET
-    #[display("DET")]
-    DetectorName,
-    /// PnTAG
-    #[display("TAG")]
-    Tag,
-    /// PnFEATURE
-    #[display("FEATURE")]
-    Feature,
-    /// PnANALYTE
-    #[display("ANALYTE")]
-    Analyte,
-}
-
-impl FromStr for TemporalOpticalKey {
-    type Err = ParseTemporalOpticalKeyError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "G" => Ok(Self::Gain),
-            "F" => Ok(Self::Filter),
-            "L" => Ok(Self::Wavelength),
-            "O" => Ok(Self::Power),
-            "T" => Ok(Self::DetectorType),
-            "P" => Ok(Self::PercentEmitted),
-            "V" => Ok(Self::DetectorVoltage),
-            "CALIBRATION" => Ok(Self::Calibration),
-            "DET" => Ok(Self::DetectorName),
-            "TAG" => Ok(Self::Tag),
-            "FEATURE" => Ok(Self::Feature),
-            "ANALYTE" => Ok(Self::Analyte),
-            _ => Err(ParseTemporalOpticalKeyError),
-        }
-    }
-}
-
-/// Error when creating [`TemporalOpticalKey`] from string
-#[derive(Debug, Error)]
-#[error(
-    "must be one of  'G', 'F', 'L', 'O', 'T', 'P', 'V', \
-     'CALIBRATION', 'DET', 'TAG', 'FEATURE', or 'ANALYTE'"
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct ParseTemporalOpticalKeyError;
-
-type TemporalOpticalResult = WarningsAndErrorsResult<
-    Vec<(StdKey, String)>,
-    (),
-    TemporalHasOpticalKeyError,
-    TemporalHasOpticalKeyError,
->;
-
-impl TemporalOpticalKey {
-    pub(crate) fn std_key(self, i: MeasIndex) -> StdKey {
-        match self {
-            Self::Gain => kws::Gain::std(i),
-            Self::Filter => kws::Filter::std(i),
-            // NOTE this is $PnL for all versions
-            Self::Wavelength => kws::Wavelength::std(i),
-            Self::Power => kws::Power::std(i),
-            Self::DetectorType => kws::DetectorType::std(i),
-            Self::DetectorVoltage => kws::DetectorVoltage::std(i),
-            Self::PercentEmitted => kws::PercentEmitted::std(i),
-            // NOTE this is $PnCALIBRATION for all versions
-            Self::Calibration => kws::Calibration3_1::std(i),
-            Self::DetectorName => kws::DetectorName::std(i),
-            Self::Tag => kws::Tag::std(i),
-            Self::Feature => kws::Feature::std(i),
-            Self::Analyte => kws::Analyte::std(i),
-        }
-    }
-
-    fn remove_keys_inner(
-        targets: &[Self],
-        ignore: &HashSet<Self>,
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
-        let mut es = vec![];
-        let mut ws = vec![];
-        let mut pairs = vec![];
-        for t in targets {
-            let k = t.std_key(i);
-            let (demote, warn) = match flag {
-                ProcessTemporalOpticalKeys::Demote => (true, true),
-                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
-                ProcessTemporalOpticalKeys::Drop => (false, true),
-                ProcessTemporalOpticalKeys::DropSilent => (false, false),
-            };
-            if let Some(v) = std.remove(&k) {
-                let err = || TemporalHasOpticalKeyError::new(i, *t);
-                if ignore.contains(t) {
-                    if demote {
-                        nonstd.insert_demoted(k.clone(), v.clone());
-                    }
-                    if warn {
-                        ws.push(err());
-                    }
-                    pairs.push((k, v));
-                } else {
-                    es.push(err());
-                }
-            }
-        }
-        let mut res = LogResult::new_err_from_iter(es, pairs);
-        res.extend_commutative_warnings(ws);
-        res
-    }
-
-    pub(crate) fn remove_keys_2_0(
-        ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
-        let targets = [
-            Self::DetectorType,
-            Self::DetectorVoltage,
-            Self::Filter,
-            Self::PercentEmitted,
-            Self::Power,
-            Self::Wavelength,
-        ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
-    }
-
-    pub(crate) fn remove_keys_3_0(
-        ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
-        let targets = [
-            Self::Gain,
-            Self::DetectorType,
-            Self::DetectorVoltage,
-            Self::Filter,
-            Self::PercentEmitted,
-            Self::Power,
-            Self::Wavelength,
-        ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
-    }
-
-    pub(crate) fn remove_keys_3_1(
-        ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
-        let targets = [
-            Self::Gain,
-            Self::Calibration,
-            Self::DetectorType,
-            Self::DetectorVoltage,
-            Self::Filter,
-            Self::PercentEmitted,
-            Self::Power,
-            Self::Wavelength,
-        ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
-    }
-
-    pub(crate) fn remove_keys_3_2(
-        ignore: &HashSet<Self>,
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
-        let targets = [
-            Self::Gain,
-            Self::Analyte,
-            Self::Calibration,
-            Self::DetectorName,
-            Self::DetectorType,
-            Self::DetectorVoltage,
-            Self::Feature,
-            Self::Filter,
-            Self::PercentEmitted,
-            Self::Power,
-            Self::Tag,
-            Self::Wavelength,
-        ];
-        Self::remove_keys_inner(&targets, ignore, kws, nonstd, i, flag)
-    }
-}
-
 /// [`NonStdMeasPattern`] wrapper to implement non-None default.
 #[derive(Clone)]
 pub struct NonStdMeasPatternOpt(pub Option<NonStdMeasPattern>);
@@ -1770,7 +1284,7 @@ impl Default for NonStdMeasPatternOpt {
 #[derive(Debug, Error, new)]
 #[error("optical key $P{index}{key} found in temporal measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalHasOpticalKeyError {
     index: MeasIndex,
     key: TemporalOpticalKey,
@@ -1849,16 +1363,64 @@ impl<C> ReadState<C> {
 #[derive(Error, Debug)]
 #[error("dataset offset ({0}) exceeds file length ({1})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct DatasetOffsetError(DatasetOffset, FileLen);
+
+type TemporalOpticalResult = WarningsAndErrorsResult<
+    Vec<(StdKey, String)>,
+    (),
+    TemporalHasOpticalKeyError,
+    TemporalHasOpticalKeyError,
+>;
+
+pub(crate) fn remove_temporal_optical_keys(
+    targets: &[TemporalOpticalKey],
+    ignore: &HashSet<TemporalOpticalKey>,
+    std: &mut StdKeywords,
+    nonstd: &mut NonStdKeywords,
+    i: MeasIndex,
+    flag: ProcessTemporalOpticalKeys,
+) -> TemporalOpticalResult {
+    let mut es = vec![];
+    let mut ws = vec![];
+    let mut pairs = vec![];
+    for t in targets {
+        let k = StdKey::from_temporal_optical_key(*t, i);
+        let (demote, warn) = match flag {
+            ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
+            ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
+            ProcessTemporalOpticalKeys::DropWarn => (false, true),
+            ProcessTemporalOpticalKeys::DropSilent => (false, false),
+        };
+        if let Some(v) = std.remove(&k) {
+            let err = || TemporalHasOpticalKeyError::new(i, *t);
+            if ignore.contains(t) {
+                if demote {
+                    nonstd.insert_demoted(k.clone(), v.clone());
+                }
+                if warn {
+                    ws.push(err());
+                }
+                pairs.push((k, v));
+            } else {
+                es.push(err());
+            }
+        }
+    }
+    let mut res = LogResult::new_err_from_iter(es, pairs);
+    res.extend_commutative_warnings(ws);
+    res
+}
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::segment::OffsetCorrection;
-    use crate::validated::sub_pattern::SubPattern;
-    use crate::{python::ConfigError, validated::nonstd_meas_pattern::NonStdMeasPattern};
-
     use super::{KeyPatterns, NonStdMeasPatternOpt, SubPatterns, TimeMeasNamePattern};
+
+    use crate::segment::OffsetCorrection;
+    use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
+    use crate::validated::sub_pattern::SubPattern;
+
+    use fireflow_types::python::ConfigError;
 
     use pyo3::prelude::*;
     use std::collections::HashMap;

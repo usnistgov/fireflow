@@ -1,3 +1,7 @@
+pub mod config;
+#[cfg(feature = "python")]
+pub mod python;
+
 use const_format::formatcp;
 
 pub const TIME_MEAS_NAME_PATTERN_NONE: &str = "NoTime";

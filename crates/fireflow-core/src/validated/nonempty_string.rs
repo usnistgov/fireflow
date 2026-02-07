@@ -8,6 +8,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{DisplayAsPyErr, FromPyString},
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -38,5 +39,5 @@ impl FromStr for NonEmptyString {
 #[derive(Error, Debug)]
 #[error("string cannot be empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NonEmptyStringError;

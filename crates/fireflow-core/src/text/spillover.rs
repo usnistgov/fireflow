@@ -26,7 +26,7 @@ use std::num::ParseIntError;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::DisplayAsPyErr;
+use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
 /// The $SPILLOVER keyword (3.1+)
 pub type Spillover = GenericSpillover<Shortname>;
@@ -253,7 +253,7 @@ impl FromStrWith for Spillover {
 /// Error when building a new [`Spillover`] value
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub enum NewSpilloverError {
     #[error("Matrix is not square")]
     NonSquare,

@@ -1,7 +1,7 @@
 use crate::config::{
     ConfigFlag as _, DummyTriFlag, ForceLinearScale, OverlapCorrectionLimit,
     ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey,
-    TriFlag, TrimIntraValueWhitespace,
+    TriFlag, TrimIntraValueWhitespace, TruncateEventValues,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -79,6 +79,7 @@ use {
     fireflow_core_proc::{
         AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
     },
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -782,7 +783,7 @@ pub enum ScaleError {
 #[derive(Debug, Error, new)]
 #[error("decades/offset must both be positive, got '{decades},{offset}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct LogRangeError {
     decades: f32,
     offset: f32,
@@ -822,7 +823,6 @@ impl Gain {
         let ignore = &AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
         let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
-            .0
             .as_triflag();
         if ignore.contains(&TemporalOpticalKey::Gain) {
             nonstd.transfer_demoted(std, Self::std(i));
@@ -850,7 +850,7 @@ pub enum LookupTemporalGainError {
 #[derive(Debug, Error)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
@@ -993,7 +993,7 @@ pub enum Mode {
 /// Error when [`Mode`] has a deprecated value (FCS 3.1)
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
 pub enum DeprecatedModeWarning {
     #[error("$MODE=C is deprecated")]
     ModeCorrelated,
@@ -1005,7 +1005,7 @@ pub enum DeprecatedModeWarning {
 #[derive(Debug, Error)]
 #[error("must be one of 'C', 'L', or 'U'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct ModeError;
 
 impl FromStr for Mode {
@@ -1054,14 +1054,14 @@ impl TryFrom<Mode> for Mode3_2 {
 #[derive(Debug, Error)]
 #[error("can only be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct Mode3_2Error;
 
 /// Error when converting [`Mode`] to [`Mode3_2`]
 #[derive(Debug, Error)]
 #[error("$MODE must be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct ModeUpgradeError;
 
 /// The value for the $PnD key (3.1+)
@@ -1163,7 +1163,7 @@ impl FromStr for NumType {
 #[derive(Debug, Error)]
 #[error("must be one of 'F', 'D', or 'A'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NumTypeError;
 
 /// The $BYTEORD field in FCS 2.0 and 3.0
@@ -1296,6 +1296,13 @@ pub(crate) type LookupDatatypeResult<T> =
     WarningAndErrorResult<T, (), DeprecatedDatatypeWarning, ReqKeyError<T>>;
 
 impl AlphaNumType {
+    pub(crate) fn matches_truncation(self, trunc: TruncateEventValues) -> bool {
+        matches!(
+            (trunc, self),
+            (TruncateEventValues::IntOnly, Self::Integer) | (TruncateEventValues::All, _)
+        )
+    }
+
     pub(crate) fn get_req_check_ascii(kws: &StdKeywords) -> LookupDatatypeResult<Self> {
         let res = Self::get_metaroot_req(kws);
         check_ascii!(res)
@@ -1325,14 +1332,14 @@ impl FromStr for AlphaNumType {
 #[derive(Debug, Error)]
 #[error("$DATATYPE=A is deprecated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
 pub struct DeprecatedDatatypeWarning;
 
 /// Error when parsing [`AlphaNumType`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'I', 'F', 'D', or 'A'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct AlphaNumTypeError;
 
 impl From<NumType> for AlphaNumType {
@@ -1573,7 +1580,7 @@ impl Calibration3_2 {
     o = self.1,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct CalibrationLossError(MeasIndex, f32);
 
 /// The value for the $PnL key (2.0/3.0).
@@ -1660,7 +1667,7 @@ impl Wavelengths {
      be reduced to first upon conversion"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
 
 /// Error when parsing [`Wavelengths`] from string
@@ -1763,7 +1770,7 @@ impl FromStr for Originality {
 #[derive(Debug, Error)]
 #[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct OriginalityError;
 
 /// The value of the $COMP keyword (3.0 only)
@@ -1902,7 +1909,7 @@ pub struct OpticalType(OptionalString);
 #[derive(Debug, Error)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct OpticalTypeError;
 
 const TIME: &str = "Time";
@@ -2019,13 +2026,13 @@ const HEIGHT: &str = "Height";
 #[derive(Debug, Error)]
 #[error("must be one of 'Area', 'Width', or 'Height'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct OpticalFeatureError;
 
 /// Error when parsing [`Feature`]
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum FeatureError {
     #[error("{0}")]
     Optical(OpticalFeatureError),
@@ -2140,7 +2147,7 @@ impl FromStr for MeasOrGateIndex {
 /// Error when parsing [`RegionGateIndex<MeasOrGateIndex>`] from string (3.0/3.1)
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum MeasOrGateIndexError {
     #[error("{0}")]
     Int(ParseIntError),
@@ -2494,7 +2501,7 @@ enum GatingToken {
 /// Error when parsing [`Gating`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum GatingError {
     #[error("gating string is empty")]
     Empty,
@@ -2782,7 +2789,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
 #[derive(Debug, Error)]
 #[error("$CYT is missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NoCytError;
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
@@ -3103,14 +3110,14 @@ impl ExtraStdKeywords {
 #[derive(Debug, Error)]
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
 #[derive(Debug, Error, new)]
 #[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperParError {
     pub par: Par,
     pub key: StdKey,
@@ -3120,7 +3127,7 @@ pub struct HyperParError {
 #[derive(Debug, Error, new)]
 #[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct HyperGateError {
     pub gate: Gate,
     pub key: StdKey,
@@ -3133,7 +3140,7 @@ pub struct HyperGateError {
     os = self.others.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct KeywordOtherVersionError {
     pub key: StdKey,
     pub current: Version,
@@ -3144,7 +3151,7 @@ pub struct KeywordOtherVersionError {
 #[derive(Debug, Error)]
 #[error("$TIMESTEP found, this may indicate a time measurement exists but was not identified")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ExtraKeywordError))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct TimestepFoundError;
 
 macro_rules! newtype_string {
@@ -4426,6 +4433,7 @@ mod python {
         }
     }
 
+    // TODO use const crate for these values so they don't get lost
     impl<'py> FromPyObject<'py> for ScaleDiagnostic {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
@@ -4445,6 +4453,7 @@ mod python {
         }
     }
 
+    // TODO ditto
     impl<'py> FromPyObject<'py> for TemporalScaleDiagnostic {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
@@ -4461,6 +4470,7 @@ mod python {
         }
     }
 
+    // TODO ditto
     impl<'py> IntoPyObject<'py> for ScaleDiagnostic {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
@@ -4478,6 +4488,7 @@ mod python {
         }
     }
 
+    // TODO ditto
     impl<'py> IntoPyObject<'py> for TemporalScaleDiagnostic {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;

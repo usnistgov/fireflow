@@ -120,7 +120,10 @@ use std::str;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+};
 
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
@@ -1544,7 +1547,7 @@ where
     ) -> Option<EventOverRangeError> {
         let dt = self.column_type.datatype();
         let (upper_limit, rng) = self.column_type.as_range();
-        if trunc.matches_datatype(dt) {
+        if dt.matches_truncation(trunc) {
             // If we wish to truncate this column, silently truncate without
             // throwing any errors
             for x in &mut self.data {
@@ -2435,7 +2438,7 @@ where
                 let econf: &ReadEventsConfig = conf.as_ref();
                 let trunc = econf.truncate_event_values;
                 let col_iter = data.iter_mut().zip(rs).enumerate();
-                if trunc.matches_datatype(AlphaNumType::Ascii) {
+                if AlphaNumType::Ascii.matches_truncation(trunc) {
                     // truncate values if we configured this behavior
                     for (i, (col, r)) in col_iter {
                         for (rowi, x) in col.iter_mut().enumerate() {
@@ -4562,7 +4565,7 @@ pub enum SingleFixedWidthError {
 /// Error when $PnB does not match width implied by $BYTEORD (2.0/3.0 only)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
     found: NonEmpty<PrivBytes>,
@@ -4616,7 +4619,7 @@ pub enum NewMixedTypeWarning {
     e = _0.error
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
 
 /// Error when using $PnB or $PnR to make a new [`Bitmask`]
@@ -4630,7 +4633,7 @@ pub enum NewUintTypeError {
 /// Error when converting $PnB (in bits) to [`Bytes`]
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<WidthToBytesError>>);
 
 impl fmt::Display for IndexedWidthToBytesError {
@@ -4659,7 +4662,7 @@ pub enum FloatWidthError {
 /// Error when converting $PnR to [`Bitmask`] for integer layout based on $PnB.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
 
 impl fmt::Display for IndexedBitmaskError {
@@ -4728,13 +4731,13 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
     e = _0.error,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
 /// Inner error for [`IndexedRangeToAsciiError`] without the index
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub enum RangeToAsciiError {
     #[error("its value {0} cannot be represented with 8 bytes")]
     Over(BigDecimal),
@@ -4764,7 +4767,7 @@ impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
     k = Range::std(self.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WrongFloatWidth {
     width: PrivBytes,
     expected: usize,
@@ -4786,7 +4789,7 @@ pub enum EventWidthError {
      DATA segment which is {nbytes} bytes long (remainder of {remainder})"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct UnevenEventWidthError {
     event_width: u64,
     nbytes: u64,
@@ -4797,7 +4800,7 @@ pub struct UnevenEventWidthError {
 #[derive(Error, Debug, new)]
 #[error("DATA segment is {event_width} bytes but event width is zero")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ZeroEventWidthError {
     event_width: u64,
 }
@@ -4806,7 +4809,7 @@ pub struct ZeroEventWidthError {
 #[derive(From, Debug, Error)]
 #[error("{e} in column {i}", e = _0.error, i = _0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::DataLossError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct IndexedLossError(IndexedError<AnyLossError>);
 
 /// Error when value is truncated when writing DATA
@@ -4890,7 +4893,7 @@ pub enum ReadDataframeWarning {
 #[derive(Debug, Display, new)]
 #[display("event value in column {column} and row {row}, exceeds $PnR ({range})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub struct EventOverRangeError {
     row: usize,
     column: MeasIndex,
@@ -4921,7 +4924,7 @@ pub enum ReadFixedAsciiError {
 /// Error when reading event value in ASCII layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub enum AsciiToUintError {
     NotAscii(NotAsciiError),
     Int(ParseIntError),
@@ -4942,7 +4945,7 @@ pub struct NotAsciiError(Vec<u8>);
      evenly fit into DATA is {total_events}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct TotEventMismatchError {
     tot: Tot,
     total_events: u64,
@@ -4961,7 +4964,7 @@ pub enum ReadDelimAsciiError {
 #[derive(Debug, Error)]
 #[error("No columns given for ASCII layout but DATA segment is non-empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ReadDelimNoColumnError;
 
 /// Error when reading [`DelimAsciiLayout`] with $TOT.
@@ -4979,7 +4982,7 @@ pub enum ReadDelimWithRowsAsciiError {
 #[derive(Debug, Error)]
 #[error("Exceeded expected number of rows: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct RowsExceededError(usize);
 
 /// Error when reading [`DelimAsciiLayout`] where parsing ends unexpectedly.
@@ -4994,7 +4997,7 @@ pub struct RowsExceededError(usize);
 
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimIncompleteError {
     col: usize,
     row: usize,
@@ -5013,7 +5016,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
 #[derive(Debug, Error)]
 #[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ReadDelimAsciiUnequalColumnsError;
 
 pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>;
@@ -5051,7 +5054,7 @@ pub enum LayoutConvertError {
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
 /// Error when converting a [`DataLayout3_2`] to a [`NonMixedEndianLayout`]
@@ -5068,7 +5071,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
     r = Range::std(_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
 /// Error when converting [`DataLayout3_2`] to [`AnyOrderedLayout`]
@@ -5135,7 +5138,7 @@ pub enum InsertRangeError {
 /// messages here given that $PnR and $PnB do not apply to newly supply ranges.
 #[derive(From, Debug)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct RangeToNewBitmaskError(RangeToBitmaskError);
 
 impl fmt::Display for RangeToNewBitmaskError {
@@ -5174,7 +5177,7 @@ pub enum ScaleDatatypeMismatchError {
 #[derive(Debug, Error)]
 #[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MeasLayoutLengthsError {
     meas_n: usize,
     layout_n: usize,
@@ -5206,7 +5209,7 @@ pub enum MeasurementsWithLayoutError {
 /// Error when $PnE does not match the datatype in its corresponding column (2.0)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ScaleMismatchError {
     index: MeasIndex,
     datatype: AlphaNumType,
@@ -5230,7 +5233,7 @@ impl fmt::Display for ScaleMismatchError {
 /// Error when $PnE/$PnG do not match the datatype in the corresponding column (3.0+)
 #[derive(Debug, Error, new)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ScaleTransformMismatchError {
     index: MeasIndex,
     datatype: AlphaNumType,
@@ -5271,13 +5274,14 @@ pub(crate) struct IndexedError<E> {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::InvalidKeywordValueError;
+    use super::{AnyNullBitmask, FloatRange, NullMixedType};
+
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
     use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
     use crate::validated::bitmask::BitmaskValue;
 
-    use super::{AnyNullBitmask, FloatRange, NullMixedType};
+    use fireflow_types::python::InvalidKeywordValueError;
 
     use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;

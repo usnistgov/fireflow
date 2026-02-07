@@ -10,7 +10,10 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString},
+    fireflow_types::python as py,
+};
 
 /// A [`String`] that matches part of a [`crate::validated::keys::NonStdKey`].
 ///
@@ -73,14 +76,14 @@ impl NonStdMeasPattern {
      '{NON_STD_MEAS_INDEX_PAT}', found '{0}'"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct NonStdMeasPatternError(String);
 
 /// Error when converting [`NonStdMeasPattern`] to regular expression
 #[derive(Error, Debug, new)]
 #[error("regexp error for measurement {index}: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct NonStdMeasRegexError {
     error: regex::Error,
     #[new(into)]

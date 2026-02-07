@@ -127,7 +127,10 @@ impl HasFloatBounds for f64 {
 /// range of the target value.
 #[derive(Debug)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(
+    feature = "python",
+    pyerr(fireflow_types::python::InvalidKeywordValueError)
+)]
 pub struct DecimalToFloatError {
     pub(crate) src: BigDecimal,
     pub(crate) over: bool,

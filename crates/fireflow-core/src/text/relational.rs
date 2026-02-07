@@ -54,6 +54,7 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
     std::fmt::Display,
 };
 
@@ -110,7 +111,7 @@ pub enum AnyExistingIndexLinkError {
     xs = self.names.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct ExistingNamedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
@@ -124,7 +125,7 @@ pub struct ExistingNamedLinkError<T, I> {
     xs = self.names.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct ExistingIndexedLinkError<T, I> {
     pub key: SpecificKey<T, I>,
@@ -246,7 +247,7 @@ pub enum NamedLinkError<T, I> {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(crate::python::RelationalError),
+    pyerr(py::RelationalError),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct OpticalNamedLinkError<T, I> {
@@ -259,7 +260,7 @@ pub struct OpticalNamedLinkError<T, I> {
 #[cfg_attr(
     feature = "python",
     derive(DisplayAsPyErr),
-    pyerr(crate::python::RelationalError),
+    pyerr(py::RelationalError),
     bound(SpecificKey<T, I>: Display)
 )]
 pub struct TemporalNamedLinkError<T, I> {
@@ -274,7 +275,7 @@ pub struct TemporalNamedLinkError<T, I> {
     bad = self.indices.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct IndexLinkError<T, I> {
     indices: NonEmpty<MeasIndex>,
@@ -288,7 +289,7 @@ pub struct IndexLinkError<T, I> {
     bad = self.deps.iter().join(", "),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct DependentKeyErrorInner<T, I> {
     deps: NonEmpty<StdKey>,

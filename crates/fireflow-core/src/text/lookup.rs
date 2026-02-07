@@ -22,6 +22,7 @@ use std::str::FromStr;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
     std::fmt::Display,
 };
 
@@ -62,7 +63,7 @@ pub enum ReqKeyErrorInner<E, T, I> {
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
@@ -74,7 +75,7 @@ pub struct ParseKeyError<E, T, I> {
 #[derive(Debug, Error)]
 #[error("missing required key: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
 pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
 
@@ -407,7 +408,7 @@ pub(crate) trait Optional: Sized {
         Self: FromStr,
     {
         let flag = conf.process_optional_failure;
-        let triflag = flag.0.as_triflag();
+        let triflag = flag.as_triflag();
         match Self::remove_opt(kws, k) {
             Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             Err(e) => {
@@ -439,7 +440,7 @@ pub(crate) trait Optional: Sized {
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        let triflag = flag.0.as_triflag();
+        let triflag = flag.as_triflag();
         match Self::remove_opt_with(std, k, data, conf.as_ref()) {
             Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             // TODO not dry

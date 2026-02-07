@@ -6,8 +6,6 @@ pub mod header;
 pub mod logging;
 mod macros;
 pub mod nonempty;
-#[cfg(feature = "python")]
-pub mod python;
 pub mod segment;
 #[cfg(test)]
 mod test;

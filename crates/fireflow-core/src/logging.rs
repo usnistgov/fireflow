@@ -3228,12 +3228,15 @@ pub(crate) use io_to_log;
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::{python::PyreflowWarning, text::optional::Nothing};
-
     use super::{CommutativeResult, ErrorGroup, IOErrorGroup, NonCommutativeResult, Success};
+
+    use crate::text::optional::Nothing;
+
+    use fireflow_types::python::PyreflowWarning;
 
     use pyo3::exceptions::PyBaseExceptionGroup;
     use pyo3::prelude::*;
+
     use std::ffi::CString;
     use std::fmt::Display;
 

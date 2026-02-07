@@ -1,13 +1,17 @@
-use crate::config::{AllowNonunique, ConfigFlag as _, ReadHeaderAndTEXTConfig, UseLatin1};
+use crate::config::{
+    AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, UseLatin1,
+};
 use crate::logging::{
     LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
 };
-use crate::text::index::IndexFromOne;
+use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::keywords as kws;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
 use crate::validated::case_ins_regex::CaseInsRegex;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use fireflow_types::config::TemporalOpticalKey;
 use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -27,6 +31,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
@@ -557,6 +562,25 @@ impl StdKey {
     fn new(s: String) -> Self {
         Self(KeyString::new(s))
     }
+
+    pub(crate) fn from_temporal_optical_key(x: TemporalOpticalKey, i: MeasIndex) -> Self {
+        match x {
+            TemporalOpticalKey::Gain => kws::Gain::std(i),
+            TemporalOpticalKey::Filter => kws::Filter::std(i),
+            // NOTE this is $PnL for all versions
+            TemporalOpticalKey::Wavelength => kws::Wavelength::std(i),
+            TemporalOpticalKey::Power => kws::Power::std(i),
+            TemporalOpticalKey::DetectorType => kws::DetectorType::std(i),
+            TemporalOpticalKey::DetectorVoltage => kws::DetectorVoltage::std(i),
+            TemporalOpticalKey::PercentEmitted => kws::PercentEmitted::std(i),
+            // NOTE this is $PnCALIBRATION for all versions
+            TemporalOpticalKey::Calibration => kws::Calibration3_1::std(i),
+            TemporalOpticalKey::DetectorName => kws::DetectorName::std(i),
+            TemporalOpticalKey::Tag => kws::Tag::std(i),
+            TemporalOpticalKey::Feature => kws::Feature::std(i),
+            TemporalOpticalKey::Analyte => kws::Analyte::std(i),
+        }
+    }
 }
 
 impl NonStdKey {
@@ -749,14 +773,15 @@ impl ParsedKeywords {
         };
 
         let mut parse_value = || {
+            let flag = conf.trim_value_whitespace;
             let res = if conf.use_latin1.is_set() {
                 let it = v.iter().copied().map(char::from);
-                if let Some(flag) = conf.trim_value_whitespace.into_allow_empty_flag() {
+                if let Some(triflag) = DummyTriFlag::from_trim_value_whitespace(flag) {
                     let trimmed: String = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
-                    check_trim(self, Cow::Owned(trimmed), flag)
+                    check_trim(self, Cow::Owned(trimmed), triflag)
                 } else {
                     // ASSUME this will always be a non-empty string since
                     // it is using the value slice inputted to this function
@@ -764,8 +789,8 @@ impl ParsedKeywords {
                     LogResult::new_ok(Some(Cow::Owned(it.collect())))
                 }
             } else if let Ok(vv) = str::from_utf8(v) {
-                if let Some(flag) = conf.trim_value_whitespace.into_allow_empty_flag() {
-                    check_trim(self, Cow::Borrowed(vv.trim()), flag)
+                if let Some(triflag) = DummyTriFlag::from_trim_value_whitespace(flag) {
+                    check_trim(self, Cow::Borrowed(vv.trim()), triflag)
                 } else {
                     LogResult::new_ok(Some(Cow::Borrowed(vv)))
                 }
@@ -926,7 +951,7 @@ impl ParsedKeywords {
 /// Error when parsing [`StdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum StdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -939,7 +964,7 @@ pub enum StdKeyError {
 /// Error when parsing [`NonStdKey`] from string
 #[derive(From, PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum NonStdKeyError {
     #[error("{0}")]
     Ascii(AsciiStringError),
@@ -950,7 +975,7 @@ pub enum NonStdKeyError {
 /// Error when parsing [`KeyString`] from string
 #[derive(PartialEq, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum AsciiStringError {
     #[error("string should only have ASCII characters, found '{0}'")]
     Ascii(String),
@@ -969,7 +994,7 @@ pub enum KeyStringsOrPatternsError {
 /// Error when parsing [`CaseInsRegex`] from string when building [`KeyStringsOrPatterns`]
 #[derive(Debug, Display, From, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
@@ -984,7 +1009,7 @@ pub enum KeywordInsertError {
 /// Error when key has blank value
 #[derive(Debug, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct BlankValueError(pub StringOrBytes);
 
 impl fmt::Display for BlankValueError {
@@ -997,7 +1022,7 @@ impl fmt::Display for BlankValueError {
 #[derive(Debug, PartialEq, Error, new)]
 #[error("key '{key}' already present, has value '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeyError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 #[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
     pub key: T,

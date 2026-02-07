@@ -59,7 +59,10 @@ impl From<MeasIndex> for Shortname {
 /// Error when parsing [`Shortname`] from string
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ParseKeywordValueError))]
+#[cfg_attr(
+    feature = "python",
+    pyerr(fireflow_types::python::ParseKeywordValueError)
+)]
 pub enum ShortnameError {
     #[error("commas are not allowed in name '{0}'")]
     Commas(String),

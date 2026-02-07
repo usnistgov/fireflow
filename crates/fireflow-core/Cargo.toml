@@ -39,7 +39,7 @@ unicase = { workspace = true }
 
 [features]
 serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde"]
-python = ["dep:pyo3", "dep:pyo3-polars", "dep:polars", "dep:numpy", "dep:fireflow-core-proc"]
+python = ["dep:pyo3", "dep:pyo3-polars", "dep:polars", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
 
 [lints]
 workspace = true

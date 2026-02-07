@@ -3,6 +3,8 @@ use derive_more::{AsRef, From};
 use std::str::FromStr;
 use thiserror::Error;
 
+use fireflow_types::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
+
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 
@@ -100,8 +102,8 @@ impl FromStr for TimePattern {
         let n_d_6_f = has_spec("%.6f")?;
         let n_d_9_f = has_spec("%.9f")?;
         // fractions of second (non-native)
-        let nsexa = has_spec("%!")?;
-        let ncenti = has_spec("%@")?;
+        let nsexa = has_spec(BASE60_SECOND_SPEC)?;
+        let ncenti = has_spec(BASE100_SECOND_SPEC)?;
         // check hour specs
         let h = match (nH, nk, nI, nl, nP, np) {
             // if 24 hour, allow only one and exclude 12 hour
@@ -121,9 +123,15 @@ impl FromStr for TimePattern {
         .sum();
         if h && nM && nS && n_frac < 2 {
             let (pat, fraction) = if nsexa {
-                (s.replace("%!", "%f"), FractionType::Sexagesimal)
+                (
+                    s.replace(BASE60_SECOND_SPEC, "%f"),
+                    FractionType::Sexagesimal,
+                )
             } else if ncenti {
-                (s.replace("%@", "%f"), FractionType::Centisecond)
+                (
+                    s.replace(BASE100_SECOND_SPEC, "%f"),
+                    FractionType::Centisecond,
+                )
             } else {
                 (s.into(), FractionType::Native)
             };
@@ -140,11 +148,12 @@ impl FromStr for TimePattern {
     "time pattern must contain specifier for hour (%H/%k for 24 hours \
      or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
      optionally sub-second (%f, %3f, %6f, %9f, %.f, %.3f, %.6f, %.9f, \
-     %!, or %@) where '%!' corresponds to 1/60th seconds and '%@' \
-     corresponds to centiseconds; got {0}"
+     {BASE60_SECOND_SPEC}, or {BASE100_SECOND_SPEC}) where '{BASE60_SECOND_SPEC}' \
+     corresponds to 1/60th seconds and '{BASE100_SECOND_SPEC}' corresponds to \
+     centiseconds; got {0}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
 pub struct TimePatternError(String);
 
 /// Error when parsing [`NaiveTime`] from string using [`TimePattern`]

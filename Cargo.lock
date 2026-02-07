@@ -829,6 +829,11 @@ name = "fireflow-types"
 version = "0.1.0"
 dependencies = [
  "const_format",
+ "derive_more",
+ "fireflow-core-proc",
+ "itertools 0.14.0",
+ "pyo3",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2492,6 +2497,7 @@ version = "0.1.0"
 dependencies = [
  "fireflow-core",
  "fireflow-python",
+ "fireflow-types",
  "pyo3",
 ]
 

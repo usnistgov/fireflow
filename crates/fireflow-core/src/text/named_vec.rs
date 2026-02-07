@@ -31,7 +31,10 @@ use serde::Serialize;
 use pyo3::prelude::*;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+};
 
 use Ordering::{Equal, Greater, Less};
 
@@ -2200,28 +2203,28 @@ pub enum SetElementsError<E> {
 #[derive(Debug, Error)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct CenterPresentError;
 
 /// Error when element in [`NamedVec`] does not have a name but one is expected.
 #[derive(Debug, Error)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NoNameError;
 
 /// Error when the center element of [`NamedVec`] is missing but expected
 #[derive(Debug, Error)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MissingCenterError;
 
 /// Error when final state of keys in [`NamedVec`] results in duplicates
 #[derive(Debug, Error)]
 #[error("some $PnN are duplicated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NonUniqueKeysError;
 
 /// Error when name in [`NamedVec`] is not found
@@ -2234,7 +2237,7 @@ pub struct NameNotFoundError(pub Shortname);
 #[derive(Debug, Error, new)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NamePresentError {
     name: Shortname,
 }
@@ -2255,7 +2258,7 @@ pub struct ElementIndexError {
     from = if self.original_is_center { "center" } else { "non-center" }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ElementMismatchError {
     index: MeasIndex,
     original_is_center: bool,
@@ -2288,7 +2291,7 @@ impl fmt::Display for ElementIndexError {
     c = if self.include_center { "" } else { "not " }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,

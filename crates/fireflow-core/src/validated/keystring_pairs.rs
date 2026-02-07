@@ -40,7 +40,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 #[derive(Error, Debug)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
 pub struct KeyStringPairsError(NonEmpty<KeyString>);
 
 #[cfg(feature = "python")]

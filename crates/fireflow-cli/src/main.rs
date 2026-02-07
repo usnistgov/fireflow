@@ -26,6 +26,19 @@ use fireflow_core::validated::keystring_pairs::KeyStringPairs;
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
+use fireflow_types::config::{
+    DELIM_ESCAPED_LEVEL, DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL,
+    DELIM_UNESCAPED_LEVEL, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL,
+    FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL,
+    KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, SPILLOVER_GUESS_LEVEL,
+    SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL, TMP_OPT_DEMOTE_SILENT_LEVEL,
+    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
+    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
+    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL,
+    TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
+    VERSION_STRICT_LEVEL,
+};
 use fireflow_types::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1,
@@ -75,7 +88,6 @@ fn run() -> AppResult<()> {
 
     let fmt_arg = |arg| arg_style.paint(format!("--{arg}"));
 
-    // TODO format args in bold
     let (delim_header, delim_help) = format_section(
         "DELIMITER ESCAPING",
         [
@@ -89,17 +101,18 @@ fn run() -> AppResult<()> {
             "In reality, many files use delimiters as if they are not supposed \
              to be escaped."
                 .into(),
-            "If \"escaped\" or \"unescaped\", escape or do not escape \
-             delimiters respectively."
-                .into(),
             format!(
-                "If \"guess_escaped\" or \"guess_unescaped\" attempt to guess how \
-                 delimiters should be treated, falling back to escaped or unescaped \
-                 mode respectively if the choice is ambiguous. The determination \
-                 will be made by first scanning {text_seg} to find all delimiter \
-                 positions and choosing the mode which results in an even number of \
-                 tokens with no delimiters in keys (escaped mode) and no blank keys \
-                 (unescaped mode)."
+                "If '{DELIM_ESCAPED_LEVEL}' or '{DELIM_UNESCAPED_LEVEL}', escape or do not \
+                 escape delimiters respectively."
+            ),
+            format!(
+                "If {DELIM_GUESS_ESCAPED_LEVEL} or {DELIM_GUESS_UNESCAPED_LEVEL} attempt to \
+                 guess how delimiters should be treated, falling back to escaped \
+                 or unescaped mode respectively if the choice is ambiguous. The \
+                 determination will be made by first scanning {text_seg} to find \
+                 all delimiter positions and choosing the mode which results in \
+                 an even number of tokens with no delimiters in keys (escaped \
+                 mode) and no blank keys (unescaped mode)."
             ),
             format!(
                 "Using the guessing algorithm has a significant performance penalty \
@@ -209,10 +222,10 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(GuessOtherWidth))
         .help(format!(
             "Guess the width of {other_seg} segments. Valid values are \
-             'none' (no guessing) or 'error', 'warn' or 'silent' which \
-             will guess and throw an error, warning, or nothing on failure. \
-             For 'warn' and 'silent', failure will fall back to the 8 or \
-             whatever was given in {}",
+             '{OTHER_WIDTH_NONE_LEVEL}' (no guessing) or '{OTHER_WIDTH_ERROR_LEVEL}', \
+             '{OTHER_WIDTH_WARN_LEVEL}' or '{OTHER_WIDTH_SILENT_LEVEL}' which will \
+             guess and throw an error, warning, or nothing on failure. For 'warn' \
+             and 'silent', failure will fall back to the 8 or whatever was given in {}",
             fmt_arg(OTHER_WIDTH),
         ));
 
@@ -280,10 +293,11 @@ fn run() -> AppResult<()> {
         .help(format!(
             "Override the FCS version from {header_seg}. Can be an FCS \
              version string (like 'FCS3.2') which will force to a fixed version. \
-             Can also autodetect version with one of 'latest' or 'earliest' \
-             (the latest or earliest available version respectively) or 'loose' \
-             or 'strict' (the available version with the most or least optional \
-             keywords respectively)."
+             Can also autodetect version with one of '{VERSION_LATEST_LEVEL}' or \
+             '{VERSION_EARLIEST_LEVEL}' (the latest or earliest available version \
+             respectively) or '{VERSION_LOOSE_LEVEL}' or '{VERSION_STRICT_LEVEL}' \
+             (the available version with the most or least optional keywords \
+             respectively)."
         ));
 
     let supp_text_correction = correction_arg(SUPP_TEXT_COR, false, &supp_text_seg);
@@ -376,13 +390,14 @@ fn run() -> AppResult<()> {
         .long(TRIM_VALUE_WHITESPACE)
         .value_name("LEVEL")
         .value_parser(value_parser!(TrimValueWhitespace))
-        .help(
+        .help(format!(
             "Trim whitespace from beginning and end of all values. This may \
              create blank values if the starting string is entirely whitespace. \
-             Set to 'notrim' to not trim at all (default). Set to 'trim', \
-             'trim_blank_warn', or 'trim_blank_nowarn' to enable trimming and \
-             throw error, warning, or nothing when trimming results in a blank.",
-        );
+             Set to '{TRIM_NONE_LEVEL}' to not trim at all (default). Set to \
+             '{TRIM_ERROR_LEVEL}', '{TRIM_BLANK_WARN_LEVEL}', or \
+             '{TRIM_BLANK_SILENT_LEVEL}' to enable trimming and throw error, \
+             warning, or nothing when trimming results in a blank.",
+        ));
 
     let trim_text_end = flag_arg(
         TRIM_TEXT_END,
@@ -546,9 +561,10 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(ForceLinearScale))
         .help(format!(
-            "Force {} keywords to be linear. Pass 'time_only' to only set the \
-             temporal measurement, 'all' to set all measurements, and 'none' \
-             for no measurements.",
+            "Force {} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
+             to only set the temporal measurement, '{FORCE_LINEAR_ALL_LEVEL}' to \
+             set all measurements, and '{FORCE_LINEAR_NONE_LEVEL}' for no \
+             measurements.",
             kw_style.paint("$PnE")
         ));
 
@@ -570,10 +586,11 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(ProcessTemporalOpticalKeys))
         .help(format!(
             "Choose how to handle optical keys found in temporal measurements. \
-             Does nothing unless keys are specified in {}. Pass 'demote', \
-             'demote_silent', 'drop', or 'drop_silent' to demote found keys to \
-             nonstandard (with or without warning) or drop keys entirely (with \
-             or without warning) respectively.",
+             Does nothing unless keys are specified in {}. Pass \
+             '{TMP_OPT_DEMOTE_WARN_LEVEL}', '{TMP_OPT_DEMOTE_SILENT_LEVEL}', \
+             '{TMP_OPT_DROP_WARN_LEVEL}', or '{TMP_OPT_DROP_SILENT_LEVEL}' to \
+             demote found keys to nonstandard (with or without warning) or drop \
+             keys entirely (with or without warning) respectively.",
             fmt_arg(IGNORE_TIME_OPTICAL_KEYS)
         ));
 
@@ -582,10 +599,11 @@ fn run() -> AppResult<()> {
         .value_name("MODE")
         .value_parser(value_parser!(SpilloverMeasurementMode))
         .help(format!(
-            "Choose how to interpret measurement strings in {}. Set to 'named' \
-             to interpret as names which link to {}. Set to 'indexed' to \
-             interpret as 1-indices which point to measurements. Set to 'guess' \
-             to automatically choose the prior two modes.",
+            "Choose how to interpret measurement strings in {}. Set to \
+             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {}. \
+             Set to '{SPILLOVER_INDEXED_LEVEL}' to interpret as 1-indices which \
+             point to measurements. Set to '{SPILLOVER_GUESS_LEVEL}' to \
+             automatically choose the prior two modes.",
             kw_style.paint("$SPILLOVER"),
             kw_style.paint("$PnN")
         ));
@@ -833,7 +851,8 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(TruncateEventValues))
         .help(format!(
             "Truncate values exceeding {}. \
-             Must be one of 'int_only' (default), 'all', or 'none'.",
+             Must be one of '{TRUNCATE_INT_ONLY_LEVEL}' (default), \
+             '{TRUNCATE_ALL_LEVEL}', or '{TRUNCATE_NONE_LEVEL}'.",
             kw_style.paint("$PnR"),
         ));
 
@@ -1085,10 +1104,11 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
     Arg::new(long).long(long).value_name("LEVEL").help(format!(
-        "{help_front} Must be one of 'error', 'demote', 'demote_silent', 'drop', \
-         or 'drop_silent' which will throw an error, demote to non-standard with \
-         warning, demote to non-standard silently, drop with warning, \
-         or drop silently respectively"
+        "{help_front} Must be one of '{KW_ERROR_LEVEL}', '{KW_DEMOTE_WARN_LEVEL}', \
+         '{KW_DEMOTE_SILENT_LEVEL}', '{KW_DROP_WARN_LEVEL}', or \
+         '{KW_DROP_SILENT_LEVEL}' which will throw an error, demote to \
+         non-standard with warning, demote to non-standard silently, drop with \
+         warning, or drop silently respectively"
     ))
 }
 
@@ -1102,7 +1122,10 @@ where
     } else {
         "error"
     };
-    let h = format!("{help_front} If 'true', throw {what}. If 'silent', ignore completely.");
+    let h = format!(
+        "{help_front} If '{TRI_TRUE_LEVEL}', throw {what}. \
+         If '{TRI_SILENT_LEVEL}', ignore completely."
+    );
     Arg::new(long)
         .long(long)
         .value_name("LEVEL")

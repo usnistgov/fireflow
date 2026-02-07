@@ -8,7 +8,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     macro_rules! exc {
         ($s:expr, $t:ident) => {
-            m.add($s, py.get_type::<fireflow_core::python::$t>())?;
+            m.add($s, py.get_type::<fireflow_types::python::$t>())?;
         };
     }
 

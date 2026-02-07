@@ -16,7 +16,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::DisplayAsPyErr;
+use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
 use super::lookup::ReqMetarootKey;
 
@@ -412,7 +412,7 @@ impl fmt::Display for PrivBytes {
 /// Error when making a new byte order of some size from a sequence of digits.
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct NewByteOrdError(usize);
 
 impl fmt::Display for NewByteOrdError {
@@ -434,14 +434,14 @@ pub struct NewEndianError;
 #[derive(Debug, Error)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConversionError))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct OrderedToEndianError;
 
 /// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
 #[derive(Debug, Error, new)]
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::RelationalError))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ByteOrdToSizedError {
     bytes: PrivBytes,
     length: usize,
@@ -504,7 +504,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::python::InvalidKeywordValueError;
+    use fireflow_types::python::{self as py, InvalidKeywordValueError};
 
     use super::{Endian, NewByteOrdError, SizedByteOrd};
 
@@ -526,7 +526,7 @@ mod python {
     #[derive(Debug, Error)]
     #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
+    #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
     pub struct VecToArrayError {
         vec_len: usize,
         req_len: usize,

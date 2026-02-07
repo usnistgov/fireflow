@@ -31,7 +31,7 @@ use {
 #[derive(Debug, Error)]
 #[error("deprecated key: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FCSDeprecatedError))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::FCSDeprecatedError))]
 #[cfg_attr(feature = "python", bound(DepKeyWarning<T, I>: Display))]
 pub struct DepKeyWarning<T, I>(pub SpecificKey<T, I>);
 

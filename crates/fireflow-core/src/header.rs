@@ -40,8 +40,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    crate::python as py,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_types::python as py,
 };
 
 /// All FCS versions this library supports.
@@ -388,14 +388,14 @@ pub enum HeaderSpacesError {
 #[derive(Debug, Error)]
 #[error("version must be followed by 4 spaces")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct HeaderSpacesFormatError;
 
 /// Error when spaces could not be read because not enough bytes were present
 #[derive(Debug, Error)]
 #[error("needed 4 bytes to read spaces after FCS version, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct HeaderSpacesNoBytesError(u64);
 
 /// Error when validating segments in HEADER
@@ -411,21 +411,21 @@ pub enum VersionError {
 #[derive(Debug, Error)]
 #[error("'{0}' is not a valid or supported FCS version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionFormatError(String);
 
 /// Error when parsing FCS version
 #[derive(Debug, Error)]
 #[error("invalid bytes found when parsing version: {}", self.0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionNonUtf8Error(Vec<u8>);
 
 /// Error when not enough bytes to parse version
 #[derive(Debug, Error)]
 #[error("needed 6 bytes to parse FCS version, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionNoBytesError(u64);
 
 /// Error when trying to guess FCS version from keywords

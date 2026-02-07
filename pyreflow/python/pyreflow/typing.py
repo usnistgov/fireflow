@@ -159,7 +159,7 @@ ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
 
 ProcessKeywordFailure: TypeAlias = Literal[
-    "error", "demote", "demote_silent", "drop", "drop_silent"
+    "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 
 ProcessTimeOpticalKeys: TypeAlias = Literal[

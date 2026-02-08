@@ -3962,7 +3962,7 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
 
     let pytype = PyOpt::new1(PyLiteral::new_awh_feature());
 
-    let doc_summary = "Value of {PNFEATURE} (area/width/height).";
+    let doc_summary = format!("Value of {PNFEATURE} (area/width/height).");
     let p = format!(
         "This should be the preferred way to get and set this keyword if one \
          knows that only {area}, {width}, and {height} will be used since it \

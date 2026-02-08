@@ -3145,69 +3145,60 @@ class TestPydantic:
 
         resolved = {a: getattr(pft, a) for a in ALL_ALIASES}
 
-        # walk through tree, find function we care about, and grab the arg names
-        # and their types, ignoring some arguments that we know won't match
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == fun_name:
-                all_args = node.args.args
-                all_defaults = node.args.defaults
-                diff = len(all_args) - len(all_defaults)
-                for arg, default in zip(all_args[diff:], all_defaults):
-                    pyi_default = ast.unparse(default)
-                    name = arg.arg
-                    if arg.annotation and name not in ignore:
-                        try:
-                            (t, d) = sigmap[name]
-                            pydantic_type = str(t)
-                            # strings from AST are single quoted, so match here
-                            # with pydantic strings
-                            pydantic_default = (
-                                f"'{d}'" if isinstance(d, str) else str(d)
-                            )
-                            pyi_type = str(ast.unparse(arg.annotation))
-                            if (
-                                pydantic_type == pyi_type
-                                and pyi_default == pydantic_default
-                            ):
-                                pydantic_seen.append(name)
-                            else:
-                                # if names match but types do not, it might be
-                                # because they AST has a type alias. Try to
-                                # resolve it with eval and try the comparison
-                                # again. This obviously assumes the name is in
-                                # scope.
-                                try:
-                                    resolved_pyi_type = str(eval(pyi_type, resolved))
-                                    if (
-                                        pydantic_type == resolved_pyi_type
-                                        and pyi_default == pydantic_default
-                                    ):
-                                        pydantic_seen.append(name)
-                                    else:
-                                        unequal.append(
-                                            StubMismatch(
-                                                name,
-                                                pydantic_type,
-                                                pyi_type,
-                                                pydantic_default,
-                                                pyi_default,
-                                            )
-                                        )
-                                except Exception:
-                                    unequal.append(
-                                        StubMismatch(
-                                            name,
-                                            pydantic_type,
-                                            resolved_pyi_type,
-                                            pydantic_default,
-                                            pyi_default,
-                                        )
-                                    )
+        # find function we want (and puke if we can't find it)
+        node = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == fun_name
+        )
 
-                        except KeyError:
-                            # lookup failed, tell user we couldn't file the
-                            # name from the function in the pydantic class
-                            only_in_pyi.append(arg.arg)
+        # loop through all function args with defaults, which should mirror what
+        # pydantic has
+        all_args = node.args.args
+        all_defaults = node.args.defaults
+        diff = len(all_args) - len(all_defaults)
+
+        for arg, default in zip(all_args[diff:], all_defaults):
+            pyi_default = ast.unparse(default)
+            name = arg.arg
+            if arg.annotation and name not in ignore:
+                try:
+                    (t, d) = sigmap[name]
+                    pydantic_type = str(t)
+                    # strings from AST are single quoted, so match here with
+                    # pydantic strings
+                    pydantic_default = f"'{d}'" if isinstance(d, str) else str(d)
+                    pyi_type = str(ast.unparse(arg.annotation))
+                    def_eq = pyi_default == pydantic_default
+
+                    if pydantic_type == pyi_type and def_eq:
+                        pydantic_seen.append(name)
+                        continue
+
+                    # if names match but types do not, it might be because the
+                    # AST has a type alias. Try to resolve it with eval and try
+                    # the comparison again. This obviously assumes the name is
+                    # in scope.
+                    resolved_pyi_type = str(eval(pyi_type, resolved))
+                    pyi_type = resolved_pyi_type
+                    if pydantic_type == resolved_pyi_type and def_eq:
+                        pydantic_seen.append(name)
+                        continue
+
+                    unequal.append(
+                        StubMismatch(
+                            name,
+                            pydantic_type,
+                            pyi_type,
+                            pydantic_default,
+                            pyi_default,
+                        )
+                    )
+
+                except KeyError:
+                    # lookup failed, tell user we couldn't find the argname from
+                    # the function in the pydantic class
+                    only_in_pyi.append(arg.arg)
 
         assert len(only_in_pyi) == 0, f"only in .pyi: {', '.join(only_in_pyi)}"
 

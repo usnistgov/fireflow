@@ -3526,14 +3526,14 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "PeakBin",
         "bin",
         |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
-        "Value of *$PKn*.".into(),
+        "Value of *$PKn*.",
         true,
     );
     let size = DocArg::new_meas_kw_ivar(
         "PeakIndex",
         "size",
         |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
-        "Value of *$PKNn*.".into(),
+        "Value of *$PKNn*.",
         true,
     );
 
@@ -3565,9 +3565,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Calibration3_1",
         "calibration",
         |_| PyOpt::new1(PyTuple::new_calibration3_1()),
-        Some(formatcp!(
-            "Value of {PNCALIBRATION}. Tuple encodes slope and calibration units."
-        )),
+        formatcp!("Value of {PNCALIBRATION}. Tuple encodes slope and calibration units."),
         true,
     );
 
@@ -3575,10 +3573,10 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Calibration3_2",
         "calibration",
         |_| PyOpt::new1(PyTuple::new_calibration3_2()),
-        Some(formatcp!(
+        formatcp!(
             "Value of {PNCALIBRATION}. Tuple encodes slope, intercept, \
              and calibration units."
-        )),
+        ),
         true,
     );
 
@@ -3586,12 +3584,12 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         "Display",
         "display",
         |_| PyOpt::new1(PyTuple::new_display()),
-        Some(formatcp!(
+        formatcp!(
             "Value of {pnd}. First member of tuple encodes linear or log display \
              ({FALSE} and {TRUE} respectively). The float members encode \
              lower/upper and decades/offset for linear and log scaling respectively.",
             pnd = fcs_kw!("$PnD")
-        )),
+        ),
         true,
     );
 
@@ -7193,7 +7191,7 @@ impl DocArgRWIvar {
         Self::new_kw_ivar(kw, name, |p| PyStr::default().rstype(p), None, true)
     }
 
-    fn new_meas_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: Option<&str>, def: bool) -> Self
+    fn new_meas_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: &str, def: bool) -> Self
     where
         F: FnOnce(Path) -> T,
         T: Into<ArgPyType>,
@@ -7201,8 +7199,6 @@ impl DocArgRWIvar {
         let path = keyword_path(kw);
         let pytype: ArgPyType = f(path).into();
         let full_path = pytype.as_rust_type();
-
-        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
 
         let get_f = |_: &Ident, pt: &ArgPyType| {
             if matches!(pt, PyType::Option(_)) {
@@ -7219,7 +7215,7 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(*self.0.as_mut() = #n);
 
-        Self::new_ivar_rw(name, pytype, d, false, get_f, set_f).def_auto_if(def)
+        Self::new_ivar_rw(name, pytype, desc, false, get_f, set_f).def_auto_if(def)
     }
 
     fn new_kw_opt_ivar<F, T>(kw: &str, name: &str, f: F) -> Self
@@ -7236,7 +7232,7 @@ impl DocArgRWIvar {
         T: Into<ArgPyType>,
     {
         let desc = format!("Value for {kw}.", kw = fcs_kw(format!("$Pn{abbr}")));
-        Self::new_meas_kw_ivar(kw, name, f, Some(desc.as_str()), true)
+        Self::new_meas_kw_ivar(kw, name, f, desc.as_str(), true)
     }
 
     fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self

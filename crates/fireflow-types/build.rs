@@ -56,18 +56,25 @@ fn write_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
 
     let only3_0 = ["UNICODE", "COMP"];
 
+    let write_kw = |f: &mut BufWriter<File>, v: &str| -> io::Result<()> {
+        writeln!(f, "pub const {v}: &str = \"${v}\";")?;
+        writeln!(f, "pub const {v}_KW: &str = \"{v}\";")
+    };
+
     macro_rules! go {
         ($pairs:expr, $class:expr) => {
             for v in $pairs {
-                writeln!(file, "pub(crate) const {v}_KW: &str = \"{v}\";")?;
+                write_kw(file, v)?;
+                // writeln!(file, "pub const {v}: &str = \"${v}\";")?;
+                // writeln!(file, "pub const {v}_KW: &str = \"{v}\";")?;
                 m.entry(Ascii::new(v), $class);
             }
         };
     }
 
     for (v, p) in special {
+        write_kw(file, v)?;
         m.entry(Ascii::new(v), p);
-        writeln!(file, "pub(crate) const {v}_KW: &str = \"{v}\";")?;
     }
 
     go!(&any_version, "RootKeywordClass::OptAny");
@@ -82,7 +89,7 @@ fn write_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {i}: phf::Map<unicase::Ascii<&'static str>, {vt}> = {b};"
+        "pub static {i}: phf::Map<unicase::Ascii<&'static str>, {vt}> = {b};"
     )
 }
 
@@ -94,54 +101,57 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     let meas_value = "MeasKeywordClass";
 
     let special = [
-        ("SCALE_KW_SUFFIX", "E", true, "MeasKeywordClass::Scale"),
-        (
-            "WAVELENGTH_KW_SUFFIX",
-            "L",
-            false,
-            "MeasKeywordClass::Wavelength",
-        ),
-        (
-            "SHORTNAME_KW_SUFFIX",
-            "N",
-            true,
-            "MeasKeywordClass::Shortname",
-        ),
+        ("SCALE", "E", true, "MeasKeywordClass::Scale"),
+        ("WAVELENGTH", "L", false, "MeasKeywordClass::Wavelength"),
+        ("SHORTNAME", "N", true, "MeasKeywordClass::Shortname"),
     ];
 
     let any_version = [
-        ("WIDTH_KW_SUFFIX", "B", false),
-        ("FILTER_KW_SUFFIX", "F", true),
-        ("POWER_KW_SUFFIX", "O", false),
-        ("PERCENT_EMITTED_KW_SUFFIX", "P", true),
-        ("RANGE_KW_SUFFIX", "R", true),
-        ("LONGNAME_KW_SUFFIX", "S", true),
-        ("DET_TYPE_KW_SUFFIX", "T", true),
-        ("DET_VOLTAGE_KW_SUFFIX", "V", true),
+        ("WIDTH", "B", false),
+        ("FILTER", "F", true),
+        ("POWER", "O", false),
+        ("PERCENT_EMITTED", "P", true),
+        ("RANGE", "R", true),
+        ("LONGNAME", "S", true),
+        ("DET_TYPE", "T", true),
+        ("DET_VOLTAGE", "V", true),
     ];
 
-    let min_3_0 = [("GAIN_KW_SUFFIX", "G", false)];
+    let min_3_0 = [("GAIN", "G", false)];
 
     let min_3_1 = [
-        ("DISPLAY_KW_SUFFIX", "D", false),
-        ("CALIBRATION_KW_SUFFIX", "CALIBRATION", false),
+        ("DISPLAY", "D", false),
+        ("CALIBRATION", "CALIBRATION", false),
     ];
 
     let min_3_2 = [
-        ("FEATURE_KW_SUFFIX", "FEATURE", false),
-        ("TYPE_KW_SUFFIX", "TYPE", false),
-        ("DATATYPE_KW_SUFFIX", "DATATYPE", false),
-        ("ANALYTE_KW_SUFFIX", "ANALYTE", false),
-        ("TAG_KW_SUFFIX", "TAG", false),
-        ("DET_NAME_KW_SUFFIX", "DET", false),
+        ("FEATURE", "FEATURE", false),
+        ("TYPE", "TYPE", false),
+        ("DATATYPE", "DATATYPE", false),
+        ("ANALYTE", "ANALYTE", false),
+        ("TAG", "TAG", false),
+        ("DET_NAME", "DET", false),
     ];
+
+    macro_rules! write_kw {
+        ($k:ident, $v:ident) => {
+            writeln!(file, "pub const PN{v}: &str = \"$PN{v}\";", v = $v)?;
+            writeln!(
+                file,
+                "pub const {k}_KW_SUFFIX: &str = \"{v}\";",
+                k = $k,
+                v = $v
+            )?;
+        };
+    }
 
     macro_rules! go {
         ($pairs:expr, $class:expr) => {
             for (k, v, also_gate) in $pairs {
-                writeln!(file, "pub(crate) const {k}: &str = \"{v}\";").unwrap();
+                write_kw!(k, v);
                 meas_map.entry(Ascii::new(v), $class);
                 if also_gate {
+                    writeln!(file, "pub const GN{v}: &str = \"$GM{v}\";")?;
                     gate_set.entry(Ascii::new(v));
                 }
             }
@@ -154,7 +164,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     go!(min_3_2, "MeasKeywordClass::OptGE3_2");
 
     for (k, v, also_gate, var) in special {
-        writeln!(file, "pub(crate) const {k}: &str = \"{v}\";").unwrap();
+        write_kw!(k, v);
         meas_map.entry(Ascii::new(v), var);
         if also_gate {
             gate_set.entry(Ascii::new(v));
@@ -167,12 +177,12 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {meas_map_ident}: phf::Map<Ascii<&'static str>, {meas_value}> = {mb};"
+        "pub static {meas_map_ident}: phf::Map<Ascii<&'static str>, {meas_value}> = {mb};"
     )?;
     writeln!(file, "#[allow(clippy::unreadable_literal)]")?;
     writeln!(
         file,
-        "static {gate_set_ident}: phf::Set<Ascii<&'static str>> = {gb};"
+        "pub static {gate_set_ident}: phf::Set<Ascii<&'static str>> = {gb};"
     )
 }
 

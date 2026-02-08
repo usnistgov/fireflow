@@ -13,6 +13,13 @@ itertools = { workspace = true }
 const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
+phf = { workspace = true, features = ["macros", "unicase"] }
+unicase = { workspace = true }
+
+[build-dependencies]
+phf = { version = "0.13.1", default-features = false, features = ["unicase"] }
+phf_codegen = "0.13.1"
+unicase = { workspace = true }
 
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]

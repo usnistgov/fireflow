@@ -770,8 +770,6 @@ dependencies = [
  "num-traits",
  "num_enum",
  "numpy",
- "phf 0.13.1",
- "phf_codegen",
  "polars-arrow",
  "pyo3",
  "regex",
@@ -828,8 +826,11 @@ dependencies = [
  "derive_more",
  "fireflow-core-proc",
  "itertools 0.14.0",
+ "phf 0.13.1",
+ "phf_codegen",
  "pyo3",
  "thiserror 2.0.17",
+ "unicase",
 ]
 
 [[package]]

@@ -49,6 +49,8 @@ use crate::validated::shortname::Shortname;
 
 use type_families::{BifunctorOnce as _, FunctorOnce as _, impl_functor, impl_kind1};
 
+use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
+
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
@@ -82,51 +84,6 @@ use {
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
-
-// The string primitives for almost all keywords are compiled in a build script
-// as string constants and included here. This is done in order to put these
-// strings into a pre-compiled hash table which will be used for version
-// autodetection and sorting through unused keywords efficiently.
-include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
-
-/// Data structure to classify root (non-indexed) keywords.
-///
-/// For optional keywords this simply records the version in which a given
-/// keyword is valid. Some specific keywords ($CYT, $TOT, etc) are explicitly
-/// encoded since they are optional or required (or missing entirely) depending
-/// on version. $BYTEORD is included because a non-endian value implies 2.0/3.0.
-/// $MODE is included because its value and optionality is different between 3.1
-/// and 3.2
-#[derive(Clone, Copy)]
-pub(crate) enum RootKeywordClass {
-    OptAny,
-    OptGE3_1,
-    OptGE3_2,
-    OptEQ3_0or3_1,
-    OptEQ3_0,
-    OptLE3_1,
-    Mode,
-    Cyt,
-    Tot,
-    Timestep,
-    Byteord,
-    Begindata,
-    Enddata,
-    Beginanalysis,
-    Endanalysis,
-    Beginstext,
-    Endstext,
-}
-
-pub(crate) enum MeasKeywordClass {
-    OptAny,
-    OptGE3_0,
-    OptGE3_1,
-    OptGE3_2,
-    Scale,
-    Shortname,
-    Wavelength,
-}
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Default)]
@@ -505,7 +462,7 @@ impl AnyKeywordClass {
 
         debug_assert!(s.is_ascii(), "key is not ASCII");
 
-        if let Some(rc) = KW_MAP.get(&s) {
+        if let Some(rc) = tk::KW_MAP.get(&s) {
             Self::Root(*rc)
         } else if let Some(rest) = starts_with_icase(ss, "P") {
             // $Pn* keywords or $PKn or $PKNn
@@ -524,7 +481,7 @@ impl AnyKeywordClass {
             } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
                 // $Pn*
                 let j = index.into();
-                if let Some(vc) = MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
+                if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
                     match vc {
                         MeasKeywordClass::OptAny => Self::MeasAny(j),
                         MeasKeywordClass::OptGE3_0 => Self::MeasOptGE3_0(j),
@@ -542,7 +499,7 @@ impl AnyKeywordClass {
             }
         } else if let Some((index, suffix)) =
             starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
-            && GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
+            && tk::GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
         {
             // $Gn* keywords
             Self::GateOptLE3_1(index.into())
@@ -3426,101 +3383,101 @@ macro_rules! kw_opt_meta_opt_int {
 }
 
 // all versions
-kw_req_meta!(AlphaNumType, DATATYPE_KW);
-kw_opt_meta_int!(Abrt, u32, ABRT_KW);
-kw_opt_meta_string!(Cytsn, CYTSN_KW);
-kw_opt_meta_string!(Com, COM_KW);
-kw_opt_meta_string!(Cells, CELLS_KW);
-kw_opt_meta!(FCSDate, DATE_KW, Option<Self>);
-kw_opt_meta_string!(Exp, EXP_KW);
-kw_opt_meta_string!(Fil, FIL_KW);
-kw_opt_meta_string!(Inst, INST_KW);
-kw_opt_meta_int!(Lost, u32, LOST_KW);
-kw_opt_meta_string!(Op, OP_KW);
-kw_req_meta_int!(Par, usize, PAR_KW);
-kw_opt_meta_string!(Proj, PROJ_KW);
-kw_opt_meta_string!(Smno, SMNO_KW);
-kw_opt_meta_string!(Src, SRC_KW);
-kw_opt_meta_string!(Sys, SYS_KW);
-kw_opt_meta!(Trigger, TR_KW, Option<Self>);
+kw_req_meta!(AlphaNumType, tk::DATATYPE_KW);
+kw_opt_meta_int!(Abrt, u32, tk::ABRT_KW);
+kw_opt_meta_string!(Cytsn, tk::CYTSN_KW);
+kw_opt_meta_string!(Com, tk::COM_KW);
+kw_opt_meta_string!(Cells, tk::CELLS_KW);
+kw_opt_meta!(FCSDate, tk::DATE_KW, Option<Self>);
+kw_opt_meta_string!(Exp, tk::EXP_KW);
+kw_opt_meta_string!(Fil, tk::FIL_KW);
+kw_opt_meta_string!(Inst, tk::INST_KW);
+kw_opt_meta_int!(Lost, u32, tk::LOST_KW);
+kw_opt_meta_string!(Op, tk::OP_KW);
+kw_req_meta_int!(Par, usize, tk::PAR_KW);
+kw_opt_meta_string!(Proj, tk::PROJ_KW);
+kw_opt_meta_string!(Smno, tk::SMNO_KW);
+kw_opt_meta_string!(Src, tk::SRC_KW);
+kw_opt_meta_string!(Sys, tk::SYS_KW);
+kw_opt_meta!(Trigger, tk::TR_KW, Option<Self>);
 
 // time for 2.0
-kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, BTIM_KW);
-kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, ETIM_KW);
+kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, tk::BTIM_KW);
+kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, tk::ETIM_KW);
 
 // time for 3.0
-kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, BTIM_KW);
-kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, ETIM_KW);
+kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, tk::BTIM_KW);
+kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, tk::ETIM_KW);
 
 // time for 3.1-3.2
-kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, BTIM_KW);
-kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, ETIM_KW);
+kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, tk::BTIM_KW);
+kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, tk::ETIM_KW);
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, COMP_KW, Option<Self>);
-kw_opt_meta!(Unicode, UNICODE_KW, Option<Self>);
+kw_opt_meta!(Compensation3_0, tk::COMP_KW, Option<Self>);
+kw_opt_meta!(Unicode, tk::UNICODE_KW, Option<Self>);
 
 // for 3.0+
-kw_req_meta!(Timestep, TIMESTEP_KW);
+kw_req_meta!(Timestep, tk::TIMESTEP_KW);
 
 // for 3.1+
-kw_opt_meta_string!(LastModifier, LAST_MODIFIER_KW);
-kw_opt_meta!(Originality, ORIGINALITY_KW, Option<Self>);
-kw_opt_meta!(LastModified, LAST_MODIFIED_KW, Option<Self>);
+kw_opt_meta_string!(LastModifier, tk::LAST_MODIFIER_KW);
+kw_opt_meta!(Originality, tk::ORIGINALITY_KW, Option<Self>);
+kw_opt_meta!(LastModified, tk::LAST_MODIFIED_KW, Option<Self>);
 
-kw_opt_meta_string!(Plateid, PLATEID_KW);
-kw_opt_meta_string!(Platename, PLATENAME_KW);
-kw_opt_meta_string!(Wellid, WELLID_KW);
+kw_opt_meta_string!(Plateid, tk::PLATEID_KW);
+kw_opt_meta_string!(Platename, tk::PLATENAME_KW);
+kw_opt_meta_string!(Wellid, tk::WELLID_KW);
 
-kw_opt_meta!(Spillover, SPILLOVER_KW, Option<Self>);
+kw_opt_meta!(Spillover, tk::SPILLOVER_KW, Option<Self>);
 
-kw_opt_meta!(Vol, VOL_KW, Option<Self>);
+kw_opt_meta!(Vol, tk::VOL_KW, Option<Self>);
 
 // for 3.2+
-kw_opt_meta_string!(Carrierid, CARRIERID_KW);
-kw_opt_meta_string!(Carriertype, CARRIERTYPE_KW);
-kw_opt_meta_string!(Locationid, LOCATIONID_KW);
+kw_opt_meta_string!(Carrierid, tk::CARRIERID_KW);
+kw_opt_meta_string!(Carriertype, tk::CARRIERTYPE_KW);
+kw_opt_meta_string!(Locationid, tk::LOCATIONID_KW);
 
-kw_opt_meta!(BeginDateTime, BEGINDATETIME_KW, Option<Self>);
-kw_opt_meta!(EndDateTime, ENDDATETIME_KW, Option<Self>);
-kw_opt_meta!(UnstainedCenters, UNSTAINEDCENTERS_KW, Self);
+kw_opt_meta!(BeginDateTime, tk::BEGINDATETIME_KW, Option<Self>);
+kw_opt_meta!(EndDateTime, tk::ENDDATETIME_KW, Option<Self>);
+kw_opt_meta!(UnstainedCenters, tk::UNSTAINEDCENTERS_KW, Self);
 
-kw_opt_meta_string!(UnstainedInfo, UNSTAINEDINFO_KW);
+kw_opt_meta_string!(UnstainedInfo, tk::UNSTAINEDINFO_KW);
 
-kw_opt_meta_string!(Flowrate, FLOWRATE_KW);
+kw_opt_meta_string!(Flowrate, tk::FLOWRATE_KW);
 
 // version-specific
-kw_opt_meta_int!(Tot, usize, TOT_KW); // optional in 2.0
+kw_opt_meta_int!(Tot, usize, tk::TOT_KW); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
-kw_req_meta!(Mode, MODE_KW); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, MODE_KW, Option<Self>); // for 3.2+
+kw_req_meta!(Mode, tk::MODE_KW); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, tk::MODE_KW, Option<Self>); // for 3.2+
 
-kw_opt_meta_string!(Cyt, CYT_KW); // optional for 2.0-3.1
-kw_req_meta!(Cyt3_2, CYT_KW); // required for 3.2+
+kw_opt_meta_string!(Cyt, tk::CYT_KW); // optional for 2.0-3.1
+kw_req_meta!(Cyt3_2, tk::CYT_KW); // required for 3.2+
 
-kw_req_meta!(ByteOrd2_0, BYTEORD_KW); // 2.0/3.0
-kw_req_meta!(ByteOrd3_1, BYTEORD_KW); // 3.1+
+kw_req_meta!(ByteOrd2_0, tk::BYTEORD_KW); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, tk::BYTEORD_KW); // 3.1+
 
 // all versions
-kw_req_meas!(Width, WIDTH_KW_SUFFIX);
-kw_opt_meas_string!(Filter, FILTER_KW_SUFFIX);
-kw_opt_meas!(Power, POWER_KW_SUFFIX, Option<Self>);
-kw_opt_meas!(PercentEmitted, PERCENT_EMITTED_KW_SUFFIX, Option<Self>);
-kw_req_meas!(Range, RANGE_KW_SUFFIX);
-kw_opt_meas_string!(Longname, LONGNAME_KW_SUFFIX);
-kw_opt_meas_string!(DetectorType, DET_TYPE_KW_SUFFIX);
-kw_opt_meas!(DetectorVoltage, DET_VOLTAGE_KW_SUFFIX, Option<Self>);
+kw_req_meas!(Width, tk::WIDTH_KW_SUFFIX);
+kw_opt_meas_string!(Filter, tk::FILTER_KW_SUFFIX);
+kw_opt_meas!(Power, tk::POWER_KW_SUFFIX, Option<Self>);
+kw_opt_meas!(PercentEmitted, tk::PERCENT_EMITTED_KW_SUFFIX, Option<Self>);
+kw_req_meas!(Range, tk::RANGE_KW_SUFFIX);
+kw_opt_meas_string!(Longname, tk::LONGNAME_KW_SUFFIX);
+kw_opt_meas_string!(DetectorType, tk::DET_TYPE_KW_SUFFIX);
+kw_opt_meas!(DetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX, Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, GAIN_KW_SUFFIX, Option<Self>);
+kw_opt_meas!(Gain, tk::GAIN_KW_SUFFIX, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, DISPLAY_KW_SUFFIX, Option<Self>);
+kw_opt_meas!(Display, tk::DISPLAY_KW_SUFFIX, Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, FEATURE_KW_SUFFIX, Option<Self>);
-meas_opt_zst!(TemporalType, TYPE_KW_SUFFIX, TemporalTypeInner);
+kw_opt_meas!(Feature, tk::FEATURE_KW_SUFFIX, Option<Self>);
+meas_opt_zst!(TemporalType, tk::TYPE_KW_SUFFIX, TemporalTypeInner);
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -3532,22 +3489,22 @@ impl FromStr for TemporalType {
     }
 }
 
-kw_opt_meas!(NumType, DATATYPE_KW_SUFFIX, Option<Self>);
-kw_opt_meas_string!(Analyte, ANALYTE_KW_SUFFIX);
-kw_opt_meas_string!(Tag, TAG_KW_SUFFIX);
-kw_opt_meas_string!(DetectorName, DET_NAME_KW_SUFFIX);
+kw_opt_meas!(NumType, tk::DATATYPE_KW_SUFFIX, Option<Self>);
+kw_opt_meas_string!(Analyte, tk::ANALYTE_KW_SUFFIX);
+kw_opt_meas_string!(Tag, tk::TAG_KW_SUFFIX);
+kw_opt_meas_string!(DetectorName, tk::DET_NAME_KW_SUFFIX);
 
 impl_display_maybe_self!(OpticalType);
-kw_opt_meas!(OpticalType, TYPE_KW_SUFFIX, Self);
+kw_opt_meas!(OpticalType, tk::TYPE_KW_SUFFIX, Self);
 
 // version specific
-kw_opt_meas!(Shortname, SHORTNAME_KW_SUFFIX, Option<Self>); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, tk::SHORTNAME_KW_SUFFIX, Option<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, SCALE_KW_SUFFIX, Option<Self>); // optional for 2.0
+kw_opt_meas!(Scale, tk::SCALE_KW_SUFFIX, Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, SCALE_KW_SUFFIX, TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, tk::SCALE_KW_SUFFIX, TemporalScaleInner); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -3572,13 +3529,13 @@ impl FromStrWith for TemporalScale2_0 {
     }
 }
 
-kw_req_meas!(TemporalScale3_0, SCALE_KW_SUFFIX); // required for 3.0+
+kw_req_meas!(TemporalScale3_0, tk::SCALE_KW_SUFFIX); // required for 3.0+
 
-kw_opt_meas!(Wavelength, WAVELENGTH_KW_SUFFIX, Option<Self>); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, WAVELENGTH_KW_SUFFIX, Self); // vector in 3.1+
+kw_opt_meas!(Wavelength, tk::WAVELENGTH_KW_SUFFIX, Option<Self>); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelengths, tk::WAVELENGTH_KW_SUFFIX, Self); // vector in 3.1+
 
-kw_opt_meas!(Calibration3_1, CALIBRATION_KW_SUFFIX, Option<Self>); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ includes offset
+kw_opt_meas!(Calibration3_1, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
 #[derive(Debug)]
@@ -3606,10 +3563,10 @@ impl Dfc {
 pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 
 // 3.0/3.1 subsets
-kw_opt_meta_int!(CSMode, usize, CSMODE_KW);
+kw_opt_meta_int!(CSMode, usize, tk::CSMODE_KW);
 
-kw_opt_meta_opt_int!(CSTot, u32, CSTOT_KW);
-kw_opt_meta_opt_int!(CSVBits, u32, CSVBITS_KW);
+kw_opt_meta_opt_int!(CSTot, u32, tk::CSTOT_KW);
+kw_opt_meta_opt_int!(CSVBits, u32, tk::CSVBITS_KW);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
@@ -3639,17 +3596,17 @@ impl IndexedKey for PeakIndex {
 }
 
 // 2.0-3.1 gating parameters
-kw_opt_meta_int!(Gate, usize, GATE_KW);
+kw_opt_meta_int!(Gate, usize, tk::GATE_KW);
 
-kw_opt_gate_other!(GateScale, SCALE_KW_SUFFIX);
-kw_opt_gate_string!(GateFilter, FILTER_KW_SUFFIX);
-kw_opt_gate_other!(GatePercentEmitted, PERCENT_EMITTED_KW_SUFFIX);
-kw_opt_gate_other!(GateRange, RANGE_KW_SUFFIX);
-kw_opt_gate_other!(GateShortname, SHORTNAME_KW_SUFFIX);
-kw_opt_gate_string!(GateLongname, LONGNAME_KW_SUFFIX);
-kw_opt_gate_string!(GateDetectorType, DET_TYPE_KW_SUFFIX);
-kw_opt_gate_other!(GateDetectorVoltage, DET_VOLTAGE_KW_SUFFIX);
-kw_opt_meta!(Gating, GATING_KW, Option<Self>);
+kw_opt_gate_other!(GateScale, tk::SCALE_KW_SUFFIX);
+kw_opt_gate_string!(GateFilter, tk::FILTER_KW_SUFFIX);
+kw_opt_gate_other!(GatePercentEmitted, tk::PERCENT_EMITTED_KW_SUFFIX);
+kw_opt_gate_other!(GateRange, tk::RANGE_KW_SUFFIX);
+kw_opt_gate_other!(GateShortname, tk::SHORTNAME_KW_SUFFIX);
+kw_opt_gate_string!(GateLongname, tk::LONGNAME_KW_SUFFIX);
+kw_opt_gate_string!(GateDetectorType, tk::DET_TYPE_KW_SUFFIX);
+kw_opt_gate_other!(GateDetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX);
+kw_opt_meta!(Gating, tk::GATING_KW, Option<Self>);
 
 kw_opt_region!(RegionWindow, REGION_WINDOW_KW_SUFFIX);
 
@@ -3664,7 +3621,7 @@ impl<I> Optional for RegionGateIndex<I> {
 impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
 
 // offsets for all versions
-kw_req_meta!(Nextdata, NEXTDATA_KW);
+kw_req_meta!(Nextdata, tk::NEXTDATA_KW);
 opt_meta!(Nextdata, Option<Self>);
 
 macro_rules! kw_offset {
@@ -3681,32 +3638,32 @@ macro_rules! kw_offset {
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    BEGINANALYSIS_KW
+    tk::BEGINANALYSIS_KW
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    BEGINDATA_KW
+    tk::BEGINDATA_KW
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    BEGINSTEXT_KW
+    tk::BEGINSTEXT_KW
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    ENDANALYSIS_KW
+    tk::ENDANALYSIS_KW
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    ENDDATA_KW
+    tk::ENDDATA_KW
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    ENDSTEXT_KW
+    tk::ENDSTEXT_KW
 );
 
 opt_meta!(Beginanalysis, Option<Self>);

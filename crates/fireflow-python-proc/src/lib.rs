@@ -19,6 +19,7 @@ use fireflow_types::config::{
     VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS,
     VERSION_STRICT_LEVEL,
 };
+use fireflow_types::keywords as tk;
 use fireflow_types::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
@@ -8051,10 +8052,13 @@ impl DocArgParam {
              {PNG} which is explicitly forbidden by the standard but \
              allowed in this library to be set to {noop} (noop), or \
              others which are nonsensical for time measurements but are not \
-             explicitly forbidden in the the standard (such as {PNL}). \
-             Provided keys are the string after the \"Pn\" in the \"PnX\" \
+             explicitly forbidden in the the standard (such as {pnl}). \
+             Provided keys are the string after the {pn} in the {pnx} \
              keywords.",
-            noop = code("1.0")
+            pnl = fcs_kw(tk::PNL),
+            noop = code("1.0"),
+            pn = code_str("Pn"),
+            pnx = code_str("PnX"),
         );
         Self::new_param(IGNORE_TIME_OPTICAL_KEYS, p, d).def_auto()
     }
@@ -8126,10 +8130,11 @@ impl DocArgParam {
         let pytype = PyStr::default();
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             {LAST_MODIFIED}. The pattern must follow the format outlined in \
+             {last_mod}. The pattern must follow the format outlined in \
              {CHRONO_REF}. If not supplied, these will be parsed according to \
              the default pattern which is {DEFAULT_LAST_MODIFIED_FORMAT} \
-             possibly with centiseconds after."
+             possibly with centiseconds after.",
+            last_mod = fcs_kw(tk::LAST_MODIFIED),
         );
         Self::new_opt_param("last_modified_pattern", pytype, d)
     }
@@ -9656,108 +9661,62 @@ const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#sy
 // formatted python constants used all over the place
 
 const TRUE: &str = code!("True");
-
 const FALSE: &str = code!("False");
-
 const NONE: &str = code!("None");
-
 const UNIT: &str = code!("()");
-
 const NAN: &str = code!("NaN");
-
 const INF: &str = code!("inf");
-
 const NEG_INF: &str = code!("-inf");
-
 const DOLLAR_STR: &str = code_str!("$");
 
 // argument names that are referenced in doc strings
 
 const BIG_OTHER: &str = "big_other";
-
 const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
-
 const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
-
 const MEASUREMENTS: &str = "measurements";
-
 const MAX_OTHER: &str = "max_other";
-
 const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
-
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
-
 const OTHER_WIDTH: &str = "other_width";
 
 // formatted segment names
 
 const HEADER: &str = fcs_seg!("HEADER");
-
 const TEXT: &str = fcs_seg!("TEXT");
-
 const DATA: &str = fcs_seg!("DATA");
-
 const ANALYSIS: &str = fcs_seg!("ANALYSIS");
-
 const OTHER: &str = fcs_seg!("OTHER");
 
 // formatted keywords
 
-const NEXTDATA: &str = fcs_kw!("$NEXTDATA");
-
-const DATATYPE: &str = fcs_kw!("$DATATYPE");
-
-const BYTEORD: &str = fcs_kw!("$BYTEORD");
-
-const TOT: &str = fcs_kw!("$TOT");
-
-const TIMESTEP: &str = fcs_kw!("$TIMESTEP");
-
-const DATE: &str = fcs_kw!("$DATE");
-
-const BTIM: &str = fcs_kw!("$BTIM");
-
-const ETIM: &str = fcs_kw!("$ETIM");
-
-const BEGINDATETIME: &str = fcs_kw!("$BEGINDATETIME");
-
-const ENDDATETIME: &str = fcs_kw!("$ENDDATETIME");
-
-const LAST_MODIFIED: &str = fcs_kw!("$LAST_MODIFIED");
-
-const PAR: &str = fcs_kw!("$PAR");
-
 const PN_ANY: &str = fcs_kw!("$Pn\\*");
+const GM_ANY: &str = fcs_kw!("$Gm\\*");
+const RN_ANY: &str = fcs_kw!("$Rn\\*");
 
-const GATE: &str = fcs_kw!("$GATE");
-
-const GATING: &str = fcs_kw!("$GATING");
-
-const GM_ANY: &str = fcs_kw!("*$Gm\\**");
-
-const RN_ANY: &str = fcs_kw!("*$Rn\\**");
-
-const RNI: &str = fcs_kw!("*$RnI");
-
-const RNW: &str = fcs_kw!("*$RnW");
-
-const PNR: &str = fcs_kw!("$PnR");
-
-const PNB: &str = fcs_kw!("$PnB");
-
-const PNN: &str = fcs_kw!("$PnN");
-
-const PNE: &str = fcs_kw!("$PnE");
-
-const PNG: &str = fcs_kw!("$PnG");
-
-const PNL: &str = fcs_kw!("$PnL");
-
-const PNDATATYPE: &str = fcs_kw!("$PnDATATYPE");
-
-const PNFEATURE: &str = fcs_kw!("$PnFEATURE");
-
-const PNTYPE: &str = fcs_kw!("$PnTYPE");
+const NEXTDATA: &str = fcs_kw!(tk::NEXTDATA);
+const DATATYPE: &str = fcs_kw!(tk::DATATYPE);
+const BYTEORD: &str = fcs_kw!(tk::BYTEORD);
+const TOT: &str = fcs_kw!(tk::TOT);
+const TIMESTEP: &str = fcs_kw!(tk::TIMESTEP);
+const DATE: &str = fcs_kw!(tk::DATE);
+const BTIM: &str = fcs_kw!(tk::BTIM);
+const ETIM: &str = fcs_kw!(tk::ETIM);
+const BEGINDATETIME: &str = fcs_kw!(tk::BEGINDATETIME);
+const ENDDATETIME: &str = fcs_kw!(tk::ENDDATETIME);
+const PAR: &str = fcs_kw!(tk::PAR);
+const GATE: &str = fcs_kw!(tk::GATE);
+const GATING: &str = fcs_kw!(tk::GATING);
+const RNI: &str = fcs_kw!(tk::RNI);
+const RNW: &str = fcs_kw!(tk::RNW);
+const PNR: &str = fcs_kw!(tk::PNR);
+const PNB: &str = fcs_kw!(tk::PNB);
+const PNN: &str = fcs_kw!(tk::PNN);
+const PNE: &str = fcs_kw!(tk::PNE);
+const PNG: &str = fcs_kw!(tk::PNG);
+const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
+const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);
+const PNTYPE: &str = fcs_kw!(tk::PNTYPE);
 
 #[derive(Clone, Copy)]
 enum AnySegment {
@@ -9843,12 +9802,12 @@ enum Kw {
 }
 
 impl Kw {
-    const fn fun_name(self) -> &'static str {
-        self.base_name()
+    fn fun_name(self) -> String {
+        self.base_name().to_lowercase().replace('$', "")
     }
 
     fn kw(self) -> String {
-        fcs_kw(format!("${}", self.base_name().to_uppercase()))
+        fcs_kw(self.base_name())
     }
 
     fn type_name(self) -> Path {
@@ -9894,39 +9853,39 @@ impl Kw {
 
     const fn base_name(self) -> &'static str {
         match self {
-            Self::Mode | Self::Mode3_2 => "mode",
-            Self::Cyt | Self::Cyt3_2 => "cyt",
-            Self::Abrt => "abrt",
-            Self::Com => "com",
-            Self::Cells => "cells",
-            Self::Exp => "exp",
-            Self::Fil => "fil",
-            Self::Inst => "inst",
-            Self::Lost => "lost",
-            Self::Op => "op",
-            Self::Proj => "proj",
-            Self::Smno => "smno",
-            Self::Src => "src",
-            Self::Sys => "sys",
-            Self::Cytsn => "cytsn",
-            Self::Unicode => "unicode",
-            Self::CSVBits => "csvbits",
-            Self::CSTot => "cstot",
-            Self::LastModifier => "last_modifier",
-            Self::LastModified => "last_modified",
-            Self::Originality => "originality",
-            Self::Plateid => "plateid",
-            Self::Platename => "platename",
-            Self::Wellid => "wellid",
-            Self::Vol => "vol",
-            Self::Flowrate => "flowrate",
-            Self::Carrierid => "carrierid",
-            Self::Carriertype => "carriertype",
-            Self::Locationid => "locationid",
-            Self::UnstainedInfo => "unstainedinfo",
-            Self::Spillover => "spillover",
-            Self::UnstainedCenters => "unstainedcenters",
-            Self::Tr => "tr",
+            Self::Mode | Self::Mode3_2 => tk::MODE,
+            Self::Cyt | Self::Cyt3_2 => tk::CYT,
+            Self::Abrt => tk::ABRT,
+            Self::Com => tk::COM,
+            Self::Cells => tk::CELLS,
+            Self::Exp => tk::EXP,
+            Self::Fil => tk::FIL,
+            Self::Inst => tk::INST,
+            Self::Lost => tk::LOST,
+            Self::Op => tk::OP,
+            Self::Proj => tk::PROJ,
+            Self::Smno => tk::SMNO,
+            Self::Src => tk::SRC,
+            Self::Sys => tk::SYS,
+            Self::Cytsn => tk::CYTSN,
+            Self::Unicode => tk::UNICODE,
+            Self::CSVBits => tk::CSVBITS,
+            Self::CSTot => tk::CSTOT,
+            Self::LastModifier => tk::LAST_MODIFIER,
+            Self::LastModified => tk::LAST_MODIFIED,
+            Self::Originality => tk::ORIGINALITY,
+            Self::Plateid => tk::PLATEID,
+            Self::Platename => tk::PLATENAME,
+            Self::Wellid => tk::WELLID,
+            Self::Vol => tk::VOL,
+            Self::Flowrate => tk::FLOWRATE,
+            Self::Carrierid => tk::CARRIERID,
+            Self::Carriertype => tk::CARRIERTYPE,
+            Self::Locationid => tk::LOCATIONID,
+            Self::UnstainedInfo => tk::UNSTAINEDINFO,
+            Self::Spillover => tk::SPILLOVER,
+            Self::UnstainedCenters => tk::UNSTAINEDCENTERS,
+            Self::Tr => tk::TR,
         }
     }
 
@@ -10075,22 +10034,22 @@ impl MeasKw {
     const fn kw(self) -> &'static str {
         match self {
             Self::PnETemporal => PNE,
-            Self::PnS => fcs_kw!("$PnS"),
-            Self::PnF => fcs_kw!("$PnF"),
-            Self::PnL2_0 | Self::PnL3_1 => PNL,
-            Self::PnO => fcs_kw!("$PnO"),
-            Self::PnT => fcs_kw!("$PnT"),
-            Self::PnP => fcs_kw!("$PnP"),
-            Self::PnV => fcs_kw!("$PnV"),
-            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => fcs_kw!("$PnCALIBRATION"),
-            Self::PnD => fcs_kw!("$PnD"),
-            Self::PnDET => fcs_kw!("$PnDET"),
-            Self::PnTAG => fcs_kw!("$PnTAG"),
+            Self::PnS => fcs_kw!(tk::PNS),
+            Self::PnF => fcs_kw!(tk::PNF),
+            Self::PnL2_0 | Self::PnL3_1 => fcs_kw!(tk::PNL),
+            Self::PnO => fcs_kw!(tk::PNO),
+            Self::PnT => fcs_kw!(tk::PNT),
+            Self::PnP => fcs_kw!(tk::PNP),
+            Self::PnV => fcs_kw!(tk::PNV),
+            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => fcs_kw!(tk::PNCALIBRATION),
+            Self::PnD => fcs_kw!(tk::PND),
+            Self::PnDET => fcs_kw!(tk::PNDET),
+            Self::PnTAG => fcs_kw!(tk::PNTAG),
             Self::PnTYPETemporal | Self::PnTYPEOptical => PNTYPE,
             Self::PnFEATURE => PNFEATURE,
-            Self::PnANALYTE => fcs_kw!("$PnANALYTE"),
-            Self::PKn => fcs_kw!("$PKn"),
-            Self::PKNn => fcs_kw!("$PKNn"),
+            Self::PnANALYTE => fcs_kw!(tk::PNANALYTE),
+            Self::PKn => fcs_kw!(tk::PKN),
+            Self::PKNn => fcs_kw!(tk::PKNN),
         }
     }
 

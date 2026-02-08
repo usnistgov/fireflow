@@ -40,6 +40,7 @@ use fireflow_types::config::{
     TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
     VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
+use fireflow_types::keywords as tk;
 use fireflow_types::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1,
@@ -88,6 +89,28 @@ fn run() -> AppResult<()> {
     let other_seg = seg_style.paint("OTHER");
 
     let fmt_arg = |arg| arg_style.paint(format!("--{arg}"));
+
+    let par = kw_style.paint(tk::PAR);
+    let tot = kw_style.paint(tk::TOT);
+    let byteord = kw_style.paint(tk::BYTEORD);
+    let datatype = kw_style.paint(tk::DATATYPE);
+    let timestep = kw_style.paint(tk::TIMESTEP);
+    let date = kw_style.paint(tk::DATE);
+    let btim = kw_style.paint(tk::BTIM);
+    let etim = kw_style.paint(tk::ETIM);
+    let last_modified = kw_style.paint(tk::LAST_MODIFIED);
+    let begindatetime = kw_style.paint(tk::BEGINDATETIME);
+    let enddatetime = kw_style.paint(tk::ENDDATETIME);
+    let nextdata = kw_style.paint(tk::NEXTDATA);
+    let spillover = kw_style.paint(tk::SPILLOVER);
+    let pnfeature = kw_style.paint(tk::PNFEATURE);
+    let pnb = kw_style.paint(tk::PNB);
+    let pnr = kw_style.paint(tk::PNR);
+    let pnn = kw_style.paint(tk::PNN);
+    let pne = kw_style.paint(tk::PNE);
+    let pndatatype = kw_style.paint(tk::PNDATATYPE);
+
+    let pnx = kw_style.paint("$PnX");
 
     let (delim_header, delim_help) = format_section(
         "DELIMITER ESCAPING",
@@ -157,12 +180,11 @@ fn run() -> AppResult<()> {
         "DATE PATTERN",
         [format!(
             "The value for {pat} will be used as an alternative pattern when \
-             parsing {kw}. It should have specifiers for year, month, and \
-             day as outlined in {CHRONO_REF}. If not supplied, {kw} will \
+             parsing {date}. It should have specifiers for year, month, and \
+             day as outlined in {CHRONO_REF}. If not supplied, {date} will \
              be parsed according to the standard pattern which is \
              '{DEFAULT_DATE_FORMAT}'.",
-            pat = fmt_arg(DATE_PATTERN),
-            kw = kw_style.paint("$DATE"),
+            pat = fmt_arg(DATE_PATTERN)
         )],
     );
 
@@ -170,17 +192,15 @@ fn run() -> AppResult<()> {
         "TIME PATTERN",
         [format!(
             "If supplied, will be used as an alternative pattern when \
-             parsing {b} and {e} It should have specifiers for \
+             parsing {btim} and {etim} It should have specifiers for \
              hours, minutes, and seconds as outlined in {CHRONO_REF}. It may \
              optionally also have a sub-seconds specifier as shown in the \
              same link. Furthermore, the specifiers '{BASE60_SECOND_SPEC}' and \
              '{BASE100_SECOND_SPEC}' may be used to match 1/60 and centiseconds \
-             respectively. If not supplied, {b} and {e} will be parsed according \
+             respectively. If not supplied, {btim} and {etim} will be parsed according \
              to the standard pattern which is '{DEFAULT_TIME_FORMAT_2_0}' for 2.0, \
              '{DEFAULT_TIME_FORMAT_3_0}' for 3.0, and '{DEFAULT_TIME_FORMAT_3_1}' \
-             for 3.1 and up.",
-            b = kw_style.paint("$BTIM"),
-            e = kw_style.paint("$ETIM"),
+             for 3.1 and up."
         )],
     );
 
@@ -306,7 +326,7 @@ fn run() -> AppResult<()> {
     let nextdata_correction = Arg::new(NEXTDATA_COR)
         .long(NEXTDATA_COR)
         .value_name("INT")
-        .help(format!("Correction for {}", kw_style.paint("$NEXTDATA")));
+        .help(format!("Correction for {nextdata}"));
 
     let allow_overlapping_supp_text = tri_flag_arg::<AllowDuplicatedSuppTEXT>(
         ALLOW_OVERLAPPING_SUPP_TEXT,
@@ -384,7 +404,7 @@ fn run() -> AppResult<()> {
 
     let allow_missing_nextdata = tri_flag_arg::<AllowMissingNextdata>(
         ALLOW_MISSING_NEXTDATA,
-        format!("Allow {} to be missing.", kw_style.paint("$NEXTDATA")),
+        format!("Allow {nextdata} to be missing."),
     );
 
     let trim_value_whitespace = Arg::new(TRIM_VALUE_WHITESPACE)
@@ -531,9 +551,8 @@ fn run() -> AppResult<()> {
     let dedup_meas_names = flag_arg(
         DEDUP_MEAS_NAMES,
         format!(
-            "Force all {} to be unique by appending '{DEDUP_PNN_SEP}X' to each \
-             duplicate and appending 'X' (starting at 0)",
-            fmt_arg("$PnN"),
+            "Force all {pnn} to be unique by appending '{DEDUP_PNN_SEP}X' \
+             to each duplicate and appending 'X' (starting at 0)",
         ),
     );
 
@@ -562,11 +581,10 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(ForceLinearScale))
         .help(format!(
-            "Force {} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
+            "Force {pne} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
              to only set the temporal measurement, '{FORCE_LINEAR_ALL_LEVEL}' to \
              set all measurements, and '{FORCE_LINEAR_NONE_LEVEL}' for no \
              measurements.",
-            kw_style.paint("$PnE")
         ));
 
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
@@ -575,8 +593,7 @@ fn run() -> AppResult<()> {
         .value_name("SYMS")
         .help(format!(
             "Ignore optical keywords for temporal measurement. Must be a \
-             comma-separated list of strings like the X in {}.",
-            kw_style.paint("$PnX")
+             comma-separated list of strings like the X in {pnx}.",
         ))
         .value_delimiter(',')
         .value_parser(value_parser!(TemporalOpticalKey));
@@ -600,21 +617,16 @@ fn run() -> AppResult<()> {
         .value_name("MODE")
         .value_parser(value_parser!(SpilloverMeasurementMode))
         .help(format!(
-            "Choose how to interpret measurement strings in {}. Set to \
-             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {}. \
+            "Choose how to interpret measurement strings in {spillover}. Set to \
+             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {pnn}. \
              Set to '{SPILLOVER_INDEXED_LEVEL}' to interpret as 1-indices which \
              point to measurements. Set to '{SPILLOVER_GUESS_LEVEL}' to \
-             automatically choose the prior two modes.",
-            kw_style.paint("$SPILLOVER"),
-            kw_style.paint("$PnN")
+             automatically choose the prior two modes."
         ));
 
     let allow_other_feature = flag_arg(
         ALLOW_OTHER_FEATURE,
-        format!(
-            "Allow {} to be a value other than \"Area\", \"Width\", or \"Height\"",
-            kw_style.paint("$PnFEATURE")
-        ),
+        format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\"",),
     );
 
     let process_pseudostandard = proc_kw_fail_arg(
@@ -625,7 +637,7 @@ fn run() -> AppResult<()> {
 
     let process_hyper_par = proc_kw_fail_arg(
         PROCESS_HYPER_PAR,
-        "Process measurement keywords whose index is greater than $PAR.",
+        format!("Process measurement keywords whose index is greater than {par}."),
     )
     .value_parser(value_parser!(ProcessHyperPar));
 
@@ -638,9 +650,8 @@ fn run() -> AppResult<()> {
     let process_extra_timestep = proc_kw_fail_arg(
         PROCESS_EXTRA_TIMESTEP,
         format!(
-            "Process unused {}, which may indicate that a time measurement \
+            "Process unused {timestep}, which may indicate that a time measurement \
              is present but not identified.",
-            kw_style.paint("TIMESTEP")
         ),
     )
     .value_parser(value_parser!(ProcessExtraTimestep));
@@ -653,23 +664,21 @@ fn run() -> AppResult<()> {
     let fix_log_scale_offset = flag_arg(
         FIX_LOG_SCALE_OFFSETS,
         format!(
-            "Fix {} keys that have log scaling with zero offset. \
+            "Fix {pne} keys that have log scaling with zero offset. \
              Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
              where 'X' is a positive decimal number. Having '0.0' for log offset \
              is mathematical nonsense.",
-            kw_style.paint("$PnE")
         ),
     );
 
     let disallow_localtime = flag_arg(
         DISALLOW_LOCALTIME,
         format!(
-            "Require that {} and {} have a timezone if provided. This is not \
-             required by the standard, but not having a timezone is ambiguous \
-             since the absolute value of the timestamp is dependent on localtime \
-             and therefore is location-dependent. Only affects FCS 3.2.",
-            kw_style.paint("$BEGINDATETIME"),
-            kw_style.paint("$ENDDATETIME")
+            "Require that {begindatetime} and {enddatetime} have a timezone if \
+             provided. This is not required by the standard, but not having a \
+             timezone is ambiguous since the absolute value of the timestamp is \
+             dependent on localtime and therefore is location-dependent. Only \
+             affects FCS 3.2.",
         ),
     );
 
@@ -678,8 +687,7 @@ fn run() -> AppResult<()> {
         .value_name("PATTERN")
         .value_parser(value_parser!(DatePattern))
         .help(format!(
-            "Pattern to match {} keyword. See {date_header}.",
-            kw_style.paint("$DATE")
+            "Pattern to match {date} keyword. See {date_header}."
         ));
 
     let time_pattern = Arg::new(TIME_PATTERN)
@@ -687,9 +695,7 @@ fn run() -> AppResult<()> {
         .value_name("PATTERN")
         .value_parser(value_parser!(TimePattern))
         .help(format!(
-            "Pattern to match {}/{} keywords. See {time_header}.",
-            kw_style.paint("$BTIM"),
-            kw_style.paint("$ETIM"),
+            "Pattern to match {btim}/{etim} keywords. See {time_header}.",
         ));
 
     let datetime_pattern = Arg::new(DATETIME_PATTERN)
@@ -697,9 +703,8 @@ fn run() -> AppResult<()> {
         .value_name("PATTERN")
         .help(format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             {} and {}. It should follow the format outline in {CHRONO_REF}.",
-            kw_style.paint("$BEGINDATETIME"),
-            kw_style.paint("ENDDATETIME"),
+             {begindatetime} and {enddatetime}. It should follow the format \
+             outline in {CHRONO_REF}.",
         ));
 
     let last_modified_pattern = Arg::new(LAST_MODIFIED_PATTERN)
@@ -707,8 +712,7 @@ fn run() -> AppResult<()> {
         .value_name("PATTERN")
         .help(format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             {}. It should follow the format outline in {CHRONO_REF}.",
-            kw_style.paint("LAST_MODIFIED"),
+             {last_modified}. It should follow the format outline in {CHRONO_REF}.",
         ));
 
     let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
@@ -791,10 +795,8 @@ fn run() -> AppResult<()> {
     let int_widths_from_byteord = flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
         format!(
-            "Set {} based on length of {}. Only has effect \
-             on integer layouts in FCS 2.0/3.0.",
-            kw_style.paint("$PnB"),
-            kw_style.paint("$BYTEORD"),
+            "Set {pnb} based on length of {byteord}. Only has effect \
+             on integer layouts in FCS 2.0/3.0."
         ),
     );
 
@@ -803,20 +805,16 @@ fn run() -> AppResult<()> {
         .value_name("BYTEORD")
         .value_parser(value_parser!(ByteOrd2_0))
         .help(format!(
-            "Override the value of {}. \
+            "Override the value of {byteord}. \
              Only has effect on integer layouts in FCS 2.0/3.0.",
-            kw_style.paint("$BYTEORD"),
         ));
 
     let disallow_range_truncation = tri_flag_arg::<DisallowRangeTrunc>(
         DISALLOW_RANGE_TRUNCATION,
         format!(
-            "Disallow {} values which need to be truncated to fit in type \
-             dictated by {} (and {} for FCS 3.2) and {} for a given measurement.",
-            kw_style.paint("$PnR"),
-            kw_style.paint("$DATATYPE"),
-            kw_style.paint("$PnDATATYPE"),
-            kw_style.paint("$PnB"),
+            "Disallow {pnr} values which need to be truncated to fit in type \
+             dictated by {datatype} (and {pndatatype} for FCS 3.2) and {pnb} \
+             for a given measurement."
         ),
     );
 
@@ -842,10 +840,7 @@ fn run() -> AppResult<()> {
 
     let allow_tot_mismatch = tri_flag_arg::<AllowTotMismatch>(
         ALLOW_TOT_MISMATCH,
-        format!(
-            "Allow {} to mismatch the number of events that are actually in {data_seg}.",
-            kw_style.paint("$TOT")
-        ),
+        format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
 
     let truncate_event_values = Arg::new(TRUNCATE_EVENT_VALUES)
@@ -853,19 +848,16 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(TruncateEventValues))
         .help(format!(
-            "Truncate values exceeding {}. \
+            "Truncate values exceeding {pnr}. \
              Must be one of '{TRUNCATE_INT_ONLY_LEVEL}' (default), \
              '{TRUNCATE_ALL_LEVEL}', or '{TRUNCATE_NONE_LEVEL}'.",
-            kw_style.paint("$PnR"),
         ));
 
     let disallow_over_range = tri_flag_arg::<DisallowOverRange>(
         DISALLOW_OVER_RANGE,
         format!(
-            "Forbid values in DATA to exceed {}. Does nothing if column \
-             was truncated according to '{}'.",
-            kw_style.paint("$PnR"),
-            TRUNCATE_EVENT_VALUES
+            "Forbid values in DATA to exceed {pnr}. Does nothing if column \
+             was truncated according to '{TRUNCATE_EVENT_VALUES}'."
         ),
     );
 

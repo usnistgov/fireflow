@@ -3100,49 +3100,41 @@ class StubMismatch(NamedTuple):
 # type (until we get proper introspection)
 class TestPydantic:
     @pytest.mark.parametrize(
-        "pydantic_class, fun_name, ignore",
+        "pydantic_class, fun_name",
         [
             (
-                pf.pydantic.PyreflowReadHeaderConfig,
+                pfp.PyreflowReadHeaderConfig,
                 "fcs_read_header",
-                ["path", "dataset_offset"],
             ),
             (
-                pf.pydantic.PyreflowReadFlatTEXTConfig,
+                pfp.PyreflowReadFlatTEXTConfig,
                 "fcs_read_flat_text",
-                ["path", "dataset_offset"],
             ),
             (
-                pf.pydantic.PyreflowReadStdTEXTConfig,
+                pfp.PyreflowReadStdTEXTConfig,
                 "fcs_read_std_text",
-                ["path", "dataset_offset"],
             ),
             (
-                pf.pydantic.PyreflowReadFlatDatasetConfig,
+                pfp.PyreflowReadFlatDatasetConfig,
                 "fcs_read_flat_dataset",
-                ["path", "dataset_offset"],
             ),
             (
-                pf.pydantic.PyreflowReadStdDatasetConfig,
+                pfp.PyreflowReadStdDatasetConfig,
                 "fcs_read_std_dataset",
-                ["path", "dataset_offset"],
             ),
             (
-                pf.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig,
+                pfp.PyreflowReadFlatDatasetFromKeywordsConfig,
                 "fcs_read_flat_dataset_with_keywords",
-                ["path", "dataset_offset", "header", "std"],
             ),
         ],
     )
-    def test_fun_sig_vs_pydantic(
-        self,
-        pydantic_class: type,
-        fun_name: str,
-        ignore: list[str],
-    ) -> None:
+    def test_fun_sig_vs_pydantic(self, pydantic_class: type, fun_name: str) -> None:
         only_in_pyi = []
         unequal = []
         pydantic_seen = []
+
+        # ignore kw args that are not supposed to be in pydantic classes
+        ignore = ["dataset_offset"]
 
         # get dict of pydantic attrs and types
         sig = ins.signature(pydantic_class)

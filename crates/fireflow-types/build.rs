@@ -135,7 +135,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
 
     macro_rules! write_kw {
         ($k:ident, $v:ident) => {
-            writeln!(file, "pub const PN{v}: &str = \"$PN{v}\";", v = $v)?;
+            writeln!(file, "pub const PN{v}: &str = \"$Pn{v}\";", v = $v)?;
             writeln!(
                 file,
                 "pub const {k}_KW_SUFFIX: &str = \"{v}\";",
@@ -151,7 +151,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
                 write_kw!(k, v);
                 meas_map.entry(Ascii::new(v), $class);
                 if also_gate {
-                    writeln!(file, "pub const GN{v}: &str = \"$GM{v}\";")?;
+                    writeln!(file, "pub const GM{v}: &str = \"$Gm{v}\";")?;
                     gate_set.entry(Ascii::new(v));
                 }
             }

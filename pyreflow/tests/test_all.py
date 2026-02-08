@@ -1,6 +1,6 @@
 import numpy as np
 import inspect as ins
-from typing import cast, Any
+from typing import cast, Any, NamedTuple
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -3052,7 +3052,6 @@ class TestReadWrite:
 HEADER_ALIASES = ["OffsetCorrection", "GuessOtherWidth"]
 
 FLAT_TEXT_ALIASES = [
-    *HEADER_ALIASES,
     "VersionOverride",
     "TriFlag",
     "DelimEscapeMode",
@@ -3073,54 +3072,65 @@ STD_TEXT_ALIASES = [
 
 READ_EVENTS_ALIASES = ["TruncateEventValues", "AllowHeaderTextOffsetMismatch"]
 
+ALL_ALIASES = (
+    HEADER_ALIASES + FLAT_TEXT_ALIASES + STD_TEXT_ALIASES + READ_EVENTS_ALIASES
+)
 
-# Ensure API functions have same sig as corresponding pydantic class. This is
+
+class StubMismatch(NamedTuple):
+    argname: str
+    pydantic_type: str
+    pyi_type: str
+    pydantic_default: str
+    pyi_default: str
+
+    def __str__(self) -> str:
+        return (
+            f"pyi is '{self.pyi_type}' with default '{self.pyi_default}' "
+            f"and pydantic is '{self.pydantic_type}' with default "
+            f"'{self.pydantic_default}' for {self.argname}"
+        )
+
+
+# Ensure pydantic classes match their corresponding API functions. This is
 # somewhat tested elsewhere since we call these API functions internally in
 # the pydantic classes, but this will ensure that the types and the args match
-# exactly.
+# exactly. This assumes that the stub file is totally correct. This is
+# guaranteed to be true for the default value and names but not necessarily the
+# type (until we get proper introspection)
 class TestPydantic:
     @pytest.mark.parametrize(
-        "pydantic_class, fun_name, ignore, aliases",
+        "pydantic_class, fun_name, ignore",
         [
             (
                 pf.pydantic.PyreflowReadHeaderConfig,
                 "fcs_read_header",
                 ["path", "dataset_offset"],
-                HEADER_ALIASES,
             ),
             (
                 pf.pydantic.PyreflowReadFlatTEXTConfig,
                 "fcs_read_flat_text",
                 ["path", "dataset_offset"],
-                FLAT_TEXT_ALIASES,
             ),
             (
                 pf.pydantic.PyreflowReadStdTEXTConfig,
                 "fcs_read_std_text",
                 ["path", "dataset_offset"],
-                FLAT_TEXT_ALIASES + STD_TEXT_ALIASES,
             ),
             (
                 pf.pydantic.PyreflowReadFlatDatasetConfig,
                 "fcs_read_flat_dataset",
                 ["path", "dataset_offset"],
-                FLAT_TEXT_ALIASES
-                + READ_EVENTS_ALIASES
-                + ["ProcessKeywordFailure", "ByteOrd"],
             ),
             (
                 pf.pydantic.PyreflowReadStdDatasetConfig,
                 "fcs_read_std_dataset",
                 ["path", "dataset_offset"],
-                FLAT_TEXT_ALIASES + STD_TEXT_ALIASES + READ_EVENTS_ALIASES,
             ),
             (
                 pf.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig,
                 "fcs_read_flat_dataset_with_keywords",
                 ["path", "dataset_offset", "header", "std"],
-                STD_TEXT_ALIASES
-                + READ_EVENTS_ALIASES
-                + ["OffsetCorrection", "TriFlag"],
             ),
         ],
     )
@@ -3129,7 +3139,6 @@ class TestPydantic:
         pydantic_class: type,
         fun_name: str,
         ignore: list[str],
-        aliases: list[str],
     ) -> None:
         only_in_pyi = []
         unequal = []
@@ -3137,24 +3146,37 @@ class TestPydantic:
 
         # get dict of pydantic attrs and types
         sig = ins.signature(pydantic_class)
-        sigmap = {x: y.annotation for x, y in sig.parameters.items()}
+        sigmap = {x: (y.annotation, y.default) for x, y in sig.parameters.items()}
 
         # import types that we might need to resolve
         import pyreflow.typing as pft
 
-        resolved = {a: getattr(pft, a) for a in aliases}
+        resolved = {a: getattr(pft, a) for a in ALL_ALIASES}
 
         # walk through tree, find function we care about, and grab the arg names
         # and their types, ignoring some arguments that we know won't match
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == fun_name:
-                for arg in node.args.args:
+                all_args = node.args.args
+                all_defaults = node.args.defaults
+                diff = len(all_args) - len(all_defaults)
+                for arg, default in zip(all_args[diff:], all_defaults):
+                    pyi_default = ast.unparse(default)
                     name = arg.arg
                     if arg.annotation and name not in ignore:
                         try:
-                            sig_type = str(sigmap[name])
-                            ast_type = str(ast.unparse(arg.annotation))
-                            if sig_type == ast_type:
+                            (t, d) = sigmap[name]
+                            pydantic_type = str(t)
+                            # strings from AST are single quoted, so match here
+                            # with pydantic strings
+                            pydantic_default = (
+                                f"'{d}'" if isinstance(d, str) else str(d)
+                            )
+                            pyi_type = str(ast.unparse(arg.annotation))
+                            if (
+                                pydantic_type == pyi_type
+                                and pyi_default == pydantic_default
+                            ):
                                 pydantic_seen.append(name)
                             else:
                                 # if names match but types do not, it might be
@@ -3163,15 +3185,32 @@ class TestPydantic:
                                 # again. This obviously assumes the name is in
                                 # scope.
                                 try:
-                                    resolved_ast_type = str(eval(ast_type, resolved))
-                                    if sig_type == resolved_ast_type:
+                                    resolved_pyi_type = str(eval(pyi_type, resolved))
+                                    if (
+                                        pydantic_type == resolved_pyi_type
+                                        and pyi_default == pydantic_default
+                                    ):
                                         pydantic_seen.append(name)
                                     else:
                                         unequal.append(
-                                            (name, sig_type, resolved_ast_type)
+                                            StubMismatch(
+                                                name,
+                                                pydantic_type,
+                                                pyi_type,
+                                                pydantic_default,
+                                                pyi_default,
+                                            )
                                         )
                                 except Exception:
-                                    unequal.append((name, sig_type, ast_type))
+                                    unequal.append(
+                                        StubMismatch(
+                                            name,
+                                            pydantic_type,
+                                            resolved_pyi_type,
+                                            pydantic_default,
+                                            pyi_default,
+                                        )
+                                    )
 
                         except KeyError:
                             # lookup failed, tell user we couldn't file the
@@ -3180,10 +3219,8 @@ class TestPydantic:
 
         assert len(only_in_pyi) == 0, f"only in .pyi: {', '.join(only_in_pyi)}"
 
-        for argname, sig_type, ast_type in unequal:
-            assert False, (
-                f"pyi is '{ast_type}' and pydantic is '{sig_type}' for {argname}"
-            )
+        for u in unequal:
+            assert False, str(u)
 
         only_in_pydantic = set(sigmap) - set(pydantic_seen)
         assert len(only_in_pydantic) == 0, (

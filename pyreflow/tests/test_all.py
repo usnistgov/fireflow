@@ -3094,7 +3094,7 @@ class StubMismatch(NamedTuple):
 
 # Ensure pydantic classes match their corresponding API functions. This is
 # somewhat tested elsewhere since we call these API functions internally in
-# the pydantic classes, but this will ensure that the types and the args match
+# the pydantic classes, but this will ensure that the types/defaults/names match
 # exactly. This assumes that the stub file is totally correct. This is
 # guaranteed to be true for the default value and names but not necessarily the
 # type (until we get proper introspection)
@@ -3102,26 +3102,11 @@ class TestPydantic:
     @pytest.mark.parametrize(
         "pydantic_class, fun_name",
         [
-            (
-                pfp.PyreflowReadHeaderConfig,
-                "fcs_read_header",
-            ),
-            (
-                pfp.PyreflowReadFlatTEXTConfig,
-                "fcs_read_flat_text",
-            ),
-            (
-                pfp.PyreflowReadStdTEXTConfig,
-                "fcs_read_std_text",
-            ),
-            (
-                pfp.PyreflowReadFlatDatasetConfig,
-                "fcs_read_flat_dataset",
-            ),
-            (
-                pfp.PyreflowReadStdDatasetConfig,
-                "fcs_read_std_dataset",
-            ),
+            (pfp.PyreflowReadHeaderConfig, "fcs_read_header"),
+            (pfp.PyreflowReadFlatTEXTConfig, "fcs_read_flat_text"),
+            (pfp.PyreflowReadStdTEXTConfig, "fcs_read_std_text"),
+            (pfp.PyreflowReadFlatDatasetConfig, "fcs_read_flat_dataset"),
+            (pfp.PyreflowReadStdDatasetConfig, "fcs_read_std_dataset"),
             (
                 pfp.PyreflowReadFlatDatasetFromKeywordsConfig,
                 "fcs_read_flat_dataset_with_keywords",

@@ -854,7 +854,7 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 
     let args = [dataset, header];
     let doc = DocString::new_class(format!(
-        "Output of using keywords to crate new standardized {TEXT}+{DATA}."
+        "Output of using keywords to crate new standardized {TEXT} and {DATA}."
     ))
     .args(args);
 
@@ -1230,7 +1230,7 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
 
     let args = [dataset, header];
     let doc = DocString::new_class(format!(
-        "Output of using keywords to crate new standardized {TEXT}+{DATA}."
+        "Output of using keywords to crate new standardized {TEXT} and {DATA}."
     ))
     .args(args);
 
@@ -8109,7 +8109,8 @@ impl DocArgParam {
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {DATE}. If not supplied, {DATE} will be parsed according to \
-             the standard pattern which is {DEFAULT_DATE_FORMAT}."
+             the standard pattern which is {pat}.",
+            pat = code_str(DEFAULT_DATE_FORMAT),
         );
         Self::new_opt_param("date_pattern", pytype, d)
     }
@@ -8131,8 +8132,8 @@ impl DocArgParam {
             "If supplied, will be used as an alternative pattern when parsing \
              {last_mod}. The pattern must follow the format outlined in \
              {CHRONO_REF}. If not supplied, these will be parsed according to \
-             the default pattern which is {DEFAULT_LAST_MODIFIED_FORMAT} \
-             possibly with centiseconds after.",
+             the default pattern which is {pat} possibly with centiseconds after.",
+            pat = code_str(DEFAULT_LAST_MODIFIED_FORMAT),
             last_mod = fcs_kw(tk::LAST_MODIFIED),
         );
         Self::new_opt_param("last_modified_pattern", pytype, d)
@@ -8155,31 +8156,36 @@ impl DocArgParam {
         // format exception description
         let exc_desc = format!(
             "if {ARG_TOKEN} does not have specifiers for hours, minutes, \
-             seconds, and optionally sub-seconds (where {BASE60_SECOND_SPEC} \
-             and {BASE100_SECOND_SPEC} correspond to {NAME3_0} and {NAME3_1} \
-             respectively) as outlined in {CHRONO_REF}"
+             seconds, and optionally sub-seconds (where {b60} and {b100} \
+             correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
+             in {CHRONO_REF}",
+            b60 = code_str(BASE60_SECOND_SPEC),
+            b100 = code_str(BASE100_SECOND_SPEC),
         );
         let exc = PyException::new_config().desc(exc_desc);
 
+        let fmt2_0 = code_str(DEFAULT_TIME_FORMAT_2_0);
+        let fmt3_0 = code_str(DEFAULT_TIME_FORMAT_3_0);
+        let fmt3_1 = code_str(DEFAULT_TIME_FORMAT_3_1);
+
         // format arg description
         let std_pat = match version {
-            None => formatcp!(
-                "{DEFAULT_TIME_FORMAT_2_0} for 2.0, {DEFAULT_TIME_FORMAT_3_0} \
-                 for 3.0 and {DEFAULT_TIME_FORMAT_3_1} for 3.1 and up"
-            ),
-            Some(Version::FCS2_0) => DEFAULT_TIME_FORMAT_2_0,
-            Some(Version::FCS3_0) => DEFAULT_TIME_FORMAT_3_0,
-            _ => DEFAULT_TIME_FORMAT_3_1,
+            None => format!("{fmt2_0} for 2.0, {fmt3_0} for 3.0 and {fmt3_1} for 3.1 and up"),
+            Some(Version::FCS2_0) => fmt2_0,
+            Some(Version::FCS3_0) => fmt3_0,
+            _ => fmt3_1,
         };
         let line1 = "If supplied, will be used as an alternative pattern when \
                      parsing {BTIM} and {ETIM}.";
         let line2 = format!(
-            "The values {BASE60_SECOND_SPEC} or {BASE100_SECOND_SPEC} may be \
-             used to match {NAME3_0} or {NAME3_1} respectively."
+            "The values {b60} or {b100} may be used to match \
+             {NAME3_0} or {NAME3_1} respectively.",
+            b60 = code_str(BASE60_SECOND_SPEC),
+            b100 = code_str(BASE100_SECOND_SPEC),
         );
         let line3 = format!(
             "If not supplied, {BTIM} and {ETIM} will be parsed \
-             according to the standard pattern which is {std_pat}."
+             according to the standard pattern which is {std_pat}.",
         );
         let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
 
@@ -8249,10 +8255,8 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = config_path("NonStdMeasPatternOpt");
-        let ed = format!(
-            "if {ARG_TOKEN} does not have {pat}",
-            pat = code_str(NON_STD_MEAS_INDEX_PAT)
-        );
+        let pat = code_str(NON_STD_MEAS_INDEX_PAT);
+        let ed = format!("if {ARG_TOKEN} does not have {pat}");
         let exc = PyException::new_config().desc(ed);
         // TODO this is really weird, why is path specified twice?
         let pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
@@ -8262,8 +8266,7 @@ impl DocArgParam {
             "Pattern to use when matching nonstandard measurement keys. Must \
              be a regular expression pattern with {pat} which will represent \
              the measurement index and should not start with {DOLLAR_STR}. Otherwise \
-             should be a normal regular expression as defined in {REGEXP_REF}.",
-            pat = code_str("NON_STD_MEAS_INDEX_PAT"),
+             should be a normal regular expression as defined in {REGEXP_REF}."
         );
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
             .def(DocDefault::Str(NON_STD_MEAS_PAT_DEFAULT.into()))

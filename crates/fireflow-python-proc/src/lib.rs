@@ -6010,12 +6010,12 @@ impl<E> PyInt<E> {
 impl<E: From<PyException>> PyInt<E> {
     fn new_nextdata() -> Self {
         let p = keyword_path("Nextdata");
-        Self::new_int(RsInt::U64).rstype(p).no_exc()
+        Self::new_int(RsInt::U64).rstype(p)
     }
 
     fn new_meas_index() -> Self {
         let p = parse_quote!(fireflow_core::text::index::MeasIndex);
-        Self::new_nonzero_usize().rstype(p).no_exc()
+        Self::new_nonzero_usize().rstype(p)
     }
 
     fn new_dataset_offset() -> Self {
@@ -6042,8 +6042,7 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_int(intkind: RsInt) -> Self {
-        let e = PyException::new_overflow().desc(intkind.exc_desc());
-        Self::from(intkind).exc(e)
+        Self::from(intkind)
     }
 
     fn new_other_width() -> Self {
@@ -6059,12 +6058,12 @@ impl<E: From<PyException>> PyInt<E> {
 
     fn new_ascii_range_value() -> Self {
         let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
-        Self::new_int(RsInt::U64).rstype(p).no_exc()
+        Self::new_int(RsInt::U64).rstype(p)
     }
 
     fn new_bitmask_value64() -> Self {
         let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
-        Self::new_int(RsInt::U64).rstype(p).no_exc()
+        Self::new_int(RsInt::U64).rstype(p)
     }
 
     fn new_bitmask(nbytes: usize) -> Self {

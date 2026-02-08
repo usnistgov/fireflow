@@ -989,7 +989,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
         PyDict::new_std_keywords(),
-        "Keywords which start with *$* but are not part of the standard.",
+        format!("Keywords which start with {DOLLAR_STR} but are not part of the standard."),
         |_, _| quote!(self.0.pseudostandard.clone()),
     );
 
@@ -1005,7 +1005,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let hyper_gate = DocArgROIvar::new_ivar_ro(
         "hyper_gate",
         PyDict::new_std_keywords(),
-        "Gating keywords which are part of the standard but have an index outside *$GATE*.",
+        format!("Gating keywords which are part of the standard but have an index outside {GATE}.",),
         |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
@@ -1576,70 +1576,54 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let analysis: AnyDocArg = DocArg::new_analysis_ivar().into();
     let others = DocArg::new_others_ivar().into();
 
-    let mode = if version < Version::FCS3_2 {
-        let t = |p| PyLiteral::new2(["L", "U", "C"], p);
-        DocArg::new_kw_ivar("Mode", "mode", t, None, true)
+    let mode_kw = if version < Version::FCS3_2 {
+        Kw::Mode
     } else {
-        DocArg::new_kw_opt_ivar("Mode3_2", "mode", |p| PyLiteral::new2(["L"], p))
+        Kw::Mode3_2
     };
+    let mode = DocArg::new_kw_ivar1(mode_kw);
 
     let cyt = if version < Version::FCS3_2 {
-        DocArg::new_kw_ivar_str("Cyt", "cyt")
+        DocArg::new_kw_ivar1(Kw::Cyt)
     } else {
-        DocArg::new_kw_ivar("Cyt3_2", "cyt", PyStr::new_non_empty_str, None, false)
+        DocArg::new_kw_ivar(Kw::Cyt3_2, false)
     };
 
-    let py_float = |p| PyFloat::new_non_negative_float().rstype(p);
-    let py_int = |p| PyInt::new_u32().rstype(p);
+    let abrt = DocArg::new_kw_ivar1(Kw::Abrt);
+    let com = DocArg::new_kw_ivar1(Kw::Com);
+    let cells = DocArg::new_kw_ivar1(Kw::Cells);
+    let exp = DocArg::new_kw_ivar1(Kw::Exp);
+    let fil = DocArg::new_kw_ivar1(Kw::Fil);
+    let inst = DocArg::new_kw_ivar1(Kw::Inst);
+    let lost = DocArg::new_kw_ivar1(Kw::Lost);
+    let op = DocArg::new_kw_ivar1(Kw::Op);
+    let proj = DocArg::new_kw_ivar1(Kw::Proj);
+    let smno = DocArg::new_kw_ivar1(Kw::Smno);
+    let src = DocArg::new_kw_ivar1(Kw::Src);
+    let sys = DocArg::new_kw_ivar1(Kw::Sys);
+    let cytsn = DocArg::new_kw_ivar1(Kw::Cytsn);
 
-    let abrt = DocArg::new_kw_opt_ivar("Abrt", "abrt", py_int);
-    let com = DocArg::new_kw_ivar_str("Com", "com");
-    let cells = DocArg::new_kw_ivar_str("Cells", "cells");
-    let exp = DocArg::new_kw_ivar_str("Exp", "exp");
-    let fil = DocArg::new_kw_ivar_str("Fil", "fil");
-    let inst = DocArg::new_kw_ivar_str("Inst", "inst");
-    let lost = DocArg::new_kw_opt_ivar("Lost", "lost", py_int);
-    let op = DocArg::new_kw_ivar_str("Op", "op");
-    let proj = DocArg::new_kw_ivar_str("Proj", "proj");
-    let smno = DocArg::new_kw_ivar_str("Smno", "smno");
-    let src = DocArg::new_kw_ivar_str("Src", "src");
-    let sys = DocArg::new_kw_ivar_str("Sys", "sys");
-    let cytsn = DocArg::new_kw_ivar_str("Cytsn", "cytsn");
+    let unicode = DocArg::new_kw_ivar1(Kw::Unicode);
 
-    let unicode_pytype = |p| {
-        PyTuple::new1(RsInt::U32)
-            .add(PyList::new1(PyStr::default()))
-            .rstype(p)
-    };
-    let unicode = DocArg::new_kw_opt_ivar("Unicode", "unicode", unicode_pytype);
-
-    let csvbits = DocArg::new_kw_ivar("CSVBits", "csvbits", py_int, None, true);
-    let cstot = DocArg::new_kw_ivar("CSTot", "cstot", py_int, None, true);
-
+    let csvbits = DocArg::new_kw_ivar1(Kw::CSVBits);
+    let cstot = DocArg::new_kw_ivar1(Kw::CSTot);
     let csvflags = DocArg::new_csvflags_ivar();
 
     let all_subset = [csvbits, cstot, csvflags];
 
-    let last_modifier = DocArg::new_kw_ivar_str("LastModifier", "last_modifier");
-    let last_mod_date = DocArg::new_kw_opt_ivar("LastModified", "last_modified", |p| {
-        PyDatetime::default().rstype(p)
-    });
-    let originality = DocArg::new_kw_opt_ivar("Originality", "originality", |p| {
-        PyLiteral::new2(
-            ["Original", "NonDataModified", "Appended", "DataModified"],
-            p,
-        )
-    });
+    let last_modifier = DocArg::new_kw_ivar1(Kw::LastModifier);
+    let last_mod_date = DocArg::new_kw_ivar1(Kw::LastModified);
+    let originality = DocArg::new_kw_ivar1(Kw::Originality);
 
     let all_modified = [last_modifier, last_mod_date, originality];
 
-    let plateid = DocArg::new_kw_ivar_str("Plateid", "plateid");
-    let platename = DocArg::new_kw_ivar_str("Platename", "platename");
-    let wellid = DocArg::new_kw_ivar_str("Wellid", "wellid");
+    let plateid = DocArg::new_kw_ivar1(Kw::Plateid);
+    let platename = DocArg::new_kw_ivar1(Kw::Platename);
+    let wellid = DocArg::new_kw_ivar1(Kw::Wellid);
 
     let all_plate = [plateid, platename, wellid];
 
-    let vol = DocArg::new_kw_opt_ivar("Vol", "vol", py_float);
+    let vol = DocArg::new_kw_ivar1(Kw::Vol);
 
     let comp_or_spill = match version {
         Version::FCS2_0 => DocArg::new_comp_ivar(true),
@@ -1647,16 +1631,16 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
         _ => DocArg::new_spillover_ivar(),
     };
 
-    let flowrate = DocArg::new_kw_ivar_str("Flowrate", "flowrate");
+    let flowrate = DocArg::new_kw_ivar1(Kw::Flowrate);
 
-    let carrierid = DocArg::new_kw_ivar_str("Carrierid", "carrierid");
-    let carriertype = DocArg::new_kw_ivar_str("Carriertype", "carriertype");
-    let locationid = DocArg::new_kw_ivar_str("Locationid", "locationid");
+    let carrierid = DocArg::new_kw_ivar1(Kw::Carrierid);
+    let carriertype = DocArg::new_kw_ivar1(Kw::Carriertype);
+    let locationid = DocArg::new_kw_ivar1(Kw::Locationid);
 
     let all_carrier = [carrierid, carriertype, locationid];
 
     let unstainedcenters = DocArg::new_unstainedcenters_ivar();
-    let unstainedinfo = DocArg::new_kw_ivar_str("UnstainedInfo", "unstainedinfo");
+    let unstainedinfo = DocArg::new_kw_ivar1(Kw::UnstainedInfo);
 
     let tr = DocArg::new_trigger_ivar();
 
@@ -1840,7 +1824,7 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     );
 
     let doc = DocString::new_method("Return standard keywords as string pairs.")
-        .para("Each key will be prefixed with *$*.")
+        .para(format!("Each key will be prefixed with {DOLLAR_STR}."))
         .para(format!(
             "This will not include {TOT}, {NEXTDATA}, or any of the \
              offset keywords since these only matter if the dataset is written.",
@@ -1870,7 +1854,7 @@ pub fn impl_core_set_tr_threshold(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
     let p = DocArg::new_param("threshold", RsInt::U32, "The threshold to set.");
-    let doc = DocString::new_method("Set the threshold for *$TR*.")
+    let doc = DocString::new_method(format!("Set the threshold for {tr}.", tr = Kw::Tr.kw()))
         .arg(p)
         .returns(
             DocReturn::new(PyBool::default())
@@ -1996,46 +1980,6 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 self.0.write_dataset(&path, &conf).py_resolve_commutative()
             }
         }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_core_all_peak_attrs(input: TokenStream) -> TokenStream {
-    let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_pycore(&i).1;
-
-    let go = |k: &str, kw: &str, name: &str| {
-        let p = keyword_path(kw);
-        let pt = PyOpt::new1(PyInt::new_u32().rstype(p));
-        let inner = pt.as_rust_type();
-        let doc = DocString::new_ivar(
-            format!("The value of *$P{k}n* for all measurements."),
-            PyList::new1(pt),
-        );
-
-        doc.into_impl_get_set(
-            &i,
-            format!("all_{name}"),
-            true,
-            |_, _| {
-                quote! {
-                    self.0
-                        .get_temporal_optical::<#inner, #inner>()
-                        .map(|x| x.unwrap().as_ref().copied())
-                        .collect()
-                }
-            },
-            |n, _| quote!(Ok(self.0.set_temporal_optical(#n)?)),
-        )
-    };
-
-    let pkn = go("K", "PeakBin", "peak_bins");
-    let pknn = go("KN", "PeakIndex", "peak_sizes");
-
-    quote! {
-        #pkn
-        #pknn
     }
     .into()
 }
@@ -2915,7 +2859,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         )
     };
     let no_kws =
-        format!("Must not contain any *$Pn\\** keywords not indexed by {PAR} or {other_kws}.");
+        format!("Must not contain any {PN_ANY} keywords not indexed by {PAR} or {other_kws}.",);
 
     let std_param = DocArg::new_param(
         "std",
@@ -3214,7 +3158,7 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let _ = split_ident_version_checked("PyCoreTEXT", &i);
     let s = "Remove measurements and clear the layout.";
     let p0 = format!(
-        "This is equivalent to deleting all *$Pn\\** keywords and setting \
+        "This is equivalent to deleting all {PN_ANY} keywords and setting \
          {PAR} to {zero}.",
         zero = code(0_u8)
     );
@@ -3512,45 +3456,21 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     };
 
     let wavelength = if version < Version::FCS3_1 {
-        DocArg::new_meas_kw_opt_ivar("Wavelength", "wavelength", "L", |p| {
-            PyFloat::new_positive_float().rstype(p)
-        })
+        DocArg::new_meas_kw_ivar1(MeasKw::PnL2_0)
     } else {
-        DocArg::new_meas_kw_ivar1("Wavelengths", "wavelengths", "L", |p| {
-            PyList::new(PyFloat::new_positive_float(), p, None)
-        })
+        DocArg::new_meas_kw_ivar1(MeasKw::PnL3_1)
     };
 
-    let bin = DocArg::new_meas_kw_ivar(
-        "PeakBin",
-        "bin",
-        |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
-        "Value of *$PKn*.",
-        true,
-    );
-    let size = DocArg::new_meas_kw_ivar(
-        "PeakIndex",
-        "size",
-        |p| PyOpt::new1(PyInt::new_u32().rstype(p)),
-        "Value of *$PKNn*.",
-        true,
-    );
+    let bin = DocArg::new_meas_kw_ivar1(MeasKw::PKn);
+    let size = DocArg::new_meas_kw_ivar1(MeasKw::PKNn);
 
     let all_peak = [bin, size];
 
-    let filter = DocArg::new_meas_kw_str("Filter", "filter", "F");
-
-    let py_float = |p| PyFloat::new_non_negative_float().rstype(p);
-
-    let power = DocArg::new_meas_kw_opt_ivar("Power", "power", "O", py_float);
-
-    let detector_type = DocArg::new_meas_kw_str("DetectorType", "detector_type", "T");
-
-    let percent_emitted =
-        DocArg::new_meas_kw_opt_ivar("PercentEmitted", "percent_emitted", "P", py_float);
-
-    let detector_voltage =
-        DocArg::new_meas_kw_opt_ivar("DetectorVoltage", "detector_voltage", "V", py_float);
+    let filter = DocArg::new_meas_kw_ivar1(MeasKw::PnF);
+    let power = DocArg::new_meas_kw_ivar1(MeasKw::PnO);
+    let detector_type = DocArg::new_meas_kw_ivar1(MeasKw::PnT);
+    let percent_emitted = DocArg::new_meas_kw_ivar1(MeasKw::PnP);
+    let detector_voltage = DocArg::new_meas_kw_ivar1(MeasKw::PnV);
 
     let all_common_optical = [
         filter,
@@ -3561,55 +3481,31 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     ];
 
     let calibration3_1 = DocArg::new_meas_kw_ivar(
-        "Calibration3_1",
-        "calibration",
-        |_| PyOpt::new1(PyTuple::new_calibration3_1()),
-        formatcp!("Value of {PNCALIBRATION}. Tuple encodes slope and calibration units."),
-        true,
+        MeasKw::PnCALIBRATION3_1,
+        Some("Tuple encodes slope and calibration units."),
     );
 
     let calibration3_2 = DocArg::new_meas_kw_ivar(
-        "Calibration3_2",
-        "calibration",
-        |_| PyOpt::new1(PyTuple::new_calibration3_2()),
-        formatcp!(
-            "Value of {PNCALIBRATION}. Tuple encodes slope, intercept, \
-             and calibration units."
-        ),
-        true,
+        MeasKw::PnCALIBRATION3_2,
+        Some("Tuple encodes slope, intercept, and calibration units."),
     );
 
     let display = DocArg::new_meas_kw_ivar(
-        "Display",
-        "display",
-        |_| PyOpt::new1(PyTuple::new_display()),
-        formatcp!(
-            "Value of {pnd}. First member of tuple encodes linear or log display \
+        MeasKw::PnD,
+        Some(formatcp!(
+            "First member of tuple encodes linear or log display \
              ({FALSE} and {TRUE} respectively). The float members encode \
              lower/upper and decades/offset for linear and log scaling respectively.",
-            pnd = fcs_kw!("$PnD")
-        ),
-        true,
+        )),
     );
 
-    let analyte = DocArg::new_meas_kw_str("Analyte", "analyte", "ANALYTE");
-
-    let feature =
-        DocArg::new_meas_kw_opt_ivar("Feature", "feature", "FEATURE", |_| PyStr::new_feature());
-
-    let detector_name = DocArg::new_meas_kw_str("DetectorName", "detector_name", "DET");
-
-    let tag = DocArg::new_meas_kw_str("Tag", "tag", "TAG");
-
-    let measurement_type = DocArg::new_meas_kw_str("OpticalType", "measurement_type", "TYPE");
-
-    let has_type = DocArg::new_meas_kw_ivar1("TemporalType", "has_type", "TYPE", |p| {
-        PyBool::default().rstype(p)
-    });
-
-    let has_scale = DocArg::new_meas_kw_ivar1("TemporalScale2_0", "has_scale", "E", |p| {
-        PyBool::default().rstype(p)
-    });
+    let analyte = DocArg::new_meas_kw_ivar1(MeasKw::PnANALYTE);
+    let feature = DocArg::new_meas_kw_ivar1(MeasKw::PnFEATURE);
+    let detector_name = DocArg::new_meas_kw_ivar1(MeasKw::PnDET);
+    let tag = DocArg::new_meas_kw_ivar1(MeasKw::PnTAG);
+    let measurement_type = DocArg::new_meas_kw_ivar1(MeasKw::PnTYPEOptical);
+    let has_type = DocArg::new_meas_kw_ivar1(MeasKw::PnTYPETemporal);
+    let has_scale = DocArg::new_meas_kw_ivar1(MeasKw::PnETemporal);
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -3620,8 +3516,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.specific.timestep = timestep),
     );
 
-    let longname = DocArg::new_meas_kw_str("Longname", "longname", "S");
-
+    let longname = DocArg::new_meas_kw_ivar1(MeasKw::PnS);
     let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
     let all_common = [longname, nonstd];
@@ -3668,7 +3563,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         .collect(),
     };
 
-    let s = format!("FCS {version_short} *$Pn\\** keywords for {lower_basename} measurement.");
+    let s = format!("FCS {version_short} {PN_ANY} keywords for {lower_basename} measurement.");
     let doc = DocString::new_class(s).args(all_args);
 
     let inner_args = doc.idents_into();
@@ -3685,141 +3580,93 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_core_all_pkn(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_meas_attr(&i, MeasKw::PKn)
+}
+
+#[proc_macro]
+pub fn impl_core_all_pknn(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    core_all_meas_attr(&i, MeasKw::PKNn)
+}
+
+#[proc_macro]
 pub fn impl_core_all_pns(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "Longname",
-        "longnames",
-        "S",
-        |p| PyStr::default().rstype(p),
-        false,
-        false,
-    )
+    core_all_meas_attr(&i, MeasKw::PnS)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnf(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "Filter",
-        "filters",
-        "F",
-        |p| PyStr::default().rstype(p),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnF)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pno(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Power", "powers", "O", |p| {
-        PyFloat::new_non_negative_float().rstype(p)
-    })
+    core_all_meas_attr(&i, MeasKw::PnO)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnp(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "PercentEmitted", "percents_emitted", "P", |p| {
-        PyFloat::new_non_negative_float().rstype(p)
-    })
+    core_all_meas_attr(&i, MeasKw::PnP)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnt(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "DetectorType",
-        "detector_types",
-        "T",
-        |p| PyStr::default().rstype(p),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnT)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnv(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "DetectorVoltage", "detector_voltages", "V", |p| {
-        PyFloat::new_non_negative_float().rstype(p)
-    })
+    core_all_meas_attr(&i, MeasKw::PnV)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_old(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Wavelength", "wavelengths", "L", |p| {
-        PyFloat::new_positive_float().rstype(p)
-    })
+    core_all_meas_attr(&i, MeasKw::PnL2_0)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnl_new(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "Wavelengths",
-        "wavelengths",
-        "L",
-        |p| PyList::new(PyFloat::new_non_negative_float(), p, None),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnL3_1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnd(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr(&i, "Display", "displays", "D", |_| PyTuple::new_display())
+    core_all_meas_attr(&i, MeasKw::PnD)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pndet(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "DetectorName",
-        "detector_names",
-        "DET",
-        |p| PyStr::default().rstype(p),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnDET)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_1(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_1", "calibrations", "CALIBRATION", |_| {
-        PyTuple::new_calibration3_1()
-    })
+    core_all_meas_attr(&i, MeasKw::PnCALIBRATION3_1)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pncal3_2(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Calibration3_2", "calibrations", "CALIBRATION", |_| {
-        PyTuple::new_calibration3_2()
-    })
+    core_all_meas_attr(&i, MeasKw::PnCALIBRATION3_2)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pntag(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "Tag",
-        "tags",
-        "TAG",
-        |p| PyStr::default().rstype(p),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnTAG)
 }
 
 #[proc_macro]
@@ -3832,7 +3679,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
     let inner_opt_rstype = opt_pytype.as_rust_type();
     let inner_tmp_rstype = tmp_pytype.as_rust_type();
 
-    let doc_summary = "Value of *$PnTYPE* for all measurements.";
+    let doc_summary = format!("Value of {PNTYPE} for all measurements.");
     let doc_middle = format!(
         "A bool will be returned for the time measurement where \
          {TRUE} indicates it is set to {time}.",
@@ -3936,23 +3783,13 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn impl_core_all_pnfeature(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_optical_attr(&i, "Feature", "features", "FEATURE", |_| {
-        PyStr::new_feature()
-    })
+    core_all_meas_attr(&i, MeasKw::PnFEATURE)
 }
 
 #[proc_macro]
 pub fn impl_core_all_pnanalyte(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
-    core_all_meas_attr1(
-        &i,
-        "Analyte",
-        "analytes",
-        "ANALYTE",
-        |p| PyStr::default().rstype(p),
-        false,
-        true,
-    )
+    core_all_meas_attr(&i, MeasKw::PnANALYTE)
 }
 
 #[proc_macro]
@@ -3983,45 +3820,17 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
     .into()
 }
 
-fn core_all_optical_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
-where
-    F: FnOnce(Path) -> T,
-    T: Into<ArgPyType>,
-{
-    core_all_meas_attr1(t, kw, name, suffix, f, true, true)
-}
-
-fn core_all_meas_attr<F, T>(t: &Ident, kw: &str, name: &str, suffix: &str, f: F) -> TokenStream
-where
-    F: FnOnce(Path) -> T,
-    T: Into<ArgPyType>,
-{
-    core_all_meas_attr1(t, kw, name, suffix, f, true, false)
-}
-
-fn core_all_meas_attr1<F, T>(
-    t: &Ident,
-    kw: &str,
-    name: &str,
-    suffix: &str,
-    f: F,
-    is_optional: bool,
-    optical_only: bool,
-) -> TokenStream
-where
-    F: FnOnce(Path) -> T,
-    T: Into<ArgPyType>,
-{
-    let kw_doc = format!("*$Pn{suffix}*");
-    let base_pytype: ArgPyType = f(keyword_path(kw)).into();
+fn core_all_meas_attr(t: &Ident, kw: MeasKw) -> TokenStream {
+    let kw_doc = kw.kw();
+    let inner_pytype = kw.as_pytype();
+    let is_optional = matches!(&inner_pytype, PyType::Option(_));
+    let optical_only = kw.optical_only();
 
     let doc_summary = format!("Value of {kw_doc} for all measurements.");
     let doc_middle = optical_only.then_some(format!(
         "{UNIT} will be returned for time since {kw_doc} is not \
          defined for temporal measurements."
     ));
-
-    let inner_pytype = PyOpt::wrap_if(base_pytype, is_optional);
 
     let inner_rstype = inner_pytype.as_rust_type();
 
@@ -4060,7 +3869,7 @@ where
 
     doc.into_impl_get_set(
         t,
-        format!("all_{name}"),
+        format!("all_{}", kw.fun_plural_name()),
         true,
         |_, _| {
             if optical_only {
@@ -4149,8 +3958,9 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         "scale",
         PyUnion::new_scale(true),
         format!(
-            "The *$GmE* keyword. {UNIT} means linear scaling and 2-tuple \
-             specifies decades and offset for log scaling."
+            "The {gme} keyword. {UNIT} means linear scaling and 2-tuple \
+             specifies decades and offset for log scaling.",
+            gme = fcs_kw("$GmE")
         ),
         false,
         |n, _| quote!(self.0.#n.as_ref().cloned()),
@@ -4162,7 +3972,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         DocArg::new_ivar_rw(
             kw_name,
             PyStr::default().rstype(kw_path),
-            format!("The *$Gm{kw_sym}* keyword."),
+            format!("The {} keyword.", fcs_kw(format!("$Gm{kw_sym}"))),
             false,
             |n, _| quote!(self.0.#n.clone()),
             |n, _| quote!(self.0.#n = #n),
@@ -4178,7 +3988,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         DocArg::new_opt_ivar_rw(
             kw_name,
             pytype,
-            format!("The *$Gm{kw_sym}* keyword."),
+            format!("The {} keyword.", fcs_kw(format!("$Gm{kw_sym}"))),
             false,
             |n, _| quote!(self.0.#n.as_ref().cloned()),
             |n, _| quote!(self.0.#n = #n),
@@ -4191,7 +4001,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
         DocArg::new_opt_ivar_rw(
             kw_name,
             pytype,
-            format!("The *$Gm{kw_sym}* keyword."),
+            format!("The {} keyword.", fcs_kw(format!("$Gm{kw_sym}"))),
             false,
             |n, _| quote!(self.0.#n.as_ref().cloned()),
             |n, _| quote!(self.0.#n = #n),
@@ -4207,7 +4017,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let range_pytype = PyDecimal::new_range().rstype(keyword_path("GateRange"));
     let range = make_arg_opt("range", "R", range_pytype.into());
 
-    let summary = "The *$Gm\\** keywords for one gated measurement.";
+    let summary = format!("The {GM_ANY} keywords for one gated measurement.");
     let doc = DocString::new_class(summary)
         .arg(scale)
         .arg(filter)
@@ -4649,8 +4459,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
             "2_0",
             format!(
                 "The {index_name} corresponding to a gating measurement \
-                 (the {m} in the {gm} keywords).",
-                gm = fcs_kw("$Gm\\*"),
+                 (the {m} in the {GM_ANY} keywords).",
                 m = fcs_kw("m")
             ),
             PyInt::new_gate_index().into(),
@@ -4661,13 +4470,11 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
                 "3.0/3.1",
                 "3_0",
                 format!(
-                    "The {index_name} corresponding to either a gating or a \
-                     physical measurement (the {m} and {n} in the {gm} or {pn} \
+                    "The {index_name} corresponding to either a gating or a physical \
+                     measurement (the {m} and {n} in the {GM_ANY} or {PN_ANY} \
                      keywords). {k} be a string like either {gi} or {pi} where \
                      {i} is an integer and the prefix corresponds to a gating or \
                      physical measurement respectively.",
-                    gm = fcs_kw("$Gm\\*"),
-                    pn = fcs_kw("$Pn\\*"),
                     m = fcs_kw("m"),
                     n = fcs_kw("n"),
                     gi = code_str("G<I>"),
@@ -4682,8 +4489,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
             "3_2",
             format!(
                 "The {index_name} corresponding to a physical measurement \
-                 (the {n} in the {pn} keywords).",
-                pn = fcs_kw("$Pn\\*"),
+                 (the {n} in the {PN_ANY} keywords).",
                 n = fcs_kw("n"),
             ),
             PyInt::new_prefixed_meas_index().into(),
@@ -6402,11 +6208,6 @@ impl<E: From<PyException>> PyStr<E> {
         let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
     }
-
-    fn new_feature() -> Self {
-        let path = keyword_path("Feature");
-        Self::default().rstype(path)
-    }
 }
 
 impl<E> PyBool<E> {
@@ -6613,14 +6414,6 @@ impl<E> PyOpt<E> {
         }
     }
 
-    fn wrap_if(inner: impl Into<PyType<E>>, test: bool) -> PyType<E> {
-        if test {
-            Self::new1(inner).into()
-        } else {
-            inner.into()
-        }
-    }
-
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyOpt<E1> {
         PyOpt::new(self.inner.map_exc(f), self.rstype, self.default_from_inner)
     }
@@ -6694,32 +6487,6 @@ impl<E: From<PyException>> PyTuple<E> {
             .exc(exc)
     }
 
-    fn new_calibration3_1() -> Self {
-        Self::new1(PyFloat::new_positive_float())
-            .add(PyStr::default())
-            .rstype(keyword_path("Calibration3_1"))
-    }
-
-    fn new_calibration3_2() -> Self {
-        Self::new1(PyFloat::new_positive_float())
-            .add(RsFloat::F32)
-            .add(PyStr::default())
-            .rstype(keyword_path("Calibration3_2"))
-    }
-
-    fn new_display() -> Self {
-        let desc = format!(
-            "if {ARG_TOKEN} represents a log display (field 1 is {TRUE}) and \
-             the two floats are not both positive"
-        );
-        let exc = PyException::new_value().desc(desc);
-        Self::new1(PyBool::default())
-            .add(RsFloat::F32)
-            .add(RsFloat::F32)
-            .exc(exc)
-            .rstype(keyword_path("Display"))
-    }
-
     fn new_uncorrected_segment() -> Self {
         let p = parse_quote!(fireflow_core::segment::UncorrectedSegment);
         Self::new2(vec![RsInt::I128; 2]).rstype(p)
@@ -6768,16 +6535,9 @@ impl<E: From<PyException>> PyTuple<E> {
         Self::new_segment(id)
     }
 
-    fn new_correction(is_header: bool, id: &str) -> Self {
-        let path = correction_path(is_header, id);
+    fn new_correction(seg: AnySegment, is_header: bool) -> Self {
+        let path = seg.correction_path(is_header);
         Self::new2([PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]).rstype(path)
-    }
-
-    fn new_tr() -> Self {
-        let path = keyword_path("Trigger");
-        Self::new1(PyInt::new_u32())
-            .add(PyStr::new_shortname())
-            .rstype(path)
     }
 
     fn new_meas(version: Version) -> Self {
@@ -7167,15 +6927,8 @@ impl DocArgRWIvar {
         Self::new_ivar_rw(argname, pt, desc, fallible, f, g).def_auto()
     }
 
-    fn new_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: Option<&str>, def: bool) -> Self
-    where
-        F: FnOnce(Path) -> T,
-        T: Into<ArgPyType>,
-    {
-        let path = keyword_path(kw);
-        let pytype: ArgPyType = f(path.clone()).into();
-
-        let d = desc.map_or(format!("Value of *${}*.", name.to_uppercase()), Into::into);
+    fn new_kw_ivar(kw: Kw, def: bool) -> Self {
+        let path = kw.type_name();
 
         let get_f = |_: &Ident, pt: &ArgPyType| {
             let optional = matches!(pt, PyType::Option(_));
@@ -7185,21 +6938,22 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(self.0.set_metaroot(#n));
 
-        Self::new_ivar_rw(name, pytype, d, false, get_f, set_f).def_auto_if(def)
+        DocArgParam::new_kw_param(kw, None, def).into_rw(false, get_f, set_f)
     }
 
-    fn new_kw_ivar_str(kw: &str, name: &str) -> Self {
-        Self::new_kw_ivar(kw, name, |p| PyStr::default().rstype(p), None, true)
+    fn new_kw_ivar1(kw: Kw) -> Self {
+        Self::new_kw_ivar(kw, true)
     }
 
-    fn new_meas_kw_ivar<F, T>(kw: &str, name: &str, f: F, desc: &str, def: bool) -> Self
-    where
-        F: FnOnce(Path) -> T,
-        T: Into<ArgPyType>,
-    {
-        let path = keyword_path(kw);
-        let pytype: ArgPyType = f(path).into();
+    fn new_meas_kw_ivar(kw: MeasKw, desc: Option<&str>) -> Self {
+        let pytype = kw.as_pytype();
         let full_path = pytype.as_rust_type();
+
+        let preamble = format!("Value of {}.", kw.kw());
+        let d = match desc {
+            None => preamble,
+            Some(d) => format!("{preamble} {d}"),
+        };
 
         let get_f = |_: &Ident, pt: &ArgPyType| {
             if matches!(pt, PyType::Option(_)) {
@@ -7216,36 +6970,11 @@ impl DocArgRWIvar {
         };
         let set_f = |n: &Ident, _: &ArgPyType| quote!(*self.0.as_mut() = #n);
 
-        Self::new_ivar_rw(name, pytype, desc, false, get_f, set_f).def_auto_if(def)
+        Self::new_ivar_rw(kw.fun_singular_name(), pytype, d, false, get_f, set_f).def_auto()
     }
 
-    fn new_kw_opt_ivar<F, T>(kw: &str, name: &str, f: F) -> Self
-    where
-        F: FnOnce(Path) -> T,
-        T: Into<ArgPyType>,
-    {
-        Self::new_kw_ivar(kw, name, |p| PyOpt::new1(f(p)), None, true)
-    }
-
-    fn new_meas_kw_ivar1<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
-    where
-        F: FnOnce(Path) -> T,
-        T: Into<ArgPyType>,
-    {
-        let desc = format!("Value for {kw}.", kw = fcs_kw(format!("$Pn{abbr}")));
-        Self::new_meas_kw_ivar(kw, name, f, desc.as_str(), true)
-    }
-
-    fn new_meas_kw_opt_ivar<F, T>(kw: &str, name: &str, abbr: &str, f: F) -> Self
-    where
-        F: FnOnce(Path) -> T,
-        T: Into<ArgPyType>,
-    {
-        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyOpt::new1(f(p)))
-    }
-
-    fn new_meas_kw_str(kw: &str, name: &str, abbr: &str) -> Self {
-        Self::new_meas_kw_ivar1(kw, name, abbr, |p| PyStr::default().rstype(p))
+    fn new_meas_kw_ivar1(kw: MeasKw) -> Self {
+        Self::new_meas_kw_ivar(kw, None)
     }
 
     fn new_layout_ivar(version: Version) -> Self {
@@ -7349,10 +7078,14 @@ impl DocArgRWIvar {
 
     fn new_timestamps_ivar() -> [Self; 3] {
         let make_time_ivar = |is_start: bool| {
-            let name = if is_start { "btim" } else { "etim" };
+            let (kw, name) = if is_start {
+                (BTIM, "btim")
+            } else {
+                (ETIM, "etim")
+            };
             let get_naive = format_ident!("{name}_naive");
             let set_naive = format_ident!("set_{name}_naive");
-            let desc = format!("Value of *${}*.", name.to_uppercase());
+            let desc = format!("Value of {kw}.");
             Self::new_opt_ivar_rw(
                 name,
                 PyTime::default(),
@@ -7376,17 +7109,17 @@ impl DocArgRWIvar {
     }
 
     fn new_datetime_ivar(is_start: bool) -> Self {
-        let name = if is_start {
-            "begindatetime"
+        let (kw, name) = if is_start {
+            (BEGINDATETIME, "begindatetime")
         } else {
-            "enddatetime"
+            (ENDDATETIME, "enddatetime")
         };
         let get = format_ident!("{name}");
         let set = format_ident!("set_{name}");
         Self::new_opt_ivar_rw(
             name,
             PyDatetime::default(),
-            format!("Value for *${}*.", name.to_uppercase()),
+            format!("Value for {kw}."),
             true,
             |_, _| quote!(self.0.#get()),
             |n, _| quote!(Ok(self.0.#set(#n)?)),
@@ -7396,12 +7129,18 @@ impl DocArgRWIvar {
     fn new_comp_ivar(is_2_0: bool) -> Self {
         let rstype: Path = parse_quote!(fireflow_core::text::compensation::Compensation);
         let desc = if is_2_0 {
-            "The compensation matrix. Must be a square array with number of \
-             rows/columns equal to the number of measurements. Non-zero entries \
-             will produce a *$DFCmTOn* keyword."
+            format!(
+                "The compensation matrix. Must be a square array with number of \
+                 rows/columns equal to the number of measurements. Non-zero \
+                 entries will produce a {dfc} keyword.",
+                dfc = fcs_kw("$DFCmTOn")
+            )
         } else {
-            "The value of *$COMP*. Must be a square array with number of \
-             rows/columns equal to the number of measurements."
+            format!(
+                "The value of {comp}. Must be a square array with number of \
+                 rows/columns equal to the number of measurements.",
+                comp = fcs_kw("$COMP")
+            )
         };
         Self::new_opt_ivar_rw(
             "comp",
@@ -7414,28 +7153,13 @@ impl DocArgRWIvar {
     }
 
     fn new_spillover_ivar() -> Self {
-        let rstype: Path = parse_quote!(fireflow_core::text::spillover::Spillover);
-        let ed = format!("if {ARG_TOKEN} is not a square matrix that is 2x2 or larger");
-        let matrix_exc = PyException::new_invalid_keyword().desc(ed);
-        let d = format!(
-            "if matrix in {ARG_TOKEN} does not have the same number of rows \
-             and columns as the measurement vector",
+        let desc = formatcp!(
+            "First element of tuple the list of measurement names and the second \
+             is the matrix. Each measurement name must correspond to a {PNN}, \
+             must be unique, and the length of this list must match the number \
+             of rows and columns of the matrix. The matrix must be at least 2x2."
         );
-        let spill_exc = PyException::new_invalid_keyword().desc(d);
-        // TODO add exception for when $PnN don't match
-        Self::new_opt_ivar_rw(
-            "spillover",
-            PyTuple::new1(PyList::new1(PyStr::new_shortname()))
-                .add(PyClass::new1("~numpy.ndarray").exc(matrix_exc))
-                .rstype(rstype)
-                .exc(spill_exc),
-            format!(
-                "Value for {SPILLOVER}. First element of tuple the list of measurement \
-                 names and the second is the matrix. Each measurement name must \
-                 correspond to a {PNN}, must be unique, and the length of this list \
-                 must match the number of rows and columns of the matrix. The matrix \
-                 must be at least 2x2."
-            ),
+        DocArgParam::new_kw_param(Kw::Spillover, Some(desc), true).into_rw(
             true,
             |_, _| quote!(self.0.spillover().map(|x| x.clone())),
             |n, _| quote!(Ok(self.0.set_spillover(#n)?)),
@@ -7447,8 +7171,12 @@ impl DocArgRWIvar {
         Self::new_ivar_rw(
             "csvflags",
             PyList::new(PyOpt::new1(PyInt::new_u32()), path.clone(), None),
-            "Subset flags. Each element in the list corresponds to *$CSVnFLAG* and \
-             the length of the list corresponds to *$CSMODE*.",
+            format!(
+                "Subset flags. Each element in the list corresponds to {csvnflag} \
+                 and the length of the list corresponds to {csmode}.",
+                csvnflag = fcs_kw("$CSVnFLAG"),
+                csmode = fcs_kw("$CSMODE"),
+            ),
             false,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(self.0.set_metaroot(#n)),
@@ -7458,13 +7186,11 @@ impl DocArgRWIvar {
 
     // TODO exception for mismatch PnN
     fn new_trigger_ivar() -> Self {
-        Self::new_opt_ivar_rw(
-            "tr",
-            PyTuple::new_tr(),
-            format!(
-                "Value for *$TR*. First member of tuple is threshold and second \
-                 is the measurement name which must match a {PNN}."
-            ),
+        let desc = formatcp!(
+            "First member of tuple is threshold and second \
+             is the measurement name which must match a {PNN}."
+        );
+        DocArg::new_kw_param(Kw::Tr, Some(desc), true).into_rw(
             true,
             |_, _| quote!(self.0.metaroot_opt().cloned()),
             |n, _| quote!(Ok(self.0.set_trigger(#n)?)),
@@ -7474,15 +7200,12 @@ impl DocArgRWIvar {
     fn new_unstainedcenters_ivar() -> Self {
         let path = keyword_path("UnstainedCenters");
         // TODO exceptions for links
-        Self::new_ivar_rw(
-            "unstainedcenters",
-            PyDict::new(PyStr::new_shortname(), RsFloat::F32, path.clone(), None),
-            format!("Value for *$UNSTAINEDCENTERS. Each key must match a {PNN}."),
+        let desc = Some("Each key must match a {PNN}.");
+        DocArg::new_kw_param(Kw::UnstainedCenters, desc, true).into_rw(
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
             |n, _| quote!(Ok(self.0.set_unstained_centers(#n)?)),
         )
-        .def_auto()
     }
 
     fn new_applied_gates_ivar(version: Version) -> Self {
@@ -7513,36 +7236,50 @@ impl DocArgRWIvar {
             .rstype(parse_quote!(#rstype));
 
         let desc = if collapsed_version == Version::FCS2_0 {
-            "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
-             the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
-             position in the list. The second member corresponds to the *$RnI* and \
-             *$RnW* keywords and is a mapping of regions and windows to be used in \
-             gating scheme. Keys in dictionary are the region indices (the *n* in \
-             *$RnI* and *$RnW*). The values in the dictionary are either univariate \
-             or bivariate gates and must correspond to an index in the list in the \
-             first element. The third member corresponds to the *$GATING* keyword. \
-             All 'Rn' in this string must reference a key in the dict of the second \
-             member."
+            format!(
+                "Value for {GM_ANY}/{RN_ANY}/{GATING}/{GATE} keywords. The first member of \
+                 the tuple corresponds to the {GM_ANY} keywords, where {m} is given by \
+                 position in the list. The second member corresponds to the {RNI} and \
+                 {RNW} keywords and is a mapping of regions and windows to be used in \
+                 gating scheme. Keys in dictionary are the region indices (the {n} in \
+                 {RN_ANY}). The values in the dictionary are either univariate \
+                 or bivariate gates and must correspond to an index in the list in the \
+                 first element. The third member corresponds to the {GATING} keyword. \
+                 All {rn} in this string must reference a key in the dict of the second \
+                 member.",
+                m = fcs_kw("m"),
+                n = fcs_kw("n"),
+                rn = code_str("Rn"),
+            )
         } else if collapsed_version < Version::FCS3_2 {
-            "Value for *$Gm*/$RnI/$RnW/$GATING/$GATE* keywords. The first member of \
-             the tuple corresponds to the *$Gm\\** keywords, where *m* is given by \
-             position in the list. The second member corresponds to the *$RnI* and \
-             *$RnW* keywords and is a mapping of regions and windows to be used in \
-             gating scheme. Keys in dictionary are the region indices (the *n* in \
-             *$RnI* and *$RnW*). The values in the dictionary are either univariate \
-             or bivariate gates and must correspond to an index in the list in the \
-             first element or a physical measurement. The third member corresponds \
-             to the *$GATING* keyword. All 'Rn' in this string must reference a key \
-             in the dict of the second member."
+            format!(
+                "Value for {GM_ANY}/{RN_ANY}/{GATING}/{GATE} keywords. The first member of \
+                 the tuple corresponds to the {GM_ANY} keywords, where {m} is given by \
+                 position in the list. The second member corresponds to the {RNI} and \
+                 {RNW} keywords and is a mapping of regions and windows to be used in \
+                 gating scheme. Keys in dictionary are the region indices (the {n} in \
+                 {RN_ANY}). The values in the dictionary are either univariate \
+                 or bivariate gates and must correspond to an index in the list in the \
+                 first element or a physical measurement. The third member corresponds \
+                 to the {GATING} keyword. All {rn} in this string must reference a key \
+                 in the dict of the second member.",
+                m = fcs_kw("m"),
+                n = fcs_kw("n"),
+                rn = code_str("Rn"),
+            )
         } else {
-            "Value for *$RnI/$RnW/$GATING* keywords. The first member corresponds to \
-             the *$RnI* and *$RnW* keywords and is a mapping of regions and windows \
-             to be used in gating scheme. Keys in dictionary are the region indices \
-             (the *n* in *$RnI* and *$RnW*). The values in the dictionary are either \
-             univariate or bivariate gates and must correspond to a physical \
-             measurement. The second member corresponds to the *$GATING* keyword. \
-             All 'Rn' in this string must reference a key in the dict of the first \
-             member."
+            format!(
+                "Value for {RN_ANY}/{GATING} keywords. The first member corresponds to \
+                 the {RNI} and {RNW} keywords and is a mapping of regions and windows \
+                 to be used in gating scheme. Keys in dictionary are the region indices \
+                 (the {n} in {RN_ANY}). The values in the dictionary are either \
+                 univariate or bivariate gates and must correspond to a physical \
+                 measurement. The second member corresponds to the {GATING} keyword. \
+                 All {rn} in this string must reference a key in the dict of the first \
+                 member.",
+                n = fcs_kw("n"),
+                rn = code_str("Rn"),
+            )
         };
 
         let param = DocArgParam::new_param("applied_gates", pytype, desc).def_auto();
@@ -7595,19 +7332,25 @@ impl DocArgRWIvar {
     }
 
     fn new_core_nonstandard_keywords_ivar() -> Self {
+        let d =
+            format!("Pairs of non-standard keyword values. Keys must not start with {DOLLAR_STR}.");
         Self::new_nonstandard_keywords_ivar(
-            "Pairs of non-standard keyword values. Keys must not start with *$*.",
+            d.as_str(),
             |_, _| quote!(self.0.nonstandard_keywords().clone()),
             |n, _| quote!(self.0.set_nonstandard_keywords(#n)),
         )
     }
 
     fn new_meas_nonstandard_keywords_ivar() -> Self {
-        Self::new_nonstandard_keywords_ivar(
+        let d = format!(
             "Any non-standard keywords corresponding to this measurement. No keys \
-             should start with *$*. Realistically each key should follow a pattern \
-             corresponding to the measurement index, something like prefixing with \
-             \"P\" followed by the index. This is not enforced.",
+             should start with {DOLLAR_STR}. Realistically each key should follow \
+             a pattern corresponding to the measurement index, something like \
+             prefixing with {p} followed by the index. This is not enforced.",
+            p = code_str("P"),
+        );
+        Self::new_nonstandard_keywords_ivar(
+            d.as_str(),
             |_, _| quote!(self.0.common.nonstandard_keywords.clone()),
             |n, _| quote!(self.0.common.nonstandard_keywords = #n),
         )
@@ -7705,6 +7448,15 @@ impl DocArgParam {
     ) -> Self {
         let pt = pytype.into();
         Self::new(argname.to_string(), pt, desc.to_string(), None, NoMethods)
+    }
+
+    fn new_kw_param(kw: Kw, desc: Option<&str>, def: bool) -> Self {
+        let preamble = format!("Value of {}.", kw.kw());
+        let d = match desc {
+            None => preamble,
+            Some(d) => format!("{preamble} {d}"),
+        };
+        Self::new_param(kw.fun_name(), kw.as_pytype(), d).def_auto_if(def)
     }
 
     fn new_bool_param(name: impl fmt::Display, desc: impl fmt::Display) -> Self {
@@ -8299,7 +8051,7 @@ impl DocArgParam {
              {PNG} which is explicitly forbidden by the standard but \
              allowed in this library to be set to {noop} (noop), or \
              others which are nonsensical for time measurements but are not \
-             explicitly forbidden in the the standard (such as *$PnL*). \
+             explicitly forbidden in the the standard (such as {PNL}). \
              Provided keys are the string after the \"Pn\" in the \"PnX\" \
              keywords.",
             noop = code("1.0")
@@ -8328,11 +8080,12 @@ impl DocArgParam {
 
     fn new_spillover_meas_mode_param() -> Self {
         let d = format!(
-            "Choose how to interpret measurement strings in {SPILLOVER}. \
+            "Choose how to interpret measurement strings in {spillover}. \
              Set to {named} to interpret as names which link to \
              {PNN}. Set to {indexed} to interpret as 1-indices which \
              point to measurements. Set to {guess} to automatically \
              choose the prior two modes.",
+            spillover = Kw::Spillover.kw(),
             named = code_str(SPILLOVER_NAMED_LEVEL),
             indexed = code_str(SPILLOVER_INDEXED_LEVEL),
             guess = code_str(SPILLOVER_GUESS_LEVEL),
@@ -8362,7 +8115,7 @@ impl DocArgParam {
         let pytype = PyStr::default();
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             *$BEGINDATETIME* and *ENDDATETIME*. The pattern must follow the \
+             {BEGINDATETIME} and {ENDDATETIME}. The pattern must follow the \
              format outlined in {CHRONO_REF}. If not supplied, these will \
              be parsed as ISO timestamps with optional timezone."
         );
@@ -8373,7 +8126,7 @@ impl DocArgParam {
         let pytype = PyStr::default();
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
-             *$LAST_MODIFIED*. The pattern must follow the format outlined in \
+             {LAST_MODIFIED}. The pattern must follow the format outlined in \
              {CHRONO_REF}. If not supplied, these will be parsed according to \
              the default pattern which is {DEFAULT_LAST_MODIFIED_FORMAT} \
              possibly with centiseconds after."
@@ -8415,13 +8168,13 @@ impl DocArgParam {
             _ => DEFAULT_TIME_FORMAT_3_1,
         };
         let line1 = "If supplied, will be used as an alternative pattern when \
-                     parsing *$BTIM* and *$ETIM*.";
+                     parsing {BTIM} and {ETIM}.";
         let line2 = format!(
             "The values {BASE60_SECOND_SPEC} or {BASE100_SECOND_SPEC} may be \
              used to match {NAME3_0} or {NAME3_1} respectively."
         );
         let line3 = format!(
-            "If not supplied, *$BTIM* and *$ETIM* will be parsed \
+            "If not supplied, {BTIM} and {ETIM} will be parsed \
              according to the standard pattern which is {std_pat}."
         );
         let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
@@ -8433,7 +8186,7 @@ impl DocArgParam {
 
     fn new_process_pseudostandard_param() -> Self {
         let d = format!(
-            "Process non-standard keywords with a leading *$*. The \
+            "Process non-standard keywords with a leading {DOLLAR_STR}. The \
              presence of such keywords often means the version in {HEADER} \
              is incorrect."
         );
@@ -8481,7 +8234,7 @@ impl DocArgParam {
 
     fn new_disallow_localtime_param() -> Self {
         let d = format!(
-            "If {TRUE}, require that *$BEGINDATETIME* and *$ENDDATETIME* \
+            "If {TRUE}, require that {BEGINDATETIME} and {ENDDATETIME} \
              have a timezone if provided. This is not required by the \
              standard, but not having a timezone is ambiguous since the \
              absolute value of the timestamp is dependent on localtime and \
@@ -8504,7 +8257,7 @@ impl DocArgParam {
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. Must \
              be a regular expression pattern with {pat} which will represent \
-             the measurement index and should not start with *$*. Otherwise \
+             the measurement index and should not start with {DOLLAR_STR}. Otherwise \
              should be a normal regular expression as defined in {REGEXP_REF}.",
             pat = code_str("NON_STD_MEAS_INDEX_PAT"),
         );
@@ -8546,34 +8299,28 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, false, "DisallowRangeTrunc", d, e)
     }
 
-    // TODO use enum for segment identity
-    fn new_config_correction_arg(name: &str, what: &str, is_header: bool, id: &str) -> Self {
+    fn new_config_correction_arg(name: &str, what: AnySegment, is_header: bool) -> Self {
         let location = if is_header { HEADER } else { TEXT };
-        let d = format!("Corrections for {what} offsets in {location}.");
-        Self::new_param(name, PyTuple::new_correction(is_header, id), d).def_auto()
+        let d = format!("Corrections for {} offsets in {location}.", what.name());
+        Self::new_param(name, PyTuple::new_correction(what, is_header), d).def_auto()
     }
 
     fn new_text_correction_param() -> Self {
-        Self::new_config_correction_arg("text_correction", "*TEXT*", true, "PrimaryTextSegmentId")
+        Self::new_config_correction_arg("text_correction", AnySegment::PrimaryTEXT, true)
     }
 
     fn new_data_correction_param() -> Self {
-        Self::new_config_correction_arg("data_correction", "*DATA*", true, "DataSegmentId")
+        Self::new_config_correction_arg("data_correction", AnySegment::Data, true)
     }
 
     fn new_analysis_correction_param() -> Self {
-        Self::new_config_correction_arg(
-            "analysis_correction",
-            "*ANALYSIS*",
-            true,
-            "AnalysisSegmentId",
-        )
+        Self::new_config_correction_arg("analysis_correction", AnySegment::Analysis, true)
     }
 
     fn new_other_corrections_param() -> Self {
         Self::new_param(
             "other_corrections",
-            PyList::new1(PyTuple::new_correction(true, "OtherSegmentId")),
+            PyList::new1(PyTuple::new_correction(AnySegment::Other, true)),
             format!(
                 "Corrections for {OTHER} offsets if they exist. Each correction will \
                  be applied in order. If an offset does not need to be corrected, \
@@ -8689,12 +8436,7 @@ impl DocArgParam {
     }
 
     fn new_supp_text_correction() -> Self {
-        Self::new_config_correction_arg(
-            "supp_text_correction",
-            "Supplemental *TEXT*",
-            false,
-            "SupplementalTextSegmentId",
-        )
+        Self::new_config_correction_arg("supp_text_correction", AnySegment::SuppTEXT, false)
     }
 
     fn new_nextdata_correction() -> Self {
@@ -8806,7 +8548,7 @@ impl DocArgParam {
         let n = "allow_non_ascii_keywords";
         let d = "Choose how to handle non-ASCII keys. This only applies to \
                  non-standard keywords, as all standardized keywords may only \
-                 contain letters, numbers, and start with *$*. Regardless, all \
+                 contain letters, numbers, and start with {DOLLAR_STR}. Regardless, all \
                  compliant keys must only have ASCII.";
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowNonAsciiKeywords", d, e)
@@ -8876,8 +8618,8 @@ impl DocArgParam {
 
     fn new_ignore_standard_keys() -> Self {
         let d = format!(
-            "Remove standard keys from {TEXT}. The leading *$* is implied \
-             so do not include it."
+            "Remove standard keys from {TEXT}. The leading {DOLLAR_STR} \
+             is implied so do not include it."
         );
         Self::new_key_patterns_param("ignore_standard_keys", d)
     }
@@ -8906,7 +8648,7 @@ impl DocArgParam {
         let d = format!(
             "Rename standard keys in {TEXT}. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
-             insensitive. The leading *$* is implied so do not include it."
+             insensitive. The leading {DOLLAR_STR} is implied so do not include it."
         );
         Self::new_param("rename_standard_keys", PyDict::new_keystring_pairs(), d).def_auto()
     }
@@ -8917,7 +8659,7 @@ impl DocArgParam {
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
             format!(
                 "Replace values for standard keys in {TEXT} Comparisons are case \
-                 insensitive. The leading *$* is implied so do not include it."
+                 insensitive. The leading {DOLLAR_STR} is implied so do not include it."
             ),
         )
         .def_auto()
@@ -8925,8 +8667,8 @@ impl DocArgParam {
 
     fn new_substitute_standard_key_values() -> Self {
         let d = format!(
-            "Apply sed-like substitution operation on matching standard \
-             keys. The leading *$* is implied when matching keys. The first \
+            "Apply sed-like substitution operation on matching standard keys. \
+             The leading {DOLLAR_STR} is implied when matching keys. The first \
              dict corresponds to keys which are matched literally, and the \
              second corresponds to keys which are matched via regular \
              expression. The members in the 3-tuple values correspond to a \
@@ -8950,24 +8692,19 @@ impl DocArgParam {
             PyDict::new1(PyStr::new_keystring(), PyStr::default()),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
-                 will be included as they appear here. The leading *$* is implied \
-                 so do not include it."
+                 will be included as they appear here. The leading {DOLLAR_STR} \
+                 is implied so do not include it."
             ),
         )
         .def_auto()
     }
 
     fn new_text_data_correction_param() -> Self {
-        Self::new_config_correction_arg("text_data_correction", "*DATA*", false, "DataSegmentId")
+        Self::new_config_correction_arg("text_data_correction", AnySegment::Data, false)
     }
 
     fn new_text_analysis_correction_param() -> Self {
-        Self::new_config_correction_arg(
-            "text_analysis_correction",
-            "*ANALYSIS*",
-            false,
-            "AnalysisSegmentId",
-        )
+        Self::new_config_correction_arg("text_analysis_correction", AnySegment::Analysis, false)
     }
 
     fn new_ignore_text_data_offsets_param() -> Self {
@@ -9811,18 +9548,6 @@ fn keyword_path(n: &str) -> Path {
     parse_quote!(fireflow_core::text::keywords::#t)
 }
 
-fn correction_path(is_header: bool, id: &str) -> Path {
-    let src = if is_header {
-        "SegmentFromHeader"
-    } else {
-        "SegmentFromTEXT"
-    };
-    let s = format_ident!("{src}");
-    let i = format_ident!("{id}");
-    let root = quote!(fireflow_core::segment);
-    parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
-}
-
 fn config_path(n: &str) -> Path {
     let t = format_ident!("{n}");
     parse_quote!(fireflow_core::config::#t)
@@ -9988,11 +9713,33 @@ const TOT: &str = fcs_kw!("$TOT");
 
 const TIMESTEP: &str = fcs_kw!("$TIMESTEP");
 
-const SPILLOVER: &str = fcs_kw!("$SPILLOVER");
-
 const DATE: &str = fcs_kw!("$DATE");
 
+const BTIM: &str = fcs_kw!("$BTIM");
+
+const ETIM: &str = fcs_kw!("$ETIM");
+
+const BEGINDATETIME: &str = fcs_kw!("$BEGINDATETIME");
+
+const ENDDATETIME: &str = fcs_kw!("$ENDDATETIME");
+
+const LAST_MODIFIED: &str = fcs_kw!("$LAST_MODIFIED");
+
 const PAR: &str = fcs_kw!("$PAR");
+
+const PN_ANY: &str = fcs_kw!("$Pn\\*");
+
+const GATE: &str = fcs_kw!("$GATE");
+
+const GATING: &str = fcs_kw!("$GATING");
+
+const GM_ANY: &str = fcs_kw!("*$Gm\\**");
+
+const RN_ANY: &str = fcs_kw!("*$Rn\\**");
+
+const RNI: &str = fcs_kw!("*$RnI");
+
+const RNW: &str = fcs_kw!("*$RnW");
 
 const PNR: &str = fcs_kw!("$PnR");
 
@@ -10004,8 +9751,415 @@ const PNE: &str = fcs_kw!("$PnE");
 
 const PNG: &str = fcs_kw!("$PnG");
 
-const PNCALIBRATION: &str = fcs_kw!("$PnCALIBRATION");
+const PNL: &str = fcs_kw!("$PnL");
 
 const PNDATATYPE: &str = fcs_kw!("$PnDATATYPE");
 
 const PNFEATURE: &str = fcs_kw!("$PnFEATURE");
+
+const PNTYPE: &str = fcs_kw!("$PnTYPE");
+
+#[derive(Clone, Copy)]
+enum AnySegment {
+    PrimaryTEXT,
+    SuppTEXT,
+    Data,
+    Analysis,
+    Other,
+}
+
+impl AnySegment {
+    fn name(self) -> &'static str {
+        match self {
+            Self::PrimaryTEXT => formatcp!("Primary {TEXT}"),
+            Self::SuppTEXT => formatcp!("Supplemental {TEXT}"),
+            Self::Data => DATA,
+            Self::Analysis => ANALYSIS,
+            Self::Other => OTHER,
+        }
+    }
+
+    fn id(self) -> Ident {
+        let id = match self {
+            Self::PrimaryTEXT => "PrimaryTextSegmentId",
+            Self::SuppTEXT => "SupplementalTextSegmentId",
+            Self::Data => "DataSegmentId",
+            Self::Analysis => "AnalysisSegmentId",
+            Self::Other => "OtherSegmentId",
+        };
+        format_ident!("{id}")
+    }
+
+    fn correction_path(self, is_header: bool) -> Path {
+        let src = if is_header {
+            "SegmentFromHeader"
+        } else {
+            "SegmentFromTEXT"
+        };
+        let s = format_ident!("{src}");
+        let i = self.id();
+        let root = quote!(fireflow_core::segment);
+        parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Kw {
+    Mode,
+    Mode3_2,
+    Cyt,
+    Cyt3_2,
+    Abrt,
+    Com,
+    Cells,
+    Exp,
+    Fil,
+    Inst,
+    Lost,
+    Op,
+    Proj,
+    Smno,
+    Src,
+    Sys,
+    Cytsn,
+    Unicode,
+    CSVBits,
+    CSTot,
+    LastModifier,
+    LastModified,
+    Originality,
+    Plateid,
+    Platename,
+    Wellid,
+    Vol,
+    Flowrate,
+    Carrierid,
+    Carriertype,
+    Locationid,
+    UnstainedInfo,
+    Spillover,
+    UnstainedCenters,
+    Tr,
+}
+
+impl Kw {
+    const fn fun_name(self) -> &'static str {
+        self.base_name()
+    }
+
+    fn kw(self) -> String {
+        fcs_kw(format!("${}", self.base_name().to_uppercase()))
+    }
+
+    fn type_name(self) -> Path {
+        let n = match self {
+            Self::Mode => "Mode",
+            Self::Mode3_2 => "Mode3_2",
+            Self::Cyt => "Cyt",
+            Self::Cyt3_2 => "Cyt3_2",
+            Self::Abrt => "Abrt",
+            Self::Com => "Com",
+            Self::Cells => "Cells",
+            Self::Exp => "Exp",
+            Self::Fil => "Fil",
+            Self::Inst => "Inst",
+            Self::Lost => "Lost",
+            Self::Op => "Op",
+            Self::Proj => "Proj",
+            Self::Smno => "Smno",
+            Self::Src => "Src",
+            Self::Sys => "Sys",
+            Self::Cytsn => "Cytsn",
+            Self::Unicode => "Unicode",
+            Self::CSVBits => "CSVBits",
+            Self::CSTot => "CSTot",
+            Self::LastModifier => "LastModifier",
+            Self::LastModified => "LastModified",
+            Self::Originality => "Originality",
+            Self::Plateid => "Plateid",
+            Self::Platename => "Platename",
+            Self::Wellid => "Wellid",
+            Self::Vol => "Vol",
+            Self::Flowrate => "Flowrate",
+            Self::Carrierid => "Carrierid",
+            Self::Carriertype => "Carriertype",
+            Self::Locationid => "Locationid",
+            Self::UnstainedInfo => "UnstainedInfo",
+            Self::Spillover => return parse_quote!(fireflow_core::text::spillover::Spillover),
+            Self::UnstainedCenters => "UnstainedCenters",
+            Self::Tr => "Trigger",
+        };
+        keyword_path(n)
+    }
+
+    const fn base_name(self) -> &'static str {
+        match self {
+            Self::Mode | Self::Mode3_2 => "mode",
+            Self::Cyt | Self::Cyt3_2 => "cyt",
+            Self::Abrt => "abrt",
+            Self::Com => "com",
+            Self::Cells => "cells",
+            Self::Exp => "exp",
+            Self::Fil => "fil",
+            Self::Inst => "inst",
+            Self::Lost => "lost",
+            Self::Op => "op",
+            Self::Proj => "proj",
+            Self::Smno => "smno",
+            Self::Src => "src",
+            Self::Sys => "sys",
+            Self::Cytsn => "cytsn",
+            Self::Unicode => "unicode",
+            Self::CSVBits => "csvbits",
+            Self::CSTot => "cstot",
+            Self::LastModifier => "last_modifier",
+            Self::LastModified => "last_modified",
+            Self::Originality => "originality",
+            Self::Plateid => "plateid",
+            Self::Platename => "platename",
+            Self::Wellid => "wellid",
+            Self::Vol => "vol",
+            Self::Flowrate => "flowrate",
+            Self::Carrierid => "carrierid",
+            Self::Carriertype => "carriertype",
+            Self::Locationid => "locationid",
+            Self::UnstainedInfo => "unstainedinfo",
+            Self::Spillover => "spillover",
+            Self::UnstainedCenters => "unstainedcenters",
+            Self::Tr => "tr",
+        }
+    }
+
+    fn as_pytype<E>(self) -> PyType<E>
+    where
+        E: From<PyException>,
+    {
+        let path = self.type_name();
+        match self {
+            Self::Mode => PyLiteral::new2(["L", "U", "C"], path).into(),
+            Self::Mode3_2 => PyOpt::new1(PyLiteral::new2(["L"], path)).into(),
+            Self::Cyt
+            | Self::Com
+            | Self::Cells
+            | Self::Exp
+            | Self::Fil
+            | Self::Inst
+            | Self::Op
+            | Self::Proj
+            | Self::Smno
+            | Self::Src
+            | Self::Sys
+            | Self::Cytsn
+            | Self::LastModifier
+            | Self::Plateid
+            | Self::Platename
+            | Self::Wellid
+            | Self::Flowrate
+            | Self::Carrierid
+            | Self::Carriertype
+            | Self::Locationid
+            | Self::UnstainedInfo => PyStr::default().rstype(path).into(),
+            Self::Cyt3_2 => PyStr::new_non_empty_str(path).into(),
+            Self::Abrt | Self::Lost => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
+            Self::CSVBits | Self::CSTot => PyInt::new_u32().rstype(path).into(),
+            Self::Unicode => {
+                let inner = PyTuple::new1(RsInt::U32).add(PyList::new1(PyStr::default()));
+                PyOpt::new1(inner.rstype(path)).into()
+            }
+            Self::LastModified => PyOpt::new1(PyDatetime::default().rstype(path)).into(),
+            Self::Originality => {
+                let choices = ["Original", "NonDataModified", "Appended", "DataModified"];
+                PyOpt::new1(PyLiteral::new2(choices, path)).into()
+            }
+            Self::Vol => PyOpt::new1(PyFloat::new_non_negative_float().rstype(path)).into(),
+            Self::Spillover => {
+                // TODO add exception for when $PnN don't match
+                let ed = format!("if {ARG_TOKEN} is not a square matrix that is 2x2 or larger");
+                let matrix_exc = PyException::new_invalid_keyword().desc(ed);
+                let d = format!(
+                    "if matrix in {ARG_TOKEN} does not have the same number of rows \
+                     and columns as the measurement vector",
+                );
+                let spill_exc = PyException::new_invalid_keyword().desc(d);
+                let inner = PyTuple::new1(PyList::new1(PyStr::new_shortname()))
+                    .add(PyClass::new1("~numpy.ndarray").exc(matrix_exc))
+                    .exc(spill_exc);
+                PyOpt::new1(inner.rstype(path)).into()
+            }
+            Self::UnstainedCenters => {
+                PyDict::new(PyStr::new_shortname(), RsFloat::F32, path, None).into()
+            }
+            Self::Tr => {
+                let inner = PyTuple::new1(PyInt::new_u32()).add(PyStr::new_shortname());
+                PyOpt::new1(inner.rstype(path)).into()
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MeasKw {
+    PnETemporal,
+    PnS,
+    PnF,
+    PnL2_0,
+    PnL3_1,
+    PnO,
+    PnT,
+    PnP,
+    PnV,
+    PnCALIBRATION3_1,
+    PnCALIBRATION3_2,
+    PnD,
+    PnDET,
+    PnTAG,
+    PnTYPETemporal,
+    PnTYPEOptical,
+    PnFEATURE,
+    PnANALYTE,
+    PKn,
+    PKNn,
+}
+
+impl MeasKw {
+    fn type_name(self) -> Path {
+        let n = match self {
+            Self::PnETemporal => "TemporalScale2_0",
+            Self::PnS => "Longname",
+            Self::PnF => "Filter",
+            Self::PnL2_0 => "Wavelength",
+            Self::PnL3_1 => "Wavelengths",
+            Self::PnO => "Power",
+            Self::PnT => "DetectorType",
+            Self::PnP => "PercentEmitted",
+            Self::PnV => "DetectorVoltage",
+            Self::PnCALIBRATION3_1 => "Calibration3_1",
+            Self::PnCALIBRATION3_2 => "Calibration3_2",
+            Self::PnD => "Display",
+            Self::PnDET => "DetectorName",
+            Self::PnTAG => "Tag",
+            Self::PnTYPETemporal => "TemporalType",
+            Self::PnTYPEOptical => "OpticalType",
+            Self::PnFEATURE => "Feature",
+            Self::PnANALYTE => "Analyte",
+            Self::PKn => "PeakBin",
+            Self::PKNn => "PeakIndex",
+        };
+        keyword_path(n)
+    }
+
+    const fn fun_singular_name(self) -> &'static str {
+        match self {
+            Self::PnETemporal => "has_scale",
+            Self::PnS => "longname",
+            Self::PnF => "filter",
+            Self::PnL2_0 => "wavelength",
+            Self::PnL3_1 => "wavelengths",
+            Self::PnO => "power",
+            Self::PnT => "detector_type",
+            Self::PnP => "percent_emitted",
+            Self::PnV => "detector_voltage",
+            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => "calibration",
+            Self::PnD => "display",
+            Self::PnDET => "detector_name",
+            Self::PnTAG => "tag",
+            Self::PnTYPETemporal => "has_type",
+            Self::PnTYPEOptical => "measurement_type",
+            Self::PnFEATURE => "feature",
+            Self::PnANALYTE => "analyte",
+            Self::PKn => "bin",
+            Self::PKNn => "size",
+        }
+    }
+
+    const fn kw(self) -> &'static str {
+        match self {
+            Self::PnETemporal => PNE,
+            Self::PnS => fcs_kw!("$PnS"),
+            Self::PnF => fcs_kw!("$PnF"),
+            Self::PnL2_0 | Self::PnL3_1 => PNL,
+            Self::PnO => fcs_kw!("$PnO"),
+            Self::PnT => fcs_kw!("$PnT"),
+            Self::PnP => fcs_kw!("$PnP"),
+            Self::PnV => fcs_kw!("$PnV"),
+            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => fcs_kw!("$PnCALIBRATION"),
+            Self::PnD => fcs_kw!("$PnD"),
+            Self::PnDET => fcs_kw!("$PnDET"),
+            Self::PnTAG => fcs_kw!("$PnTAG"),
+            Self::PnTYPETemporal | Self::PnTYPEOptical => PNTYPE,
+            Self::PnFEATURE => PNFEATURE,
+            Self::PnANALYTE => fcs_kw!("$PnANALYTE"),
+            Self::PKn => fcs_kw!("$PKn"),
+            Self::PKNn => fcs_kw!("$PKNn"),
+        }
+    }
+
+    const fn fun_plural_name(self) -> &'static str {
+        match self {
+            Self::PnS => "longnames",
+            Self::PnF => "filters",
+            Self::PnL2_0 | Self::PnL3_1 => "wavelengths",
+            Self::PnO => "powers",
+            Self::PnT => "detector_types",
+            Self::PnP => "percents_emitted",
+            Self::PnV => "detector_voltages",
+            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => "calibrations",
+            Self::PnD => "displays",
+            Self::PnDET => "detector_names",
+            Self::PnTAG => "tags",
+            Self::PnFEATURE => "features",
+            Self::PnANALYTE => "analytes",
+            Self::PKn => "peak_bins",
+            Self::PKNn => "peak_sizes",
+            _ => panic!("plural names should not be used for this"),
+        }
+    }
+
+    fn as_pytype<E>(self) -> PyType<E>
+    where
+        E: From<PyException>,
+    {
+        let path = self.type_name();
+        let pf = PyFloat::new_positive_float();
+        match self {
+            Self::PnETemporal | Self::PnTYPETemporal => PyBool::default().rstype(path).into(),
+            Self::PnS
+            | Self::PnF
+            | Self::PnT
+            | Self::PnDET
+            | Self::PnTAG
+            | Self::PnANALYTE
+            | Self::PnTYPEOptical => PyStr::default().rstype(path).into(),
+            Self::PnFEATURE => PyOpt::new1(PyStr::default().rstype(path)).into(),
+            Self::PnL2_0 => PyOpt::new1(pf.rstype(path)).into(),
+            Self::PnL3_1 => PyList::new(pf, path, None).into(),
+            Self::PnO | Self::PnP | Self::PnV => {
+                PyOpt::new1(PyFloat::new_non_negative_float().rstype(path)).into()
+            }
+            Self::PnCALIBRATION3_1 => {
+                let inner = PyTuple::new1(pf).add(PyStr::default());
+                PyOpt::new1(inner.rstype(path)).into()
+            }
+            Self::PnCALIBRATION3_2 => {
+                let inner = PyTuple::new1(pf).add(RsFloat::F32).add(PyStr::default());
+                PyOpt::new1(inner.rstype(path)).into()
+            }
+            Self::PnD => {
+                let desc = format!(
+                    "if {ARG_TOKEN} represents a log display (field 1 is \
+                     {TRUE}) and the two floats are not both positive"
+                );
+                let exc = PyException::new_value().desc(desc);
+                let inner = PyTuple::new1(PyBool::default())
+                    .add(RsFloat::F32)
+                    .add(RsFloat::F32);
+                PyOpt::new1(inner.exc(exc).rstype(path)).into()
+            }
+            Self::PKn | Self::PKNn => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
+        }
+    }
+
+    fn optical_only(self) -> bool {
+        !matches!(self, Self::PnS | Self::PnD | Self::PKn | Self::PKNn)
+    }
+}

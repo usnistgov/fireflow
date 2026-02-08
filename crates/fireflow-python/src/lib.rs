@@ -83,12 +83,12 @@ use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
 use fireflow_python_proc::{
     def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,
     def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text,
-    impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords, impl_core_all_peak_attrs,
-    impl_core_all_pnanalyte, impl_core_all_pncal3_1, impl_core_all_pncal3_2, impl_core_all_pnd,
-    impl_core_all_pndet, impl_core_all_pnf, impl_core_all_pnfeature, impl_core_all_pnl_new,
-    impl_core_all_pnl_old, impl_core_all_pno, impl_core_all_pnp, impl_core_all_pns,
-    impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype, impl_core_all_pnv,
-    impl_core_all_shortnames_attr, impl_core_all_shortnames_maybe_attr,
+    impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords, impl_core_all_pkn,
+    impl_core_all_pknn, impl_core_all_pnanalyte, impl_core_all_pncal3_1, impl_core_all_pncal3_2,
+    impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf, impl_core_all_pnfeature,
+    impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno, impl_core_all_pnp,
+    impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype,
+    impl_core_all_pnv, impl_core_all_shortnames_attr, impl_core_all_shortnames_maybe_attr,
     impl_core_all_transforms_attr, impl_core_get_all_other_pnfeature, impl_core_get_measurement,
     impl_core_get_measurements, impl_core_get_named_measurement, impl_core_get_set_timestep,
     impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
@@ -368,13 +368,21 @@ impl_core_all_shortnames_maybe_attr!(PyCoreTEXT3_0);
 impl_core_all_shortnames_maybe_attr!(PyCoreDataset2_0);
 impl_core_all_shortnames_maybe_attr!(PyCoreDataset3_0);
 
-// Get/set methods for $PKn and $PKNn (2.0-3.1)
-impl_core_all_peak_attrs!(PyCoreTEXT2_0);
-impl_core_all_peak_attrs!(PyCoreTEXT3_0);
-impl_core_all_peak_attrs!(PyCoreTEXT3_1);
-impl_core_all_peak_attrs!(PyCoreDataset2_0);
-impl_core_all_peak_attrs!(PyCoreDataset3_0);
-impl_core_all_peak_attrs!(PyCoreDataset3_1);
+// Get/set methods for $PKn (2.0-3.1)
+impl_core_all_pkn!(PyCoreTEXT2_0);
+impl_core_all_pkn!(PyCoreTEXT3_0);
+impl_core_all_pkn!(PyCoreTEXT3_1);
+impl_core_all_pkn!(PyCoreDataset2_0);
+impl_core_all_pkn!(PyCoreDataset3_0);
+impl_core_all_pkn!(PyCoreDataset3_1);
+
+// Get/set methods for $PKNn (2.0-3.1)
+impl_core_all_pknn!(PyCoreTEXT2_0);
+impl_core_all_pknn!(PyCoreTEXT3_0);
+impl_core_all_pknn!(PyCoreTEXT3_1);
+impl_core_all_pknn!(PyCoreDataset2_0);
+impl_core_all_pknn!(PyCoreDataset3_0);
+impl_core_all_pknn!(PyCoreDataset3_1);
 
 // Get/set methods for scaler $PnL (2.0-3.0)
 impl_core_all_pnl_old!(PyCoreTEXT2_0);

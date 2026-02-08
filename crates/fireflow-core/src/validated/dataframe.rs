@@ -10,15 +10,7 @@ use std::slice::Iter;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use {
-    crate::validated::shortname::Shortname,
-    fireflow_core_proc::DisplayAsPyErr,
-    fireflow_types::python as py,
-    itertools::Itertools as _,
-    polars::prelude::*,
-    polars_arrow::array::{Array, PrimitiveArray},
-    polars_arrow::datatypes::ArrowDataType,
-};
+use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
 /// Column-major dataframe to represent events in DATA
 ///
@@ -183,28 +175,6 @@ impl AnyFCSColumn {
             Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
         }
     }
-
-    #[cfg(feature = "python")]
-    fn as_array(&self) -> Box<dyn Array> {
-        match self.clone() {
-            Self::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
-            Self::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
-            Self::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
-            Self::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
-            Self::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
-            Self::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
-        }
-    }
-
-    #[cfg(feature = "python")]
-    fn as_polars_column(&self, name: &Shortname) -> Column {
-        // ASSUME this will not fail because the we know that any of the 6
-        // allowed types will be valid columns and we don't add a NULL array
-        // when making the array
-        Series::from_arrow(name.as_ref().into(), self.as_array())
-            .unwrap()
-            .into()
-    }
 }
 
 /// Error when building [`FCSDataFrame`] from individual columns
@@ -342,27 +312,6 @@ impl FCSDataFrame {
         let ndelim = n - 1;
         let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
         u64::from(ndigits) + ndelim
-    }
-
-    #[cfg(feature = "python")]
-    #[must_use]
-    pub fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        debug_assert!(
-            names.len() == self.ncols(),
-            "names is not same length as column number"
-        );
-        debug_assert!(
-            names.iter().unique().count() == names.len(),
-            "Names are not unique"
-        );
-        let columns = self
-            .iter_columns()
-            .zip(names)
-            .map(|(c, n)| c.as_polars_column(n))
-            .collect();
-        // ASSUME this will not fail because all columns should have unique
-        // names and the same length
-        DataFrame::new(columns).unwrap()
     }
 }
 
@@ -856,143 +805,5 @@ mod tests {
             f32::from_truncated(0.2_f64),
             CastResult::new::<f64>(0.2, true)
         );
-    }
-}
-
-#[cfg(feature = "python")]
-pub(crate) mod python {
-    use super::{AnyFCSColumn, FCSColumn, FCSDataFrame};
-
-    use fireflow_core_proc::DisplayAsPyErr;
-
-    use polars::prelude::*;
-    use polars_arrow::array::PrimitiveArray;
-    use pyo3::prelude::*;
-    use pyo3_polars::{PyDataFrame, PySeries};
-
-    use std::fmt;
-
-    impl<'py> IntoPyObject<'py> for FCSDataFrame {
-        type Target = PyAny;
-        type Output = Bound<'py, PyAny>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let columns = self
-                .iter_columns()
-                .enumerate()
-                .map(|(i, c)| {
-                    Series::from_arrow(PlSmallStr::from(format!("X{i}")), c.as_array())
-                        .unwrap()
-                        .into()
-                })
-                .collect();
-            // ASSUME this will not fail because all columns should have unique
-            // names and the same length
-            PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for AnyFCSColumn {
-        type Target = PyAny;
-        type Output = Bound<'py, PyAny>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let ser = Series::from_arrow(PlSmallStr::from("unnamed"), self.as_array()).unwrap();
-            PySeries(ser).into_pyobject(py)
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for FCSDataFrame {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let df: PyDataFrame = ob.extract()?;
-            Ok(df.0.try_into()?)
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for AnyFCSColumn {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let ser: PySeries = ob.extract()?;
-            Ok(ser.0.try_into()?)
-        }
-    }
-
-    impl TryFrom<DataFrame> for FCSDataFrame {
-        type Error = SeriesToColumnError;
-
-        fn try_from(df: DataFrame) -> Result<Self, Self::Error> {
-            let cs = df
-                .column_iter()
-                .map(|c| c.as_materialized_series().clone())
-                .map(AnyFCSColumn::try_from)
-                .collect::<Result<Vec<_>, _>>()?;
-            // ASSUME this won't fail because all columns will have the same
-            // length after pulling from a valid polars dataframe
-            Ok(Self::try_new(cs).unwrap())
-        }
-    }
-
-    impl TryFrom<Series> for AnyFCSColumn {
-        type Error = SeriesToColumnError;
-
-        fn try_from(ser: Series) -> Result<Self, Self::Error> {
-            fn column_to_buf<T>(ser: Series) -> Result<AnyFCSColumn, SeriesToColumnError>
-            where
-                T: NumericNative,
-                AnyFCSColumn: From<FCSColumn<T>>,
-            {
-                if ser.null_count() > 0 {
-                    Err(SeriesToColumnError::HasNull(ser.name().clone()))
-                } else {
-                    let chunks = ser.into_chunks();
-                    // ASSUME this will never fail because
-                    // FromPyObject<PySeries> will call rechunk. See
-                    // https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
-                    debug_assert!(chunks.len() == 1, "Series has more than one chunk");
-                    let buf = chunks[0]
-                        .as_any()
-                        .downcast_ref::<PrimitiveArray<T>>()
-                        .unwrap()
-                        .values()
-                        .clone();
-                    Ok(FCSColumn(buf).into())
-                }
-            }
-
-            match ser.dtype() {
-                DataType::UInt8 => column_to_buf::<u8>(ser),
-                DataType::UInt16 => column_to_buf::<u16>(ser),
-                DataType::UInt32 => column_to_buf::<u32>(ser),
-                DataType::UInt64 => column_to_buf::<u64>(ser),
-                DataType::Float32 => column_to_buf::<f32>(ser),
-                DataType::Float64 => column_to_buf::<f64>(ser),
-                t => Err(SeriesToColumnError::InvalidDatatype(
-                    ser.name().clone(),
-                    t.clone(),
-                )),
-            }
-        }
-    }
-
-    #[derive(DisplayAsPyErr)]
-    #[pyerr(fireflow_types::python::EventDataError)]
-    pub enum SeriesToColumnError {
-        InvalidDatatype(PlSmallStr, DataType),
-        HasNull(PlSmallStr),
-    }
-
-    impl fmt::Display for SeriesToColumnError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-            match self {
-                Self::InvalidDatatype(n, t) => write!(
-                    f,
-                    "Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'"
-                ),
-                Self::HasNull(n) => {
-                    write!(f, "Series {n} contains null values which are not allowed")
-                }
-            }
-        }
     }
 }

@@ -27,8 +27,6 @@ nonempty = { workspace = true, features = ["serialize"] }
 phf = { workspace = true, features = ["macros", "unicase"] }
 type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }
-pyo3-polars = { workspace = true, optional = true }
-polars = { workspace = true, optional = true, default-features = false }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 
@@ -39,7 +37,7 @@ unicase = { workspace = true }
 
 [features]
 serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde"]
-python = ["dep:pyo3", "dep:pyo3-polars", "dep:polars", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
+python = ["dep:pyo3", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
 
 [lints]
 workspace = true

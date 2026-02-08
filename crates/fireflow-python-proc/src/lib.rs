@@ -809,7 +809,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let data = DocArg::new_data_param(false).into_ro(|_, _| quote!(self.0.data.clone()));
+    let data = DocArg::new_data_param(false).into_ro(|_, _| quote!(self.0.data.clone().into()));
     let analysis =
         DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.analysis.clone()));
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
@@ -825,7 +825,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
-                    data,
+                    data.into(),
                     analysis,
                     others,
                     dataset_segs.into(),
@@ -1762,7 +1762,8 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
                 let x = #fun(#coretext_inner_args)
                     .group_with(fireflow_core::core::NewCoreDatasetSummary)
                     .resolve_nowarn()?;
-                Ok(x.into_coredataset(data.0.try_into()?, analysis, others)?.into())
+                let d = PyFCSDataFrame::try_from(data)?;
+                Ok(x.into_coredataset(d.0, analysis, others)?.into())
             }
         }
     };
@@ -2624,7 +2625,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let index_ret = by_index_doc.ret_path();
 
     let name_mapper = if is_dataset {
-        quote!(|(i, x, c, r)| (i, x.bimap_into_once(), c, r))
+        quote!(|(i, x, c, r)| (i, x.bimap_into_once(), c.into(), r))
     } else {
         quote!(|(i, x, r)| (i, x.bimap_into_once(), r))
     };
@@ -2633,7 +2634,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         quote! {
             let (p, c, r) = self.0.remove_measurement_by_index(#index_ident)?;
             let (n, v) = p.unzip();
-            Ok((n, v.bimap_into_once(), c, r))
+            Ok((n, v.bimap_into_once(), c.into(), r))
         }
     } else {
         quote! {
@@ -3392,7 +3393,7 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
                 let ret = self.0
                     .set_named_measurements_and_data(
                         measurements.into(),
-                        data,
+                        data.into(),
                         allow_shared_names,
                         skip_index_check,
                     )?;
@@ -3402,8 +3403,7 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
             #unnamed_doc
             fn set_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_measurements_and_data(ms, data)?;
-                Ok(ret)
+                Ok(self.0.set_measurements_and_data(ms, data.into())?)
             }
         }
     }
@@ -3444,8 +3444,7 @@ pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> 
             #doc
             fn set_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_measurements_layout_and_data(ms, layout.into(), data)?;
-                Ok(ret)
+                Ok(self.0.set_measurements_layout_and_data(ms, layout.into(), data.into())?)
             }
         }
     }
@@ -3468,7 +3467,6 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         .returns(DocReturn::new(PyClass::new_coredataset(version)));
 
     let fun_args = doc.fun_args();
-    let inner_args = doc.idents();
     let ret_path = doc.ret_path();
 
     quote! {
@@ -3476,7 +3474,8 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn to_dataset(&self, #fun_args) -> PyResult<#ret_path> {
-                Ok(self.0.clone().into_coredataset(#inner_args)?.into())
+                let ret = self.0.clone().into_coredataset(data.into(), analysis, others)?;
+                Ok(ret.into())
             }
         }
     }
@@ -6956,13 +6955,15 @@ impl<E: From<PyException>> PyClass<E> {
         let path = if polars_type {
             parse_quote!(pyo3_polars::PyDataFrame)
         } else {
-            parse_quote!(fireflow_core::validated::dataframe::FCSDataFrame)
+            // ASSUME this is in scope
+            parse_quote!(PyFCSDataFrame)
         };
         Self::new1("polars.DataFrame").rstype(path)
     }
 
     fn new_series() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::dataframe::AnyFCSColumn);
+        // ASSUME this is in scope
+        let path: Path = parse_quote!(PyAnyFCSColumn);
         Self::new1("polars.Series").rstype(path)
     }
 
@@ -7317,14 +7318,14 @@ impl DocArgRWIvar {
                 let rt = pt.as_rust_type();
                 quote! {
                     let ns = self.0.all_shortnames();
-                    let data = self.0.data();
+                    let data = PyFCSDataFrame(self.0.data().clone());
                     #rt(data.as_polars_dataframe(&ns[..]))
                 }
             },
             |n, _| {
                 quote! {
-                    let d = #n.0.try_into()?;
-                    Ok(self.0.set_data(d)?)
+                    let d = PyFCSDataFrame::try_from(#n)?;
+                    Ok(self.0.set_data(d.0)?)
                 }
             },
         )

@@ -71,8 +71,12 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
+use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
+use fireflow_core::validated::shortname::Shortname;
+
+use fireflow_types::python::EventDataError;
 
 use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
 
@@ -111,8 +115,13 @@ use fireflow_python_proc::{
 };
 
 use derive_more::{From, Into};
+use polars::prelude::*;
+use polars_arrow::array::{Array, PrimitiveArray};
+use polars_arrow::datatypes::ArrowDataType;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
+use pyo3_polars::{PyDataFrame, PySeries};
+
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
@@ -895,5 +904,203 @@ impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let xs: Vec<_> = ob.extract()?;
         Ok(Self(xs.into_iter().collect()))
+    }
+}
+
+// Wrappers for FCSDataframe and AnyFCSColumn which allow conversion to/from
+// proper polars types which are also wrapped as Python types. This is confusing
+// because we actually have 4 different types for df and column.
+// 1. FCS* type which is validated for only a few datatypes FCS supports
+// 2. Native polars type
+// 3. Pyo3 type which wraps the native polars type
+// 4. PyFCS* which are wrappers for (1) which are also valid Pyo3 types
+//
+// This is also the ordering of conversions that must be followed in order to
+// go from Rust to Python and back. Note that the FromPyObject and IntoPyObject
+// methods are utilized in the Pyo3 types (3).
+//
+// Going from 2 -> 1 and 3 -> 4 requires validation because polars dataframes
+// can hold many more datatypes than what FCS supports. (4) itself is merely a
+// wrapper for 1 to evade the orphan rule. If the orphan rule didn't exist, we
+// could implement FromPyObject and IntoPyObject on (1) directly and avoid much
+// of this confusion.
+//
+// However, this would require keeping all this machinery in fireflow-core,
+// which means this crate also must depend on polars, which slows down build
+// times because polars is massive.
+
+#[derive(From, Into)]
+pub struct PyFCSDataFrame(FCSDataFrame);
+
+#[derive(From, Into)]
+pub struct PyAnyFCSColumn(AnyFCSColumn);
+
+impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let columns = self
+            .0
+            .iter_columns()
+            .enumerate()
+            .map(|(i, c)| {
+                Series::from_arrow(PlSmallStr::from(format!("X{i}")), as_array(c))
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+    }
+}
+
+impl<'py> IntoPyObject<'py> for PyAnyFCSColumn {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        let ser = Series::from_arrow(PlSmallStr::from("unnamed"), as_array(&self.0)).unwrap();
+        PySeries(ser).into_pyobject(py)
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyFCSDataFrame {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(ob.extract::<PyDataFrame>()?.try_into()?)
+    }
+}
+
+impl<'py> FromPyObject<'py> for PyAnyFCSColumn {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(ob.extract::<PySeries>()?.try_into()?)
+    }
+}
+
+impl TryFrom<PyDataFrame> for PyFCSDataFrame {
+    type Error = SeriesToColumnError;
+
+    fn try_from(df: PyDataFrame) -> Result<Self, Self::Error> {
+        let cs =
+            df.0.column_iter()
+                .map(|c| PySeries(c.as_materialized_series().clone()))
+                .map(PyAnyFCSColumn::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+        // ASSUME this won't fail because all columns will have the same
+        // length after pulling from a valid polars dataframe
+        Ok(Self(
+            FCSDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
+        ))
+    }
+}
+
+impl TryFrom<PySeries> for PyAnyFCSColumn {
+    type Error = SeriesToColumnError;
+
+    fn try_from(pyser: PySeries) -> Result<Self, Self::Error> {
+        fn column_to_buf<T>(ser: Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
+        where
+            T: NumericNative,
+            AnyFCSColumn: From<FCSColumn<T>>,
+        {
+            if ser.null_count() > 0 {
+                Err(SeriesToColumnError::HasNull(ser.name().clone()))
+            } else {
+                let chunks = ser.into_chunks();
+                // ASSUME this will never fail because
+                // FromPyObject<PySeries> will call rechunk. See
+                // https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
+                debug_assert!(chunks.len() == 1, "Series has more than one chunk");
+                let buf = chunks[0]
+                    .as_any()
+                    .downcast_ref::<PrimitiveArray<T>>()
+                    .unwrap()
+                    .values()
+                    .clone();
+                Ok(PyAnyFCSColumn(AnyFCSColumn::from(FCSColumn(buf))))
+            }
+        }
+
+        let ser = pyser.0;
+        match ser.dtype() {
+            DataType::UInt8 => column_to_buf::<u8>(ser),
+            DataType::UInt16 => column_to_buf::<u16>(ser),
+            DataType::UInt32 => column_to_buf::<u32>(ser),
+            DataType::UInt64 => column_to_buf::<u64>(ser),
+            DataType::Float32 => column_to_buf::<f32>(ser),
+            DataType::Float64 => column_to_buf::<f64>(ser),
+            t => Err(SeriesToColumnError::InvalidDatatype(
+                ser.name().clone(),
+                t.clone(),
+            )),
+        }
+    }
+}
+
+pub enum SeriesToColumnError {
+    InvalidDatatype(PlSmallStr, DataType),
+    HasNull(PlSmallStr),
+}
+
+impl From<SeriesToColumnError> for PyErr {
+    fn from(value: SeriesToColumnError) -> Self {
+        let s = match value {
+            SeriesToColumnError::InvalidDatatype(n, t) => {
+                format!("Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'")
+            }
+            SeriesToColumnError::HasNull(n) => {
+                format!("Series {n} contains null values which are not allowed")
+            }
+        };
+        EventDataError::new_err(s)
+    }
+}
+
+fn as_array(c: &AnyFCSColumn) -> Box<dyn Array> {
+    match c.clone() {
+        AnyFCSColumn::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
+        AnyFCSColumn::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
+        AnyFCSColumn::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
+        AnyFCSColumn::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
+        AnyFCSColumn::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
+        AnyFCSColumn::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
+    }
+}
+
+impl PyFCSDataFrame {
+    // this is confusing because it is the one instance where we want to return
+    // a Pyo3 type directly from a python function vs a PyFCSDataFrame. The
+    // reason is that we want to encode the names in the dataframe, and the only
+    // way to do that is to have a function that takes names since FCSDataFrame
+    // does not store then itself.
+    fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
+        fn as_polars_column(c: &AnyFCSColumn, name: &Shortname) -> Column {
+            // ASSUME this will not fail because the we know that any of the 6
+            // allowed types will be valid columns and we don't add a NULL array
+            // when making the array
+            Series::from_arrow(name.as_ref().into(), as_array(c))
+                .unwrap()
+                .into()
+        }
+        debug_assert!(
+            names.len() == self.0.ncols(),
+            "names is not same length as column number"
+        );
+        debug_assert!(
+            names.iter().collect::<HashSet<_>>().len() == names.len(),
+            "Names are not unique"
+        );
+        let columns = self
+            .0
+            .iter_columns()
+            .zip(names)
+            .map(|(c, n)| as_polars_column(c, n))
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        DataFrame::new(columns).unwrap()
     }
 }

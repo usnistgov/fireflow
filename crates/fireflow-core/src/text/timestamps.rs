@@ -379,27 +379,30 @@ impl FromStr for FCSTime60 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| match s.split(':').collect::<Vec<_>>()[..] {
-                [s1, s2, s3, s4] => {
-                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
-                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
-                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
-                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                    if tt > 59 {
-                        return Err(FCSTime60Error);
+            .or_else(|_| {
+                let xs = s.split(':').collect::<Vec<_>>();
+                match &xs[..] {
+                    [s1, s2, s3, s4] => {
+                        let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
+                        let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
+                        let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
+                        let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
+                        if tt > 59 {
+                            return Err(FCSTime60Error);
+                        }
+                        // Use ceiling to map 1/60 seconds to nanoseconds to exactly
+                        // mirror what we do in the Display impl where we use floor
+                        //
+                        // ASSUME this will not fail because we only allow 0-59
+                        // which will map exactly to f32. Also, multiplying by 1e6
+                        // should not overflow since the max exact integer of f32 is
+                        // 2^23 (~8e6)
+                        let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
+                        let nn_ = nn.ceil().to_u32().unwrap();
+                        NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_).ok_or(FCSTime60Error)
                     }
-                    // Use ceiling to map 1/60 seconds to nanoseconds to exactly
-                    // mirror what we do in the Display impl where we use floor
-                    //
-                    // ASSUME this will not fail because we only allow 0-59
-                    // which will map exactly to f32. Also, multiplying by 1e6
-                    // should not overflow since the max exact integer of f32 is
-                    // 2^23 (~8e6)
-                    let nn = tt.to_f32().unwrap() * 1_000_000.0 / 60.0;
-                    let nn_ = nn.ceil().to_u32().unwrap();
-                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn_).ok_or(FCSTime60Error)
+                    _ => Err(FCSTime60Error),
                 }
-                _ => Err(FCSTime60Error),
             })
             .map(FCSTime60)
     }

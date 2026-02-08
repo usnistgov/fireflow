@@ -1703,9 +1703,10 @@ impl FromStrWith for LastModified {
                 .map(DiagnosedKeyword::new1)
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
-        let (t, cc) = match &s.split('.').collect::<Vec<_>>()[..] {
-            [t] => (*t, ""),
-            [t, cc] => (*t, *cc),
+        let mut it = s.split('.');
+        let (t, cc) = match (it.by_ref().next(), it.by_ref().next(), it.next()) {
+            (Some(t), None, None) => (t, ""),
+            (Some(t), Some(cc), None) => (t, cc),
             _ => return Err(LastModifiedError::Format),
         };
         NaiveDateTime::parse_from_str(t, DATETIME_FMT)

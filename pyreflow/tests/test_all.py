@@ -1,4 +1,5 @@
 import numpy as np
+import inspect as ins
 from typing import cast, Any
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
@@ -26,6 +27,11 @@ import pyreflow.pydantic as pfp
 import polars as pl
 
 from .conftest import lazy_fixture
+
+import ast
+
+with open("python/pyreflow/_pyreflow.pyi") as f:
+    tree = ast.parse(f.read())
 
 
 @pytest.fixture
@@ -3041,3 +3047,145 @@ class TestReadWrite:
         assert core == nu_core
         # supp text should have non-zero offsets in new file
         assert un_core.flat_diagnostics.header_supp.supp_text is not None
+
+
+HEADER_ALIASES = ["OffsetCorrection", "GuessOtherWidth"]
+
+FLAT_TEXT_ALIASES = [
+    *HEADER_ALIASES,
+    "VersionOverride",
+    "TriFlag",
+    "DelimEscapeMode",
+    "TrimValueWhitespace",
+    "KeyPatterns",
+    "SubPatterns",
+]
+
+STD_TEXT_ALIASES = [
+    "ForceLinearScale",
+    "TemporalOpticalKey",
+    "ProcessTimeOpticalKeys",
+    "ProcessKeywordFailure",
+    "SpilloverMeasurementMode",
+    "AllowHeaderTextOffsetMismatch",
+    "ByteOrd",
+]
+
+READ_EVENTS_ALIASES = ["TruncateEventValues", "AllowHeaderTextOffsetMismatch"]
+
+
+# Ensure API functions have same sig as corresponding pydantic class. This is
+# somewhat tested elsewhere since we call these API functions internally in
+# the pydantic classes, but this will ensure that the types and the args match
+# exactly.
+class TestPydantic:
+    @pytest.mark.parametrize(
+        "pydantic_class, fun_name, ignore, aliases",
+        [
+            (
+                pf.pydantic.PyreflowReadHeaderConfig,
+                "fcs_read_header",
+                ["path", "dataset_offset"],
+                HEADER_ALIASES,
+            ),
+            (
+                pf.pydantic.PyreflowReadFlatTEXTConfig,
+                "fcs_read_flat_text",
+                ["path", "dataset_offset"],
+                FLAT_TEXT_ALIASES,
+            ),
+            (
+                pf.pydantic.PyreflowReadStdTEXTConfig,
+                "fcs_read_std_text",
+                ["path", "dataset_offset"],
+                FLAT_TEXT_ALIASES + STD_TEXT_ALIASES,
+            ),
+            (
+                pf.pydantic.PyreflowReadFlatDatasetConfig,
+                "fcs_read_flat_dataset",
+                ["path", "dataset_offset"],
+                FLAT_TEXT_ALIASES
+                + READ_EVENTS_ALIASES
+                + ["ProcessKeywordFailure", "ByteOrd"],
+            ),
+            (
+                pf.pydantic.PyreflowReadStdDatasetConfig,
+                "fcs_read_std_dataset",
+                ["path", "dataset_offset"],
+                FLAT_TEXT_ALIASES + STD_TEXT_ALIASES + READ_EVENTS_ALIASES,
+            ),
+            (
+                pf.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig,
+                "fcs_read_flat_dataset_with_keywords",
+                ["path", "dataset_offset", "header", "std"],
+                STD_TEXT_ALIASES
+                + READ_EVENTS_ALIASES
+                + ["OffsetCorrection", "TriFlag"],
+            ),
+        ],
+    )
+    def test_fun_sig_vs_pydantic(
+        self,
+        pydantic_class: type,
+        fun_name: str,
+        ignore: list[str],
+        aliases: list[str],
+    ) -> None:
+        only_in_pyi = []
+        unequal = []
+        pydantic_seen = []
+
+        # get dict of pydantic attrs and types
+        sig = ins.signature(pydantic_class)
+        sigmap = {x: y.annotation for x, y in sig.parameters.items()}
+
+        # import types that we might need to resolve
+        import pyreflow.typing as pft
+
+        resolved = {a: getattr(pft, a) for a in aliases}
+
+        # walk through tree, find function we care about, and grab the arg names
+        # and their types, ignoring some arguments that we know won't match
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == fun_name:
+                for arg in node.args.args:
+                    name = arg.arg
+                    if arg.annotation and name not in ignore:
+                        try:
+                            sig_type = str(sigmap[name])
+                            ast_type = str(ast.unparse(arg.annotation))
+                            if sig_type == ast_type:
+                                pydantic_seen.append(name)
+                            else:
+                                # if names match but types do not, it might be
+                                # because they AST has a type alias. Try to
+                                # resolve it with eval and try the comparison
+                                # again. This obviously assumes the name is in
+                                # scope.
+                                try:
+                                    resolved_ast_type = str(eval(ast_type, resolved))
+                                    if sig_type == resolved_ast_type:
+                                        pydantic_seen.append(name)
+                                    else:
+                                        unequal.append(
+                                            (name, sig_type, resolved_ast_type)
+                                        )
+                                except Exception:
+                                    unequal.append((name, sig_type, ast_type))
+
+                        except KeyError:
+                            # lookup failed, tell user we couldn't file the
+                            # name from the function in the pydantic class
+                            only_in_pyi.append(arg.arg)
+
+        assert len(only_in_pyi) == 0, f"only in .pyi: {', '.join(only_in_pyi)}"
+
+        for argname, sig_type, ast_type in unequal:
+            assert False, (
+                f"pyi is '{ast_type}' and pydantic is '{sig_type}' for {argname}"
+            )
+
+        only_in_pydantic = set(sigmap) - set(pydantic_seen)
+        assert len(only_in_pydantic) == 0, (
+            f"only in pydantic: {', '.join(only_in_pydantic)}"
+        )

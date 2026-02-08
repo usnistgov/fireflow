@@ -32,11 +32,13 @@ class BaseModel(BaseModel_):
 
 
 class _HeaderConfig(BaseModel):
-    text_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
-    data_correction: tuple[int, int] = pfd._DEFAULT_CORRECTION
+    text_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
+    data_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
+    analysis_correction: pft.OffsetCorrection = pfd._DEFAULT_CORRECTION
     other_corrections: list[pft.OffsetCorrection] = []
     max_other: int | None = None
     other_width: int = pfd._DEFAULT_OTHER_WIDTH
+    guess_other_width: pft.GuessOtherWidth = "none"
     squish_offsets: bool = False
 
 

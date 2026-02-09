@@ -1000,7 +1000,7 @@ pub struct VersionOverrideError;
 
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
-        #[derive(Clone, Copy, Default, FromStr, Into)]
+        #[derive(Clone, Copy, Default, FromStr, Into, From)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
         pub struct $t(pub ProcessKeywordFailure);
 
@@ -1074,6 +1074,70 @@ impl FromStr for SelectVersionStrategy {
 #[derive(From)]
 #[from(FromStrError)]
 pub struct SelectVersionStrategyError;
+
+/// Overall strategy to read FCS files.
+///
+/// This is a "metaflag" which will activate individual flags in each
+/// configuration struct. The exact flags to be activated will depend on the
+/// struct. In all cases, this will activate the flags which emit warnings where
+/// applicable. If one does not desire warnings, use
+/// [`ReadSharedConfig::hide_warnings`].
+///
+/// In general, the different levels for this are a tradeoff between the ability
+/// to read events from DATA vs preserving metadata.
+#[derive(Clone, Copy, Default, FromStr)]
+#[from_str(rename_all = "snake_case")]
+#[from_str(error(ReadStrategyError))]
+pub enum ReadStrategy {
+    /// Follow the standard fully (configuration is totally default).
+    ///
+    /// Many files will fail this, but it is useful for validation.
+    #[default]
+    Strict,
+    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
+    ///
+    /// This is likely a good option for many files.
+    Scalpal,
+    /// Use "unsafe" non-compliant parsing.
+    ///
+    /// This is the best option when all one cares about is reading DATA.
+    /// Non-compliant metadata in TEXT will be skipped.
+    Sledgehammer,
+}
+
+#[derive(Error, Debug, From)]
+#[error("must be one of 'strict', 'scalpal', 'sledgehammer'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+#[from(FromStrError)]
+pub struct ReadStrategyError;
+
+pub trait HasStrategy {
+    #[must_use]
+    fn new_with_strategy(strat: ReadStrategy) -> Self
+    where
+        Self: Default,
+    {
+        let mut conf = Self::default();
+        conf.with_strategy(strat);
+        conf
+    }
+
+    fn with_strategy(&mut self, strat: ReadStrategy) {
+        match strat {
+            ReadStrategy::Strict => (),
+            ReadStrategy::Scalpal => self.with_scalpal(),
+            ReadStrategy::Sledgehammer => {
+                self.with_scalpal();
+                self.with_sledgehammer();
+            }
+        }
+    }
+
+    fn with_scalpal(&mut self);
+
+    fn with_sledgehammer(&mut self) {}
+}
 
 pub trait ConfigFlag {
     fn is_set(&self) -> bool;
@@ -1410,6 +1474,221 @@ pub(crate) fn remove_temporal_optical_keys(
     let mut res = LogResult::new_err_from_iter(es, pairs);
     res.extend_commutative_warnings(ws);
     res
+}
+
+impl HasStrategy for ReadHeaderConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.offset.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.offset.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadStdTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadStdDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.offset.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.offset.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for NewCoreTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for NewCoreDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadHeaderInnerConfig {
+    fn with_scalpal(&mut self) {
+        self.guess_other_width = GuessOtherWidth::Warn;
+        self.squish_offsets = true.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.max_other = Some(0);
+    }
+}
+
+impl HasStrategy for ReadOffsetConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_pseudoempty = true.into();
+        // Allow automatic correction of off-by-one offset errors. This won't
+        // always work but will likely take care of %80 of cases.
+        self.truncate_offset_limit = 1.into();
+        self.overlap_correction_limit = 1.into();
+        self.data_remainder_limit = 1.into();
+    }
+}
+
+impl HasStrategy for ReadHeaderAndTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.version_override = Some(VersionOverride::AutoDetect(SelectVersionStrategy::Loose));
+        self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
+        self.allow_duplicated_supp_text = TriFlag::True.into();
+        self.allow_non_ascii_delim = TriFlag::True.into();
+        self.allow_missing_final_delim = TriFlag::True.into();
+        self.allow_nonunique = TriFlag::True.into();
+        self.allow_odd = TriFlag::True.into();
+        self.allow_empty_keys = TriFlag::True.into();
+        self.allow_delim_at_boundary = TriFlag::True.into();
+        self.allow_non_utf8 = TriFlag::True.into();
+        self.allow_non_ascii_keywords = TriFlag::True.into();
+        self.allow_missing_supp_text = TriFlag::True.into();
+        self.allow_supp_text_own_delim = TriFlag::True.into();
+        self.allow_missing_nextdata = TriFlag::True.into();
+        self.trim_value_whitespace = TrimValueWhitespace::TrimBlankWarn;
+        self.trim_text_end = true.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.ignore_supp_text = true.into();
+    }
+}
+
+impl HasStrategy for ReadStdKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.dedup_measurement_names = true.into();
+        self.trim_intra_value_whitespace = true.into();
+        self.spillover_measurement_mode = SpilloverMeasurementMode::Guess;
+        self.allow_other_feature = true.into();
+        self.fix_log_scale_offsets = true.into();
+        // This flag all optical keys as ignorable in the time measurement.
+        // The next flag tells what to do with them (in this case, demote)
+        self.ignore_time_optical_keys = TemporalOpticalKey::all();
+        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DemoteWarn;
+        self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_hyper_par = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_other_version = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_extra_timestep = ProcessKeywordFailure::DemoteWarn.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DropWarn;
+        self.process_pseudostandard = ProcessKeywordFailure::DropWarn.into();
+        self.process_hyper_par = ProcessKeywordFailure::DropWarn.into();
+        self.process_other_version = ProcessKeywordFailure::DropWarn.into();
+        self.process_extra_timestep = ProcessKeywordFailure::DropWarn.into();
+        self.allow_missing_time = TriFlag::True.into();
+        // This will make $PnE compatible with all layouts at the expense of
+        // destroying any log-scaling information.
+        self.force_linear_scale = ForceLinearScale::All;
+    }
+}
+
+impl HasStrategy for ReadDataKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
+        self.allow_missing_required_offsets = TriFlag::True.into();
+        self.process_optional_failure = ProcessKeywordFailure::DemoteWarn.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.process_optional_failure = ProcessKeywordFailure::DropWarn.into();
+        self.ignore_text_analysis_offsets = true.into();
+    }
+}
+
+impl HasStrategy for ReadEventsConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_uneven_event_width = TriFlag::True.into();
+        self.allow_tot_mismatch = TriFlag::True.into();
+    }
 }
 
 #[cfg(feature = "python")]

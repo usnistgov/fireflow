@@ -3,6 +3,7 @@ use derive_more::From;
 use itertools::Itertools as _;
 use thiserror::Error;
 
+use std::collections::HashSet;
 use std::fmt;
 
 #[cfg(feature = "python")]
@@ -405,6 +406,25 @@ impl TemporalOpticalKey {
         Self::Tag,
         Self::Wavelength,
     ];
+
+    #[must_use]
+    pub fn all() -> HashSet<Self> {
+        let keys = [
+            Self::Gain,
+            Self::Analyte,
+            Self::Calibration,
+            Self::DetectorName,
+            Self::DetectorType,
+            Self::DetectorVoltage,
+            Self::Feature,
+            Self::Filter,
+            Self::PercentEmitted,
+            Self::Power,
+            Self::Tag,
+            Self::Wavelength,
+        ];
+        keys.into_iter().collect()
+    }
 }
 
 // version strategy strings, the enum itself isn't defined here because it

@@ -3,7 +3,7 @@ use derive_more::{AsRef, From};
 use std::str::FromStr;
 use thiserror::Error;
 
-use fireflow_types::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
+use fireflow_types::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString};

@@ -1,6 +1,6 @@
 use crate::text::index::MeasIndex;
 
-use fireflow_types::DEDUP_PNN_SEP;
+use fireflow_types::config::DEDUP_PNN_SEP;
 
 use derive_more::{AsRef, Display, Into};
 use std::str::FromStr;

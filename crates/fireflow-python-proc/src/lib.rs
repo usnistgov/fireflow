@@ -19,13 +19,13 @@ use fireflow_types::config::{
     VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS,
     VERSION_STRICT_LEVEL,
 };
-use fireflow_types::keywords as tk;
-use fireflow_types::{
+use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
     DEFAULT_TIME_FORMAT_3_1, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
 };
+use fireflow_types::keywords as tk;
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};

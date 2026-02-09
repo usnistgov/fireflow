@@ -1,7 +1,7 @@
 use crate::text::index::IndexFromOne;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
-use fireflow_types::{NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT};
+use fireflow_types::config::{NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT};
 
 use derive_more::{AsRef, Display};
 use derive_new::new;

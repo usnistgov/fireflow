@@ -1,12 +1,14 @@
-use chrono::{NaiveTime, ParseError, Timelike as _};
-use derive_more::{AsRef, From};
-use std::str::FromStr;
-use thiserror::Error;
-
 use fireflow_types::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
 
+use chrono::{NaiveTime, ParseError, Timelike as _};
+use derive_more::{AsRef, From};
+use thiserror::Error;
+
+use std::fmt;
+use std::str::FromStr;
+
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 /// A [`String`] that matches a time.
 ///
@@ -20,7 +22,7 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (`"%f"`) and converted after parsing.
 #[derive(Clone, Debug, AsRef)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct TimePattern {
     #[as_ref(str)]
     pat: String,
@@ -139,6 +141,18 @@ impl FromStr for TimePattern {
         } else {
             Err(TimePatternError(s.into()))
         }
+    }
+}
+
+// TODO test that this perfectly mirrors FromStr
+impl fmt::Display for TimePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self.fraction {
+            FractionType::Native => self.pat.to_owned(),
+            FractionType::Sexagesimal => self.pat.replace("%f", BASE60_SECOND_SPEC),
+            FractionType::Centisecond => self.pat.replace("%f", BASE100_SECOND_SPEC),
+        };
+        write!(f, "{s}")
     }
 }
 

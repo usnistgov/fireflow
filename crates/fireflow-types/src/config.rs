@@ -4,10 +4,9 @@ use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::collections::HashSet;
-use std::fmt;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 macro_rules! count_args2 {
     ($x:tt, $y:tt) => { 2_usize };
@@ -34,6 +33,7 @@ macro_rules! impl_multiflag {
         $(#[$flag_meta])*
         #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Hash)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[cfg_attr(feature = "python", derive(IntoPyString))]
         pub enum $flag_name {
             #[default]
             $(
@@ -42,13 +42,14 @@ macro_rules! impl_multiflag {
             )*
         }
 
-        pub const $all_level_name: [&str; count_args2!($($strlit),*)] = [$($strlit),*];
-
-        $(#[$error_meta])*
-        #[derive(Error, Debug, From)]
-        #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-        #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-        pub struct $error_name;
+        impl std::fmt::Display for $flag_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                let s = match self {
+                    $(Self::$var => $strlit,)*
+                };
+                f.write_str(s)
+            }
+        }
 
         impl std::str::FromStr for $flag_name {
             type Err = $error_name;
@@ -60,6 +61,15 @@ macro_rules! impl_multiflag {
                 }
             }
         }
+
+        pub const $all_level_name: [&str; count_args2!($($strlit),*)] = [$($strlit),*];
+
+        $(#[$error_meta])*
+        #[derive(Error, Debug, From)]
+        #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+        #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+        pub struct $error_name;
+
 
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -340,26 +350,6 @@ impl_multiflag!(
     /// Ignore $PnANALYTE
     Analyte, ANALYTE_LEVEL;
 );
-
-impl fmt::Display for TemporalOpticalKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Gain => GAIN_LEVEL,
-            Self::Filter => FILTER_LEVEL,
-            Self::Wavelength => WAVELENGTH_LEVEL,
-            Self::Power => POWER_LEVEL,
-            Self::DetectorType => DET_TYPE_LEVEL,
-            Self::DetectorVoltage => DET_VOLTAGE_LEVEL,
-            Self::PercentEmitted => PCNT_EMIT_LEVEL,
-            Self::Calibration => CALIBRATION_LEVEL,
-            Self::DetectorName => DET_NAME_LEVEL,
-            Self::Tag => TAG_LEVEL,
-            Self::Feature => FEATURE_LEVEL,
-            Self::Analyte => ANALYTE_LEVEL,
-        };
-        f.write_str(s)
-    }
-}
 
 impl TemporalOpticalKey {
     pub const TARGETS_2_0: [Self; 6] = [

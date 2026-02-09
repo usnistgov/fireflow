@@ -63,13 +63,14 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString},
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
 /// Instructions for reading the HEADER segment.
 #[derive(Default, Clone, AsRef, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderConfig {
     pub header: ReadHeaderInnerConfig,
     pub offset: ReadOffsetConfig,
@@ -265,6 +266,7 @@ pub struct WriteMultiConfig {
 
 /// Specific instructions for reading HEADER
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderInnerConfig {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -323,6 +325,7 @@ pub struct ReadHeaderInnerConfig {
 
 /// Specific instructions for reading offsets
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadOffsetConfig {
     /// Allow offsets that are like `X,X-1`.
     ///
@@ -382,6 +385,7 @@ pub struct ReadOffsetConfig {
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderAndTEXTConfig {
     /// Config for reading HEADER
     #[as_ref(ReadHeaderInnerConfig)]
@@ -648,6 +652,7 @@ pub struct ReadHeaderAndTEXTConfig {
 
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadStdKeywordsConfig {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
@@ -832,6 +837,7 @@ pub struct ReadStdKeywordsConfig {
 /// [`crate::core::CoreDataset`], these options are here since the layout is the
 /// thing they have in common.
 #[derive(Default, Clone, Copy, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadDataKeywordsConfig {
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
@@ -929,6 +935,7 @@ pub struct ReadDataKeywordsConfig {
 
 /// Specific instructions for reading events from DATA segment
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadEventsConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -961,6 +968,7 @@ pub struct ReadEventsConfig {
 
 /// Configuration options for across all reading functions
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadSharedConfig {
     /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
@@ -972,6 +980,7 @@ pub struct ReadSharedConfig {
 /// Configuration to override/detect FCS version
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub enum VersionOverride {
     Force(Version),
     AutoDetect(SelectVersionStrategy),
@@ -1000,8 +1009,8 @@ pub struct VersionOverrideError;
 
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
-        #[derive(Clone, Copy, Default, FromStr, Into, From)]
-        #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[derive(Clone, Copy, Default, FromStr, Display, Into, From)]
+        #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
         pub struct $t(pub ProcessKeywordFailure);
 
         impl ErrorFlag for $t {
@@ -1042,6 +1051,7 @@ impl_proc_key_fail!(ProcessExtraTimestep);
 
 /// Strategy to use when autodetecting FCS version
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyString))]
 pub enum SelectVersionStrategy {
     /// Choose the latest version
     Latest,
@@ -1051,6 +1061,18 @@ pub enum SelectVersionStrategy {
     Loose,
     /// Choose the version with the least optional keywords
     Strict,
+}
+
+impl fmt::Display for SelectVersionStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Earliest => VERSION_EARLIEST_LEVEL,
+            Self::Latest => VERSION_LATEST_LEVEL,
+            Self::Loose => VERSION_LOOSE_LEVEL,
+            Self::Strict => VERSION_STRICT_LEVEL,
+        };
+        f.write_str(s)
+    }
 }
 
 impl FromStr for SelectVersionStrategy {
@@ -1220,8 +1242,9 @@ macro_rules! impl_tri_error_flag {
     };
 
     (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Into, Clone, Copy, FromStr, Default)]
+        #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[cfg_attr(feature = "python", derive(IntoPyString))]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
@@ -1367,14 +1390,17 @@ pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct TruncateOffsetLimit(pub u64);
 
 /// The maximum number of bytes an ending offset may be decreased to avoid overlap.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct OverlapCorrectionLimit(pub u64);
 
 /// The maximum number of bytes the DATA ending offset may be decreased based on event width.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DataRemainderLimit(pub u64);
 
 /// State pertinent to reading a file
@@ -1695,20 +1721,31 @@ impl HasStrategy for ReadEventsConfig {
 mod python {
     use super::{KeyPatterns, NonStdMeasPatternOpt, SubPatterns, TimeMeasNamePattern};
 
-    use crate::segment::OffsetCorrection;
     use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
 
     use fireflow_types::python::ConfigError;
 
     use pyo3::prelude::*;
+
     use std::collections::HashMap;
+    use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             s.parse::<Self>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TimeMeasNamePattern {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.map(|r| r.as_str().to_owned()).into_pyobject(py)
         }
     }
 
@@ -1723,11 +1760,13 @@ mod python {
         }
     }
 
-    // offset corrections will be tuples like (i32, i32)
-    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let t: (i32, i32) = ob.extract()?;
-            Ok(Self::from(t))
+    impl<'py> IntoPyObject<'py> for NonStdMeasPatternOpt {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.into_pyobject(py)
         }
     }
 

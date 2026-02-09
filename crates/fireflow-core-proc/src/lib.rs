@@ -134,7 +134,10 @@ pub fn derive_to_py_via_display(input: TokenStream) -> TokenStream {
             fn into_pyobject(
                 self,
                 py: pyo3::marker::Python<'py>,
-            ) -> Result<Self::Output, Self::Error> {
+            ) -> Result<
+                <Self as pyo3::conversion::IntoPyObject<'py>>::Output,
+                <Self as pyo3::conversion::IntoPyObject<'py>>::Error
+            > {
                 self.to_string().into_pyobject(py)
             }
         }

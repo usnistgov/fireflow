@@ -11,7 +11,7 @@ use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString},
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
     fireflow_types::python as py,
 };
 
@@ -22,7 +22,7 @@ use {
 /// keywords.
 #[derive(Clone, AsRef, Display)]
 #[as_ref(str)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct NonStdMeasPattern(String);
 
 impl Default for NonStdMeasPattern {

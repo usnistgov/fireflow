@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::DisplayAsPyErr;
+use {fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 
 /// A map of [`KeyString`]/[`KeyString`] pairs.
 ///
@@ -16,6 +16,7 @@ use fireflow_core_proc::DisplayAsPyErr;
 /// This will be validated such that no pair has matching source and
 /// destination.
 #[derive(Clone, Debug, Default, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 
 impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {

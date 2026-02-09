@@ -141,13 +141,15 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use fireflow_types::python::ConfigError;
-
     use super::SubPattern;
 
+    use fireflow_types::python::ConfigError;
+
     use pyo3::prelude::*;
+    use pyo3::types::PyTuple;
     use regex::Regex;
 
+    // this is like (str, str, bool)
     impl<'py> FromPyObject<'py> for SubPattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (r, to, global): (String, String, bool) = ob.extract()?;
@@ -155,6 +157,16 @@ mod python {
                 .parse::<Regex>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))?;
             Ok(Self::try_new(from, to, global)?)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for SubPattern {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.from.as_str(), self.to, self.global).into_pyobject(py)
         }
     }
 }

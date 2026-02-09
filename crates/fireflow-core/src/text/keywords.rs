@@ -1130,7 +1130,6 @@ pub struct NumTypeError;
 /// displayed integers to make array indexing easier.
 #[derive(Clone, Copy, From, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
     O2(SizedByteOrd<2>),
@@ -1196,18 +1195,19 @@ impl ByteOrd2_0 {
         }
     }
 
-    // fn to_vec(&self) -> Vec<NonZeroU8> {
-    //     match self {
-    //         Self::O1(x) => <[NonZeroU8; 1]>::from(*x).to_vec(),
-    //         Self::O2(x) => <[NonZeroU8; 2]>::from(*x).to_vec(),
-    //         Self::O3(x) => <[NonZeroU8; 3]>::from(*x).to_vec(),
-    //         Self::O4(x) => <[NonZeroU8; 4]>::from(*x).to_vec(),
-    //         Self::O5(x) => <[NonZeroU8; 5]>::from(*x).to_vec(),
-    //         Self::O6(x) => <[NonZeroU8; 6]>::from(*x).to_vec(),
-    //         Self::O7(x) => <[NonZeroU8; 7]>::from(*x).to_vec(),
-    //         Self::O8(x) => <[NonZeroU8; 8]>::from(*x).to_vec(),
-    //     }
-    // }
+    #[cfg(feature = "python")]
+    fn to_vec(self) -> Vec<NonZeroU8> {
+        match self {
+            Self::O1(x) => <[NonZeroU8; 1]>::from(x).to_vec(),
+            Self::O2(x) => <[NonZeroU8; 2]>::from(x).to_vec(),
+            Self::O3(x) => <[NonZeroU8; 3]>::from(x).to_vec(),
+            Self::O4(x) => <[NonZeroU8; 4]>::from(x).to_vec(),
+            Self::O5(x) => <[NonZeroU8; 5]>::from(x).to_vec(),
+            Self::O6(x) => <[NonZeroU8; 6]>::from(x).to_vec(),
+            Self::O7(x) => <[NonZeroU8; 7]>::from(x).to_vec(),
+            Self::O8(x) => <[NonZeroU8; 8]>::from(x).to_vec(),
+        }
+    }
 
     fn is_endian(&self) -> bool {
         matches!(
@@ -4187,7 +4187,7 @@ mod python {
     use crate::validated::shortname::Shortname;
 
     use super::{
-        Calibration3_1, Calibration3_2, Display, IndexPair, Scale, ScaleDiagnostic,
+        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, Scale, ScaleDiagnostic,
         TemporalScaleDiagnostic, Trigger, UniGate, Unicode, Vertex,
     };
 
@@ -4195,6 +4195,38 @@ mod python {
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+    use std::num::NonZeroU8;
+
+    // TOOD this is not a well-defined conversion since "big" and "little"
+    // should be usable as well. This won't work for this because there is no
+    // way to know a priori what the length of byteord should be for big/little,
+    // but that means we should just use a different type altogether than
+    // specifying the byteord in config
+
+    // $BYTEORD is a list of integers
+    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<NonZeroU8> = ob.extract()?;
+            let ret = Self::try_from(&xs[..])?;
+            Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ByteOrd2_0 {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let xs: Vec<_> = self
+                .to_vec()
+                .into_iter()
+                .map(u8::from)
+                .map(u32::from)
+                .collect();
+            xs.into_pyobject(py)
+        }
+    }
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
     impl<'py> FromPyObject<'py> for Scale {

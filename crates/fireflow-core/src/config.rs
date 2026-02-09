@@ -70,7 +70,6 @@ use {
 
 /// Instructions for reading the HEADER segment.
 #[derive(Default, Clone, AsRef, From)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderConfig {
     pub header: ReadHeaderInnerConfig,
     pub offset: ReadOffsetConfig,
@@ -1719,7 +1718,12 @@ impl HasStrategy for ReadEventsConfig {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{KeyPatterns, NonStdMeasPatternOpt, SubPatterns, TimeMeasNamePattern};
+    use super::{
+        KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig, NonStdMeasPatternOpt,
+        ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
+        ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
+        TimeMeasNamePattern,
+    };
 
     use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
@@ -1727,9 +1731,55 @@ mod python {
     use fireflow_types::python::ConfigError;
 
     use pyo3::prelude::*;
+    use pyo3::types::PyDict;
 
     use std::collections::HashMap;
     use std::convert::Infallible;
+
+    macro_rules! impl_into_flat_dict {
+        ($t:ident, $($field:ident),*) => {
+            impl<'py> IntoPyObject<'py> for $t {
+                type Target = PyDict;
+                type Output = Bound<'py, Self::Target>;
+                type Error = PyErr;
+
+                fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+                    let result = PyDict::new(py);
+                    $(
+                        for (k, v) in self.$field.into_pyobject(py)?.iter() {
+                            result.set_item(k, v)?;
+                        }
+                    )*
+                    Ok(result)
+                }
+            }
+        };
+    }
+
+    impl_into_flat_dict!(ReadHeaderConfig, header, offset);
+    impl_into_flat_dict!(ReadFlatTEXTConfig, flat, offset, shared);
+    impl_into_flat_dict!(ReadStdTEXTConfig, flat, offset, standard, layout, shared);
+    impl_into_flat_dict!(ReadFlatDatasetConfig, flat, offset, data, shared);
+    impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
+    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+
+    impl_into_flat_dict!(
+        ReadStdDatasetConfig,
+        flat,
+        offset,
+        standard,
+        layout,
+        data,
+        shared
+    );
+
+    impl_into_flat_dict!(
+        ReadFlatDatasetFromKeywordsConfig,
+        offset,
+        layout,
+        data,
+        shared
+    );
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {

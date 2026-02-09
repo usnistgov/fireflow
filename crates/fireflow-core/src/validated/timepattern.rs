@@ -148,7 +148,7 @@ impl FromStr for TimePattern {
 impl fmt::Display for TimePattern {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self.fraction {
-            FractionType::Native => self.pat.to_owned(),
+            FractionType::Native => self.pat.clone(),
             FractionType::Sexagesimal => self.pat.replace("%f", BASE60_SECOND_SPEC),
             FractionType::Centisecond => self.pat.replace("%f", BASE100_SECOND_SPEC),
         };

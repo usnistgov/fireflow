@@ -3723,11 +3723,8 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
     let doc_summary = format!("Value of {PNFEATURE} (area/width/height) for all measurements.");
     let p0 = format!(
         "This should be the preferred way to get and set this keyword if one \
-         knows that only {area}, {width}, and {height} will be used for this \
-         dataset since it has a well-defined type.",
-        area = code_str("Area"),
-        width = code_str("Width"),
-        height = code_str("Height"),
+         knows that only {FEATURE_AREA}, {FEATURE_WIDTH}, and {FEATURE_HEIGHT} \
+         will be used for this dataset since it has a well-defined type."
     );
     let p1 = format!("{UNIT} will be returned for the time measurement.");
 
@@ -3757,10 +3754,8 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
 
     let doc_summary = format!("Value of {PNFEATURE} (not area/width/height) for all measurements.");
     let p0 = format!(
-        "Values which are not {area}, {width}, and {height} will be returned as {NONE}.",
-        area = code_str("Area"),
-        width = code_str("Width"),
-        height = code_str("Height"),
+        "Values which are not {FEATURE_AREA}, {FEATURE_WIDTH}, and \
+         {FEATURE_HEIGHT} will be returned as {NONE}."
     );
     let p1 = format!("{UNIT} will be returned for the time measurement.");
 
@@ -3802,11 +3797,8 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
     let doc_summary = format!("Value of {PNFEATURE} (area/width/height).");
     let p = format!(
         "This should be the preferred way to get and set this keyword if one \
-         knows that only {area}, {width}, and {height} will be used since it \
-         has a well-defined type.",
-        area = code_str("Area"),
-        width = code_str("Width"),
-        height = code_str("Height"),
+         knows that only {FEATURE_AREA}, {FEATURE_WIDTH}, and {FEATURE_HEIGHT} \
+         will be used since it has a well-defined type."
     );
 
     let doc = DocString::new_ivar(doc_summary, pytype).para(p);
@@ -5042,6 +5034,90 @@ enum RsInt {
 enum RsFloat {
     F32,
     F64,
+}
+
+/// Any segment (not HEADER).
+#[derive(Clone, Copy)]
+enum AnySegment {
+    PrimaryTEXT,
+    SuppTEXT,
+    Data,
+    Analysis,
+    Other,
+}
+
+/// Any "simple" metaroot keyword that can be accessed with one ivar.
+#[derive(Clone, Copy)]
+enum Kw {
+    Mode,
+    Mode3_2,
+    Cyt,
+    Cyt3_2,
+    Abrt,
+    Com,
+    Cells,
+    Exp,
+    Fil,
+    Inst,
+    Lost,
+    Op,
+    Proj,
+    Smno,
+    Src,
+    Sys,
+    Cytsn,
+    Unicode,
+    CSVBits,
+    CSTot,
+    LastModifier,
+    LastModified,
+    Originality,
+    Plateid,
+    Platename,
+    Wellid,
+    Vol,
+    Flowrate,
+    Carrierid,
+    Carriertype,
+    Locationid,
+    UnstainedInfo,
+    Spillover,
+    UnstainedCenters,
+    Tr,
+}
+
+/// Any "simple" measurement keyword that can be accessed with one ivar.
+#[derive(Clone, Copy)]
+enum MeasKw {
+    PnETemporal,
+    PnS,
+    PnF,
+    PnL2_0,
+    PnL3_1,
+    PnO,
+    PnT,
+    PnP,
+    PnV,
+    PnCALIBRATION3_1,
+    PnCALIBRATION3_2,
+    PnD,
+    PnDET,
+    PnTAG,
+    PnTYPETemporal,
+    PnTYPEOptical,
+    PnFEATURE,
+    PnANALYTE,
+    PKn,
+    PKNn,
+}
+
+/// FCS Version
+#[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
+enum Version {
+    FCS2_0,
+    FCS3_0,
+    FCS3_1,
+    FCS3_2,
 }
 
 /// A type which represents 'Self' in python (or not)
@@ -8141,10 +8217,8 @@ impl DocArgParam {
 
     fn new_allow_other_feature_param() -> Self {
         let d = format!(
-            "If {TRUE}, allow {PNFEATURE} to be a value other than {area}, {width}, or {height}.",
-            area = code_str("Area"),
-            width = code_str("Width"),
-            height = code_str("Height"),
+            "If {TRUE}, allow {PNFEATURE} to be a value other than {FEATURE_AREA}, \
+             {FEATURE_WIDTH}, or {FEATURE_HEIGHT}."
         );
         Self::new_bool_param("allow_other_feature", d)
     }
@@ -9587,14 +9661,6 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
     doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Clone, Copy)]
-enum Version {
-    FCS2_0,
-    FCS3_0,
-    FCS3_1,
-    FCS3_2,
-}
-
 impl Version {
     #[must_use]
     pub fn short(self) -> &'static str {
@@ -9639,96 +9705,6 @@ impl Version {
     }
 }
 
-const MAX_LINE_LEN: usize = 72;
-
-const ALL_VERSIONS: [Version; 4] = [
-    Version::FCS2_0,
-    Version::FCS3_0,
-    Version::FCS3_1,
-    Version::FCS3_2,
-];
-
-const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
-
-/// String to replace with argument name in exceptions attached to arguments.
-const ARG_TOKEN: &str = "%x";
-
-// formatted links used in many places
-
-const CHRONO_REF: &str =
-    "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
-
-const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__";
-
-// formatted python constants used all over the place
-
-const TRUE: &str = code!("True");
-const FALSE: &str = code!("False");
-const NONE: &str = code!("None");
-const UNIT: &str = code!("()");
-const NAN: &str = code!("NaN");
-const INF: &str = code!("inf");
-const NEG_INF: &str = code!("-inf");
-const DOLLAR_STR: &str = code_str!("$");
-
-// argument names that are referenced in doc strings
-
-const BIG_OTHER: &str = "big_other";
-const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
-const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
-const MEASUREMENTS: &str = "measurements";
-const MAX_OTHER: &str = "max_other";
-const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
-const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
-const OTHER_WIDTH: &str = "other_width";
-
-// formatted segment names
-
-const HEADER: &str = fcs_seg!("HEADER");
-const TEXT: &str = fcs_seg!("TEXT");
-const DATA: &str = fcs_seg!("DATA");
-const ANALYSIS: &str = fcs_seg!("ANALYSIS");
-const OTHER: &str = fcs_seg!("OTHER");
-
-// formatted keywords
-
-const PN_ANY: &str = fcs_kw!("$Pn\\*");
-const GM_ANY: &str = fcs_kw!("$Gm\\*");
-const RN_ANY: &str = fcs_kw!("$Rn\\*");
-
-const NEXTDATA: &str = fcs_kw!(tk::NEXTDATA);
-const DATATYPE: &str = fcs_kw!(tk::DATATYPE);
-const BYTEORD: &str = fcs_kw!(tk::BYTEORD);
-const TOT: &str = fcs_kw!(tk::TOT);
-const TIMESTEP: &str = fcs_kw!(tk::TIMESTEP);
-const DATE: &str = fcs_kw!(tk::DATE);
-const BTIM: &str = fcs_kw!(tk::BTIM);
-const ETIM: &str = fcs_kw!(tk::ETIM);
-const BEGINDATETIME: &str = fcs_kw!(tk::BEGINDATETIME);
-const ENDDATETIME: &str = fcs_kw!(tk::ENDDATETIME);
-const PAR: &str = fcs_kw!(tk::PAR);
-const GATE: &str = fcs_kw!(tk::GATE);
-const GATING: &str = fcs_kw!(tk::GATING);
-const RNI: &str = fcs_kw!(tk::RNI);
-const RNW: &str = fcs_kw!(tk::RNW);
-const PNR: &str = fcs_kw!(tk::PNR);
-const PNB: &str = fcs_kw!(tk::PNB);
-const PNN: &str = fcs_kw!(tk::PNN);
-const PNE: &str = fcs_kw!(tk::PNE);
-const PNG: &str = fcs_kw!(tk::PNG);
-const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
-const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);
-const PNTYPE: &str = fcs_kw!(tk::PNTYPE);
-
-#[derive(Clone, Copy)]
-enum AnySegment {
-    PrimaryTEXT,
-    SuppTEXT,
-    Data,
-    Analysis,
-    Other,
-}
-
 impl AnySegment {
     fn name(self) -> &'static str {
         match self {
@@ -9762,45 +9738,6 @@ impl AnySegment {
         let root = quote!(fireflow_core::segment);
         parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
     }
-}
-
-#[derive(Clone, Copy)]
-enum Kw {
-    Mode,
-    Mode3_2,
-    Cyt,
-    Cyt3_2,
-    Abrt,
-    Com,
-    Cells,
-    Exp,
-    Fil,
-    Inst,
-    Lost,
-    Op,
-    Proj,
-    Smno,
-    Src,
-    Sys,
-    Cytsn,
-    Unicode,
-    CSVBits,
-    CSTot,
-    LastModifier,
-    LastModified,
-    Originality,
-    Plateid,
-    Platename,
-    Wellid,
-    Vol,
-    Flowrate,
-    Carrierid,
-    Carriertype,
-    Locationid,
-    UnstainedInfo,
-    Spillover,
-    UnstainedCenters,
-    Tr,
 }
 
 impl Kw {
@@ -9958,30 +9895,6 @@ impl Kw {
     }
 }
 
-#[derive(Clone, Copy)]
-enum MeasKw {
-    PnETemporal,
-    PnS,
-    PnF,
-    PnL2_0,
-    PnL3_1,
-    PnO,
-    PnT,
-    PnP,
-    PnV,
-    PnCALIBRATION3_1,
-    PnCALIBRATION3_2,
-    PnD,
-    PnDET,
-    PnTAG,
-    PnTYPETemporal,
-    PnTYPEOptical,
-    PnFEATURE,
-    PnANALYTE,
-    PKn,
-    PKNn,
-}
-
 impl MeasKw {
     fn type_name(self) -> Path {
         let n = match self {
@@ -10124,3 +10037,87 @@ impl MeasKw {
         !matches!(self, Self::PnS | Self::PnD | Self::PKn | Self::PKNn)
     }
 }
+
+const MAX_LINE_LEN: usize = 72;
+
+const ALL_VERSIONS: [Version; 4] = [
+    Version::FCS2_0,
+    Version::FCS3_0,
+    Version::FCS3_1,
+    Version::FCS3_2,
+];
+
+const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
+
+/// String to replace with argument name in exceptions attached to arguments.
+const ARG_TOKEN: &str = "%x";
+
+// formatted links used in many places
+
+const CHRONO_REF: &str =
+    "`chrono <https://docs.rs/chrono/latest/chrono/format/strftime/index.html>`__";
+
+const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__";
+
+// formatted python constants used all over the place
+
+const TRUE: &str = code!("True");
+const FALSE: &str = code!("False");
+const NONE: &str = code!("None");
+const UNIT: &str = code!("()");
+const NAN: &str = code!("NaN");
+const INF: &str = code!("inf");
+const NEG_INF: &str = code!("-inf");
+const DOLLAR_STR: &str = code_str!("$");
+const FEATURE_AREA: &str = code_str!("Area");
+const FEATURE_WIDTH: &str = code_str!("Width");
+const FEATURE_HEIGHT: &str = code_str!("Height");
+
+// argument names that are referenced in doc strings
+
+const BIG_OTHER: &str = "big_other";
+const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
+const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
+const MEASUREMENTS: &str = "measurements";
+const MAX_OTHER: &str = "max_other";
+const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
+const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
+const OTHER_WIDTH: &str = "other_width";
+
+// formatted segment names
+
+const HEADER: &str = fcs_seg!("HEADER");
+const TEXT: &str = fcs_seg!("TEXT");
+const DATA: &str = fcs_seg!("DATA");
+const ANALYSIS: &str = fcs_seg!("ANALYSIS");
+const OTHER: &str = fcs_seg!("OTHER");
+
+// formatted keywords
+
+const PN_ANY: &str = fcs_kw!("$Pn\\*");
+const GM_ANY: &str = fcs_kw!("$Gm\\*");
+const RN_ANY: &str = fcs_kw!("$Rn\\*");
+
+const NEXTDATA: &str = fcs_kw!(tk::NEXTDATA);
+const DATATYPE: &str = fcs_kw!(tk::DATATYPE);
+const BYTEORD: &str = fcs_kw!(tk::BYTEORD);
+const TOT: &str = fcs_kw!(tk::TOT);
+const TIMESTEP: &str = fcs_kw!(tk::TIMESTEP);
+const DATE: &str = fcs_kw!(tk::DATE);
+const BTIM: &str = fcs_kw!(tk::BTIM);
+const ETIM: &str = fcs_kw!(tk::ETIM);
+const BEGINDATETIME: &str = fcs_kw!(tk::BEGINDATETIME);
+const ENDDATETIME: &str = fcs_kw!(tk::ENDDATETIME);
+const PAR: &str = fcs_kw!(tk::PAR);
+const GATE: &str = fcs_kw!(tk::GATE);
+const GATING: &str = fcs_kw!(tk::GATING);
+const RNI: &str = fcs_kw!(tk::RNI);
+const RNW: &str = fcs_kw!(tk::RNW);
+const PNR: &str = fcs_kw!(tk::PNR);
+const PNB: &str = fcs_kw!(tk::PNB);
+const PNN: &str = fcs_kw!(tk::PNN);
+const PNE: &str = fcs_kw!(tk::PNE);
+const PNG: &str = fcs_kw!(tk::PNG);
+const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
+const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);
+const PNTYPE: &str = fcs_kw!(tk::PNTYPE);

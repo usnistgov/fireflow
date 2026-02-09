@@ -56,3 +56,8 @@ pub enum MeasKeywordClass {
     Shortname,
     Wavelength,
 }
+
+// BYTEORD big/little flags
+
+pub const BYTEORD_BIG: &str = "big";
+pub const BYTEORD_LITTLE: &str = "little";

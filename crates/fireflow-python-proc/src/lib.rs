@@ -3723,8 +3723,9 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
     let doc_summary = format!("Value of {PNFEATURE} (area/width/height) for all measurements.");
     let p0 = format!(
         "This should be the preferred way to get and set this keyword if one \
-         knows that only {FEATURE_AREA}, {FEATURE_WIDTH}, and {FEATURE_HEIGHT} \
-         will be used for this dataset since it has a well-defined type."
+         knows that only {FEATURE_AREA_STR}, {FEATURE_WIDTH_STR}, and \
+         {FEATURE_HEIGHT_STR} will be used for this dataset since it has a \
+         well-defined type."
     );
     let p1 = format!("{UNIT} will be returned for the time measurement.");
 
@@ -3754,8 +3755,8 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
 
     let doc_summary = format!("Value of {PNFEATURE} (not area/width/height) for all measurements.");
     let p0 = format!(
-        "Values which are not {FEATURE_AREA}, {FEATURE_WIDTH}, and \
-         {FEATURE_HEIGHT} will be returned as {NONE}."
+        "Values which are not {FEATURE_AREA_STR}, {FEATURE_WIDTH_STR}, and \
+         {FEATURE_HEIGHT_STR} will be returned as {NONE}."
     );
     let p1 = format!("{UNIT} will be returned for the time measurement.");
 
@@ -3797,8 +3798,8 @@ pub fn impl_meas_awh_pnfeature(input: TokenStream) -> TokenStream {
     let doc_summary = format!("Value of {PNFEATURE} (area/width/height).");
     let p = format!(
         "This should be the preferred way to get and set this keyword if one \
-         knows that only {FEATURE_AREA}, {FEATURE_WIDTH}, and {FEATURE_HEIGHT} \
-         will be used since it has a well-defined type."
+         knows that only {FEATURE_AREA_STR}, {FEATURE_WIDTH_STR}, and \
+         {FEATURE_HEIGHT_STR} will be used since it has a well-defined type."
     );
 
     let doc = DocString::new_ivar(doc_summary, pytype).para(p);
@@ -6453,7 +6454,7 @@ impl PyLiteral {
 
     fn new_endian() -> Self {
         let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
-        Self::new2(["little", "big"], endian)
+        Self::new2([tk::BYTEORD_LITTLE, tk::BYTEORD_BIG], endian)
     }
 
     fn new_scale_diagnostic() -> Self {
@@ -6716,10 +6717,8 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_byteord(nbytes: usize) -> Self {
         let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
         let d = format!(
-            "if {ARG_TOKEN} is not {little}, {big}, or a list of \
-             all integers from 1 to {nbytes} in any order",
-            little = code_str("little"),
-            big = code_str("big"),
+            "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
+             or a list of all integers from 1 to {nbytes} in any order"
         );
         let exc = PyException::new_invalid_keyword().desc(d);
         let path = parse_quote!(#sizedbyteord_path<#nbytes>);
@@ -7471,10 +7470,8 @@ impl DocArgROIvar {
             quote!(*self.0.as_ref())
         };
         let d = format!(
-            "If {big} use big endian ({bigval}) for encoding values; \
-             if {little} use little endian ({littleval}).",
-            big = code_str("big"),
-            little = code_str("little"),
+            "If {BYTEORD_BIG_STR} use big endian ({bigval}) for encoding values; \
+             if {BYTEORD_LITTLE_STR} use little endian ({littleval}).",
             bigval = code(ys),
             littleval = code(xs),
         );
@@ -8217,8 +8214,8 @@ impl DocArgParam {
 
     fn new_allow_other_feature_param() -> Self {
         let d = format!(
-            "If {TRUE}, allow {PNFEATURE} to be a value other than {FEATURE_AREA}, \
-             {FEATURE_WIDTH}, or {FEATURE_HEIGHT}."
+            "If {TRUE}, allow {PNFEATURE} to be a value other than \
+             {FEATURE_AREA_STR}, {FEATURE_WIDTH_STR}, or {FEATURE_HEIGHT_STR}."
         );
         Self::new_bool_param("allow_other_feature", d)
     }
@@ -10069,9 +10066,11 @@ const NAN: &str = code!("NaN");
 const INF: &str = code!("inf");
 const NEG_INF: &str = code!("-inf");
 const DOLLAR_STR: &str = code_str!("$");
-const FEATURE_AREA: &str = code_str!("Area");
-const FEATURE_WIDTH: &str = code_str!("Width");
-const FEATURE_HEIGHT: &str = code_str!("Height");
+const FEATURE_AREA_STR: &str = code_str!("Area");
+const FEATURE_WIDTH_STR: &str = code_str!("Width");
+const FEATURE_HEIGHT_STR: &str = code_str!("Height");
+const BYTEORD_LITTLE_STR: &str = code_str!(tk::BYTEORD_LITTLE);
+const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 
 // argument names that are referenced in doc strings
 

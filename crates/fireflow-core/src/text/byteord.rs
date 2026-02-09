@@ -504,17 +504,18 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use fireflow_types::python::{self as py, InvalidKeywordValueError};
-
     use super::{Endian, NewByteOrdError, SizedByteOrd};
 
     use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
+    use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
+    use fireflow_types::python::{self as py, InvalidKeywordValueError};
 
     use derive_more::{Display, From};
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
+    use thiserror::Error;
+
     use std::convert::Infallible;
     use std::num::NonZeroU8;
-    use thiserror::Error;
 
     #[derive(From, Display)]
     #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -565,11 +566,12 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs = ob.extract::<String>()?;
             match xs.as_str() {
-                "big" => Ok(Self::Big),
-                "little" => Ok(Self::Little),
-                _ => Err(InvalidKeywordValueError::new_err(
-                    "must be \"big\" or \"little\"",
-                )),
+                BYTEORD_BIG => Ok(Self::Big),
+                BYTEORD_LITTLE => Ok(Self::Little),
+                _ => {
+                    let msg = format!("must be '{BYTEORD_BIG}' or '{BYTEORD_LITTLE}'");
+                    Err(InvalidKeywordValueError::new_err(msg))
+                }
             }
         }
     }
@@ -581,8 +583,8 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Big => "big",
-                Self::Little => "little",
+                Self::Big => BYTEORD_BIG,
+                Self::Little => BYTEORD_LITTLE,
             }
             .into_pyobject(py)
         }
@@ -595,12 +597,14 @@ mod python {
         Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let err =
-                || InvalidKeywordValueError::new_err("must be \"little\", \"big\", or a list");
+            let err = || {
+                let msg = format!("must be '{BYTEORD_BIG}', '{BYTEORD_LITTLE}', or a list");
+                InvalidKeywordValueError::new_err(msg)
+            };
             if let Ok(s) = ob.extract::<String>() {
                 match s.as_str() {
-                    "little" => Ok(Endian::Little),
-                    "big" => Ok(Endian::Big),
+                    BYTEORD_LITTLE => Ok(Endian::Little),
+                    BYTEORD_BIG => Ok(Endian::Big),
                     _ => Err(err()),
                 }
                 .map(Self::from)
@@ -619,8 +623,8 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Endian(Endian::Big) => "big".into_bound_py_any(py),
-                Self::Endian(Endian::Little) => "little".into_bound_py_any(py),
+                Self::Endian(Endian::Big) => BYTEORD_BIG.into_bound_py_any(py),
+                Self::Endian(Endian::Little) => BYTEORD_LITTLE.into_bound_py_any(py),
                 // use u32 here since Vec<u8> converts to bytes in python
                 Self::Order(xs) => xs
                     .into_iter()

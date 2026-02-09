@@ -11,13 +11,13 @@ use fireflow_types::config::{
     OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL,
     PROCESS_KEYWORD_FAILURE_LEVELS, PROCESS_TEMPORAL_OPTICAL_LEVELS, SPILLOVER_GUESS_LEVEL,
     SPILLOVER_INDEXED_LEVEL, SPILLOVER_MEASUREMENT_MODE_LEVELS, SPILLOVER_NAMED_LEVEL,
-    TEMPORAL_OPTICAL_KEY_LEVELS, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
-    TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_FLAG_LEVELS,
-    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
-    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRIM_VALUE_WHITESPACE_LEVELS, TRUNCATE_ALL_LEVEL,
-    TRUNCATE_EVENT_VALUES_LEVELS, TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL,
-    VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS,
-    VERSION_STRICT_LEVEL,
+    STD_KW_REQ_OR_OPT_LEVELS, STD_KW_ROOT_OR_MEAS_LEVELS, TEMPORAL_OPTICAL_KEY_LEVELS,
+    TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
+    TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_FLAG_LEVELS, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL,
+    TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL,
+    TRIM_VALUE_WHITESPACE_LEVELS, TRUNCATE_ALL_LEVEL, TRUNCATE_EVENT_VALUES_LEVELS,
+    TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
@@ -1809,18 +1809,18 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let ident = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&ident);
 
-    let req_or_opt_path = parse_quote!(fireflow_core::core::IncludeReqOrOpt);
-    let root_or_meas_path = parse_quote!(fireflow_core::core::IncludeRootOrMeas);
+    let req_or_opt_path = parse_quote!(fireflow_types::config::IncludeReqOrOpt);
+    let root_or_meas_path = parse_quote!(fireflow_types::config::IncludeRootOrMeas);
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new2(["both", "req_only", "opt_only"], req_or_opt_path),
+        PyLiteral::new2(STD_KW_REQ_OR_OPT_LEVELS, req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new2(["both", "req_only", "opt_only"], root_or_meas_path),
+        PyLiteral::new2(STD_KW_ROOT_OR_MEAS_LEVELS, root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 

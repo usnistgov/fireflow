@@ -103,6 +103,7 @@ use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
+use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1354,20 +1355,6 @@ struct WriteHeaderAndTextConfig<'a> {
     analysis_len: u64,
     other_segs: &'a [Other],
     has_nextdata: AppendableFlag,
-}
-
-/// Used for [`Core::standard_keywords`] to control if req/opt keys should be returned
-pub enum IncludeReqOrOpt {
-    Req_,
-    Opt_,
-    Both,
-}
-
-/// Used for [`Core::standard_keywords`] to control if root/meas keys should be returned
-pub enum IncludeRootOrMeas {
-    Root,
-    Meas,
-    Both,
 }
 
 /// Diagnostic output from standardizing TEXT
@@ -10307,14 +10294,13 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{IncludeReqOrOpt, IncludeRootOrMeas, ScaleTransform};
+    use super::ScaleTransform;
 
     use crate::text::ranged_float::PositiveFloat;
 
     use fireflow_types::python::InvalidKeywordValueError;
 
     use pyo3::IntoPyObjectExt as _;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
@@ -10342,34 +10328,6 @@ mod python {
             match self {
                 Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
                 Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
-            }
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for IncludeReqOrOpt {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let s = ob.extract::<String>()?;
-            match s.as_str() {
-                "req_only" => Ok(Self::Req_),
-                "opt_only" => Ok(Self::Opt_),
-                "both" => Ok(Self::Both),
-                _ => Err(PyValueError::new_err(
-                    "must be one of 'req_only', 'opt_only', or 'both'",
-                )),
-            }
-        }
-    }
-
-    impl<'py> FromPyObject<'py> for IncludeRootOrMeas {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let s = ob.extract::<String>()?;
-            match s.as_str() {
-                "root_only" => Ok(Self::Root),
-                "meas_only" => Ok(Self::Meas),
-                "both" => Ok(Self::Both),
-                _ => Err(PyValueError::new_err(
-                    "must be one of 'root_only', 'meas_only', or 'both'",
-                )),
             }
         }
     }

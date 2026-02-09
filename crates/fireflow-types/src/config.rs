@@ -422,6 +422,42 @@ pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 4] = [
     VERSION_LOOSE_LEVEL,
 ];
 
+pub const STD_KW_REQ_LEVEL: &str = "req_only";
+pub const STD_KW_OPT_LEVEL: &str = "opt_opt";
+pub const STD_KW_REQ_AND_OPT_LEVEL: &str = "both";
+
+impl_multiflag!(
+    /// Choose what kind of keywords to return (required vs optional).
+    IncludeReqOrOpt,
+    /// Error when parsing [`IncludeReqOrOpt`] from [`String`]
+    IncludeReqOrOptError,
+    STD_KW_REQ_OR_OPT_LEVELS,
+    /// Return required.
+    Req_, STD_KW_REQ_LEVEL;
+    /// Return optional.
+    Opt_, STD_KW_OPT_LEVEL;
+    /// Return both.
+    Both, STD_KW_REQ_AND_OPT_LEVEL;
+);
+
+pub const STD_KW_ROOT_LEVEL: &str = "req_only";
+pub const STD_KW_MEAS_LEVEL: &str = "opt_opt";
+pub const STD_KW_ROOT_AND_MEAS_LEVEL: &str = "both";
+
+impl_multiflag!(
+    /// Choose what kind of keywords to return (required vs optional).
+    IncludeRootOrMeas,
+    /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
+    IncludeRootOrMeasError,
+    STD_KW_ROOT_OR_MEAS_LEVELS,
+    /// Return root.
+    Root, STD_KW_ROOT_LEVEL;
+    /// Return meas.
+    Meas, STD_KW_MEAS_LEVEL;
+    /// Return both.
+    Both, STD_KW_ROOT_AND_MEAS_LEVEL;
+);
+
 // internal constants, many are shared between enums to keep the API simpler
 
 const NONE_LEVEL: &str = "none";

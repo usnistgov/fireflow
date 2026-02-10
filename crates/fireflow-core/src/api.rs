@@ -2087,6 +2087,10 @@ where
             } else if uncorr_others.contains(&uncorr_stxt) {
                 // Supp and one OTHER offset are the same, keep the OTHER
                 // ASSUME all other offsets are unique.
+                //
+                // TODO this will do the wrong thing for some files, see
+                // FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an example which
+                // actually has supp TEXT
                 go(AnyRegion::Other)
             } else {
                 // Supp not identical to anything else, check for overlaps and

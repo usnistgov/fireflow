@@ -2174,6 +2174,46 @@ class DatasetSummary:
     @property
     def datatype(self) -> Datatype: ...
 
+class _ConfigCommon:
+    @classmethod
+    def strict(cls) -> dict[str, Any]: ...
+    @classmethod
+    def scalpal(cls) -> dict[str, Any]: ...
+    @classmethod
+    def sledgehammer(cls) -> dict[str, Any]: ...
+
+@final
+class ReadHeaderConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetFromKeywordsConfig(_ConfigCommon):
+    pass
+
+@final
+class NewCoreTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class NewCoreDatasetConfig(_ConfigCommon):
+    pass
+
 def fcs_read_header(
     path: Path,
     # header args
@@ -2881,33 +2921,6 @@ def fcs_summarize(
 
 __version__: str
 
-READ_HEADER_STRICT_CONFIG: dict[str, Any]
-READ_FLAT_TEXT_STRICT_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_STRICT_CONFIG: dict[str, Any]
-READ_STD_TEXT_STRICT_CONFIG: dict[str, Any]
-READ_STD_DATASET_STRICT_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_FROM_KWS_STRICT_CONFIG: dict[str, Any]
-NEW_CORE_TEXT_STRICT_CONFIG: dict[str, Any]
-NEW_CORE_DATASET_STRICT_CONFIG: dict[str, Any]
-
-READ_HEADER_SCALPAL_CONFIG: dict[str, Any]
-READ_FLAT_TEXT_SCALPAL_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_SCALPAL_CONFIG: dict[str, Any]
-READ_STD_TEXT_SCALPAL_CONFIG: dict[str, Any]
-READ_STD_DATASET_SCALPAL_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG: dict[str, Any]
-NEW_CORE_TEXT_SCALPAL_CONFIG: dict[str, Any]
-NEW_CORE_DATASET_SCALPAL_CONFIG: dict[str, Any]
-
-READ_HEADER_SLEDGEHAMMER_CONFIG: dict[str, Any]
-READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG: dict[str, Any]
-READ_STD_TEXT_SLEDGEHAMMER_CONFIG: dict[str, Any]
-READ_STD_DATASET_SLEDGEHAMMER_CONFIG: dict[str, Any]
-READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG: dict[str, Any]
-NEW_CORE_TEXT_SLEDGEHAMMER_CONFIG: dict[str, Any]
-NEW_CORE_DATASET_SLEDGEHAMMER_CONFIG: dict[str, Any]
-
 __all__ = [
     "__version__",
     "PyreflowError",
@@ -2982,6 +2995,14 @@ __all__ = [
     "EventsDiagnostics",
     "KeywordVersionScore",
     "DatasetSummary",
+    "ReadHeaderConfig",
+    "ReadFlatTEXTConfig",
+    "ReadStdTEXTConfig",
+    "ReadFlatDatasetConfig",
+    "ReadStdDatasetConfig",
+    "ReadFlatDatasetFromKeywordsConfig",
+    "NewCoreTEXTConfig",
+    "NewCoreDatasetConfig",
     "fcs_read_header",
     "fcs_read_flat_text",
     "fcs_read_std_text",
@@ -2993,28 +3014,4 @@ __all__ = [
     "fcs_read_std_datasets",
     "fcs_read_flat_dataset_with_keywords",
     "fcs_summarize",
-    "READ_HEADER_STRICT_CONFIG",
-    "READ_FLAT_TEXT_STRICT_CONFIG",
-    "READ_FLAT_DATASET_STRICT_CONFIG",
-    "READ_STD_TEXT_STRICT_CONFIG",
-    "READ_STD_DATASET_STRICT_CONFIG",
-    "READ_FLAT_DATASET_FROM_KWS_STRICT_CONFIG",
-    "NEW_CORE_TEXT_STRICT_CONFIG",
-    "NEW_CORE_DATASET_STRICT_CONFIG",
-    "READ_HEADER_SCALPAL_CONFIG",
-    "READ_FLAT_TEXT_SCALPAL_CONFIG",
-    "READ_FLAT_DATASET_SCALPAL_CONFIG",
-    "READ_STD_TEXT_SCALPAL_CONFIG",
-    "READ_STD_DATASET_SCALPAL_CONFIG",
-    "READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG",
-    "NEW_CORE_TEXT_SCALPAL_CONFIG",
-    "NEW_CORE_DATASET_SCALPAL_CONFIG",
-    "READ_HEADER_SLEDGEHAMMER_CONFIG",
-    "READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG",
-    "READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG",
-    "READ_STD_TEXT_SLEDGEHAMMER_CONFIG",
-    "READ_STD_DATASET_SLEDGEHAMMER_CONFIG",
-    "READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG",
-    "NEW_CORE_TEXT_SLEDGEHAMMER_CONFIG",
-    "NEW_CORE_DATASET_SLEDGEHAMMER_CONFIG",
 ]

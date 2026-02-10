@@ -22,7 +22,7 @@ _DEFAULT_TRIFLAG: pft.TriFlag = "false"
 
 
 class BaseModel(BaseModel_):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(extra="forbid")
 
     def to_parent(self, parent: Type[M]) -> M:
         return parent.model_validate(
@@ -166,11 +166,13 @@ class PyreflowReadHeaderConfig(_OffsetConfig, _HeaderConfig):
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_HEADER_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadHeaderConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_HEADER_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadHeaderConfig.sledgehammer())
 
 
 class PyreflowReadFlatTEXTConfig(
@@ -201,11 +203,13 @@ class PyreflowReadFlatTEXTConfig(
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_FLAT_TEXT_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatTEXTConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatTEXTConfig.sledgehammer())
 
 
 class PyreflowReadStdTEXTConfig(
@@ -239,11 +243,13 @@ class PyreflowReadStdTEXTConfig(
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_STD_TEXT_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadStdTEXTConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_STD_TEXT_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadStdTEXTConfig.sledgehammer())
 
 
 class PyreflowReadFlatDatasetConfig(
@@ -284,11 +290,13 @@ class PyreflowReadFlatDatasetConfig(
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_FLAT_DATASET_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatDatasetConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatDatasetConfig.sledgehammer())
 
 
 class PyreflowReadStdDatasetConfig(
@@ -325,11 +333,13 @@ class PyreflowReadStdDatasetConfig(
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_STD_DATASET_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadStdDatasetConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_STD_DATASET_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadStdDatasetConfig.sledgehammer())
 
 
 class PyreflowReadFlatDatasetFromKeywordsConfig(
@@ -350,8 +360,10 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
 
     @classmethod
     def new_scalpal(cls) -> Self:
-        return cls(**pfa.READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG)
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.scalpal())
 
     @classmethod
     def new_sledgehammer(cls) -> Self:
-        return cls(**pfa.READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG)
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.sledgehammer())

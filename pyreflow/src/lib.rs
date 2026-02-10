@@ -1,4 +1,3 @@
-use fireflow_core::config::{self as cfg, HasStrategy as _, ReadStrategy};
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
@@ -6,35 +5,6 @@ use pyo3::prelude::*;
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
-
-    macro_rules! conf_inner {
-        ($n:expr, $s:expr, $t:ident, $strat:ident) => {
-            m.add(
-                format!("{}_{}_CONFIG", $n, $s),
-                cfg::$t::new_with_strategy(ReadStrategy::$strat),
-            )?;
-        };
-    }
-
-    macro_rules! conf {
-        ($n:expr, $t:ident) => {
-            conf_inner!($n, "STRICT", $t, Strict);
-            conf_inner!($n, "SCALPAL", $t, Scalpal);
-            conf_inner!($n, "SLEDGEHAMMER", $t, Sledgehammer);
-        };
-    }
-
-    conf!("READ_HEADER", ReadHeaderConfig);
-    conf!("READ_FLAT_TEXT", ReadFlatTEXTConfig);
-    conf!("READ_STD_TEXT", ReadStdTEXTConfig);
-    conf!("READ_FLAT_DATASET", ReadFlatDatasetConfig);
-    conf!("READ_STD_DATASET", ReadStdDatasetConfig);
-    conf!(
-        "READ_FLAT_DATASET_FROM_KWS",
-        ReadFlatDatasetFromKeywordsConfig
-    );
-    conf!("NEW_CORE_TEXT", NewCoreTEXTConfig);
-    conf!("NEW_CORE_DATASET", NewCoreDatasetConfig);
 
     macro_rules! exc {
         ($s:expr, $t:ident) => {
@@ -126,6 +96,15 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyValidKeywords>()?;
     m.add_class::<ff::PyDatasetSegments>()?;
     m.add_class::<ff::PyDatasetSummary>()?;
+
+    m.add_class::<ff::PyReadHeaderConfig>()?;
+    m.add_class::<ff::PyReadFlatTEXTConfig>()?;
+    m.add_class::<ff::PyReadStdTEXTConfig>()?;
+    m.add_class::<ff::PyReadFlatDatasetConfig>()?;
+    m.add_class::<ff::PyReadStdDatasetConfig>()?;
+    m.add_class::<ff::PyReadFlatDatasetFromKeywordsConfig>()?;
+    m.add_class::<ff::PyNewCoreTEXTConfig>()?;
+    m.add_class::<ff::PyNewCoreDatasetConfig>()?;
 
     macro_rules! fun {
         ($t:ident) => {

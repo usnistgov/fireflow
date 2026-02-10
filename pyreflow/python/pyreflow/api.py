@@ -38,57 +38,13 @@ from ._pyreflow import EventsDiagnostics as EventsDiagnostics
 
 from ._pyreflow import KeywordVersionScore as KeywordVersionScore
 
-from ._pyreflow import READ_HEADER_STRICT_CONFIG as READ_HEADER_STRICT_CONFIG
-from ._pyreflow import READ_FLAT_TEXT_STRICT_CONFIG as READ_FLAT_TEXT_STRICT_CONFIG
+from ._pyreflow import ReadHeaderConfig as ReadHeaderConfig
+from ._pyreflow import ReadFlatTEXTConfig as ReadFlatTEXTConfig
+from ._pyreflow import ReadStdTEXTConfig as ReadStdTEXTConfig
+from ._pyreflow import ReadFlatDatasetConfig as ReadFlatDatasetConfig
+from ._pyreflow import ReadStdDatasetConfig as ReadStdDatasetConfig
 from ._pyreflow import (
-    READ_FLAT_DATASET_STRICT_CONFIG as READ_FLAT_DATASET_STRICT_CONFIG,
+    ReadFlatDatasetFromKeywordsConfig as ReadFlatDatasetFromKeywordsConfig,
 )
-from ._pyreflow import READ_STD_TEXT_STRICT_CONFIG as READ_STD_TEXT_STRICT_CONFIG
-from ._pyreflow import READ_STD_DATASET_STRICT_CONFIG as READ_STD_DATASET_STRICT_CONFIG
-from ._pyreflow import (
-    READ_FLAT_DATASET_FROM_KWS_STRICT_CONFIG as READ_FLAT_DATASET_FROM_KWS_STRICT_CONFIG,
-)
-from ._pyreflow import NEW_CORE_TEXT_STRICT_CONFIG as NEW_CORE_TEXT_STRICT_CONFIG
-from ._pyreflow import NEW_CORE_DATASET_STRICT_CONFIG as NEW_CORE_DATASET_STRICT_CONFIG
-
-from ._pyreflow import READ_HEADER_SCALPAL_CONFIG as READ_HEADER_SCALPAL_CONFIG
-from ._pyreflow import READ_FLAT_TEXT_SCALPAL_CONFIG as READ_FLAT_TEXT_SCALPAL_CONFIG
-from ._pyreflow import (
-    READ_FLAT_DATASET_SCALPAL_CONFIG as READ_FLAT_DATASET_SCALPAL_CONFIG,
-)
-from ._pyreflow import READ_STD_TEXT_SCALPAL_CONFIG as READ_STD_TEXT_SCALPAL_CONFIG
-from ._pyreflow import (
-    READ_STD_DATASET_SCALPAL_CONFIG as READ_STD_DATASET_SCALPAL_CONFIG,
-)
-from ._pyreflow import (
-    READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG as READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG,
-)
-from ._pyreflow import NEW_CORE_TEXT_SCALPAL_CONFIG as NEW_CORE_TEXT_SCALPAL_CONFIG
-from ._pyreflow import (
-    NEW_CORE_DATASET_SCALPAL_CONFIG as NEW_CORE_DATASET_SCALPAL_CONFIG,
-)
-
-from ._pyreflow import (
-    READ_HEADER_SLEDGEHAMMER_CONFIG as READ_HEADER_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG as READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG as READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    READ_STD_TEXT_SLEDGEHAMMER_CONFIG as READ_STD_TEXT_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    READ_STD_DATASET_SLEDGEHAMMER_CONFIG as READ_STD_DATASET_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG as READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    NEW_CORE_TEXT_SLEDGEHAMMER_CONFIG as NEW_CORE_TEXT_SLEDGEHAMMER_CONFIG,
-)
-from ._pyreflow import (
-    NEW_CORE_DATASET_SLEDGEHAMMER_CONFIG as NEW_CORE_DATASET_SLEDGEHAMMER_CONFIG,
-)
+from ._pyreflow import NewCoreTEXTConfig as NewCoreTEXTConfig
+from ._pyreflow import NewCoreDatasetConfig as NewCoreDatasetConfig

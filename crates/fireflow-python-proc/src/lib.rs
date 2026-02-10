@@ -612,6 +612,104 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
 }
 
 #[proc_macro]
+pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+    let name_str = name.to_string();
+    let pyname = format_ident!("Py{name}");
+
+    let strat: Path = parse_quote!(fireflow_core::config::ReadStrategy);
+    let has_strat: Path = parse_quote!(fireflow_core::config::HasStrategy);
+
+    let api_fun = |s| format!("`~pyreflow.{s}`");
+
+    let predoc = match name_str.as_str() {
+        "ReadHeaderConfig" => {
+            DocString::new_class(format!("Config for {}.", api_fun("fcs_read_header")))
+        }
+        "ReadFlatTEXTConfig" => DocString::new_class(format!("Config for reading flat {TEXT}."))
+            .para(format!(
+                "Can be used with {} and {}.",
+                api_fun("fcs_read_flat_text"),
+                api_fun("fcs_read_flat_texts")
+            )),
+        "ReadStdTEXTConfig" => {
+            DocString::new_class(format!("Config for reading standardized {TEXT}.")).para(format!(
+                "Can be used with {} and {}.",
+                api_fun("fcs_read_std_text"),
+                api_fun("fcs_read_std_texts")
+            ))
+        }
+        "ReadFlatDatasetConfig" => DocString::new_class(format!(
+            "Config for reading flat {TEXT} and {DATA}."
+        ))
+        .para(format!(
+            "Can be used with {} and {}.",
+            api_fun("fcs_read_flat_dataset"),
+            api_fun("fcs_read_flat_datasets")
+        )),
+        "ReadStdDatasetConfig" => DocString::new_class(format!(
+            "Config for reading flat {TEXT} and {DATA}."
+        ))
+        .para(format!(
+            "Can be used with {} and {}.",
+            api_fun("fcs_read_std_dataset"),
+            api_fun("fcs_read_std_datasets")
+        )),
+        "ReadFlatDatasetFromKeywordsConfig" => DocString::new_class(format!(
+            "Config for {}.",
+            api_fun("fcs_read_flat_dataset_with_keywords")
+        )),
+        "NewCoreTEXTConfig" => DocString::new_class("Config for :py:func:`CoreTEXT*.from_kws`."),
+        "NewCoreDatasetConfig" => {
+            DocString::new_class("Config for :py:func:`CoreDataset*.from_kws`.")
+        }
+        s => panic!("unsupported type '{s}'"),
+    };
+
+    let doc = predoc.doc();
+
+    let q = quote! {
+        #doc
+        #[pyclass(name = #name_str)]
+        pub struct #pyname;
+
+        #[pymethods]
+        impl #pyname {
+            /// Return standards-compliant configuration.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn strict(_: &Bound<'_, pyo3::types::PyType>) -> #path {
+                #has_strat::new_with_strategy(#strat::Strict)
+            }
+
+            /// Return non-compliant configuration optimized to preserve data.
+            ///
+            /// All non-trivial metadata (ie whitespace, blank keys, etc) will be
+            /// preserved.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn scalpal(_: &Bound<'_, pyo3::types::PyType>) -> #path {
+                #has_strat::new_with_strategy(#strat::Scalpal)
+            }
+
+            /// Return non-compliant configuration optimized to read data.
+            ///
+            /// Metadata may be destroyed or dropped.
+            ///
+            /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
+            #[classmethod]
+            fn sledgehammer(_: &Bound<'_, pyo3::types::PyType>) -> #path {
+                #has_strat::new_with_strategy(#strat::Sledgehammer)
+            }
+        }
+    };
+    q.into()
+}
+
+#[proc_macro]
 pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();

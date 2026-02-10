@@ -109,7 +109,7 @@ fn run() -> AppResult<()> {
     let pne = kw_style.paint(tk::PNE);
     let pndatatype = kw_style.paint(tk::PNDATATYPE);
 
-    let pnx = kw_style.paint("$PnX");
+    let pn_any = kw_style.paint("$PnX");
 
     let (delim_header, delim_help) = format_section(
         "DELIMITER ESCAPING",
@@ -590,7 +590,7 @@ fn run() -> AppResult<()> {
         .value_name("SYMS")
         .help(format!(
             "Ignore optical keywords for temporal measurement. Must be a \
-             comma-separated list of strings like the X in {pnx}.",
+             comma-separated list of strings like the X in {pn_any}.",
         ))
         .value_delimiter(',')
         .value_parser(value_parser!(TemporalOpticalKey));

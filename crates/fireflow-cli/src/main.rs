@@ -18,11 +18,8 @@ use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
-use fireflow_core::validated::case_ins_regex::CaseInsRegex;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{
-    AsciiStringError, KeyRegexError, KeyString, KeyStringOrPattern,
-};
+use fireflow_core::validated::keys::{AsciiStringError, KeyString, KeyStringOrPattern};
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
@@ -163,15 +160,14 @@ fn run() -> AppResult<()> {
     let (sub_header, sub_help) = format_section(
         "SUBSTITUTION",
         [format!(
-            "The SUB part in {lit} and {pat} is a sed-like pattern which will \
+            "The SUB part in {pat} is a sed-like pattern which will \
              be used to edit the value of KEY. It must be a string like \
              's<D><FROM><D><TO>[<D>g]' where 'D' is a delimiter (any character), \
              FROM is a regular expression and TO is a replacement pattern. FROM \
              and TO must follow the syntax outlined in {REGEXP_REF} and \
              {REGEXP_REP_REF} respectively, with the caveat that only bracketed \
              replacement syntax is allowed.",
-            lit = fmt_arg(SUB_STD_LIT_KEY_VALS),
-            pat = fmt_arg(SUB_STD_PAT_KEY_VALS),
+            pat = fmt_arg(SUB_STD_KEY_VALS),
         )],
     );
 
@@ -425,41 +421,28 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let make_key_str_args = |lit_flag, pat_flag, lit_help, pat_help| {
-        let lit_arg = Arg::new(lit_flag)
-            .long(lit_flag)
+    let make_key_str_args = |name, help| {
+        Arg::new(name)
+            .long(name)
             .action(ArgAction::Append)
-            .value_name("KEY")
-            .help(lit_help)
-            .value_parser(ValueParser::new(parse_keystring_literal));
-        let pat_arg = Arg::new(pat_flag)
-            .long(pat_flag)
-            .action(ArgAction::Append)
-            .value_name("REGEXP")
-            .help(pat_help)
-            .value_parser(ValueParser::new(parse_keystring_pattern));
-        (lit_arg, pat_arg)
+            .value_name("KEY_OR_PAT")
+            .help(help)
+            .value_parser(ValueParser::new(parse_keystring))
     };
 
-    let (ignore_std_lit_key, ignore_std_pat_key) = make_key_str_args(
-        IGNORE_STD_LIT_KEY,
-        IGNORE_STD_PAT_KEY,
-        "Ignore standard keys exactly matching KEY. The leading '$' is implied.",
-        "Ignore standard keys matching REGEXP. The leading '$' is implied.",
+    let ignore_std_key = make_key_str_args(
+        IGNORE_STD_KEYS,
+        "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
     );
 
-    let (promote_lit_to_std, promote_pat_to_std) = make_key_str_args(
-        PROMOTE_LIT_TO_STD,
-        PROMOTE_PAT_TO_STD,
-        "Promote non-standard keys matching KEY to standard.",
-        "Promote non-standard keys matching REGEXP to standard.",
+    let promote_to_std = make_key_str_args(
+        PROMOTE_TO_STD,
+        "Promote non-standard keys matching KEY_OR_PAT to standard.",
     );
 
-    let (demote_lit_from_std, demote_pat_from_std) = make_key_str_args(
-        DEMOTE_LIT_FROM_STD,
-        DEMOTE_PAT_FROM_STD,
-        "Demote standard keys matching KEY to non-standard. The leading '$' is implied.",
-        "Demote standard keys matching REGEXP to non-standard. The leading '$' is implied.",
+    let demote_from_std = make_key_str_args(
+        DEMOTE_FROM_STD,
+        "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
     );
 
     let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
@@ -489,25 +472,15 @@ fn run() -> AppResult<()> {
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
-    let sub_std_lit_key_vals = Arg::new(SUB_STD_LIT_KEY_VALS)
-        .long(SUB_STD_LIT_KEY_VALS)
+    let sub_key_vals = Arg::new(SUB_STD_KEY_VALS)
+        .long(SUB_STD_KEY_VALS)
         .action(ArgAction::Append)
         .value_name("KEY,SUB")
         .help(format!(
             "Edit standard key values using KEY and SUB. The leading '$' \
              is implied for KEY. See {sub_header} for details."
         ))
-        .value_parser(ValueParser::new(parse_sub_pattern_literal));
-
-    let sub_std_pat_key_vals = Arg::new(SUB_STD_PAT_KEY_VALS)
-        .long(SUB_STD_PAT_KEY_VALS)
-        .action(ArgAction::Append)
-        .value_name("REGEXP,SUB")
-        .help(format!(
-            "Edit standard keys matching REGEXP with SUB. The leading '$' is \
-             implied for KEY. See {sub_header} for details."
-        ))
-        .value_parser(ValueParser::new(parse_sub_pattern_pattern));
+        .value_parser(ValueParser::new(parse_sub_pattern));
 
     let all_flat_args = vec![
         version_override,
@@ -530,17 +503,13 @@ fn run() -> AppResult<()> {
         allow_missing_nextdata,
         trim_value_whitespace,
         trim_text_end,
-        ignore_std_lit_key,
-        ignore_std_pat_key,
-        promote_lit_to_std,
-        promote_pat_to_std,
-        demote_lit_from_std,
-        demote_pat_from_std,
+        ignore_std_key,
+        promote_to_std,
+        demote_from_std,
         rename_standard_keys,
         replace_std_key_vals,
         append_std_key_vals,
-        sub_std_lit_key_vals,
-        sub_std_pat_key_vals,
+        sub_key_vals,
     ];
 
     // std args
@@ -1263,22 +1232,17 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     });
     get_flag(s, TRIM_TEXT_END, |x| c.trim_text_end = x);
 
-    let parse_key_pat = |lit_flag: &str, pat_flag: &str| {
-        let lits = s.get_many::<KeyStringOrPattern>(lit_flag);
-        let pats = s.get_many::<KeyStringOrPattern>(pat_flag);
-        match (lits, pats) {
-            (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().map(|x| (x, ())).collect()),
-            (Some(xs), None) | (None, Some(xs)) => Some(xs.cloned().map(|x| (x, ())).collect()),
-            (None, None) => None,
-        }
-    };
+    if let Some(xs) = s.get_many::<KeyStringOrPattern>(IGNORE_STD_KEYS) {
+        c.ignore_standard_keys = xs.cloned().collect();
+    }
 
-    let _ =
-        parse_key_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY).map(|x| c.ignore_standard_keys = x);
-    let _ =
-        parse_key_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).map(|x| c.promote_to_standard = x);
-    let _ =
-        parse_key_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD).map(|x| c.demote_from_standard = x);
+    if let Some(xs) = s.get_many::<KeyStringOrPattern>(PROMOTE_TO_STD) {
+        c.promote_to_standard = xs.cloned().collect();
+    }
+
+    if let Some(xs) = s.get_many::<KeyStringOrPattern>(DEMOTE_FROM_STD) {
+        c.demote_from_standard = xs.cloned().collect();
+    }
 
     if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
         let Ok(ys) = xs
@@ -1297,16 +1261,9 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| c.replace_standard_key_values = x);
     let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| c.append_standard_keywords = x);
 
-    let sub_lits = s.get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS);
-    let sub_pats = s.get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS);
-
-    let substitute_standard_key_values = match (sub_lits, sub_pats) {
-        (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().collect()),
-        (Some(xs), None) | (None, Some(xs)) => Some(xs.cloned().collect()),
-        (None, None) => None,
-    };
-
-    let _ = substitute_standard_key_values.map(|x| c.substitute_standard_key_values = x);
+    if let Some(xs) = s.get_many::<SubPatternPair>(SUB_STD_KEY_VALS) {
+        c.substitute_standard_key_values = xs.cloned().collect();
+    }
 
     c
 }
@@ -1536,20 +1493,12 @@ fn parse_other_width(s: &str) -> StrResult<OtherWidth> {
     OtherWidth::try_from(x).map_err(|e| e.to_string())
 }
 
-fn parse_keystring_literal(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {
+fn parse_keystring(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {
     s.parse::<KeyString>().map(KeyStringOrPattern::Literal)
 }
 
-fn parse_keystring_pattern(s: &str) -> Result<KeyStringOrPattern, KeyRegexError> {
-    Ok(s.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)?)
-}
-
-fn parse_sub_pattern_literal(s: &str) -> StrResult<SubPatternPair> {
-    parse_sub_pattern_pair(s, |k| Ok(parse_keystring_literal(k)?))
-}
-
-fn parse_sub_pattern_pattern(s: &str) -> StrResult<SubPatternPair> {
-    parse_sub_pattern_pair(s, |k| Ok(parse_keystring_pattern(k)?))
+fn parse_sub_pattern(s: &str) -> StrResult<SubPatternPair> {
+    parse_sub_pattern_pair(s, |k| Ok(parse_keystring(k)?))
 }
 
 fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
@@ -1728,17 +1677,11 @@ const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
 
 const TRIM_TEXT_END: &str = "trim-text-end";
 
-const IGNORE_STD_LIT_KEY: &str = "ignore-std-lit-key";
+const IGNORE_STD_KEYS: &str = "ignore-std-keys";
 
-const IGNORE_STD_PAT_KEY: &str = "ignore-std-pat-key";
+const PROMOTE_TO_STD: &str = "promote-to-std";
 
-const PROMOTE_LIT_TO_STD: &str = "promote-lit-to-std";
-
-const PROMOTE_PAT_TO_STD: &str = "promote-pat-to-std";
-
-const DEMOTE_LIT_FROM_STD: &str = "demote-lit-from-std";
-
-const DEMOTE_PAT_FROM_STD: &str = "demote-pat-from-std";
+const DEMOTE_FROM_STD: &str = "demote-from-std";
 
 const RENAME_STD_KEYS: &str = "rename-std-keys";
 
@@ -1746,9 +1689,7 @@ const REPLACE_STD_KEY_VALS: &str = "replace-std-key-vals";
 
 const APPEND_STD_KEY_VALS: &str = "append-std-key-vals";
 
-const SUB_STD_LIT_KEY_VALS: &str = "sub-std-lit-key-vals";
-
-const SUB_STD_PAT_KEY_VALS: &str = "sub-std-pat-key-vals";
+const SUB_STD_KEY_VALS: &str = "sub-std-key-vals";
 
 const DATE_PATTERN: &str = "date-pattern";
 

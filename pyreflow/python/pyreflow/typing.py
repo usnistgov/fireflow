@@ -139,11 +139,11 @@ AppliedGates3_2: TypeAlias = tuple[
     str | None,
 ]
 
-KeyPatterns: TypeAlias = tuple[list[str], list[str]]
+KeyPatterns: TypeAlias = list[str]
 
 SubPattern: TypeAlias = tuple[str, str, bool]
 
-SubPatterns: TypeAlias = tuple[dict[str, SubPattern], dict[str, SubPattern]]
+SubPatterns: TypeAlias = dict[str, SubPattern]
 
 DelimEscapeMode: TypeAlias = Literal[
     "escaped",

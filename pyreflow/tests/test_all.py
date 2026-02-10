@@ -2651,13 +2651,13 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=(["wood"], []))
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["lawnmower+spike"]))
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["wood"])
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/lawnmower+spike/"])
         # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([""], []))
+            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=[""])
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=([], ["(((("]))
+            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/((((/"])
 
     def test_rename_standard_keys(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -2713,41 +2713,33 @@ class TestApiFunctions:
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_text(
-            p,
-            substitute_standard_key_values=(
-                {"history": ("viking", "pirate", True)},
-                {},
-            ),
+            p, substitute_standard_key_values={"history": ("viking", "pirate", True)}
         )
         _ = pf.api.fcs_read_flat_text(
             p,
-            substitute_standard_key_values=(
-                {},
-                {"religion?": ("odin+thor", "cannons+other stuff", False)},
-            ),
+            substitute_standard_key_values={
+                "/religion?/": ("odin+thor", "cannons+other stuff", False)
+            },
         )
         _ = pf.api.fcs_read_flat_text(
             p,
-            substitute_standard_key_values=(
-                {"time": ("(10[0-9]+)AD", "16${1}AD", False)},
-                {},
-            ),
+            substitute_standard_key_values={
+                "time": ("(10[0-9]+)AD", "16${1}AD", False)
+            },
         )
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_text(
                 p,
-                substitute_standard_key_values=(
-                    {"drone": ("Sunn O)))))", "refrigerator motor", False)},
-                    {},
-                ),
+                substitute_standard_key_values={
+                    "drone": ("Sunn O)))))", "refrigerator motor", False)
+                },
             )
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_flat_text(
                 p,
-                substitute_standard_key_values=(
-                    {"spiral": ("1.61", "the meaning of life is ${1}", False)},
-                    {},
-                ),
+                substitute_standard_key_values={
+                    "spiral": ("1.61", "the meaning of life is ${1}", False)
+                },
             )
 
     def test_time_meas_pattern(

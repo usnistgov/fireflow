@@ -11,7 +11,7 @@ use crate::validated::case_ins_regex::CaseInsRegex;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use fireflow_types::config::TemporalOpticalKey;
+use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use itertools::Itertools as _;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -80,6 +80,7 @@ impl<T> Default for KeyStringsOrPatterns<T> {
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
 #[derive(Clone, PartialEq, Eq, Hash, Display)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub enum KeyStringOrPattern {
     Literal(KeyString),
     Pattern(CaseInsRegex),
@@ -636,6 +637,19 @@ impl FromStr for NonStdKey {
     }
 }
 
+impl FromStr for KeyStringOrPattern {
+    type Err = KeyStringsOrPatternsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with(PATTERN_DELIMITER) && s.ends_with(PATTERN_DELIMITER) && s.len() > 1 {
+            let ret = s.parse::<CaseInsRegex>().map_err(KeyRegexError)?;
+            Ok(Self::Pattern(ret))
+        } else {
+            Ok(Self::Literal(s.parse::<KeyString>()?))
+        }
+    }
+}
+
 impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
     fn from_iter<I>(iter: I) -> Self
     where
@@ -645,47 +659,16 @@ impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
     }
 }
 
-impl<T> KeyStringsOrPatterns<T> {
-    pub fn try_from_literals_and_patterns(
-        lits: impl IntoIterator<Item = (String, T)>,
-        pats: impl IntoIterator<Item = (String, T)>,
-    ) -> Result<Self, KeyStringsOrPatternsError> {
-        let mut ret = Self::try_from_literals(lits)?;
-        let ps = Self::try_from_patterns(pats)?;
-        ret.extend(ps);
-        Ok(ret)
-    }
-
-    fn extend(&mut self, other: Self) {
-        self.0.extend(other.0);
-    }
-
-    fn try_from_iter<F, E>(xs: impl IntoIterator<Item = (String, T)>, f: F) -> Result<Self, E>
+impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
+    fn from_iter<I>(iter: I) -> Self
     where
-        F: Fn(&str) -> Result<KeyStringOrPattern, E>,
+        I: IntoIterator<Item = KeyStringOrPattern>,
     {
-        xs.into_iter()
-            .map(|(k, v)| f(k.as_str()).map(|x| (x, v)))
-            .collect::<Result<HashMap<_, _>, _>>()
-            .map(Self)
+        Self(iter.into_iter().map(|x| (x, ())).collect())
     }
+}
 
-    fn try_from_literals(
-        xs: impl IntoIterator<Item = (String, T)>,
-    ) -> Result<Self, AsciiStringError> {
-        Self::try_from_iter(xs, |k| {
-            k.parse::<KeyString>().map(KeyStringOrPattern::Literal)
-        })
-    }
-
-    fn try_from_patterns(xs: impl IntoIterator<Item = (String, T)>) -> Result<Self, KeyRegexError> {
-        Self::try_from_iter(xs, |k| {
-            k.parse::<CaseInsRegex>()
-                .map(KeyStringOrPattern::Pattern)
-                .map_err(KeyRegexError)
-        })
-    }
-
+impl<T> KeyStringsOrPatterns<T> {
     pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
         self.0.iter().collect()
     }

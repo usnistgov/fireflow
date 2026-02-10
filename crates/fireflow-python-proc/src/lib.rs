@@ -1,29 +1,25 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{
-    ALLOW_HEADER_TEXT_OFFSET_MISMATCH_LEVELS, DELIM_ESCAPE_MODE_LEVELS, DELIM_ESCAPED_LEVEL,
-    DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL,
-    FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_SCALE_LEVELS,
-    FORCE_LINEAR_TIME_LEVEL, GUESS_OTHER_WIDTH_LEVELS, KW_DEMOTE_SILENT_LEVEL,
+    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP,
+    DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
+    DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
+    DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
+    EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL,
+    ForceLinearScale, GuessOtherWidth, IncludeReqOrOpt, IncludeRootOrMeas, KW_DEMOTE_SILENT_LEVEL,
     KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL,
     MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
-    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, OTHER_WIDTH_ERROR_LEVEL,
-    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL,
-    PROCESS_KEYWORD_FAILURE_LEVELS, PROCESS_TEMPORAL_OPTICAL_LEVELS, SPILLOVER_GUESS_LEVEL,
-    SPILLOVER_INDEXED_LEVEL, SPILLOVER_MEASUREMENT_MODE_LEVELS, SPILLOVER_NAMED_LEVEL,
-    STD_KW_REQ_OR_OPT_LEVELS, STD_KW_ROOT_OR_MEAS_LEVELS, TEMPORAL_OPTICAL_KEY_LEVELS,
-    TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
-    TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_FLAG_LEVELS, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL,
-    TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL,
-    TRIM_VALUE_WHITESPACE_LEVELS, TRUNCATE_ALL_LEVEL, TRUNCATE_EVENT_VALUES_LEVELS,
-    TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
-};
-use fireflow_types::config::{
-    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
-    DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
-    DEFAULT_TIME_FORMAT_3_1, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
-    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
+    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
+    NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, ProcessKeywordFailure,
+    ProcessTemporalOpticalKeys, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
+    SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode, TIME_MEAS_NAME_PATTERN_DEFAULT,
+    TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
+    TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_SILENT_LEVEL,
+    TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL,
+    TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, TruncateEventValues, VERSION_EARLIEST_LEVEL,
+    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 
@@ -1912,13 +1908,13 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new2(STD_KW_REQ_OR_OPT_LEVELS, req_or_opt_path),
+        PyLiteral::new2(IncludeReqOrOpt::iter_str(), req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new2(STD_KW_ROOT_OR_MEAS_LEVELS, root_or_meas_path),
+        PyLiteral::new2(IncludeRootOrMeas::iter_str(), root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
@@ -6535,7 +6531,7 @@ impl PyLiteral {
 
     fn new_temporal_optical_key() -> Self {
         Self::new2(
-            TEMPORAL_OPTICAL_KEY_LEVELS,
+            TemporalOpticalKey::iter_str(),
             parse_quote!(fireflow_core::config::TemporalOpticalKeys),
         )
     }
@@ -6561,7 +6557,7 @@ impl PyLiteral {
 
     fn new_tri_flag(name: &str) -> Self {
         let path = config_path(name);
-        Self::new2(TRI_FLAG_LEVELS, path)
+        Self::new2(TriFlag::iter_str(), path)
     }
 }
 
@@ -7661,7 +7657,7 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let pt = PyLiteral::new2(PROCESS_KEYWORD_FAILURE_LEVELS, path);
+        let pt = PyLiteral::new2(ProcessKeywordFailure::iter_str(), path);
         let d = format!(
             "{desc} Use {error} to throw error on failure, {demote} to demote \
              to non-standard with warning, {demote_silent} to demote to \
@@ -8199,7 +8195,7 @@ impl DocArgParam {
 
     fn new_force_linear_scale_param() -> Self {
         let path = config_path("ForceLinearScale");
-        let pt = PyLiteral::new2(FORCE_LINEAR_SCALE_LEVELS, path);
+        let pt = PyLiteral::new2(ForceLinearScale::iter_str(), path);
         let d = format!(
             "Force {PNE} to be linear. Use {time} to only \
              change the temporal measurement, {all} to change all \
@@ -8248,7 +8244,7 @@ impl DocArgParam {
             drop_silent = code_str(TMP_OPT_DROP_SILENT_LEVEL),
         );
         let path = config_path("ProcessTemporalOpticalKeys");
-        let pt = PyLiteral::new2(PROCESS_TEMPORAL_OPTICAL_LEVELS, path);
+        let pt = PyLiteral::new2(ProcessTemporalOpticalKeys::iter_str(), path);
         Self::new_param("process_time_optical_keys", pt, d).def_auto()
     }
 
@@ -8265,7 +8261,7 @@ impl DocArgParam {
             guess = code_str(SPILLOVER_GUESS_LEVEL),
         );
         let path = config_path("SpilloverMeasurementMode");
-        let pt = PyLiteral::new2(SPILLOVER_MEASUREMENT_MODE_LEVELS, path);
+        let pt = PyLiteral::new2(SpilloverMeasurementMode::iter_str(), path);
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
@@ -8525,7 +8521,7 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = config_path("GuessOtherWidth");
-        let pt = PyLiteral::new2(GUESS_OTHER_WIDTH_LEVELS, path);
+        let pt = PyLiteral::new2(GuessOtherWidth::iter_str(), path);
         let d = format!(
             "Guess the width of {OTHER} segments. Valid values are {none} \
              (no guessing) or {error}, {warn} or {silent} which will guess and \
@@ -8649,7 +8645,7 @@ impl DocArgParam {
             guess_escaped = code_str(DELIM_GUESS_ESCAPED_LEVEL),
             guess_unescaped = code_str(DELIM_GUESS_UNESCAPED_LEVEL),
         );
-        let pt = PyLiteral::new2(DELIM_ESCAPE_MODE_LEVELS, path);
+        let pt = PyLiteral::new2(DelimEscapeMode::iter_str(), path);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
@@ -8774,7 +8770,7 @@ impl DocArgParam {
             trim_blank_nowarn = code_str(TRIM_BLANK_SILENT_LEVEL),
         );
         let rstype = config_path("TrimValueWhitespace");
-        let pt = PyLiteral::new2(TRIM_VALUE_WHITESPACE_LEVELS, rstype);
+        let pt = PyLiteral::new2(TrimValueWhitespace::iter_str(), rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
@@ -8908,7 +8904,7 @@ impl DocArgParam {
             error = code_str(MISMATCH_ERROR_LEVEL),
         );
         let path = config_path("AllowHeaderTEXTOffsetMismatch");
-        let pt = PyLiteral::new2(ALLOW_HEADER_TEXT_OFFSET_MISMATCH_LEVELS, path);
+        let pt = PyLiteral::new2(AllowHeaderTEXTOffsetMismatch::iter_str(), path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -8957,7 +8953,7 @@ impl DocArgParam {
             all = code_str(TRUNCATE_ALL_LEVEL),
             none = code_str(TRUNCATE_NONE_LEVEL),
         );
-        let pt = PyLiteral::new2(TRUNCATE_EVENT_VALUES_LEVELS, path);
+        let pt = PyLiteral::new2(TruncateEventValues::iter_str(), path);
         Self::new_param(TRUNCATE_EVENT_VALUES, pt, d).def_auto()
     }
 

@@ -103,10 +103,10 @@ fn run() -> AppResult<()> {
     let nextdata = kw_style.paint(tk::NEXTDATA);
     let spillover = kw_style.paint(tk::SPILLOVER);
     let pnfeature = kw_style.paint(tk::PNFEATURE);
-    let pnb = kw_style.paint(tk::PNB);
-    let pnr = kw_style.paint(tk::PNR);
-    let pnn = kw_style.paint(tk::PNN);
-    let pne = kw_style.paint(tk::PNE);
+    let pn_b = kw_style.paint(tk::PNB);
+    let pn_r = kw_style.paint(tk::PNR);
+    let pn_n = kw_style.paint(tk::PNN);
+    let pn_e = kw_style.paint(tk::PNE);
     let pndatatype = kw_style.paint(tk::PNDATATYPE);
 
     let pn_any = kw_style.paint("$PnX");
@@ -548,7 +548,7 @@ fn run() -> AppResult<()> {
     let dedup_meas_names = override_flag_arg(
         DEDUP_MEAS_NAMES,
         format!(
-            "Force all {pnn} to be unique by appending '{DEDUP_PNN_SEP}X' \
+            "Force all {pn_n} to be unique by appending '{DEDUP_PNN_SEP}X' \
              to each duplicate and appending 'X' (starting at 0)",
         ),
     );
@@ -578,7 +578,7 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(ForceLinearScale))
         .help(format!(
-            "Force {pne} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
+            "Force {pn_e} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
              to only set the temporal measurement, '{FORCE_LINEAR_ALL_LEVEL}' to \
              set all measurements, and '{FORCE_LINEAR_NONE_LEVEL}' for no \
              measurements.",
@@ -615,7 +615,7 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(SpilloverMeasurementMode))
         .help(format!(
             "Choose how to interpret measurement strings in {spillover}. Set to \
-             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {pnn}. \
+             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {pn_n}. \
              Set to '{SPILLOVER_INDEXED_LEVEL}' to interpret as 1-indices which \
              point to measurements. Set to '{SPILLOVER_GUESS_LEVEL}' to \
              automatically choose the prior two modes."
@@ -661,7 +661,7 @@ fn run() -> AppResult<()> {
     let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
         format!(
-            "Fix {pne} keys that have log scaling with zero offset. \
+            "Fix {pn_e} keys that have log scaling with zero offset. \
              Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
              where 'X' is a positive decimal number. Having '0.0' for log offset \
              is mathematical nonsense.",
@@ -790,7 +790,7 @@ fn run() -> AppResult<()> {
     let int_widths_from_byteord = override_flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
         format!(
-            "Set {pnb} based on length of {byteord}. Only has effect \
+            "Set {pn_b} based on length of {byteord}. Only has effect \
              on integer layouts in FCS 2.0/3.0."
         ),
     );
@@ -807,8 +807,8 @@ fn run() -> AppResult<()> {
     let disallow_range_truncation = tri_flag_arg::<DisallowRangeTrunc>(
         DISALLOW_RANGE_TRUNCATION,
         format!(
-            "Disallow {pnr} values which need to be truncated to fit in type \
-             dictated by {datatype} (and {pndatatype} for FCS 3.2) and {pnb} \
+            "Disallow {pn_r} values which need to be truncated to fit in type \
+             dictated by {datatype} (and {pndatatype} for FCS 3.2) and {pn_b} \
              for a given measurement."
         ),
     );
@@ -843,7 +843,7 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(TruncateEventValues))
         .help(format!(
-            "Truncate values exceeding {pnr}. \
+            "Truncate values exceeding {pn_r}. \
              Must be one of '{TRUNCATE_INT_ONLY_LEVEL}' (default), \
              '{TRUNCATE_ALL_LEVEL}', or '{TRUNCATE_NONE_LEVEL}'.",
         ));
@@ -851,7 +851,7 @@ fn run() -> AppResult<()> {
     let disallow_over_range = tri_flag_arg::<DisallowOverRange>(
         DISALLOW_OVER_RANGE,
         format!(
-            "Forbid values in DATA to exceed {pnr}. Does nothing if column \
+            "Forbid values in DATA to exceed {pn_r}. Does nothing if column \
              was truncated according to '{TRUNCATE_EVENT_VALUES}'."
         ),
     );

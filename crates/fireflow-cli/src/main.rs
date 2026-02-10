@@ -1193,71 +1193,79 @@ fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig 
     let strat = get_strategy(sargs);
     let mut conf = config::ReadHeaderInnerConfig::new_with_strategy(strat);
 
-    get_correction(sargs, TEXT_COR).inspect(|&x| conf.text_correction = x);
-    get_correction(sargs, DATA_COR).inspect(|&x| conf.data_correction = x);
-    get_correction(sargs, ANALYSIS_COR).inspect(|&x| conf.analysis_correction = x);
+    get_correction(sargs, TEXT_COR, |x| conf.text_correction = x);
+    get_correction(sargs, DATA_COR, |x| conf.data_correction = x);
+    get_correction(sargs, ANALYSIS_COR, |x| conf.analysis_correction = x);
 
     // don't add other corrections since these aren't used in this api (yet)
 
-    let _ = sargs
-        .get_one::<Option<usize>>(MAX_OTHER)
-        .copied()
-        .map(|x| conf.max_other = x);
-
-    get_cloned(sargs, OTHER_WIDTH).inspect(|&w| conf.other_width = w);
-    get_cloned(sargs, GUESS_OTHER_WIDTH).inspect(|&x| conf.guess_other_width = x);
-    get_flag(sargs, SQUISH_OFFSETS).inspect(|&x| conf.squish_offsets = x);
+    get_opt(sargs, MAX_OTHER, |x| conf.max_other = x);
+    get_opt(sargs, OTHER_WIDTH, |x| conf.other_width = x);
+    get_opt(sargs, GUESS_OTHER_WIDTH, |x| conf.guess_other_width = x);
+    get_flag(sargs, SQUISH_OFFSETS, |x| conf.squish_offsets = x);
 
     conf
 }
 
-fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
-    let strat = get_strategy(sargs);
-    let mut conf = config::ReadOffsetConfig::new_with_strategy(strat);
+fn get_offsets_config(s: &ArgMatches) -> config::ReadOffsetConfig {
+    let strat = get_strategy(s);
+    let mut c = config::ReadOffsetConfig::new_with_strategy(strat);
 
-    get_flag(sargs, ALLOW_PSEUDOEMPTY).inspect(|&x| conf.allow_pseudoempty = x);
-    get_cloned(sargs, TRUNCATE_OFFSET_LIMIT).inspect(|&x| conf.truncate_offset_limit = x);
-    get_cloned(sargs, OVERLAP_CORRECTION_LIMIT).inspect(|&x| conf.overlap_correction_limit = x);
-    get_cloned(sargs, DATA_REMAINDER_LIMIT).inspect(|&x| conf.data_remainder_limit = x);
+    get_flag(s, ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
+    get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.truncate_offset_limit = x);
+    get_opt(s, OVERLAP_CORRECTION_LIMIT, |x| {
+        c.overlap_correction_limit = x;
+    });
+    get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
 
-    conf
+    c
 }
 
-fn get_header_and_text_config(
-    cmd: &Command,
-    sargs: &ArgMatches,
-) -> config::ReadHeaderAndTEXTConfig {
-    let strat = get_strategy(sargs);
-    let mut conf = config::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
+fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
+    let strat = get_strategy(s);
+    let mut c = config::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
-    let _ = get_cloned(sargs, VERSION_OVERRIDE).map(|x| conf.version_override = x);
-    let _ = get_correction(sargs, SUPP_TEXT_COR).map(|x| conf.supp_text_correction = x);
-    let _ = get_cloned(sargs, NEXTDATA_COR).map(|x| conf.nextdata_correction = x);
+    get_opt(s, VERSION_OVERRIDE, |x| c.version_override = x);
+    get_correction(s, SUPP_TEXT_COR, |x| c.supp_text_correction = x);
+    get_opt(s, NEXTDATA_COR, |x| c.nextdata_correction = x);
 
-    let _ =
-        get_cloned(sargs, ALLOW_DUPLICATED_SUPP_TEXT).map(|x| conf.allow_duplicated_supp_text = x);
-    let _ = get_flag(sargs, IGNORE_SUPP_TEXT).map(|x| conf.ignore_supp_text = x);
-    let _ = get_cloned(sargs, DELIM_ESCAPE_MODE).map(|x| conf.delim_escape_mode = x);
-    let _ = get_cloned(sargs, ALLOW_NON_ASCII_DELIM).map(|x| conf.allow_non_ascii_delim = x);
-    let _ =
-        get_cloned(sargs, ALLOW_MISSING_FINAL_DELIM).map(|x| conf.allow_missing_final_delim = x);
-    let _ = get_cloned(sargs, ALLOW_NON_UNIQUE).map(|x| conf.allow_nonunique = x);
-    let _ = get_cloned(sargs, ALLOW_ODD).map(|x| conf.allow_odd = x);
-    let _ = get_cloned(sargs, ALLOW_EMPTY_KEYS).map(|x| conf.allow_empty_keys = x);
-    let _ = get_cloned(sargs, ALLOW_DELIM_AT_BOUNDARY).map(|x| conf.allow_delim_at_boundary = x);
-    let _ = get_cloned(sargs, ALLOW_NON_UTF8).map(|x| conf.allow_non_utf8 = x);
-    let _ = get_flag(sargs, USE_LATIN1).map(|x| conf.use_latin1 = x);
-    let _ = get_cloned(sargs, ALLOW_NON_ASCII_KEYWORDS).map(|x| conf.allow_non_ascii_keywords = x);
-    let _ = get_cloned(sargs, ALLOW_MISSING_SUPP_TEXT).map(|x| conf.allow_missing_supp_text = x);
-    let _ =
-        get_cloned(sargs, ALLOW_SUPP_TEXT_OWN_DELIM).map(|x| conf.allow_supp_text_own_delim = x);
-    let _ = get_cloned(sargs, ALLOW_MISSING_NEXTDATA).map(|x| conf.allow_missing_nextdata = x);
-    let _ = get_cloned(sargs, TRIM_VALUE_WHITESPACE).map(|x| conf.trim_value_whitespace = x);
-    let _ = get_flag(sargs, TRIM_TEXT_END).map(|x| conf.trim_text_end = x);
+    get_opt(s, ALLOW_DUPLICATED_SUPP_TEXT, |x| {
+        c.allow_duplicated_supp_text = x;
+    });
+    get_flag(s, IGNORE_SUPP_TEXT, |x| c.ignore_supp_text = x);
+    get_opt(s, DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
+    get_opt(s, ALLOW_NON_ASCII_DELIM, |x| c.allow_non_ascii_delim = x);
+    get_opt(s, ALLOW_MISSING_FINAL_DELIM, |x| {
+        c.allow_missing_final_delim = x;
+    });
+    get_opt(s, ALLOW_NON_UNIQUE, |x| c.allow_nonunique = x);
+    get_opt(s, ALLOW_ODD, |x| c.allow_odd = x);
+    get_opt(s, ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
+    get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
+        c.allow_delim_at_boundary = x;
+    });
+    get_opt(s, ALLOW_NON_UTF8, |x| c.allow_non_utf8 = x);
+    get_flag(s, USE_LATIN1, |x| c.use_latin1 = x);
+    get_opt(s, ALLOW_NON_ASCII_KEYWORDS, |x| {
+        c.allow_non_ascii_keywords = x;
+    });
+    get_opt(s, ALLOW_MISSING_SUPP_TEXT, |x| {
+        c.allow_missing_supp_text = x;
+    });
+    get_opt(s, ALLOW_SUPP_TEXT_OWN_DELIM, |x| {
+        c.allow_supp_text_own_delim = x;
+    });
+    get_opt(s, ALLOW_MISSING_NEXTDATA, |x| {
+        c.allow_missing_nextdata = x;
+    });
+    get_opt(s, TRIM_VALUE_WHITESPACE, |x| {
+        c.trim_value_whitespace = x;
+    });
+    get_flag(s, TRIM_TEXT_END, |x| c.trim_text_end = x);
 
     let parse_key_pat = |lit_flag: &str, pat_flag: &str| {
-        let lits = sargs.get_many::<KeyStringOrPattern>(lit_flag);
-        let pats = sargs.get_many::<KeyStringOrPattern>(pat_flag);
+        let lits = s.get_many::<KeyStringOrPattern>(lit_flag);
+        let pats = s.get_many::<KeyStringOrPattern>(pat_flag);
         match (lits, pats) {
             (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().map(|x| (x, ())).collect()),
             (Some(xs), None) | (None, Some(xs)) => Some(xs.cloned().map(|x| (x, ())).collect()),
@@ -1265,34 +1273,32 @@ fn get_header_and_text_config(
         }
     };
 
-    let _ = parse_key_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY)
-        .map(|x| conf.ignore_standard_keys = x);
     let _ =
-        parse_key_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).map(|x| conf.promote_to_standard = x);
-    let _ = parse_key_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD)
-        .map(|x| conf.demote_from_standard = x);
+        parse_key_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY).map(|x| c.ignore_standard_keys = x);
+    let _ =
+        parse_key_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).map(|x| c.promote_to_standard = x);
+    let _ =
+        parse_key_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD).map(|x| c.demote_from_standard = x);
 
-    if let Some(xs) = sargs.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
+    if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
         let Ok(ys) = xs
             .cloned()
             .collect::<HashMap<_, _>>()
             .try_into()
             .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
-        conf.rename_standard_keys = ys;
+        c.rename_standard_keys = ys;
     }
 
     let parse_keystring_pair = |name: &str| {
-        sargs
-            .get_many::<KeystringStringPair>(name)
+        s.get_many::<KeystringStringPair>(name)
             .map(|xs| xs.cloned().collect())
     };
 
-    let _ =
-        parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| conf.replace_standard_key_values = x);
-    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| conf.append_standard_keywords = x);
+    let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| c.replace_standard_key_values = x);
+    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| c.append_standard_keywords = x);
 
-    let sub_lits = sargs.get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS);
-    let sub_pats = sargs.get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS);
+    let sub_lits = s.get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS);
+    let sub_pats = s.get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS);
 
     let substitute_standard_key_values = match (sub_lits, sub_pats) {
         (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().collect()),
@@ -1300,70 +1306,85 @@ fn get_header_and_text_config(
         (None, None) => None,
     };
 
-    let _ = substitute_standard_key_values.map(|x| conf.substitute_standard_key_values = x);
+    let _ = substitute_standard_key_values.map(|x| c.substitute_standard_key_values = x);
 
-    conf
+    c
 }
 
-fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
-    let strat = get_strategy(sargs);
-    let mut conf = config::ReadStdKeywordsConfig::new_with_strategy(strat);
+fn get_std_inner_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
+    let strat = get_strategy(s);
+    let mut c = config::ReadStdKeywordsConfig::new_with_strategy(strat);
 
-    let _ = get_flag(sargs, DEDUP_MEAS_NAMES).map(|x| conf.dedup_measurement_names = x);
-    let _ =
-        get_flag(sargs, TRIM_INTRA_VALUE_WHITESPACE).map(|x| conf.trim_intra_value_whitespace = x);
+    get_flag(s, DEDUP_MEAS_NAMES, |x| c.dedup_measurement_names = x);
+    get_flag(s, TRIM_INTRA_VALUE_WHITESPACE, |x| {
+        c.trim_intra_value_whitespace = x;
+    });
+    get_opt(s, TIME_MEAS_PATTERN, |x| c.time_meas_pattern = x);
 
-    let _ = get_cloned(sargs, TIME_MEAS_PATTERN).map(|x| conf.time_meas_pattern = x);
+    get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    let _ = get_cloned(sargs, FORCE_LINEAR_SCALE).map(|x| conf.force_linear_scale = x);
-
-    if let Some(xs) = sargs.get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
-        conf.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
+    if let Some(xs) = s.get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
+        c.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
     }
 
-    let _ =
-        get_cloned(sargs, PROCESS_TIME_OPTICAL_KEYS).map(|x| conf.process_time_optical_keys = x);
-    let _ = get_cloned(sargs, ALLOW_MISSING_TIME).map(|x| conf.allow_missing_time = x);
-    let _ =
-        get_cloned(sargs, SPILLOVER_MEASUREMENT_MODE).map(|x| conf.spillover_measurement_mode = x);
+    get_opt(s, PROCESS_TIME_OPTICAL_KEYS, |x| {
+        c.process_time_optical_keys = x;
+    });
+    get_opt(s, ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
+    get_opt(s, SPILLOVER_MEASUREMENT_MODE, |x| {
+        c.spillover_measurement_mode = x;
+    });
+    get_opt(s, DATE_PATTERN, |x| c.date_pattern = x);
+    get_opt(s, TIME_PATTERN, |x| c.time_pattern = x);
+    get_opt(s, DATETIME_PATTERN, |x| c.datetime_pattern = x);
+    get_opt(s, LAST_MODIFIED_PATTERN, |x| c.last_modified_pattern = x);
+    get_flag(s, ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
+    get_opt(s, PROCESS_PSEUDOSTANDARD, |x| c.process_pseudostandard = x);
+    get_opt(s, PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
+    get_opt(s, PROCESS_OTHER_VERSION, |x| c.process_other_version = x);
+    get_opt(s, PROCESS_EXTRA_TIMESTEP, |x| c.process_extra_timestep = x);
+    get_opt(s, DISALLOW_DEPRECATED, |x| c.disallow_deprecated = x);
+    get_flag(s, FIX_LOG_SCALE_OFFSETS, |x| c.fix_log_scale_offsets = x);
+    get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
-    let _ = get_cloned(sargs, DATE_PATTERN).map(|x| conf.date_pattern = x);
-    let _ = get_cloned(sargs, TIME_PATTERN).map(|x| conf.time_pattern = x);
-    let _ = get_cloned(sargs, DATETIME_PATTERN).map(|x| conf.datetime_pattern = x);
-    let _ = get_cloned(sargs, LAST_MODIFIED_PATTERN).map(|x| conf.last_modified_pattern = x);
-
-    let _ = get_flag(sargs, ALLOW_OTHER_FEATURE).map(|x| conf.allow_other_feature = x);
-    let _ = get_cloned(sargs, PROCESS_PSEUDOSTANDARD).map(|x| conf.process_pseudostandard = x);
-    let _ = get_cloned(sargs, PROCESS_HYPER_PAR).map(|x| conf.process_hyper_par = x);
-    let _ = get_cloned(sargs, PROCESS_OTHER_VERSION).map(|x| conf.process_other_version = x);
-    let _ = get_cloned(sargs, PROCESS_EXTRA_TIMESTEP).map(|x| conf.process_extra_timestep = x);
-    let _ = get_cloned(sargs, DISALLOW_DEPRECATED).map(|x| conf.disallow_deprecated = x);
-    let _ = get_flag(sargs, FIX_LOG_SCALE_OFFSETS).map(|x| conf.fix_log_scale_offsets = x);
-    let _ = get_flag(sargs, DISALLOW_LOCALTIME).map(|x| conf.disallow_localtime = x);
-
-    let _ = get_cloned(sargs, NS_MEAS_PATTERN)
-        .map(|x| conf.nonstandard_measurement_pattern = NonStdMeasPatternOpt(x));
-    conf
+    get_opt(s, NS_MEAS_PATTERN, |x| {
+        c.nonstandard_measurement_pattern = NonStdMeasPatternOpt(x);
+    });
+    c
 }
 
 fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     let strat = get_strategy(sargs);
     let mut conf = config::ReadDataKeywordsConfig::new_with_strategy(strat);
 
-    let _ = get_correction(sargs, TEXT_DATA_COR).map(|x| conf.text_data_correction = x);
-    let _ = get_correction(sargs, TEXT_ANALYSIS_COR).map(|x| conf.text_analysis_correction = x);
-    let _ = get_flag(sargs, IGNORE_TEXT_DATA_OFFSETS).map(|x| conf.ignore_text_data_offsets = x);
-    let _ = get_flag(sargs, IGNORE_TEXT_ANALYSIS_OFFSETS)
-        .map(|x| conf.ignore_text_analysis_offsets = x);
-    let _ = get_cloned(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .map(|x| conf.allow_header_text_offset_mismatch = x);
-    let _ = get_cloned(sargs, ALLOW_MISSING_REQUIRED_OFFSETS)
-        .map(|x| conf.allow_missing_required_offsets = x);
-    let _ = get_cloned(sargs, PROCESS_OPTIONAL_FAILURE).map(|x| conf.process_optional_failure = x);
-    let _ = get_flag(sargs, INT_WIDTHS_FROM_BYTEORD).map(|x| conf.integer_widths_from_byteord = x);
-    let _ = get_opt(sargs, INT_BYTEORD_OVERRIDE).map(|x| conf.integer_byteord_override = x);
-    let _ =
-        get_cloned(sargs, DISALLOW_RANGE_TRUNCATION).map(|x| conf.disallow_range_truncation = x);
+    get_correction(sargs, TEXT_DATA_COR, |x| conf.text_data_correction = x);
+    get_correction(sargs, TEXT_ANALYSIS_COR, |x| {
+        conf.text_analysis_correction = x;
+    });
+    get_flag(sargs, IGNORE_TEXT_DATA_OFFSETS, |x| {
+        conf.ignore_text_data_offsets = x;
+    });
+    get_flag(sargs, IGNORE_TEXT_ANALYSIS_OFFSETS, |x| {
+        conf.ignore_text_analysis_offsets = x;
+    });
+    get_opt(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH, |x| {
+        conf.allow_header_text_offset_mismatch = x;
+    });
+    get_opt(sargs, ALLOW_MISSING_REQUIRED_OFFSETS, |x| {
+        conf.allow_missing_required_offsets = x;
+    });
+    get_opt(sargs, PROCESS_OPTIONAL_FAILURE, |x| {
+        conf.process_optional_failure = x;
+    });
+    get_flag(sargs, INT_WIDTHS_FROM_BYTEORD, |x| {
+        conf.integer_widths_from_byteord = x;
+    });
+    get_opt(sargs, INT_BYTEORD_OVERRIDE, |x| {
+        conf.integer_byteord_override = x;
+    });
+    get_opt(sargs, DISALLOW_RANGE_TRUNCATION, |x| {
+        conf.disallow_range_truncation = x;
+    });
 
     conf
 }
@@ -1372,10 +1393,14 @@ fn get_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
     let strat = get_strategy(sargs);
     let mut conf = config::ReadEventsConfig::new_with_strategy(strat);
 
-    let _ = get_cloned(sargs, ALLOW_TOT_MISMATCH).map(|x| conf.allow_tot_mismatch = x);
-    let _ = get_cloned(sargs, ALLOW_UNEVEN_EVENT_WIDTH).map(|x| conf.allow_uneven_event_width = x);
-    let _ = get_cloned(sargs, TRUNCATE_EVENT_VALUES).map(|x| conf.truncate_event_values = x);
-    let _ = get_cloned(sargs, DISALLOW_OVER_RANGE).map(|x| conf.disallow_over_range = x);
+    get_opt(sargs, ALLOW_TOT_MISMATCH, |x| conf.allow_tot_mismatch = x);
+    get_opt(sargs, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
+        conf.allow_uneven_event_width = x;
+    });
+    get_opt(sargs, TRUNCATE_EVENT_VALUES, |x| {
+        conf.truncate_event_values = x;
+    });
+    get_opt(sargs, DISALLOW_OVER_RANGE, |x| conf.disallow_over_range = x);
 
     conf
 }
@@ -1456,29 +1481,31 @@ fn get_delim(sargs: &ArgMatches) -> &String {
     sargs.get_one::<String>(DELIM).unwrap()
 }
 
-fn get_cloned<T>(sargs: &ArgMatches, name: &str) -> Option<T>
+fn get_opt<T, F>(sargs: &ArgMatches, name: &str, f: F)
 where
+    F: FnMut(T),
     T: Clone + Sync + Send + 'static,
 {
-    sargs.get_one(name).cloned()
+    let _ = sargs.get_one(name).cloned().map(f);
 }
 
-fn get_flag<T>(sargs: &ArgMatches, name: &str) -> Option<T>
+fn get_flag<T, F>(sargs: &ArgMatches, name: &str, f: F)
 where
+    F: FnMut(T),
     T: Copy + Sync + Send + 'static + From<bool>,
 {
-    sargs.get_one::<bool>(name).copied().map(T::from)
+    let _ = sargs.get_one::<bool>(name).copied().map(T::from).map(f);
 }
 
-fn get_correction<I, S>(sargs: &ArgMatches, name: &str) -> Option<OffsetCorrection<I, S>> {
-    sargs.get_one::<(i32, i32)>(name).copied().map(Into::into)
-}
-
-fn get_opt<T>(sargs: &ArgMatches, name: &str) -> Option<T>
+fn get_correction<I, S, F>(sargs: &ArgMatches, name: &str, f: F)
 where
-    T: Default + Copy + Sync + Send + 'static,
+    F: FnMut(OffsetCorrection<I, S>),
 {
-    sargs.get_one(name).copied()
+    let _ = sargs
+        .get_one::<(i32, i32)>(name)
+        .copied()
+        .map(Into::into)
+        .map(f);
 }
 
 fn parse_opt<T>(s: &str) -> StrResult<Option<T>>

@@ -614,7 +614,7 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
     let name_str = name.to_string();
     let pyname = format_ident!("Py{name}");
 
-    let strat: Path = parse_quote!(fireflow_core::config::ReadStrategy);
+    let strat: Path = parse_quote!(fireflow_types::config::ReadStrategy);
     let has_strat: Path = parse_quote!(fireflow_core::config::HasStrategy);
 
     let api_fun = |s| format!("`~pyreflow.{s}`");

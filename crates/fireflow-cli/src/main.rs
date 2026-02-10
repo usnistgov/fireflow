@@ -8,10 +8,11 @@ use fireflow_core::config::{
     AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd, AllowSuppTEXTOwnDelim,
     AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit, DatasetOffset, DelimEscapeMode,
     DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
-    NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, ProcessTemporalOpticalKeys,
-    SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern, TriErrorFlag, TriFlag,
-    TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit, VersionOverride,
+    HasStrategy as _, NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep,
+    ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard,
+    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern,
+    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit,
+    VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -22,7 +23,6 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{
     AsciiStringError, KeyRegexError, KeyString, KeyStringOrPattern,
 };
-use fireflow_core::validated::keystring_pairs::KeyStringPairs;
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
@@ -35,13 +35,15 @@ use fireflow_types::config::{
     KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, SPILLOVER_GUESS_LEVEL,
-    SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL, TIME_MEAS_NAME_PATTERN_DEFAULT,
-    TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
-    TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL,
-    TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL,
-    TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, READ_STRATEGY_SCALPAL_LEVEL,
+    READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL, ReadStrategy,
+    SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
+    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
+    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
+    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
+    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL,
+    TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
+    VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 
@@ -58,11 +60,11 @@ use serde::ser::Serialize;
 use serde_json::json;
 
 use std::collections::{HashMap, HashSet};
-use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Display;
 use std::iter::once;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 fn main() -> Result<(), i32> {
     run().map_err(|e| {
@@ -222,11 +224,11 @@ fn run() -> AppResult<()> {
     let data_correction = correction_arg(DATA_COR, true, &data_seg);
     let analysis_correction = correction_arg(ANALYSIS_COR, true, &analysis_seg);
 
-    let max_other = Arg::new(MAX_OTHER)
-        .long(MAX_OTHER)
-        .value_name("BYTES")
-        .help(format!("Max number of {other_seg} segments to parse."))
-        .value_parser(value_parser!(usize));
+    let max_other = opt_arg::<usize>(
+        MAX_OTHER,
+        "BYTES",
+        format!("Max number of {other_seg} segments to parse."),
+    );
 
     let other_width = Arg::new(OTHER_WIDTH)
         .long(OTHER_WIDTH)
@@ -247,7 +249,7 @@ fn run() -> AppResult<()> {
             fmt_arg(OTHER_WIDTH),
         ));
 
-    let squish_offsets = flag_arg(
+    let squish_offsets = override_flag_arg(
         SQUISH_OFFSETS,
         format!(
             "If {data_seg}/{analysis_seg} end in 0, use 0 for start as well. \
@@ -267,7 +269,7 @@ fn run() -> AppResult<()> {
 
     // offset args
 
-    let allow_pseudoempty = flag_arg(
+    let allow_pseudoempty = override_flag_arg(
         ALLOW_PSEUDOEMPTY,
         "Treat offsets like '0,-1' or '1000,999' as '0,0'.",
     );
@@ -304,11 +306,10 @@ fn run() -> AppResult<()> {
 
     // "flat" args
 
-    let version_override = Arg::new(VERSION_OVERRIDE)
-        .long(VERSION_OVERRIDE)
-        .value_name("OVERRIDE")
-        .value_parser(value_parser!(VersionOverride))
-        .help(format!(
+    let version_override = opt_arg::<VersionOverride>(
+        VERSION_OVERRIDE,
+        "OVERRIDE",
+        format!(
             "Override the FCS version from {header_seg}. Can be an FCS \
              version string (like 'FCS3.2') which will force to a fixed version. \
              Can also autodetect version with one of '{VERSION_LATEST_LEVEL}' or \
@@ -316,24 +317,23 @@ fn run() -> AppResult<()> {
              respectively) or '{VERSION_LOOSE_LEVEL}' or '{VERSION_STRICT_LEVEL}' \
              (the available version with the most or least optional keywords \
              respectively)."
-        ));
+        ),
+    );
 
     let supp_text_correction = correction_arg(SUPP_TEXT_COR, false, &supp_text_seg);
 
-    let nextdata_correction = Arg::new(NEXTDATA_COR)
-        .long(NEXTDATA_COR)
-        .value_name("INT")
-        .help(format!("Correction for {nextdata}"));
+    let nextdata_correction =
+        opt_arg::<u64>(NEXTDATA_COR, "INT", format!("Correction for {nextdata}"));
 
     let allow_overlapping_supp_text = tri_flag_arg::<AllowDuplicatedSuppTEXT>(
-        ALLOW_OVERLAPPING_SUPP_TEXT,
+        ALLOW_DUPLICATED_SUPP_TEXT,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
              {prim_text_seg} or the boundaries of {header_seg}."
         ),
     );
 
-    let ignore_supp_text = flag_arg(
+    let ignore_supp_text = override_flag_arg(
         IGNORE_SUPP_TEXT,
         format!("Ignore {supp_text_seg} entirely."),
     );
@@ -379,7 +379,7 @@ fn run() -> AppResult<()> {
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
-    let use_latin1 = flag_arg(
+    let use_latin1 = override_flag_arg(
         USE_LATIN1,
         format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
     );
@@ -417,7 +417,7 @@ fn run() -> AppResult<()> {
              warning, or nothing when trimming results in a blank.",
         ));
 
-    let trim_text_end = flag_arg(
+    let trim_text_end = override_flag_arg(
         TRIM_TEXT_END,
         format!(
             "Decrease the final offset of {text_seg} based on delimiter count \
@@ -545,7 +545,7 @@ fn run() -> AppResult<()> {
 
     // std args
 
-    let dedup_meas_names = flag_arg(
+    let dedup_meas_names = override_flag_arg(
         DEDUP_MEAS_NAMES,
         format!(
             "Force all {pnn} to be unique by appending '{DEDUP_PNN_SEP}X' \
@@ -553,7 +553,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let trim_intra_value_whitespace = flag_arg(
+    let trim_intra_value_whitespace = override_flag_arg(
         TRIM_INTRA_VALUE_WHITESPACE,
         "Remove spaces between comma-separated values.",
     );
@@ -621,7 +621,7 @@ fn run() -> AppResult<()> {
              automatically choose the prior two modes."
         ));
 
-    let allow_other_feature = flag_arg(
+    let allow_other_feature = override_flag_arg(
         ALLOW_OTHER_FEATURE,
         format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\"",),
     );
@@ -658,7 +658,7 @@ fn run() -> AppResult<()> {
         "Disallow any deprecated keywords are present.",
     );
 
-    let fix_log_scale_offset = flag_arg(
+    let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
         format!(
             "Fix {pne} keys that have log scaling with zero offset. \
@@ -668,7 +668,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let disallow_localtime = flag_arg(
+    let disallow_localtime = override_flag_arg(
         DISALLOW_LOCALTIME,
         format!(
             "Require that {begindatetime} and {enddatetime} have a timezone if \
@@ -679,49 +679,47 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let date_pattern = Arg::new(DATE_PATTERN)
-        .long(DATE_PATTERN)
-        .value_name("PATTERN")
-        .value_parser(value_parser!(DatePattern))
-        .help(format!(
-            "Pattern to match {date} keyword. See {date_header}."
-        ));
+    let date_pattern = opt_arg::<DatePattern>(
+        DATE_PATTERN,
+        "PATTERN",
+        format!("Pattern to match {date} keyword. See {date_header}."),
+    );
 
-    let time_pattern = Arg::new(TIME_PATTERN)
-        .long(TIME_PATTERN)
-        .value_name("PATTERN")
-        .value_parser(value_parser!(TimePattern))
-        .help(format!(
-            "Pattern to match {btim}/{etim} keywords. See {time_header}.",
-        ));
+    let time_pattern = opt_arg::<TimePattern>(
+        TIME_PATTERN,
+        "PATTERN",
+        format!("Pattern to match {btim}/{etim} keywords. See {time_header}.",),
+    );
 
-    let datetime_pattern = Arg::new(DATETIME_PATTERN)
-        .long(DATETIME_PATTERN)
-        .value_name("PATTERN")
-        .help(format!(
+    let datetime_pattern = opt_arg::<String>(
+        DATETIME_PATTERN,
+        "PATTERN",
+        format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {begindatetime} and {enddatetime}. It should follow the format \
              outline in {CHRONO_REF}.",
-        ));
+        ),
+    );
 
-    let last_modified_pattern = Arg::new(LAST_MODIFIED_PATTERN)
-        .long(LAST_MODIFIED_PATTERN)
-        .value_name("PATTERN")
-        .help(format!(
+    let last_modified_pattern = opt_arg::<String>(
+        LAST_MODIFIED_PATTERN,
+        "PATTERN",
+        format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {last_modified}. It should follow the format outline in {CHRONO_REF}.",
-        ));
+        ),
+    );
 
-    let ns_meas_pattern = Arg::new(NS_MEAS_PATTERN)
-        .long(NS_MEAS_PATTERN)
-        .value_name("REGEXP")
-        .value_parser(value_parser!(NonStdMeasPattern))
-        .help(format!(
+    let ns_meas_pattern = opt_arg::<NonStdMeasPattern>(
+        NS_MEAS_PATTERN,
+        "REGEXP",
+        format!(
             "Pattern to use when matching non-standard measurement keywords. \
              It must include '{NON_STD_MEAS_INDEX_PAT}' which will be \
              replaced with measurement index. Defaults to \
              '{NON_STD_MEAS_PAT_DEFAULT}'.",
-        ));
+        ),
+    );
 
     let all_std_args = [
         dedup_meas_names,
@@ -752,12 +750,12 @@ fn run() -> AppResult<()> {
     let text_data_correction = correction_arg(TEXT_DATA_COR, false, &data_seg);
     let text_analysis_correction = correction_arg(TEXT_ANALYSIS_COR, false, &analysis_seg);
 
-    let ignore_text_data_offsets = flag_arg(
+    let ignore_text_data_offsets = override_flag_arg(
         IGNORE_TEXT_DATA_OFFSETS,
         format!("Ignore offsets for {data_seg} from {text_seg}."),
     );
 
-    let ignore_text_analysis_offsets = flag_arg(
+    let ignore_text_analysis_offsets = override_flag_arg(
         IGNORE_TEXT_ANALYSIS_OFFSETS,
         format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
@@ -789,7 +787,7 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(ProcessOptionalFailure));
 
-    let int_widths_from_byteord = flag_arg(
+    let int_widths_from_byteord = override_flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
         format!(
             "Set {pnb} based on length of {byteord}. Only has effect \
@@ -909,15 +907,32 @@ fn run() -> AppResult<()> {
         .help("Path to FCS file to parse.")
         .required(true);
 
+    let strategy_arg = Arg::new(STRATEGY)
+        .short('s')
+        .long(STRATEGY)
+        .value_name("WHICH")
+        .value_parser(value_parser!(ReadStrategy))
+        .help(format!(
+            "Overall strategy to use when parsing file. This will enable many \
+             options by default which can be overridden. Set to \
+             {READ_STRATEGY_SCALPAL_LEVEL} to parse non-compliant files while \
+             attempting to preserve metadata. Set to \
+             {READ_STRATEGY_SLEDGEHAMMER_LEVEL} to parse non-compliant files \
+             while dropping non-compliant metadata that cannot be fixed. Set to \
+             {READ_STRATEGY_STRICT_LEVEL} to enforce the standard (default)."
+        ));
+
     let header_cmd = Command::new(SUBCMD_HEADER)
         .about("Show header as JSON.")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .args(&all_header_args)
         .args(&all_offset_args);
 
     let flat_cmd = Command::new(SUBCMD_FLAT)
         .about("Show flat keywords as JSON.")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
@@ -928,6 +943,7 @@ fn run() -> AppResult<()> {
     let std_cmd = Command::new(SUBCMD_STD)
         .about("Dump standardized keywords as JSON.")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .arg(&dataset_index_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
@@ -940,33 +956,37 @@ fn run() -> AppResult<()> {
     let meas_cmd = Command::new(SUBCMD_MEAS)
         .about("Show a table of standardized measurement values.")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .arg(&dataset_index_arg)
+        .arg(&delim_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
         .args(&all_shared_args)
-        .arg(&delim_arg)
         .after_long_help(&std_long_help);
 
     let spill_cmd = Command::new(SUBCMD_SPILL)
         .about("Dump the spillover matrix if present.")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .arg(&dataset_index_arg)
+        .arg(&delim_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
         .args(&all_flat_args)
         .args(&all_std_args)
         .args(&all_layout_args)
         .args(&all_shared_args)
-        .arg(&delim_arg)
         .after_long_help(&std_long_help);
 
     let data_cmd = Command::new(SUBCMD_DATA)
         .about(format!("Show a table of the {data_seg} segment."))
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .arg(&dataset_index_arg)
+        .arg(&delim_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
         .args(&all_flat_args)
@@ -974,12 +994,12 @@ fn run() -> AppResult<()> {
         .args(&all_layout_args)
         .args(&all_dataset_args)
         .args(&all_shared_args)
-        .arg(&delim_arg)
         .after_long_help(&std_long_help);
 
     let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
         .about("Summarize datasets in FCS file")
         .arg(&input_arg)
+        .arg(&strategy_arg)
         .args(&all_header_args)
         .args(&all_offset_args)
         .args(&all_flat_args)
@@ -1090,7 +1110,32 @@ fn run() -> AppResult<()> {
 fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
     Arg::new(long)
         .long(long)
+        .help(help)
         .action(ArgAction::SetTrue)
+}
+
+fn override_flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
+    // unlike the default flags in clap, this can be overridden by passing true
+    // or false. The flat without any value is true, and no flag is false.
+    Arg::new(long)
+        .long(long)
+        .help(help)
+        .value_name("BOOL")
+        .default_missing_value("true")
+        .value_parser(value_parser!(bool))
+        .require_equals(true)
+        .num_args(0..=1)
+}
+
+fn opt_arg<T>(long: &'static str, name: &'static str, help: impl IntoResettable<StyledStr>) -> Arg
+where
+    T: FromStr + Clone + Send + Sync + 'static,
+    T::Err: Error + 'static,
+{
+    Arg::new(long)
+        .long(long)
+        .value_name(name)
+        .value_parser(ValueParser::new(parse_opt::<T>))
         .help(help)
 }
 
@@ -1145,141 +1190,200 @@ fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderConfig {
 }
 
 fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
-    config::ReadHeaderInnerConfig {
-        text_correction: get_correction(sargs, TEXT_COR),
-        data_correction: get_correction(sargs, DATA_COR),
-        analysis_correction: get_correction(sargs, ANALYSIS_COR),
-        // don't add other corrections since these aren't used in this api (yet)
-        other_corrections: vec![],
-        max_other: sargs.get_one::<usize>(MAX_OTHER).copied(),
-        other_width: get_def(sargs, OTHER_WIDTH),
-        guess_other_width: get_def(sargs, GUESS_OTHER_WIDTH),
-        squish_offsets: sargs.get_flag(SQUISH_OFFSETS).into(),
-    }
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadHeaderInnerConfig::new_with_strategy(strat);
+
+    get_correction(sargs, TEXT_COR).inspect(|&x| conf.text_correction = x);
+    get_correction(sargs, DATA_COR).inspect(|&x| conf.data_correction = x);
+    get_correction(sargs, ANALYSIS_COR).inspect(|&x| conf.analysis_correction = x);
+
+    // don't add other corrections since these aren't used in this api (yet)
+
+    let _ = sargs
+        .get_one::<Option<usize>>(MAX_OTHER)
+        .copied()
+        .map(|x| conf.max_other = x);
+
+    get_cloned(sargs, OTHER_WIDTH).inspect(|&w| conf.other_width = w);
+    get_cloned(sargs, GUESS_OTHER_WIDTH).inspect(|&x| conf.guess_other_width = x);
+    get_flag(sargs, SQUISH_OFFSETS).inspect(|&x| conf.squish_offsets = x);
+
+    conf
 }
 
 fn get_offsets_config(sargs: &ArgMatches) -> config::ReadOffsetConfig {
-    config::ReadOffsetConfig {
-        allow_pseudoempty: sargs.get_flag(ALLOW_PSEUDOEMPTY).into(),
-        truncate_offset_limit: get_def(sargs, TRUNCATE_OFFSET_LIMIT),
-        overlap_correction_limit: get_def(sargs, OVERLAP_CORRECTION_LIMIT),
-        data_remainder_limit: get_def(sargs, DATA_REMAINDER_LIMIT),
-    }
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadOffsetConfig::new_with_strategy(strat);
+
+    get_flag(sargs, ALLOW_PSEUDOEMPTY).inspect(|&x| conf.allow_pseudoempty = x);
+    get_cloned(sargs, TRUNCATE_OFFSET_LIMIT).inspect(|&x| conf.truncate_offset_limit = x);
+    get_cloned(sargs, OVERLAP_CORRECTION_LIMIT).inspect(|&x| conf.overlap_correction_limit = x);
+    get_cloned(sargs, DATA_REMAINDER_LIMIT).inspect(|&x| conf.data_remainder_limit = x);
+
+    conf
 }
 
 fn get_header_and_text_config(
     cmd: &Command,
     sargs: &ArgMatches,
 ) -> config::ReadHeaderAndTEXTConfig {
-    let version_override = sargs.get_one(VERSION_OVERRIDE).copied();
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
-    let nextdata_correction = sargs.get_one(NEXTDATA_COR).copied().unwrap_or_default();
+    let _ = get_cloned(sargs, VERSION_OVERRIDE).map(|x| conf.version_override = x);
+    let _ = get_correction(sargs, SUPP_TEXT_COR).map(|x| conf.supp_text_correction = x);
+    let _ = get_cloned(sargs, NEXTDATA_COR).map(|x| conf.nextdata_correction = x);
 
-    let parse_key_or_pat = |lit_flag: &str, pat_flag: &str| {
-        let lits = sargs
-            .get_many::<KeyStringOrPattern>(lit_flag)
-            .unwrap_or_default();
-        let pats = sargs
-            .get_many::<KeyStringOrPattern>(pat_flag)
-            .unwrap_or_default();
-        lits.chain(pats).cloned().map(|x| (x, ())).collect()
+    let _ =
+        get_cloned(sargs, ALLOW_DUPLICATED_SUPP_TEXT).map(|x| conf.allow_duplicated_supp_text = x);
+    let _ = get_flag(sargs, IGNORE_SUPP_TEXT).map(|x| conf.ignore_supp_text = x);
+    let _ = get_cloned(sargs, DELIM_ESCAPE_MODE).map(|x| conf.delim_escape_mode = x);
+    let _ = get_cloned(sargs, ALLOW_NON_ASCII_DELIM).map(|x| conf.allow_non_ascii_delim = x);
+    let _ =
+        get_cloned(sargs, ALLOW_MISSING_FINAL_DELIM).map(|x| conf.allow_missing_final_delim = x);
+    let _ = get_cloned(sargs, ALLOW_NON_UNIQUE).map(|x| conf.allow_nonunique = x);
+    let _ = get_cloned(sargs, ALLOW_ODD).map(|x| conf.allow_odd = x);
+    let _ = get_cloned(sargs, ALLOW_EMPTY_KEYS).map(|x| conf.allow_empty_keys = x);
+    let _ = get_cloned(sargs, ALLOW_DELIM_AT_BOUNDARY).map(|x| conf.allow_delim_at_boundary = x);
+    let _ = get_cloned(sargs, ALLOW_NON_UTF8).map(|x| conf.allow_non_utf8 = x);
+    let _ = get_flag(sargs, USE_LATIN1).map(|x| conf.use_latin1 = x);
+    let _ = get_cloned(sargs, ALLOW_NON_ASCII_KEYWORDS).map(|x| conf.allow_non_ascii_keywords = x);
+    let _ = get_cloned(sargs, ALLOW_MISSING_SUPP_TEXT).map(|x| conf.allow_missing_supp_text = x);
+    let _ =
+        get_cloned(sargs, ALLOW_SUPP_TEXT_OWN_DELIM).map(|x| conf.allow_supp_text_own_delim = x);
+    let _ = get_cloned(sargs, ALLOW_MISSING_NEXTDATA).map(|x| conf.allow_missing_nextdata = x);
+    let _ = get_cloned(sargs, TRIM_VALUE_WHITESPACE).map(|x| conf.trim_value_whitespace = x);
+    let _ = get_flag(sargs, TRIM_TEXT_END).map(|x| conf.trim_text_end = x);
+
+    let parse_key_pat = |lit_flag: &str, pat_flag: &str| {
+        let lits = sargs.get_many::<KeyStringOrPattern>(lit_flag);
+        let pats = sargs.get_many::<KeyStringOrPattern>(pat_flag);
+        match (lits, pats) {
+            (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().map(|x| (x, ())).collect()),
+            (Some(xs), None) | (None, Some(xs)) => Some(xs.cloned().map(|x| (x, ())).collect()),
+            (None, None) => None,
+        }
     };
 
-    let ignore_standard_keys = parse_key_or_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY);
-    let promote_to_standard = parse_key_or_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD);
-    let demote_from_standard = parse_key_or_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD);
+    let _ = parse_key_pat(IGNORE_STD_LIT_KEY, IGNORE_STD_PAT_KEY)
+        .map(|x| conf.ignore_standard_keys = x);
+    let _ =
+        parse_key_pat(PROMOTE_LIT_TO_STD, PROMOTE_PAT_TO_STD).map(|x| conf.promote_to_standard = x);
+    let _ = parse_key_pat(DEMOTE_LIT_FROM_STD, DEMOTE_PAT_FROM_STD)
+        .map(|x| conf.demote_from_standard = x);
 
-    let Ok(rename_standard_keys): Result<KeyStringPairs, Infallible> = sargs
-        .get_many::<BiKeystringPair>(RENAME_STD_KEYS)
-        .unwrap_or_default()
-        .cloned()
-        .collect::<HashMap<_, _>>()
-        .try_into()
-        .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
+    if let Some(xs) = sargs.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
+        let Ok(ys) = xs
+            .cloned()
+            .collect::<HashMap<_, _>>()
+            .try_into()
+            .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
+        conf.rename_standard_keys = ys;
+    }
 
     let parse_keystring_pair = |name: &str| {
         sargs
             .get_many::<KeystringStringPair>(name)
-            .unwrap_or_default()
-            .cloned()
-            .collect()
+            .map(|xs| xs.cloned().collect())
     };
 
-    let parse_subpattern = |name: &str| sargs.get_many::<SubPatternPair>(name).unwrap_or_default();
+    let _ =
+        parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| conf.replace_standard_key_values = x);
+    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| conf.append_standard_keywords = x);
 
-    let sub_lits = parse_subpattern(SUB_STD_LIT_KEY_VALS);
-    let sub_pats = parse_subpattern(SUB_STD_PAT_KEY_VALS);
+    let sub_lits = sargs.get_many::<SubPatternPair>(SUB_STD_LIT_KEY_VALS);
+    let sub_pats = sargs.get_many::<SubPatternPair>(SUB_STD_PAT_KEY_VALS);
 
-    let substitute_standard_key_values = sub_lits.chain(sub_pats).cloned().collect();
+    let substitute_standard_key_values = match (sub_lits, sub_pats) {
+        (Some(xs), Some(ys)) => Some(xs.chain(ys).cloned().collect()),
+        (Some(xs), None) | (None, Some(xs)) => Some(xs.cloned().collect()),
+        (None, None) => None,
+    };
 
-    config::ReadHeaderAndTEXTConfig {
-        version_override,
-        supp_text_correction: get_correction(sargs, SUPP_TEXT_COR),
-        nextdata_correction,
-        allow_duplicated_supp_text: get_def(sargs, ALLOW_OVERLAPPING_SUPP_TEXT),
-        ignore_supp_text: sargs.get_flag(IGNORE_SUPP_TEXT).into(),
-        delim_escape_mode: get_def(sargs, DELIM_ESCAPE_MODE),
-        allow_non_ascii_delim: get_def(sargs, ALLOW_NON_ASCII_DELIM),
-        allow_missing_final_delim: get_def(sargs, ALLOW_MISSING_FINAL_DELIM),
-        allow_nonunique: get_def(sargs, ALLOW_NON_UNIQUE),
-        allow_odd: get_def(sargs, ALLOW_ODD),
-        allow_empty_keys: get_def(sargs, ALLOW_EMPTY_KEYS),
-        allow_delim_at_boundary: get_def(sargs, ALLOW_DELIM_AT_BOUNDARY),
-        allow_non_utf8: get_def(sargs, ALLOW_NON_UTF8),
-        use_latin1: sargs.get_flag(USE_LATIN1).into(),
-        allow_non_ascii_keywords: get_def(sargs, ALLOW_NON_ASCII_KEYWORDS),
-        allow_missing_supp_text: get_def(sargs, ALLOW_MISSING_SUPP_TEXT),
-        allow_supp_text_own_delim: get_def(sargs, ALLOW_SUPP_TEXT_OWN_DELIM),
-        allow_missing_nextdata: get_def(sargs, ALLOW_MISSING_NEXTDATA),
-        trim_value_whitespace: get_def(sargs, TRIM_VALUE_WHITESPACE),
-        trim_text_end: sargs.get_flag(TRIM_TEXT_END).into(),
-        ignore_standard_keys,
-        rename_standard_keys,
-        promote_to_standard,
-        demote_from_standard,
-        replace_standard_key_values: parse_keystring_pair(REPLACE_STD_KEY_VALS),
-        append_standard_keywords: parse_keystring_pair(APPEND_STD_KEY_VALS),
-        substitute_standard_key_values,
-    }
+    let _ = substitute_standard_key_values.map(|x| conf.substitute_standard_key_values = x);
+
+    conf
 }
 
 fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
-    let time_meas_pattern = sargs
-        .get_one(TIME_MEAS_PATTERN)
-        .cloned()
-        .unwrap_or_default();
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadStdKeywordsConfig::new_with_strategy(strat);
 
-    let ignore_time_optical_keys = sargs
-        .get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS)
-        .unwrap_or_default()
-        .copied()
-        .collect::<HashSet<_>>()
-        .into();
+    let _ = get_flag(sargs, DEDUP_MEAS_NAMES).map(|x| conf.dedup_measurement_names = x);
+    let _ =
+        get_flag(sargs, TRIM_INTRA_VALUE_WHITESPACE).map(|x| conf.trim_intra_value_whitespace = x);
 
-    let ns_meas_pat = sargs.get_one::<NonStdMeasPattern>(NS_MEAS_PATTERN).cloned();
+    let _ = get_cloned(sargs, TIME_MEAS_PATTERN).map(|x| conf.time_meas_pattern = x);
 
-    config::ReadStdKeywordsConfig {
-        dedup_measurement_names: sargs.get_flag(DEDUP_MEAS_NAMES).into(),
-        trim_intra_value_whitespace: sargs.get_flag(TRIM_INTRA_VALUE_WHITESPACE).into(),
-        time_meas_pattern,
-        force_linear_scale: get_def(sargs, FORCE_LINEAR_SCALE),
-        ignore_time_optical_keys,
-        process_time_optical_keys: get_def(sargs, PROCESS_TIME_OPTICAL_KEYS),
-        allow_missing_time: get_def(sargs, ALLOW_MISSING_TIME),
-        spillover_measurement_mode: get_def(sargs, SPILLOVER_MEASUREMENT_MODE),
-        date_pattern: sargs.get_one(DATE_PATTERN).cloned(),
-        time_pattern: sargs.get_one(TIME_PATTERN).cloned(),
-        datetime_pattern: sargs.get_one::<String>(DATETIME_PATTERN).cloned(),
-        last_modified_pattern: sargs.get_one::<String>(LAST_MODIFIED_PATTERN).cloned(),
-        allow_other_feature: sargs.get_flag(ALLOW_OTHER_FEATURE).into(),
-        process_pseudostandard: get_def(sargs, PROCESS_PSEUDOSTANDARD),
-        process_hyper_par: get_def(sargs, PROCESS_HYPER_PAR),
-        process_other_version: get_def(sargs, PROCESS_OTHER_VERSION),
-        process_extra_timestep: get_def(sargs, PROCESS_EXTRA_TIMESTEP),
-        disallow_deprecated: get_def(sargs, DISALLOW_DEPRECATED),
-        fix_log_scale_offsets: sargs.get_flag(FIX_LOG_SCALE_OFFSETS).into(),
-        disallow_localtime: sargs.get_flag(DISALLOW_LOCALTIME).into(),
-        nonstandard_measurement_pattern: NonStdMeasPatternOpt(ns_meas_pat),
+    let _ = get_cloned(sargs, FORCE_LINEAR_SCALE).map(|x| conf.force_linear_scale = x);
+
+    if let Some(xs) = sargs.get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
+        conf.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
+    }
+
+    let _ =
+        get_cloned(sargs, PROCESS_TIME_OPTICAL_KEYS).map(|x| conf.process_time_optical_keys = x);
+    let _ = get_cloned(sargs, ALLOW_MISSING_TIME).map(|x| conf.allow_missing_time = x);
+    let _ =
+        get_cloned(sargs, SPILLOVER_MEASUREMENT_MODE).map(|x| conf.spillover_measurement_mode = x);
+
+    let _ = get_cloned(sargs, DATE_PATTERN).map(|x| conf.date_pattern = x);
+    let _ = get_cloned(sargs, TIME_PATTERN).map(|x| conf.time_pattern = x);
+    let _ = get_cloned(sargs, DATETIME_PATTERN).map(|x| conf.datetime_pattern = x);
+    let _ = get_cloned(sargs, LAST_MODIFIED_PATTERN).map(|x| conf.last_modified_pattern = x);
+
+    let _ = get_flag(sargs, ALLOW_OTHER_FEATURE).map(|x| conf.allow_other_feature = x);
+    let _ = get_cloned(sargs, PROCESS_PSEUDOSTANDARD).map(|x| conf.process_pseudostandard = x);
+    let _ = get_cloned(sargs, PROCESS_HYPER_PAR).map(|x| conf.process_hyper_par = x);
+    let _ = get_cloned(sargs, PROCESS_OTHER_VERSION).map(|x| conf.process_other_version = x);
+    let _ = get_cloned(sargs, PROCESS_EXTRA_TIMESTEP).map(|x| conf.process_extra_timestep = x);
+    let _ = get_cloned(sargs, DISALLOW_DEPRECATED).map(|x| conf.disallow_deprecated = x);
+    let _ = get_flag(sargs, FIX_LOG_SCALE_OFFSETS).map(|x| conf.fix_log_scale_offsets = x);
+    let _ = get_flag(sargs, DISALLOW_LOCALTIME).map(|x| conf.disallow_localtime = x);
+
+    let _ = get_cloned(sargs, NS_MEAS_PATTERN)
+        .map(|x| conf.nonstandard_measurement_pattern = NonStdMeasPatternOpt(x));
+    conf
+}
+
+fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadDataKeywordsConfig::new_with_strategy(strat);
+
+    let _ = get_correction(sargs, TEXT_DATA_COR).map(|x| conf.text_data_correction = x);
+    let _ = get_correction(sargs, TEXT_ANALYSIS_COR).map(|x| conf.text_analysis_correction = x);
+    let _ = get_flag(sargs, IGNORE_TEXT_DATA_OFFSETS).map(|x| conf.ignore_text_data_offsets = x);
+    let _ = get_flag(sargs, IGNORE_TEXT_ANALYSIS_OFFSETS)
+        .map(|x| conf.ignore_text_analysis_offsets = x);
+    let _ = get_cloned(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
+        .map(|x| conf.allow_header_text_offset_mismatch = x);
+    let _ = get_cloned(sargs, ALLOW_MISSING_REQUIRED_OFFSETS)
+        .map(|x| conf.allow_missing_required_offsets = x);
+    let _ = get_cloned(sargs, PROCESS_OPTIONAL_FAILURE).map(|x| conf.process_optional_failure = x);
+    let _ = get_flag(sargs, INT_WIDTHS_FROM_BYTEORD).map(|x| conf.integer_widths_from_byteord = x);
+    let _ = get_opt(sargs, INT_BYTEORD_OVERRIDE).map(|x| conf.integer_byteord_override = x);
+    let _ =
+        get_cloned(sargs, DISALLOW_RANGE_TRUNCATION).map(|x| conf.disallow_range_truncation = x);
+
+    conf
+}
+
+fn get_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
+    let strat = get_strategy(sargs);
+    let mut conf = config::ReadEventsConfig::new_with_strategy(strat);
+
+    let _ = get_cloned(sargs, ALLOW_TOT_MISMATCH).map(|x| conf.allow_tot_mismatch = x);
+    let _ = get_cloned(sargs, ALLOW_UNEVEN_EVENT_WIDTH).map(|x| conf.allow_uneven_event_width = x);
+    let _ = get_cloned(sargs, TRUNCATE_EVENT_VALUES).map(|x| conf.truncate_event_values = x);
+    let _ = get_cloned(sargs, DISALLOW_OVER_RANGE).map(|x| conf.disallow_over_range = x);
+
+    conf
+}
+
+fn get_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
+    config::ReadSharedConfig {
+        warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
+        hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
 }
 
@@ -1326,41 +1430,14 @@ fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdD
     }
 }
 
-fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
-    config::ReadDataKeywordsConfig {
-        text_data_correction: get_correction(sargs, TEXT_DATA_COR),
-        text_analysis_correction: get_correction(sargs, TEXT_ANALYSIS_COR),
-        ignore_text_data_offsets: sargs.get_flag(IGNORE_TEXT_DATA_OFFSETS).into(),
-        ignore_text_analysis_offsets: sargs.get_flag(IGNORE_TEXT_ANALYSIS_OFFSETS).into(),
-        allow_header_text_offset_mismatch: get_def(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH),
-        allow_missing_required_offsets: get_def(sargs, ALLOW_MISSING_REQUIRED_OFFSETS),
-        process_optional_failure: get_def(sargs, PROCESS_OPTIONAL_FAILURE),
-        integer_widths_from_byteord: sargs.get_flag(INT_WIDTHS_FROM_BYTEORD).into(),
-        integer_byteord_override: get_opt(sargs, INT_BYTEORD_OVERRIDE),
-        disallow_range_truncation: get_def(sargs, DISALLOW_RANGE_TRUNCATION),
-    }
-}
-
-fn get_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
-    config::ReadEventsConfig {
-        allow_tot_mismatch: get_def(sargs, ALLOW_TOT_MISMATCH),
-        allow_uneven_event_width: get_def(sargs, ALLOW_UNEVEN_EVENT_WIDTH),
-        truncate_event_values: get_def(sargs, TRUNCATE_EVENT_VALUES),
-        disallow_over_range: get_def(sargs, DISALLOW_OVER_RANGE),
-    }
-}
-
-fn get_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
-    config::ReadSharedConfig {
-        warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
-        hide_warnings: sargs.get_flag(HIDE_WARNINGS),
-    }
-}
-
 fn get_input_path(sargs: &ArgMatches) -> &PathBuf {
     sargs
         .get_one::<PathBuf>(INPUT_PATH)
         .expect("path is required")
+}
+
+fn get_strategy(sargs: &ArgMatches) -> ReadStrategy {
+    sargs.get_one(STRATEGY).copied().unwrap_or_default()
 }
 
 fn get_dataset_index(sargs: &ArgMatches) -> Option<usize> {
@@ -1379,19 +1456,22 @@ fn get_delim(sargs: &ArgMatches) -> &String {
     sargs.get_one::<String>(DELIM).unwrap()
 }
 
-fn get_def<T>(sargs: &ArgMatches, name: &str) -> T
+fn get_cloned<T>(sargs: &ArgMatches, name: &str) -> Option<T>
 where
-    T: Default + Copy + Sync + Send + 'static,
+    T: Clone + Sync + Send + 'static,
 {
-    sargs.get_one(name).copied().unwrap_or_default()
+    sargs.get_one(name).cloned()
 }
 
-fn get_correction<I, S>(sargs: &ArgMatches, name: &str) -> OffsetCorrection<I, S> {
-    sargs
-        .get_one::<(i32, i32)>(name)
-        .copied()
-        .unwrap_or_default()
-        .into()
+fn get_flag<T>(sargs: &ArgMatches, name: &str) -> Option<T>
+where
+    T: Copy + Sync + Send + 'static + From<bool>,
+{
+    sargs.get_one::<bool>(name).copied().map(T::from)
+}
+
+fn get_correction<I, S>(sargs: &ArgMatches, name: &str) -> Option<OffsetCorrection<I, S>> {
+    sargs.get_one::<(i32, i32)>(name).copied().map(Into::into)
 }
 
 fn get_opt<T>(sargs: &ArgMatches, name: &str) -> Option<T>
@@ -1399,6 +1479,17 @@ where
     T: Default + Copy + Sync + Send + 'static,
 {
     sargs.get_one(name).copied()
+}
+
+fn parse_opt<T>(s: &str) -> StrResult<Option<T>>
+where
+    T: FromStr,
+    T::Err: Error + 'static,
+{
+    if s == "none" {
+        return Ok(None);
+    }
+    Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
 }
 
 fn parse_offsets(s: &str) -> StrResult<(i32, i32)> {
@@ -1426,11 +1517,11 @@ fn parse_keystring_pattern(s: &str) -> Result<KeyStringOrPattern, KeyRegexError>
     Ok(s.parse::<CaseInsRegex>().map(KeyStringOrPattern::Pattern)?)
 }
 
-fn parse_sub_pattern_literal(s: &str) -> Result<SubPatternPair, String> {
+fn parse_sub_pattern_literal(s: &str) -> StrResult<SubPatternPair> {
     parse_sub_pattern_pair(s, |k| Ok(parse_keystring_literal(k)?))
 }
 
-fn parse_sub_pattern_pattern(s: &str) -> Result<SubPatternPair, String> {
+fn parse_sub_pattern_pattern(s: &str) -> StrResult<SubPatternPair> {
     parse_sub_pattern_pair(s, |k| Ok(parse_keystring_pattern(k)?))
 }
 
@@ -1447,7 +1538,7 @@ fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
     Ok((kf, v.to_owned()))
 }
 
-fn parse_sub_pattern_pair<F>(s: &str, f: F) -> Result<SubPatternPair, String>
+fn parse_sub_pattern_pair<F>(s: &str, f: F) -> StrResult<SubPatternPair>
 where
     F: FnOnce(&str) -> AppResult<KeyStringOrPattern>,
 {
@@ -1576,7 +1667,7 @@ const SUPP_TEXT_COR: &str = "supp-text-correction";
 
 const NEXTDATA_COR: &str = "nextdata-correction";
 
-const ALLOW_OVERLAPPING_SUPP_TEXT: &str = "allow-overlapping-supp-text";
+const ALLOW_DUPLICATED_SUPP_TEXT: &str = "allow-duplicated-supp-text";
 
 const IGNORE_SUPP_TEXT: &str = "ignore-supp-text";
 
@@ -1715,6 +1806,8 @@ const SKIP: &str = "skip";
 const LIMIT: &str = "limit";
 
 const INPUT_PATH: &str = "input-path";
+
+const STRATEGY: &str = "strategy";
 
 const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/index.html";
 

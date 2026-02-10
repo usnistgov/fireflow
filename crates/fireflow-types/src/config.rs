@@ -473,6 +473,41 @@ impl_multiflag!(
     Both, STD_KW_ROOT_AND_MEAS_LEVEL;
 );
 
+pub const READ_STRATEGY_STRICT_LEVEL: &str = "strict";
+pub const READ_STRATEGY_SCALPAL_LEVEL: &str = "scalpal";
+pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &str = "sledgehammer";
+
+// TODO the docstrings here are a bit awkward since we refer to things in child
+// crates implicitly
+impl_multiflag!(
+    /// Overall strategy to read FCS files.
+    ///
+    /// This is a "metaflag" which will activate individual flags in each
+    /// configuration struct. The exact flags to be activated will depend on the
+    /// struct. In all cases, this will activate the flags which emit warnings
+    /// where applicable. If one does not desire warnings, they can be
+    /// suppressed elsewhere in the config.
+    ///
+    /// In general, the different levels for this are a tradeoff between the ability
+    /// to read events from DATA vs preserving metadata.
+    ReadStrategy,
+    /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
+    ReadStrategyError,
+    /// Follow the standard fully (configuration is totally default).
+    ///
+    /// Many files will fail this, but it is useful for validation.
+    Strict,       READ_STRATEGY_STRICT_LEVEL;
+    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
+    ///
+    /// This is likely a good option for many files.
+    Scalpal,      READ_STRATEGY_SCALPAL_LEVEL;
+    /// Use "unsafe" non-compliant parsing.
+    ///
+    /// This is the best option when all one cares about is reading DATA.
+    /// Non-compliant metadata in TEXT will be skipped.
+    Sledgehammer, READ_STRATEGY_SLEDGEHAMMER_LEVEL;
+);
+
 // internal constants, many are shared between enums to keep the API simpler
 
 const NONE_LEVEL: &str = "none";

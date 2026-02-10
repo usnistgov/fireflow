@@ -40,8 +40,8 @@ pub use fireflow_types::config::{
 };
 
 use fireflow_types::config::{
-    ProcessKeywordFailure, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    ProcessKeywordFailure, ReadStrategy, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 
@@ -1103,43 +1103,6 @@ impl FromStr for SelectVersionStrategy {
 #[derive(From)]
 #[from(FromStrError)]
 pub struct SelectVersionStrategyError;
-
-/// Overall strategy to read FCS files.
-///
-/// This is a "metaflag" which will activate individual flags in each
-/// configuration struct. The exact flags to be activated will depend on the
-/// struct. In all cases, this will activate the flags which emit warnings where
-/// applicable. If one does not desire warnings, use
-/// [`ReadSharedConfig::hide_warnings`].
-///
-/// In general, the different levels for this are a tradeoff between the ability
-/// to read events from DATA vs preserving metadata.
-#[derive(Clone, Copy, Default, FromStr)]
-#[from_str(rename_all = "snake_case")]
-#[from_str(error(ReadStrategyError))]
-pub enum ReadStrategy {
-    /// Follow the standard fully (configuration is totally default).
-    ///
-    /// Many files will fail this, but it is useful for validation.
-    #[default]
-    Strict,
-    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
-    ///
-    /// This is likely a good option for many files.
-    Scalpal,
-    /// Use "unsafe" non-compliant parsing.
-    ///
-    /// This is the best option when all one cares about is reading DATA.
-    /// Non-compliant metadata in TEXT will be skipped.
-    Sledgehammer,
-}
-
-#[derive(Error, Debug, From)]
-#[error("must be one of 'strict', 'scalpal', 'sledgehammer'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-#[from(FromStrError)]
-pub struct ReadStrategyError;
 
 pub trait HasStrategy {
     #[must_use]

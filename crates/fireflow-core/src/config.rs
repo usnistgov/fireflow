@@ -40,8 +40,8 @@ pub use fireflow_types::config::{
 };
 
 use fireflow_types::config::{
-    ProcessKeywordFailure, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    ProcessKeywordFailure, ReadStrategy, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 
@@ -63,7 +63,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString},
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString},
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
@@ -78,7 +78,10 @@ pub struct ReadHeaderConfig {
 /// Instructions for reading the HEADER and TEXT segments in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatTEXTConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -90,7 +93,10 @@ pub struct ReadFlatTEXTConfig {
 /// Instructions for reading the HEADER and TEXT segments in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -109,7 +115,10 @@ pub struct ReadStdTEXTConfig {
 /// Instructions for reading a dataset in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -128,7 +137,10 @@ pub struct ReadFlatDatasetConfig {
 /// Instructions for reading a dataset in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -265,6 +277,7 @@ pub struct WriteMultiConfig {
 
 /// Specific instructions for reading HEADER
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderInnerConfig {
     /// Corrections for primary TEXT segment
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -323,6 +336,7 @@ pub struct ReadHeaderInnerConfig {
 
 /// Specific instructions for reading offsets
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadOffsetConfig {
     /// Allow offsets that are like `X,X-1`.
     ///
@@ -382,11 +396,8 @@ pub struct ReadOffsetConfig {
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderAndTEXTConfig {
-    /// Config for reading HEADER
-    #[as_ref(ReadHeaderInnerConfig)]
-    pub header: ReadHeaderInnerConfig,
-
     // NOTE the only reason this is here and not in the Keywords configs is
     // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
@@ -648,6 +659,7 @@ pub struct ReadHeaderAndTEXTConfig {
 
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadStdKeywordsConfig {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
@@ -687,7 +699,7 @@ pub struct ReadStdKeywordsConfig {
     ///
     /// In the case of $PnG, the value is allowed to be set to 1.0 since this
     /// equates to a no-op.
-    pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
+    pub ignore_time_optical_keys: TemporalOpticalKeys,
 
     /// Choose what to do with optical keywords in the time channel when found.
     ///
@@ -832,6 +844,7 @@ pub struct ReadStdKeywordsConfig {
 /// [`crate::core::CoreDataset`], these options are here since the layout is the
 /// thing they have in common.
 #[derive(Default, Clone, Copy, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadDataKeywordsConfig {
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
@@ -929,6 +942,7 @@ pub struct ReadDataKeywordsConfig {
 
 /// Specific instructions for reading events from DATA segment
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadEventsConfig {
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
@@ -961,6 +975,7 @@ pub struct ReadEventsConfig {
 
 /// Configuration options for across all reading functions
 #[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadSharedConfig {
     /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
@@ -972,6 +987,7 @@ pub struct ReadSharedConfig {
 /// Configuration to override/detect FCS version
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub enum VersionOverride {
     Force(Version),
     AutoDetect(SelectVersionStrategy),
@@ -1000,8 +1016,8 @@ pub struct VersionOverrideError;
 
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
-        #[derive(Clone, Copy, Default, FromStr, Into)]
-        #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[derive(Clone, Copy, Default, FromStr, Display, Into, From)]
+        #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
         pub struct $t(pub ProcessKeywordFailure);
 
         impl ErrorFlag for $t {
@@ -1042,6 +1058,7 @@ impl_proc_key_fail!(ProcessExtraTimestep);
 
 /// Strategy to use when autodetecting FCS version
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyString))]
 pub enum SelectVersionStrategy {
     /// Choose the latest version
     Latest,
@@ -1051,6 +1068,18 @@ pub enum SelectVersionStrategy {
     Loose,
     /// Choose the version with the least optional keywords
     Strict,
+}
+
+impl fmt::Display for SelectVersionStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Earliest => VERSION_EARLIEST_LEVEL,
+            Self::Latest => VERSION_LATEST_LEVEL,
+            Self::Loose => VERSION_LOOSE_LEVEL,
+            Self::Strict => VERSION_STRICT_LEVEL,
+        };
+        f.write_str(s)
+    }
 }
 
 impl FromStr for SelectVersionStrategy {
@@ -1074,6 +1103,33 @@ impl FromStr for SelectVersionStrategy {
 #[derive(From)]
 #[from(FromStrError)]
 pub struct SelectVersionStrategyError;
+
+pub trait HasStrategy {
+    #[must_use]
+    fn new_with_strategy(strat: ReadStrategy) -> Self
+    where
+        Self: Default,
+    {
+        let mut conf = Self::default();
+        conf.with_strategy(strat);
+        conf
+    }
+
+    fn with_strategy(&mut self, strat: ReadStrategy) {
+        match strat {
+            ReadStrategy::Strict => (),
+            ReadStrategy::Scalpal => self.with_scalpal(),
+            ReadStrategy::Sledgehammer => {
+                self.with_scalpal();
+                self.with_sledgehammer();
+            }
+        }
+    }
+
+    fn with_scalpal(&mut self);
+
+    fn with_sledgehammer(&mut self) {}
+}
 
 pub trait ConfigFlag {
     fn is_set(&self) -> bool;
@@ -1156,8 +1212,9 @@ macro_rules! impl_tri_error_flag {
     };
 
     (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Into, Clone, Copy, FromStr, Default)]
+        #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[cfg_attr(feature = "python", derive(IntoPyString))]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
@@ -1303,15 +1360,22 @@ pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct TruncateOffsetLimit(pub u64);
 
 /// The maximum number of bytes an ending offset may be decreased to avoid overlap.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct OverlapCorrectionLimit(pub u64);
 
 /// The maximum number of bytes the DATA ending offset may be decreased based on event width.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DataRemainderLimit(pub u64);
+
+/// Set of temporal optical keys.
+#[derive(Clone, Default, From, Into)]
+pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
 
 /// State pertinent to reading a file
 #[derive(new)]
@@ -1373,63 +1437,399 @@ type TemporalOpticalResult = WarningsAndErrorsResult<
     TemporalHasOpticalKeyError,
 >;
 
-pub(crate) fn remove_temporal_optical_keys(
-    targets: &[TemporalOpticalKey],
-    ignore: &HashSet<TemporalOpticalKey>,
-    std: &mut StdKeywords,
-    nonstd: &mut NonStdKeywords,
-    i: MeasIndex,
-    flag: ProcessTemporalOpticalKeys,
-) -> TemporalOpticalResult {
-    let mut es = vec![];
-    let mut ws = vec![];
-    let mut pairs = vec![];
-    for t in targets {
-        let k = StdKey::from_temporal_optical_key(*t, i);
-        let (demote, warn) = match flag {
-            ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
-            ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
-            ProcessTemporalOpticalKeys::DropWarn => (false, true),
-            ProcessTemporalOpticalKeys::DropSilent => (false, false),
-        };
-        if let Some(v) = std.remove(&k) {
-            let err = || TemporalHasOpticalKeyError::new(i, *t);
-            if ignore.contains(t) {
-                if demote {
-                    nonstd.insert_demoted(k.clone(), v.clone());
+impl TemporalOpticalKeys {
+    fn all() -> Self {
+        let keys = [
+            TemporalOpticalKey::Gain,
+            TemporalOpticalKey::Analyte,
+            TemporalOpticalKey::Calibration,
+            TemporalOpticalKey::DetectorName,
+            TemporalOpticalKey::DetectorType,
+            TemporalOpticalKey::DetectorVoltage,
+            TemporalOpticalKey::Feature,
+            TemporalOpticalKey::Filter,
+            TemporalOpticalKey::PercentEmitted,
+            TemporalOpticalKey::Power,
+            TemporalOpticalKey::Tag,
+            TemporalOpticalKey::Wavelength,
+        ];
+        Self(keys.into_iter().collect())
+    }
+
+    pub(crate) fn remove(
+        &self,
+        targets: &[TemporalOpticalKey],
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
+        let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
+        for t in targets {
+            let k = StdKey::from_temporal_optical_key(*t, i);
+            let (demote, warn) = match flag {
+                ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
+                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
+                ProcessTemporalOpticalKeys::DropWarn => (false, true),
+                ProcessTemporalOpticalKeys::DropSilent => (false, false),
+            };
+            if let Some(v) = std.remove(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if self.0.contains(t) {
+                    if demote {
+                        nonstd.insert_demoted(k.clone(), v.clone());
+                    }
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, v));
+                } else {
+                    es.push(err());
                 }
-                if warn {
-                    ws.push(err());
-                }
-                pairs.push((k, v));
-            } else {
-                es.push(err());
             }
         }
+        let mut res = LogResult::new_err_from_iter(es, pairs);
+        res.extend_commutative_warnings(ws);
+        res
     }
-    let mut res = LogResult::new_err_from_iter(es, pairs);
-    res.extend_commutative_warnings(ws);
-    res
+}
+
+impl HasStrategy for ReadHeaderConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.offset.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.offset.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadStdTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadStdDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
+        self.flat.with_scalpal();
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
+        self.flat.with_sledgehammer();
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.offset.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.offset.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for NewCoreTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for NewCoreDatasetConfig {
+    fn with_scalpal(&mut self) {
+        self.offset.with_scalpal();
+        self.standard.with_scalpal();
+        self.layout.with_scalpal();
+        self.data.with_scalpal();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.offset.with_sledgehammer();
+        self.standard.with_sledgehammer();
+        self.layout.with_sledgehammer();
+        self.data.with_sledgehammer();
+    }
+}
+
+impl HasStrategy for ReadHeaderInnerConfig {
+    fn with_scalpal(&mut self) {
+        self.guess_other_width = GuessOtherWidth::Warn;
+        self.squish_offsets = true.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.max_other = Some(0);
+    }
+}
+
+impl HasStrategy for ReadOffsetConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_pseudoempty = true.into();
+        // Allow automatic correction of off-by-one offset errors. This won't
+        // always work but will likely take care of %80 of cases.
+        self.truncate_offset_limit = 1.into();
+        self.overlap_correction_limit = 1.into();
+        self.data_remainder_limit = 1.into();
+    }
+}
+
+impl HasStrategy for ReadHeaderAndTEXTConfig {
+    fn with_scalpal(&mut self) {
+        self.version_override = Some(VersionOverride::AutoDetect(SelectVersionStrategy::Loose));
+        self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
+        self.allow_duplicated_supp_text = TriFlag::True.into();
+        self.allow_non_ascii_delim = TriFlag::True.into();
+        self.allow_missing_final_delim = TriFlag::True.into();
+        self.allow_nonunique = TriFlag::True.into();
+        self.allow_odd = TriFlag::True.into();
+        self.allow_empty_keys = TriFlag::True.into();
+        self.allow_delim_at_boundary = TriFlag::True.into();
+        self.allow_non_utf8 = TriFlag::True.into();
+        self.allow_non_ascii_keywords = TriFlag::True.into();
+        self.allow_missing_supp_text = TriFlag::True.into();
+        self.allow_supp_text_own_delim = TriFlag::True.into();
+        self.allow_missing_nextdata = TriFlag::True.into();
+        self.trim_value_whitespace = TrimValueWhitespace::TrimBlankWarn;
+        self.trim_text_end = true.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.ignore_supp_text = true.into();
+    }
+}
+
+impl HasStrategy for ReadStdKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.dedup_measurement_names = true.into();
+        self.trim_intra_value_whitespace = true.into();
+        self.spillover_measurement_mode = SpilloverMeasurementMode::Guess;
+        self.allow_other_feature = true.into();
+        self.fix_log_scale_offsets = true.into();
+        // This flag all optical keys as ignorable in the time measurement.
+        // The next flag tells what to do with them (in this case, demote)
+        self.ignore_time_optical_keys = TemporalOpticalKeys::all();
+        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DemoteWarn;
+        self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_hyper_par = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_other_version = ProcessKeywordFailure::DemoteWarn.into();
+        self.process_extra_timestep = ProcessKeywordFailure::DemoteWarn.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DropWarn;
+        self.process_pseudostandard = ProcessKeywordFailure::DropWarn.into();
+        self.process_hyper_par = ProcessKeywordFailure::DropWarn.into();
+        self.process_other_version = ProcessKeywordFailure::DropWarn.into();
+        self.process_extra_timestep = ProcessKeywordFailure::DropWarn.into();
+        self.allow_missing_time = TriFlag::True.into();
+        // This will make $PnE compatible with all layouts at the expense of
+        // destroying any log-scaling information.
+        self.force_linear_scale = ForceLinearScale::All;
+    }
+}
+
+impl HasStrategy for ReadDataKeywordsConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
+        self.allow_missing_required_offsets = TriFlag::True.into();
+        self.process_optional_failure = ProcessKeywordFailure::DemoteWarn.into();
+    }
+
+    fn with_sledgehammer(&mut self) {
+        self.process_optional_failure = ProcessKeywordFailure::DropWarn.into();
+        self.ignore_text_analysis_offsets = true.into();
+    }
+}
+
+impl HasStrategy for ReadEventsConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_uneven_event_width = TriFlag::True.into();
+        self.allow_tot_mismatch = TriFlag::True.into();
+    }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{KeyPatterns, NonStdMeasPatternOpt, SubPatterns, TimeMeasNamePattern};
+    use super::{
+        KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig, NonStdMeasPatternOpt,
+        ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
+        ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
+        TemporalOpticalKeys, TimeMeasNamePattern,
+    };
 
-    use crate::segment::OffsetCorrection;
+    use crate::validated::keys::KeyStringOrPattern;
     use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
 
     use fireflow_types::python::ConfigError;
 
+    use itertools::Itertools as _;
     use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyTuple};
+
     use std::collections::HashMap;
+    use std::convert::Infallible;
+
+    macro_rules! impl_into_flat_dict {
+        ($t:ident, $($field:ident),*) => {
+            impl<'py> IntoPyObject<'py> for $t {
+                type Target = PyDict;
+                type Output = Bound<'py, Self::Target>;
+                type Error = PyErr;
+
+                fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+                    let result = PyDict::new(py);
+                    $(
+                        for (k, v) in self.$field.into_pyobject(py)?.iter() {
+                            result.set_item(k, v)?;
+                        }
+                    )*
+                    Ok(result)
+                }
+            }
+        };
+    }
+
+    impl_into_flat_dict!(ReadHeaderConfig, header, offset);
+
+    impl_into_flat_dict!(ReadFlatTEXTConfig, header, flat, offset, shared);
+
+    impl_into_flat_dict!(
+        ReadStdTEXTConfig,
+        header,
+        flat,
+        offset,
+        standard,
+        layout,
+        shared
+    );
+
+    impl_into_flat_dict!(ReadFlatDatasetConfig, header, flat, offset, data, shared);
+
+    impl_into_flat_dict!(
+        ReadStdDatasetConfig,
+        header,
+        flat,
+        offset,
+        standard,
+        layout,
+        data,
+        shared
+    );
+
+    impl_into_flat_dict!(
+        ReadFlatDatasetFromKeywordsConfig,
+        offset,
+        layout,
+        data,
+        shared
+    );
+
+    impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
+
+    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+
+    impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<_> = ob.extract()?;
+            Ok(Self(xs.into_iter().collect()))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TemporalOpticalKeys {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.into_iter().collect::<Vec<_>>().into_pyobject(py)
+        }
+    }
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let s: String = ob.extract()?;
             s.parse::<Self>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TimeMeasNamePattern {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.map(|r| r.as_str().to_owned()).into_pyobject(py)
         }
     }
 
@@ -1444,11 +1844,13 @@ mod python {
         }
     }
 
-    // offset corrections will be tuples like (i32, i32)
-    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let t: (i32, i32) = ob.extract()?;
-            Ok(Self::from(t))
+    impl<'py> IntoPyObject<'py> for NonStdMeasPatternOpt {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.into_pyobject(py)
         }
     }
 
@@ -1465,6 +1867,21 @@ mod python {
         }
     }
 
+    impl<'py> IntoPyObject<'py> for KeyPatterns {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let go = |(k, ())| match k {
+                KeyStringOrPattern::Literal(y) => Ok(y),
+                KeyStringOrPattern::Pattern(y) => Err(y),
+            };
+            let (lits, pats): (Vec<_>, Vec<_>) = self.0.into_iter().map(go).partition_result();
+            (lits, pats).into_pyobject(py)
+        }
+    }
+
     type _SubPattern = HashMap<String, SubPattern>;
 
     // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
@@ -1474,6 +1891,22 @@ mod python {
             let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
             let ret = Self::try_from_literals_and_patterns(lits, pats)?;
             Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for SubPatterns {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let go = |(k, v)| match k {
+                KeyStringOrPattern::Literal(y) => Ok((y, v)),
+                KeyStringOrPattern::Pattern(y) => Err((y, v)),
+            };
+            let (lits, pats): (HashMap<_, _>, HashMap<_, _>) =
+                self.0.into_iter().map(go).partition_result();
+            (lits, pats).into_pyobject(py)
         }
     }
 }

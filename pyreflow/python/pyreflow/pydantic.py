@@ -3,7 +3,7 @@ import pyreflow.typing as pft
 import pyreflow.api as pfa
 from pathlib import Path
 from importlib.util import find_spec
-from typing import TypeVar, Type
+from typing import TypeVar, Type, Self
 
 if find_spec("pydantic") is not None:
     from pydantic import BaseModel as BaseModel_
@@ -22,7 +22,7 @@ _DEFAULT_TRIFLAG: pft.TriFlag = "false"
 
 
 class BaseModel(BaseModel_):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(extra="forbid")
 
     def to_parent(self, parent: Type[M]) -> M:
         return parent.model_validate(
@@ -164,6 +164,16 @@ class PyreflowReadHeaderConfig(_OffsetConfig, _HeaderConfig):
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadHeaderConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadHeaderConfig.sledgehammer())
+
 
 class PyreflowReadFlatTEXTConfig(
     _HeaderMethods,
@@ -190,6 +200,16 @@ class PyreflowReadFlatTEXTConfig(
     ) -> list[pfa.FlatTEXTOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_texts`."""
         return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatTEXTConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatTEXTConfig.sledgehammer())
 
 
 class PyreflowReadStdTEXTConfig(
@@ -220,6 +240,16 @@ class PyreflowReadStdTEXTConfig(
     ) -> list[tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_texts`."""
         return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadStdTEXTConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadStdTEXTConfig.sledgehammer())
 
 
 class PyreflowReadFlatDatasetConfig(
@@ -258,6 +288,16 @@ class PyreflowReadFlatDatasetConfig(
         """Wrapper for :func:`~pyreflow.api.fcs_summarize`."""
         return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatDatasetConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatDatasetConfig.sledgehammer())
+
 
 class PyreflowReadStdDatasetConfig(
     _HeaderMethods,
@@ -291,6 +331,16 @@ class PyreflowReadStdDatasetConfig(
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_datasets`."""
         return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadStdDatasetConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadStdDatasetConfig.sledgehammer())
+
 
 class PyreflowReadFlatDatasetFromKeywordsConfig(
     _ReadSharedConfig,
@@ -307,3 +357,13 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
         return pfa.fcs_read_flat_dataset_with_keywords(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        """Init to read non-compliant files without data loss."""
+        return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.scalpal())
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        """Init to read non-compliant files maybe with possible metadata loss."""
+        return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.sledgehammer())

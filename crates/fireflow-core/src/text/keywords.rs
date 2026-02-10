@@ -781,7 +781,7 @@ impl Gain {
         let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
             .as_triflag();
-        if ignore.contains(&TemporalOpticalKey::Gain) {
+        if ignore.0.contains(&TemporalOpticalKey::Gain) {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
@@ -1192,6 +1192,20 @@ impl ByteOrd2_0 {
             Self::O6(_) => SizedByteOrd::<6>::nbytes(),
             Self::O7(_) => SizedByteOrd::<7>::nbytes(),
             Self::O8(_) => SizedByteOrd::<8>::nbytes(),
+        }
+    }
+
+    #[cfg(feature = "python")]
+    fn to_vec(self) -> Vec<NonZeroU8> {
+        match self {
+            Self::O1(x) => <[NonZeroU8; 1]>::from(x).to_vec(),
+            Self::O2(x) => <[NonZeroU8; 2]>::from(x).to_vec(),
+            Self::O3(x) => <[NonZeroU8; 3]>::from(x).to_vec(),
+            Self::O4(x) => <[NonZeroU8; 4]>::from(x).to_vec(),
+            Self::O5(x) => <[NonZeroU8; 5]>::from(x).to_vec(),
+            Self::O6(x) => <[NonZeroU8; 6]>::from(x).to_vec(),
+            Self::O7(x) => <[NonZeroU8; 7]>::from(x).to_vec(),
+            Self::O8(x) => <[NonZeroU8; 8]>::from(x).to_vec(),
         }
     }
 
@@ -4183,12 +4197,34 @@ mod python {
     use pyo3::types::PyTuple;
     use std::num::NonZeroU8;
 
+    // TOOD this is not a well-defined conversion since "big" and "little"
+    // should be usable as well. This won't work for this because there is no
+    // way to know a priori what the length of byteord should be for big/little,
+    // but that means we should just use a different type altogether than
+    // specifying the byteord in config
+
     // $BYTEORD is a list of integers
     impl<'py> FromPyObject<'py> for ByteOrd2_0 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<NonZeroU8> = ob.extract()?;
             let ret = Self::try_from(&xs[..])?;
             Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ByteOrd2_0 {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let xs: Vec<_> = self
+                .to_vec()
+                .into_iter()
+                .map(u8::from)
+                .map(u32::from)
+                .collect();
+            xs.into_pyobject(py)
         }
     }
 

@@ -79,7 +79,7 @@ impl<T> Default for KeyStringsOrPatterns<T> {
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Display)]
 pub enum KeyStringOrPattern {
     Literal(KeyString),
     Pattern(CaseInsRegex),

@@ -3,7 +3,7 @@ use std::str::FromStr;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 /// A [`String`] that matches a date.
 ///
@@ -11,7 +11,7 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
 /// [`NaiveDate::parse_from_str`](chrono::NaiveDate::parse_from_str).
 #[derive(Clone, Debug, AsRef, Display)]
 #[as_ref(str)]
-#[cfg_attr(feature = "python", derive(FromPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct DatePattern(String);
 
 impl FromStr for DatePattern {

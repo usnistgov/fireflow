@@ -2014,14 +2014,34 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use fireflow_types::python::ConfigError;
+    use super::{InnerSegment, NonEmptySegment, OffsetCorrection, Segment, UncorrectedSegment};
 
     use crate::config::DatasetOffset;
 
-    use super::{InnerSegment, NonEmptySegment, Segment, UncorrectedSegment, Zero};
+    use fireflow_types::python::ConfigError;
+
+    use num_traits::identities::Zero;
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
+
+    // offset corrections will be tuples like (int, int)
+    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let t: (i32, i32) = ob.extract()?;
+            Ok(Self::from(t))
+        }
+    }
+
+    impl<'py, I, S> IntoPyObject<'py> for OffsetCorrection<I, S> {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.begin, self.end).into_pyobject(py)
+        }
+    }
 
     // TODO this shouldn't be necessary. The only reason this is required for
     // the python interface is because the output classes which have segments

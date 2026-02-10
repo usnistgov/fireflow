@@ -2174,6 +2174,46 @@ class DatasetSummary:
     @property
     def datatype(self) -> Datatype: ...
 
+class _ConfigCommon:
+    @classmethod
+    def strict(cls) -> dict[str, Any]: ...
+    @classmethod
+    def scalpal(cls) -> dict[str, Any]: ...
+    @classmethod
+    def sledgehammer(cls) -> dict[str, Any]: ...
+
+@final
+class ReadHeaderConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadStdDatasetConfig(_ConfigCommon):
+    pass
+
+@final
+class ReadFlatDatasetFromKeywordsConfig(_ConfigCommon):
+    pass
+
+@final
+class NewCoreTEXTConfig(_ConfigCommon):
+    pass
+
+@final
+class NewCoreDatasetConfig(_ConfigCommon):
+    pass
+
 def fcs_read_header(
     path: Path,
     # header args
@@ -2955,6 +2995,14 @@ __all__ = [
     "EventsDiagnostics",
     "KeywordVersionScore",
     "DatasetSummary",
+    "ReadHeaderConfig",
+    "ReadFlatTEXTConfig",
+    "ReadStdTEXTConfig",
+    "ReadFlatDatasetConfig",
+    "ReadStdDatasetConfig",
+    "ReadFlatDatasetFromKeywordsConfig",
+    "NewCoreTEXTConfig",
+    "NewCoreDatasetConfig",
     "fcs_read_header",
     "fcs_read_flat_text",
     "fcs_read_std_text",

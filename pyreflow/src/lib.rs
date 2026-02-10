@@ -97,6 +97,15 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyDatasetSegments>()?;
     m.add_class::<ff::PyDatasetSummary>()?;
 
+    m.add_class::<ff::PyReadHeaderConfig>()?;
+    m.add_class::<ff::PyReadFlatTEXTConfig>()?;
+    m.add_class::<ff::PyReadStdTEXTConfig>()?;
+    m.add_class::<ff::PyReadFlatDatasetConfig>()?;
+    m.add_class::<ff::PyReadStdDatasetConfig>()?;
+    m.add_class::<ff::PyReadFlatDatasetFromKeywordsConfig>()?;
+    m.add_class::<ff::PyNewCoreTEXTConfig>()?;
+    m.add_class::<ff::PyNewCoreDatasetConfig>()?;
+
     macro_rules! fun {
         ($t:ident) => {
             m.add_function(wrap_pyfunction!(ff::$t, m)?)?;

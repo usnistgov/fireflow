@@ -1,24 +1,20 @@
 use std::hash::{Hash, Hasher};
 
-use derive_more::AsRef;
+use derive_more::{AsRef, Display};
 use regex::Regex;
 use std::str::FromStr;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyString;
+
 /// A regex which ignores case when matching
-#[derive(Clone, AsRef)]
-pub struct CaseInsRegex {
-    /// Keep the original string used to make the pattern for Eq/Hash impls.
-    ///
-    /// Assume they will always match
-    src: String,
-    /// The pattern, validated to ignore case.
-    #[as_ref(Regex)]
-    pattern: Regex,
-}
+#[derive(Clone, AsRef, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyString))]
+pub struct CaseInsRegex(Regex);
 
 impl PartialEq<Self> for CaseInsRegex {
     fn eq(&self, other: &Self) -> bool {
-        self.src == other.src
+        self.0.as_str() == other.0.as_str()
     }
 }
 
@@ -29,7 +25,7 @@ impl Hash for CaseInsRegex {
     where
         H: Hasher,
     {
-        self.src.hash(state);
+        self.0.as_str().hash(state);
     }
 }
 
@@ -41,9 +37,6 @@ impl FromStr for CaseInsRegex {
         regex::RegexBuilder::new(s)
             .case_insensitive(true)
             .build()
-            .map(|pattern| Self {
-                src: s.to_owned(),
-                pattern,
-            })
+            .map(Self)
     }
 }

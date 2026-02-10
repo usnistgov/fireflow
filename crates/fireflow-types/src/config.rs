@@ -1,16 +1,19 @@
 use const_format::formatcp;
-use derive_more::From;
+use derive_more::Display;
 use itertools::Itertools as _;
 use thiserror::Error;
 
-use std::fmt;
-
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString};
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
-macro_rules! count_args2 {
-    ($x:tt, $y:tt) => { 2_usize };
-    ($_head:tt $(, $tail:tt)*) => { 1_usize + count_args2!($($tail),*) };
+pub trait EnumStrIter: Sized {
+    fn into_str(self) -> &'static str;
+
+    fn iter() -> impl Iterator<Item = Self>;
+
+    fn iter_str() -> impl Iterator<Item = &'static str> {
+        Self::iter().map(EnumStrIter::into_str)
+    }
 }
 
 /// Implement a enum with variants that map to defined string literals.
@@ -27,12 +30,10 @@ macro_rules! count_args2 {
 macro_rules! impl_multiflag {
     ($(#[$flag_meta:meta])* $flag_name:ident,
      $(#[$error_meta:meta])* $error_name:ident,
-     $all_level_name:ident,
      $($(#[$var_meta:meta])* $var:ident, $strlit:ident;)*
     ) => {
         $(#[$flag_meta])*
-        #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Hash)]
-        #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[derive(Clone, Copy, Default)]
         pub enum $flag_name {
             #[default]
             $(
@@ -40,14 +41,6 @@ macro_rules! impl_multiflag {
                 $var,
             )*
         }
-
-        pub const $all_level_name: [&str; count_args2!($($strlit),*)] = [$($strlit),*];
-
-        $(#[$error_meta])*
-        #[derive(Error, Debug, From)]
-        #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-        #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-        pub struct $error_name;
 
         impl std::str::FromStr for $flag_name {
             type Err = $error_name;
@@ -60,9 +53,29 @@ macro_rules! impl_multiflag {
             }
         }
 
+        impl EnumStrIter for $flag_name {
+            fn into_str(self) -> &'static str {
+                match self {
+                    $(Self::$var => $strlit,)*
+                }
+            }
+
+            fn iter() -> impl Iterator<Item = Self> {
+                [$(Self::$var),*].into_iter()
+            }
+        }
+
+        $(#[$error_meta])*
+        #[derive(Error, Debug)]
+        #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+        #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+        pub struct $error_name;
+
+
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                let (last, rest) = $all_level_name.split_last().expect("should have at least 2 levels");
+                let all: Vec<_> = $flag_name::iter_str().collect();
+                let (last, rest) = all.split_last().expect("should have at least 2 levels");
                 let ys = rest.iter().map(|x| format!("'{x}'")).join(", ");
                 write!(f, "must be one of {ys}, or '{last}'")
             }
@@ -76,10 +89,12 @@ pub const TRI_SILENT_LEVEL: &str = SILENT_LEVEL;
 
 impl_multiflag!(
     /// Tri-state flag to throw warning, throw error, or do nothing
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     TriFlag,
     /// Error when parsing [`TriFlag`] from [`String`]
     TriFlagError,
-    TRI_FLAG_LEVELS,
     False,  TRI_FALSE_LEVEL;
     True,   TRI_TRUE_LEVEL;
     Silent, TRI_SILENT_LEVEL;
@@ -92,10 +107,12 @@ pub const OTHER_WIDTH_SILENT_LEVEL: &str = SILENT_LEVEL;
 
 impl_multiflag!(
     /// Choose how to guess the width for OTHER segments.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     GuessOtherWidth,
     /// Error when parsing [`GuessOtherWidth`] from [`String`]
     GuessOtherWidthError,
-    GUESS_OTHER_WIDTH_LEVELS,
     None,   OTHER_WIDTH_NONE_LEVEL;
     Error,  OTHER_WIDTH_ERROR_LEVEL;
     Warn,   OTHER_WIDTH_WARN_LEVEL;
@@ -110,10 +127,12 @@ pub const KW_DROP_SILENT_LEVEL: &str = DROP_SILENT_LEVEL;
 
 impl_multiflag!(
     /// Configuration to deal with optional standard keywords that cause errors.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     ProcessKeywordFailure,
     /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
     ProcessKeywordFailureError,
-    PROCESS_KEYWORD_FAILURE_LEVELS,
     Error,        KW_ERROR_LEVEL;
     DemoteWarn,   KW_DEMOTE_WARN_LEVEL;
     DemoteSilent, KW_DEMOTE_SILENT_LEVEL;
@@ -128,10 +147,12 @@ pub const DELIM_GUESS_UNESCAPED_LEVEL: &str = "guess_unescaped";
 
 impl_multiflag!(
     /// Choose how to escape delims in TEXT segment.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     DelimEscapeMode,
     /// Error when parsing [`DelimEscapeMode`] from [`String`]
     DelimEscapeModeError,
-    DELIM_ESCAPE_MODE_LEVELS,
     /// Use escaped delimiters.
     Escaped,        DELIM_ESCAPED_LEVEL;
     /// Use unescaped delimiters.
@@ -149,10 +170,12 @@ pub const TRIM_BLANK_SILENT_LEVEL: &str = "trim_blank_silent";
 
 impl_multiflag!(
     /// Choose how to trim values and deal with blanks that may result.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     TrimValueWhitespace,
     /// Error when parsing [`TrimValueWhitespace`] from [`String`]
     TrimValueWhitespaceError,
-    TRIM_VALUE_WHITESPACE_LEVELS,
     /// Do not trim at all.
     Notrim,          TRIM_NONE_LEVEL;
     /// Trim whitespace and throw error if blank is created.
@@ -169,10 +192,12 @@ pub const FORCE_LINEAR_ALL_LEVEL: &str = ALL_LEVEL;
 
 impl_multiflag!(
     /// Choose which $PnE to force as linear.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     ForceLinearScale,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ForceLinearScaleError,
-    FORCE_LINEAR_SCALE_LEVELS,
     /// Do not force.
     None,     FORCE_LINEAR_NONE_LEVEL;
     /// Only force the temporal measurement.
@@ -195,10 +220,12 @@ pub const TMP_OPT_DROP_SILENT_LEVEL: &str = DROP_SILENT_LEVEL;
 
 impl_multiflag!(
     /// Choose what to do with optical keys in time measurement when found.
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     ProcessTemporalOpticalKeys,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ProcessTemporalOpticalKeysError,
-    PROCESS_TEMPORAL_OPTICAL_LEVELS,
     /// Demote to nonstandard with warning
     DemoteWarn,   TMP_OPT_DEMOTE_WARN_LEVEL;
     /// Demote to nonstandard with no warning
@@ -215,10 +242,12 @@ pub const SPILLOVER_GUESS_LEVEL: &str = "guess";
 
 impl_multiflag!(
     /// Choose how to parse measurements for $SPILLOVER key
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     SpilloverMeasurementMode,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     SpilloverMeasurementModeError,
-    SPILLOVER_MEASUREMENT_MODE_LEVELS,
     /// Interpret measurements as names which match $PnN.
     Named,   SPILLOVER_NAMED_LEVEL;
     /// Interpret measurements as 1-indices (numbers) which point to measurements.
@@ -238,10 +267,12 @@ impl_multiflag!(
     /// Choose which event types are truncated.
     ///
     /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     TruncateEventValues,
     /// Error when parsing [`TruncateEventValues`] from [`String`]
     TruncateEventValuesError,
-    TRUNCATE_EVENT_VALUES_LEVELS,
     /// Only truncate integer events.
     IntOnly, TRUNCATE_INT_ONLY_LEVEL;
     /// Truncate all events.
@@ -260,10 +291,12 @@ impl_multiflag!(
     /// Choose which offsets to use between TEXT and HEADER if they mismatch.
     ///
     /// Only applies to DATA and ANALYSIS offsets in 3.0+
+    #[derive(Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     AllowHeaderTEXTOffsetMismatch,
     /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
     AllowHeaderTEXTOffsetMismatchError,
-    ALLOW_HEADER_TEXT_OFFSET_MISMATCH_LEVELS,
     /// Throw error on mismatch.
     Error,        MISMATCH_ERROR_LEVEL;
     /// Choose HEADER on mismatch and throw warning.
@@ -297,7 +330,7 @@ impl AllowHeaderTEXTOffsetMismatch {
 
 const GAIN_LEVEL: &str = "G";
 const FILTER_LEVEL: &str = "F";
-const WAVELENGTH_LEVEL: &str = "W";
+const WAVELENGTH_LEVEL: &str = "L";
 const POWER_LEVEL: &str = "O";
 const DET_TYPE_LEVEL: &str = "T";
 const DET_VOLTAGE_LEVEL: &str = "V";
@@ -310,10 +343,12 @@ const ANALYTE_LEVEL: &str = "ANALYTE";
 
 impl_multiflag!(
     /// Disallowed and ignorable optical keywords for temporal measurements.
+    #[derive(PartialEq, Eq, Debug, Hash, Display)]
+    #[display("{}", self.into_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     TemporalOpticalKey,
     /// Error when creating [`TemporalOpticalKey`] from [`String`]
     TemporalOpticalKeyError,
-    TEMPORAL_OPTICAL_KEY_LEVELS,
     /// Ignore $PnG
     Gain, GAIN_LEVEL;
     /// Ignore $PnF
@@ -339,26 +374,6 @@ impl_multiflag!(
     /// Ignore $PnANALYTE
     Analyte, ANALYTE_LEVEL;
 );
-
-impl fmt::Display for TemporalOpticalKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Gain => GAIN_LEVEL,
-            Self::Filter => FILTER_LEVEL,
-            Self::Wavelength => WAVELENGTH_LEVEL,
-            Self::Power => POWER_LEVEL,
-            Self::DetectorType => DET_TYPE_LEVEL,
-            Self::DetectorVoltage => DET_VOLTAGE_LEVEL,
-            Self::PercentEmitted => PCNT_EMIT_LEVEL,
-            Self::Calibration => CALIBRATION_LEVEL,
-            Self::DetectorName => DET_NAME_LEVEL,
-            Self::Tag => TAG_LEVEL,
-            Self::Feature => FEATURE_LEVEL,
-            Self::Analyte => ANALYTE_LEVEL,
-        };
-        f.write_str(s)
-    }
-}
 
 impl TemporalOpticalKey {
     pub const TARGETS_2_0: [Self; 6] = [
@@ -428,10 +443,10 @@ pub const STD_KW_REQ_AND_OPT_LEVEL: &str = "both";
 
 impl_multiflag!(
     /// Choose what kind of keywords to return (required vs optional).
+    #[cfg_attr(feature = "python", derive(FromPyString))]
     IncludeReqOrOpt,
     /// Error when parsing [`IncludeReqOrOpt`] from [`String`]
     IncludeReqOrOptError,
-    STD_KW_REQ_OR_OPT_LEVELS,
     /// Return required.
     Req_, STD_KW_REQ_LEVEL;
     /// Return optional.
@@ -446,16 +461,51 @@ pub const STD_KW_ROOT_AND_MEAS_LEVEL: &str = "both";
 
 impl_multiflag!(
     /// Choose what kind of keywords to return (required vs optional).
+    #[cfg_attr(feature = "python", derive(FromPyString))]
     IncludeRootOrMeas,
     /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
     IncludeRootOrMeasError,
-    STD_KW_ROOT_OR_MEAS_LEVELS,
     /// Return root.
     Root, STD_KW_ROOT_LEVEL;
     /// Return meas.
     Meas, STD_KW_MEAS_LEVEL;
     /// Return both.
     Both, STD_KW_ROOT_AND_MEAS_LEVEL;
+);
+
+pub const READ_STRATEGY_STRICT_LEVEL: &str = "strict";
+pub const READ_STRATEGY_SCALPAL_LEVEL: &str = "scalpal";
+pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &str = "sledgehammer";
+
+// TODO the docstrings here are a bit awkward since we refer to things in child
+// crates implicitly
+impl_multiflag!(
+    /// Overall strategy to read FCS files.
+    ///
+    /// This is a "metaflag" which will activate individual flags in each
+    /// configuration struct. The exact flags to be activated will depend on the
+    /// struct. In all cases, this will activate the flags which emit warnings
+    /// where applicable. If one does not desire warnings, they can be
+    /// suppressed elsewhere in the config.
+    ///
+    /// In general, the different levels for this are a tradeoff between the ability
+    /// to read events from DATA vs preserving metadata.
+    ReadStrategy,
+    /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
+    ReadStrategyError,
+    /// Follow the standard fully (configuration is totally default).
+    ///
+    /// Many files will fail this, but it is useful for validation.
+    Strict,       READ_STRATEGY_STRICT_LEVEL;
+    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
+    ///
+    /// This is likely a good option for many files.
+    Scalpal,      READ_STRATEGY_SCALPAL_LEVEL;
+    /// Use "unsafe" non-compliant parsing.
+    ///
+    /// This is the best option when all one cares about is reading DATA.
+    /// Non-compliant metadata in TEXT will be skipped.
+    Sledgehammer, READ_STRATEGY_SLEDGEHAMMER_LEVEL;
 );
 
 // internal constants, many are shared between enums to keep the API simpler

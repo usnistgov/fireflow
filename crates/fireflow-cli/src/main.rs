@@ -57,7 +57,7 @@ use regex::Regex;
 use serde::ser::Serialize;
 use serde_json::json;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::Display;
@@ -1213,7 +1213,6 @@ fn get_header_and_text_config(
     let substitute_standard_key_values = sub_lits.chain(sub_pats).cloned().collect();
 
     config::ReadHeaderAndTEXTConfig {
-        header: get_header_inner_config(sargs),
         version_override,
         supp_text_correction: get_correction(sargs, SUPP_TEXT_COR),
         nextdata_correction,
@@ -1254,7 +1253,8 @@ fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
         .get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS)
         .unwrap_or_default()
         .copied()
-        .collect();
+        .collect::<HashSet<_>>()
+        .into();
 
     let ns_meas_pat = sargs.get_one::<NonStdMeasPattern>(NS_MEAS_PATTERN).cloned();
 
@@ -1285,6 +1285,7 @@ fn get_std_inner_config(sargs: &ArgMatches) -> config::ReadStdKeywordsConfig {
 
 fn get_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
     config::ReadFlatTEXTConfig {
+        header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         shared: get_shared_config(sargs),
@@ -1293,6 +1294,7 @@ fn get_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTCon
 
 fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     config::ReadStdTEXTConfig {
+        header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_inner_config(sargs),
@@ -1303,6 +1305,7 @@ fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfi
 
 fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
     config::ReadFlatDatasetConfig {
+        header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         layout: get_layout_config(sargs),
@@ -1313,6 +1316,7 @@ fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFla
 
 fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
     config::ReadStdDatasetConfig {
+        header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_inner_config(sargs),

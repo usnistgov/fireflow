@@ -1889,13 +1889,17 @@ where
     Fnext: FnMut(&X) -> Option<Nextdata>,
     E: From<HeaderOrFlatTextError> + From<Ei>,
     W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
-    C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadSharedConfig>,
+    C: AsRef<ReadHeaderInnerConfig>
+        + AsRef<ReadHeaderAndTEXTConfig>
+        + AsRef<ReadOffsetConfig>
+        + AsRef<ReadSharedConfig>,
     G: Copy,
 {
     let mut dataset_offset = Some(DatasetOffset::default());
     let mut count = 0_usize;
     let mut results = vec![];
     let rconf = ReadFlatTEXTConfig {
+        header: AsRef::<ReadHeaderInnerConfig>::as_ref(conf).clone(),
         flat: AsRef::<ReadHeaderAndTEXTConfig>::as_ref(conf).clone(),
         offset: *conf.as_ref(),
         shared: *conf.as_ref(),

@@ -45,9 +45,9 @@
 //! * Getters and setters are paired together
 //! * Non-constructor macros simply take one argument for the Python-rust type
 //!   and defined methods on that type. Sometimes this will "magically" read
-//!   the version and defined slightly different methods given the version.
-//!   This is unavoidable is we want to keep the code small (ish). The tradeoff
-//!   os that it's easy to see which macros are being applied to each type/class
+//!   the version and define slightly different methods given the version.
+//!   This is unavoidable if we want to keep the code small (ish). The tradeoff
+//!   is that it's easy to see which macros are being applied to each type/class
 //!   and it is easy to bundle them in case multiple types use it.
 //! * Docstring rendering is handled entirely internal to the proc macros. This
 //!   is reasonable since the docstrings only matter for the python interface
@@ -55,7 +55,6 @@
 //!   internal proc-macro code has rendering logic for sphinx rst syntax, which
 //!   would be a pain to keep in sync at the macro call level.
 use fireflow_core::api;
-use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
     self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
@@ -898,20 +897,6 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
             PyNonMixedLayout::F32(x) => Self::F32(x.into()),
             PyNonMixedLayout::F64(x) => Self::F64(x.into()),
         }
-    }
-}
-
-/// Set of temporal optical keys.
-///
-/// This is a hack to get default arguments to work in python, which will
-/// be interpreted as a list since there is no empty set symbol (yet).
-#[derive(Into, Default)]
-pub struct TemporalOpticalKeys(HashSet<cfg::TemporalOpticalKey>);
-
-impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Vec<_> = ob.extract()?;
-        Ok(Self(xs.into_iter().collect()))
     }
 }
 

@@ -8,7 +8,6 @@ use crate::config::{
     ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
     TemporalHasOpticalKeyError, TemporalOpticalKey, TriFlag, WriteDatasetInnerConfig,
     WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
-    remove_temporal_optical_keys,
 };
 use crate::data::{
     ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
@@ -7475,7 +7474,8 @@ impl LookupTemporal for InnerTemporal2_0 {
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_2_0;
-        let tmp_opt_res = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
+        let tmp_opt_res = ignore
+            .remove(&tgts, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         scale
             .zip3_commutative(peak, tmp_opt_res)
@@ -7506,7 +7506,8 @@ impl LookupTemporal for InnerTemporal3_0 {
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_3_0;
-        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
+        let tmp_opt = ignore
+            .remove(&tgts, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -7545,7 +7546,8 @@ impl LookupTemporal for InnerTemporal3_1 {
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_3_1;
-        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
+        let tmp_opt = ignore
+            .remove(&tgts, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -7588,7 +7590,8 @@ impl LookupTemporal for InnerTemporal3_2 {
             .switchable_into_commutative()
             .into_semigroup();
         let tgts = TemporalOpticalKey::TARGETS_3_2;
-        let tmp_opt = remove_temporal_optical_keys(&tgts, ignore, std, nonstd, i, flag)
+        let tmp_opt = ignore
+            .remove(&tgts, std, nonstd, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);

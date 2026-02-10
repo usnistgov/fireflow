@@ -3,8 +3,6 @@ use derive_more::From;
 use itertools::Itertools as _;
 use thiserror::Error;
 
-use std::collections::HashSet;
-
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
@@ -308,7 +306,7 @@ impl AllowHeaderTEXTOffsetMismatch {
 
 const GAIN_LEVEL: &str = "G";
 const FILTER_LEVEL: &str = "F";
-const WAVELENGTH_LEVEL: &str = "W";
+const WAVELENGTH_LEVEL: &str = "L";
 const POWER_LEVEL: &str = "O";
 const DET_TYPE_LEVEL: &str = "T";
 const DET_VOLTAGE_LEVEL: &str = "V";
@@ -396,25 +394,6 @@ impl TemporalOpticalKey {
         Self::Tag,
         Self::Wavelength,
     ];
-
-    #[must_use]
-    pub fn all() -> HashSet<Self> {
-        let keys = [
-            Self::Gain,
-            Self::Analyte,
-            Self::Calibration,
-            Self::DetectorName,
-            Self::DetectorType,
-            Self::DetectorVoltage,
-            Self::Feature,
-            Self::Filter,
-            Self::PercentEmitted,
-            Self::Power,
-            Self::Tag,
-            Self::Wavelength,
-        ];
-        keys.into_iter().collect()
-    }
 }
 
 // version strategy strings, the enum itself isn't defined here because it

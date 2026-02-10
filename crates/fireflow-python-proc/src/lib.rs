@@ -205,9 +205,9 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
         let offset = #offset_conf { #(#offset_recs),* };
-        let flat = #flat_conf { header, #(#flat_recs),* };
+        let flat = #flat_conf { #(#flat_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, offset, shared };
+        let conf = #conf_path { header, flat, offset, shared };
     };
 
     quote! {
@@ -301,11 +301,11 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
         let offset = #offset_conf { #(#offset_recs),* };
-        let flat = #flat_conf { header, #(#flat_recs),* };
+        let flat = #flat_conf {  #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, offset, standard, layout, shared };
+        let conf = #conf_path { header, flat, offset, standard, layout, shared };
     };
 
     quote! {
@@ -410,11 +410,11 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
         let offset = #offset_conf { #(#offset_recs),* };
-        let flat = #flat_conf { header, #(#flat_recs),* };
+        let flat = #flat_conf { #(#flat_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, offset, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, layout, data, shared };
     };
 
     quote! {
@@ -518,12 +518,12 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let conf_q = quote! {
         let header = #header_conf { #(#header_recs),* };
         let offset = #offset_conf { #(#offset_recs),* };
-        let flat = #flat_conf { header, #(#flat_recs),* };
+        let flat = #flat_conf { #(#flat_recs),* };
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { flat, offset, standard, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, standard, layout, data, shared };
     };
 
     quote! {
@@ -6438,7 +6438,7 @@ impl PyLiteral {
     fn new_temporal_optical_key() -> Self {
         Self::new2(
             TEMPORAL_OPTICAL_KEY_LEVELS,
-            parse_quote!(TemporalOpticalKeys),
+            parse_quote!(fireflow_core::config::TemporalOpticalKeys),
         )
     }
 
@@ -8116,7 +8116,7 @@ impl DocArgParam {
     fn new_ignore_time_optical_keys_param() -> Self {
         let p = PyList::new(
             PyLiteral::new_temporal_optical_key(),
-            Some(parse_quote!(TemporalOpticalKeys)),
+            Some(parse_quote!(fireflow_core::config::TemporalOpticalKeys)),
             None,
         );
         let d = format!(

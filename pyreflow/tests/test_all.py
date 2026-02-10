@@ -3194,3 +3194,20 @@ class TestPydantic:
         assert len(only_in_pydantic) == 0, (
             f"only in pydantic: {', '.join(only_in_pydantic)}"
         )
+
+    # all all alternative configurations and make sure we didn't mix up any
+    # dictionaries
+    @pytest.mark.parametrize(
+        "pydantic_class",
+        [
+            pfp.PyreflowReadHeaderConfig,
+            pfp.PyreflowReadFlatTEXTConfig,
+            pfp.PyreflowReadStdTEXTConfig,
+            pfp.PyreflowReadFlatDatasetConfig,
+            pfp.PyreflowReadStdDatasetConfig,
+            pfp.PyreflowReadFlatDatasetFromKeywordsConfig,
+        ],
+    )
+    @pytest.mark.parametrize("method", ["new_scalpal", "new_sledgehammer"])
+    def test_alt_configs(self, pydantic_class: type, method: str) -> None:
+        getattr(pydantic_class, method)()

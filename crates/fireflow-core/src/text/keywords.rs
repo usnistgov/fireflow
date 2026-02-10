@@ -781,7 +781,7 @@ impl Gain {
         let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
             .as_triflag();
-        if ignore.contains(&TemporalOpticalKey::Gain) {
+        if ignore.0.contains(&TemporalOpticalKey::Gain) {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {

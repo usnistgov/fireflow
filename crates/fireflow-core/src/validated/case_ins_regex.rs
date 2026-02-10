@@ -4,8 +4,12 @@ use derive_more::{AsRef, Display};
 use regex::Regex;
 use std::str::FromStr;
 
+#[cfg(feature = "python")]
+use fireflow_core_proc::IntoPyString;
+
 /// A regex which ignores case when matching
 #[derive(Clone, AsRef, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyString))]
 pub struct CaseInsRegex(Regex);
 
 impl PartialEq<Self> for CaseInsRegex {

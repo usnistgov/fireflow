@@ -3,7 +3,7 @@ import pyreflow.typing as pft
 import pyreflow.api as pfa
 from pathlib import Path
 from importlib.util import find_spec
-from typing import TypeVar, Type
+from typing import TypeVar, Type, Self
 
 if find_spec("pydantic") is not None:
     from pydantic import BaseModel as BaseModel_
@@ -164,6 +164,14 @@ class PyreflowReadHeaderConfig(_OffsetConfig, _HeaderConfig):
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_HEADER_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_HEADER_SLEDGEHAMMER_CONFIG)
+
 
 class PyreflowReadFlatTEXTConfig(
     _HeaderMethods,
@@ -190,6 +198,14 @@ class PyreflowReadFlatTEXTConfig(
     ) -> list[pfa.FlatTEXTOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_texts`."""
         return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_FLAT_TEXT_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_FLAT_TEXT_SLEDGEHAMMER_CONFIG)
 
 
 class PyreflowReadStdTEXTConfig(
@@ -220,6 +236,14 @@ class PyreflowReadStdTEXTConfig(
     ) -> list[tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_texts`."""
         return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_STD_TEXT_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_STD_TEXT_SLEDGEHAMMER_CONFIG)
 
 
 class PyreflowReadFlatDatasetConfig(
@@ -258,6 +282,14 @@ class PyreflowReadFlatDatasetConfig(
         """Wrapper for :func:`~pyreflow.api.fcs_summarize`."""
         return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_FLAT_DATASET_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_FLAT_DATASET_SLEDGEHAMMER_CONFIG)
+
 
 class PyreflowReadStdDatasetConfig(
     _HeaderMethods,
@@ -291,6 +323,14 @@ class PyreflowReadStdDatasetConfig(
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_datasets`."""
         return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
 
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_STD_DATASET_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_STD_DATASET_SLEDGEHAMMER_CONFIG)
+
 
 class PyreflowReadFlatDatasetFromKeywordsConfig(
     _ReadSharedConfig,
@@ -307,3 +347,11 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
         return pfa.fcs_read_flat_dataset_with_keywords(
             path, dataset_offset=dataset_offset, **self.model_dump()
         )
+
+    @classmethod
+    def new_scalpal(cls) -> Self:
+        return cls(**pfa.READ_FLAT_DATASET_FROM_KWS_SCALPAL_CONFIG)
+
+    @classmethod
+    def new_sledgehammer(cls) -> Self:
+        return cls(**pfa.READ_FLAT_DATASET_FROM_KWS_SLEDGEHAMMER_CONFIG)

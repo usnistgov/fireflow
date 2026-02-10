@@ -78,7 +78,10 @@ pub struct ReadHeaderConfig {
 /// Instructions for reading the HEADER and TEXT segments in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatTEXTConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -90,7 +93,10 @@ pub struct ReadFlatTEXTConfig {
 /// Instructions for reading the HEADER and TEXT segments in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdTEXTConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -109,7 +115,10 @@ pub struct ReadStdTEXTConfig {
 /// Instructions for reading a dataset in flat mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadFlatDatasetConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -128,7 +137,10 @@ pub struct ReadFlatDatasetConfig {
 /// Instructions for reading a dataset in standard mode.
 #[derive(Default, Clone, AsRef)]
 pub struct ReadStdDatasetConfig {
-    #[as_ref(ReadHeaderInnerConfig, ReadHeaderAndTEXTConfig)]
+    #[as_ref(ReadHeaderInnerConfig)]
+    pub header: ReadHeaderInnerConfig,
+
+    #[as_ref(ReadHeaderAndTEXTConfig)]
     pub flat: ReadHeaderAndTEXTConfig,
 
     #[as_ref(ReadOffsetConfig)]
@@ -386,10 +398,6 @@ pub struct ReadOffsetConfig {
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderAndTEXTConfig {
-    /// Config for reading HEADER
-    #[as_ref(ReadHeaderInnerConfig)]
-    pub header: ReadHeaderInnerConfig,
-
     // NOTE the only reason this is here and not in the Keywords configs is
     // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
@@ -691,7 +699,7 @@ pub struct ReadStdKeywordsConfig {
     ///
     /// In the case of $PnG, the value is allowed to be set to 1.0 since this
     /// equates to a no-op.
-    pub ignore_time_optical_keys: HashSet<TemporalOpticalKey>,
+    pub ignore_time_optical_keys: TemporalOpticalKeys,
 
     /// Choose what to do with optical keywords in the time channel when found.
     ///
@@ -1402,6 +1410,10 @@ pub struct OverlapCorrectionLimit(pub u64);
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DataRemainderLimit(pub u64);
 
+/// Set of temporal optical keys.
+#[derive(Clone, Default, From, Into)]
+pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
+
 /// State pertinent to reading a file
 #[derive(new)]
 pub struct ReadState<C> {
@@ -1462,43 +1474,63 @@ type TemporalOpticalResult = WarningsAndErrorsResult<
     TemporalHasOpticalKeyError,
 >;
 
-pub(crate) fn remove_temporal_optical_keys(
-    targets: &[TemporalOpticalKey],
-    ignore: &HashSet<TemporalOpticalKey>,
-    std: &mut StdKeywords,
-    nonstd: &mut NonStdKeywords,
-    i: MeasIndex,
-    flag: ProcessTemporalOpticalKeys,
-) -> TemporalOpticalResult {
-    let mut es = vec![];
-    let mut ws = vec![];
-    let mut pairs = vec![];
-    for t in targets {
-        let k = StdKey::from_temporal_optical_key(*t, i);
-        let (demote, warn) = match flag {
-            ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
-            ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
-            ProcessTemporalOpticalKeys::DropWarn => (false, true),
-            ProcessTemporalOpticalKeys::DropSilent => (false, false),
-        };
-        if let Some(v) = std.remove(&k) {
-            let err = || TemporalHasOpticalKeyError::new(i, *t);
-            if ignore.contains(t) {
-                if demote {
-                    nonstd.insert_demoted(k.clone(), v.clone());
+impl TemporalOpticalKeys {
+    fn all() -> Self {
+        let keys = [
+            TemporalOpticalKey::Gain,
+            TemporalOpticalKey::Analyte,
+            TemporalOpticalKey::Calibration,
+            TemporalOpticalKey::DetectorName,
+            TemporalOpticalKey::DetectorType,
+            TemporalOpticalKey::DetectorVoltage,
+            TemporalOpticalKey::Feature,
+            TemporalOpticalKey::Filter,
+            TemporalOpticalKey::PercentEmitted,
+            TemporalOpticalKey::Power,
+            TemporalOpticalKey::Tag,
+            TemporalOpticalKey::Wavelength,
+        ];
+        Self(keys.into_iter().collect())
+    }
+
+    pub(crate) fn remove(
+        &self,
+        targets: &[TemporalOpticalKey],
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        flag: ProcessTemporalOpticalKeys,
+    ) -> TemporalOpticalResult {
+        let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
+        for t in targets {
+            let k = StdKey::from_temporal_optical_key(*t, i);
+            let (demote, warn) = match flag {
+                ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
+                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
+                ProcessTemporalOpticalKeys::DropWarn => (false, true),
+                ProcessTemporalOpticalKeys::DropSilent => (false, false),
+            };
+            if let Some(v) = std.remove(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if self.0.contains(t) {
+                    if demote {
+                        nonstd.insert_demoted(k.clone(), v.clone());
+                    }
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, v));
+                } else {
+                    es.push(err());
                 }
-                if warn {
-                    ws.push(err());
-                }
-                pairs.push((k, v));
-            } else {
-                es.push(err());
             }
         }
+        let mut res = LogResult::new_err_from_iter(es, pairs);
+        res.extend_commutative_warnings(ws);
+        res
     }
-    let mut res = LogResult::new_err_from_iter(es, pairs);
-    res.extend_commutative_warnings(ws);
-    res
 }
 
 impl HasStrategy for ReadHeaderConfig {
@@ -1515,11 +1547,13 @@ impl HasStrategy for ReadHeaderConfig {
 
 impl HasStrategy for ReadFlatTEXTConfig {
     fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
         self.flat.with_scalpal();
         self.offset.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
         self.flat.with_sledgehammer();
         self.offset.with_sledgehammer();
     }
@@ -1527,6 +1561,7 @@ impl HasStrategy for ReadFlatTEXTConfig {
 
 impl HasStrategy for ReadStdTEXTConfig {
     fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
         self.flat.with_scalpal();
         self.offset.with_scalpal();
         self.standard.with_scalpal();
@@ -1534,6 +1569,7 @@ impl HasStrategy for ReadStdTEXTConfig {
     }
 
     fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
         self.flat.with_sledgehammer();
         self.offset.with_sledgehammer();
         self.standard.with_sledgehammer();
@@ -1543,6 +1579,7 @@ impl HasStrategy for ReadStdTEXTConfig {
 
 impl HasStrategy for ReadFlatDatasetConfig {
     fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
         self.flat.with_scalpal();
         self.offset.with_scalpal();
         self.layout.with_scalpal();
@@ -1550,6 +1587,7 @@ impl HasStrategy for ReadFlatDatasetConfig {
     }
 
     fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
         self.flat.with_sledgehammer();
         self.offset.with_sledgehammer();
         self.layout.with_sledgehammer();
@@ -1559,6 +1597,7 @@ impl HasStrategy for ReadFlatDatasetConfig {
 
 impl HasStrategy for ReadStdDatasetConfig {
     fn with_scalpal(&mut self) {
+        self.header.with_scalpal();
         self.flat.with_scalpal();
         self.offset.with_scalpal();
         self.standard.with_scalpal();
@@ -1567,6 +1606,7 @@ impl HasStrategy for ReadStdDatasetConfig {
     }
 
     fn with_sledgehammer(&mut self) {
+        self.header.with_sledgehammer();
         self.flat.with_sledgehammer();
         self.offset.with_sledgehammer();
         self.standard.with_sledgehammer();
@@ -1641,7 +1681,6 @@ impl HasStrategy for ReadOffsetConfig {
 
 impl HasStrategy for ReadHeaderAndTEXTConfig {
     fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
         self.version_override = Some(VersionOverride::AutoDetect(SelectVersionStrategy::Loose));
         self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
         self.allow_duplicated_supp_text = TriFlag::True.into();
@@ -1661,7 +1700,6 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
     }
 
     fn with_sledgehammer(&mut self) {
-        self.header.with_sledgehammer();
         self.ignore_supp_text = true.into();
     }
 }
@@ -1675,7 +1713,7 @@ impl HasStrategy for ReadStdKeywordsConfig {
         self.fix_log_scale_offsets = true.into();
         // This flag all optical keys as ignorable in the time measurement.
         // The next flag tells what to do with them (in this case, demote)
-        self.ignore_time_optical_keys = TemporalOpticalKey::all();
+        self.ignore_time_optical_keys = TemporalOpticalKeys::all();
         self.process_time_optical_keys = ProcessTemporalOpticalKeys::DemoteWarn;
         self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
         self.process_hyper_par = ProcessKeywordFailure::DemoteWarn.into();
@@ -1722,16 +1760,18 @@ mod python {
         KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig, NonStdMeasPatternOpt,
         ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
         ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
-        TimeMeasNamePattern,
+        TemporalOpticalKeys, TimeMeasNamePattern,
     };
 
+    use crate::validated::keys::KeyStringOrPattern;
     use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
 
     use fireflow_types::python::ConfigError;
 
+    use itertools::Itertools as _;
     use pyo3::prelude::*;
-    use pyo3::types::PyDict;
+    use pyo3::types::{PyDict, PyTuple};
 
     use std::collections::HashMap;
     use std::convert::Infallible;
@@ -1757,14 +1797,24 @@ mod python {
     }
 
     impl_into_flat_dict!(ReadHeaderConfig, header, offset);
-    impl_into_flat_dict!(ReadFlatTEXTConfig, flat, offset, shared);
-    impl_into_flat_dict!(ReadStdTEXTConfig, flat, offset, standard, layout, shared);
-    impl_into_flat_dict!(ReadFlatDatasetConfig, flat, offset, data, shared);
-    impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
-    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+
+    impl_into_flat_dict!(ReadFlatTEXTConfig, header, flat, offset, shared);
+
+    impl_into_flat_dict!(
+        ReadStdTEXTConfig,
+        header,
+        flat,
+        offset,
+        standard,
+        layout,
+        shared
+    );
+
+    impl_into_flat_dict!(ReadFlatDatasetConfig, header, flat, offset, data, shared);
 
     impl_into_flat_dict!(
         ReadStdDatasetConfig,
+        header,
         flat,
         offset,
         standard,
@@ -1780,6 +1830,27 @@ mod python {
         data,
         shared
     );
+
+    impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
+
+    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+
+    impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<_> = ob.extract()?;
+            Ok(Self(xs.into_iter().collect()))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TemporalOpticalKeys {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.0.into_iter().collect::<Vec<_>>().into_pyobject(py)
+        }
+    }
 
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -1833,6 +1904,21 @@ mod python {
         }
     }
 
+    impl<'py> IntoPyObject<'py> for KeyPatterns {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let go = |(k, ())| match k {
+                KeyStringOrPattern::Literal(y) => Ok(y),
+                KeyStringOrPattern::Pattern(y) => Err(y),
+            };
+            let (lits, pats): (Vec<_>, Vec<_>) = self.0.into_iter().map(go).partition_result();
+            (lits, pats).into_pyobject(py)
+        }
+    }
+
     type _SubPattern = HashMap<String, SubPattern>;
 
     // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
@@ -1842,6 +1928,22 @@ mod python {
             let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
             let ret = Self::try_from_literals_and_patterns(lits, pats)?;
             Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for SubPatterns {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let go = |(k, v)| match k {
+                KeyStringOrPattern::Literal(y) => Ok((y, v)),
+                KeyStringOrPattern::Pattern(y) => Err((y, v)),
+            };
+            let (lits, pats): (HashMap<_, _>, HashMap<_, _>) =
+                self.0.into_iter().map(go).partition_result();
+            (lits, pats).into_pyobject(py)
         }
     }
 }

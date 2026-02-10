@@ -1127,7 +1127,7 @@ fn override_flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -
         .num_args(0..=1)
 }
 
-fn opt_arg<T>(long: &'static str, name: &'static str, help: impl IntoResettable<StyledStr>) -> Arg
+fn opt_arg<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
 where
     T: FromStr + Clone + Send + Sync + 'static,
     T::Err: Error + 'static,
@@ -1136,7 +1136,7 @@ where
         .long(long)
         .value_name(name)
         .value_parser(ValueParser::new(parse_opt::<T>))
-        .help(help)
+        .help(format!("{help} Set to 'none' to supply no value."))
 }
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {

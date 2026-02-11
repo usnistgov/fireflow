@@ -175,7 +175,7 @@ ScaleDiagnostic: TypeAlias = (
 )
 
 TrimValueWhitespace: TypeAlias = Literal[
-    "notrim", "trim", "trim_blank_warn", "trim_blank_nowarn"
+    "notrim", "trim", "trim_blank_warn", "trim_blank_silent"
 ]
 
 SpilloverMeasurementMode: TypeAlias = Literal["named", "indexed", "guess"]

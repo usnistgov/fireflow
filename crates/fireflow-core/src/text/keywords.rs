@@ -40,8 +40,8 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AnyKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
-    StdKeywords,
+    AnyStdKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
+    StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
@@ -3568,7 +3568,7 @@ impl Dfc {
     ) -> Result<Option<f32>, LookupDfcError> {
         kws.remove(&k.as_std()).map_or(Ok(None), |v| {
             v.parse::<f32>()
-                .map_err(|e| ParseKeyError::new(e, k, v.clone()))
+                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.clone())))
                 .map(Some)
         })
     }

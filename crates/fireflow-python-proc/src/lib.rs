@@ -1400,7 +1400,9 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
-        PyList::new1(PyTuple::new2(vec![PyUnion::new_string_or_bytes(); 2])),
+        PyList::new1(
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+        ),
         "Keywords with keys that are not ASCII or values that are not UTF-8.",
         |_, _| quote!(self.0.byte_pairs.clone()),
     );
@@ -1409,7 +1411,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_std_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyStr::default().into(),
+            PyStr::new_truncated_str().into(),
         ])),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
@@ -1419,7 +1421,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_nonstd_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_nonstd_keyword()),
-            PyStr::default().into(),
+            PyStr::new_truncated_str().into(),
         ])),
         format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
@@ -1437,14 +1439,16 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed_empty = DocArgROIvar::new_ivar_ro(
         "keys_with_empty_trimmed_values",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_key_or_bytes()),
         "Keys with empty values as a result of trimming whitespace.",
         |_, _| quote!(self.0.keys_with_empty_trimmed_values.clone()),
     );
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
-        PyList::new1(PyTuple::new2(vec![PyUnion::new_string_or_bytes(); 2])),
+        PyList::new1(
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+        ),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
     );
@@ -6345,6 +6349,11 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
+    fn new_truncated_str() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::TruncatedString);
+        Self::default().rstype(path)
+    }
+
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
         let d = format!(
@@ -6849,6 +6858,11 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
+        Self::new2(PyStr::default(), PyBytes::default(), path)
+    }
+
+    fn new_key_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
         Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 }
@@ -8030,9 +8044,9 @@ impl DocArgParam {
             Self::new_allow_odd(),
             Self::new_allow_empty_keys(),
             Self::new_allow_delim_at_boundary(),
-            Self::new_allow_non_utf8(),
             Self::new_use_latin1(),
-            Self::new_allow_non_ascii_keywords(),
+            Self::new_allow_non_ascii_keys(),
+            Self::new_allow_non_utf8_values(),
             Self::new_allow_missing_supp_text(),
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
@@ -8713,15 +8727,6 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, true, "AllowDelimAtBoundary", d, e)
     }
 
-    fn new_allow_non_utf8() -> Self {
-        let d = format!(
-            "Choose what happens if non-UTF8 characters are in {TEXT}. \
-             Tokens with such characters will be dropped regardless."
-        );
-        let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_non_utf8", true, "AllowNonUtf8", d, e)
-    }
-
     fn new_use_latin1() -> Self {
         let d = format!(
             "If {TRUE} interpret all characters in {TEXT} as Latin-1 (aka \
@@ -8730,14 +8735,23 @@ impl DocArgParam {
         Self::new_bool_param("use_latin1", d)
     }
 
-    fn new_allow_non_ascii_keywords() -> Self {
-        let n = "allow_non_ascii_keywords";
+    fn new_allow_non_ascii_keys() -> Self {
+        let n = "allow_non_ascii_keys";
         let d = "Choose how to handle non-ASCII keys. This only applies to \
                  non-standard keywords, as all standardized keywords may only \
                  contain letters, numbers, and start with {DOLLAR_STR}. Regardless, all \
                  compliant keys must only have ASCII.";
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowNonAsciiKeywords", d, e)
+    }
+
+    fn new_allow_non_utf8_values() -> Self {
+        let d = format!(
+            "Choose what happens if non-UTF8 characters are in {TEXT}. \
+             Tokens with such characters will be dropped regardless."
+        );
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param("allow_non_utf8_values", true, "AllowNonUtf8", d, e)
     }
 
     fn new_allow_missing_supp_text() -> Self {

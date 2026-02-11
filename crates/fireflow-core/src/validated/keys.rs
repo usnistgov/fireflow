@@ -1,8 +1,11 @@
+use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
 use crate::config::{
-    AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, UseLatin1,
+    AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
+    UseLatin1,
 };
 use crate::logging::{
-    LogResult, SwitchableErrorResult, SwitchableErrorsResult, WarningsAndErrorResult,
+    DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningOrErrorResult,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords as kws;
@@ -30,7 +33,9 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{
+        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
+    },
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
@@ -111,14 +116,27 @@ pub struct ParsedKeywords {
     /// Non-standard keywords (without '$')
     pub nonstd: NonStdKeywords,
 
+    /// Keywords that failed for some reason.
+    pub diag: ParsedKeywordsDiagnostic,
+}
+
+// TODO why pub?
+#[derive(Default)]
+pub struct ParsedKeywordsDiagnostic {
+    /// Valid keys with non-UTF8 values.
+    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedBytes)>,
+
+    /// Valid values with non-ASCII keys.
+    pub values_with_non_ascii_keys: Vec<(TruncatedBytes, TruncatedString)>,
+
     /// Keywords that have invalid bytes in either key or value
-    pub byte_pairs: BytesPairs,
+    pub byte_pairs: Vec<(TruncatedBytes, TruncatedBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, String)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedString)>,
 
     /// Non-standard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedString)>,
 
     /// Standard keys which were ignored
     pub ignored_std_keywords: Vec<(StdKey, StringOrBytes)>,
@@ -127,16 +145,24 @@ pub struct ParsedKeywords {
     ///
     /// The only way this can happen at this stage is if the value is entirely
     /// whitespace and is trimmed.
-    pub keys_with_empty_trimmed_values: Vec<StringOrBytes>,
+    pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
 
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(StringOrBytes, StringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, StringOrBytes)>,
+}
+
+/// Either a standard or non-standard key.
+#[derive(Clone, Display, PartialEq, Debug)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum AnyKey {
+    Std(StdKey),
+    NonStd(NonStdKey),
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;
-pub type BytesPairs = Vec<(StringOrBytes, StringOrBytes)>;
 
 /// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
@@ -163,48 +189,35 @@ pub(crate) struct KeyMatcher<'a, T> {
     pattern: Vec<(&'a CaseInsRegex, T)>,
 }
 
-/// A bytestring which is either a Utf8 string or a non-Utf8 byte sequence.
-#[derive(Clone, Display, PartialEq, Debug)]
+/// A either an ASCII key value or a non-ASCII byte sequence.
+#[derive(Clone, Display, PartialEq, Debug, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum KeyOrBytes {
+    Ascii(AnyKey),
+    Bytes(TruncatedBytes),
+}
+
+/// A either a UTF-8 string or a non-UTF-8 byte sequence.
+#[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum StringOrBytes {
-    #[display("{_0}")]
-    Utf8(String),
-    #[display("[{}]", _0.iter().join(","))]
-    Bytes(Vec<u8>),
+    Utf8(TruncatedString),
+    Bytes(TruncatedBytes),
 }
 
 impl Default for StringOrBytes {
     fn default() -> Self {
-        Self::Utf8(String::new())
+        Self::Utf8(TruncatedString::default())
     }
 }
 
 impl From<Vec<u8>> for StringOrBytes {
     fn from(value: Vec<u8>) -> Self {
         match String::from_utf8(value) {
-            Ok(s) => Self::Utf8(s),
-            Err(e) => Self::Bytes(e.into_bytes()),
-        }
-    }
-}
-
-impl StringOrBytes {
-    pub(crate) fn desc(&self) -> &'static str {
-        match self {
-            Self::Bytes(_) => "byte sequence",
-            Self::Utf8(_) => "string",
-        }
-    }
-
-    pub(crate) fn full(&self) -> String {
-        format!("{} '{}'", self.desc(), self)
-    }
-
-    pub(crate) fn as_latin1(&self, n: usize) -> String {
-        match self {
-            Self::Bytes(xs) => xs.iter().take(n).copied().map(char::from).collect(),
-            Self::Utf8(xs) => xs.chars().take(n).collect(),
+            Ok(s) => Self::Utf8(TruncatedString(s)),
+            Err(e) => Self::Bytes(TruncatedBytes(e.into_bytes())),
         }
     }
 }
@@ -386,23 +399,23 @@ pub trait BiIndexedKey {
     // }
 }
 
-pub(crate) trait AnyKey {
+pub(crate) trait AnyStdKey {
     fn as_std(&self) -> StdKey;
 }
 
-impl<T: Key> AnyKey for Key0<T> {
+impl<T: Key> AnyStdKey for Key0<T> {
     fn as_std(&self) -> StdKey {
         T::std()
     }
 }
 
-impl<T: IndexedKey> AnyKey for Key1<T> {
+impl<T: IndexedKey> AnyStdKey for Key1<T> {
     fn as_std(&self) -> StdKey {
         T::std(self.index)
     }
 }
 
-impl<T: BiIndexedKey> AnyKey for Key2<T> {
+impl<T: BiIndexedKey> AnyStdKey for Key2<T> {
     fn as_std(&self) -> StdKey {
         let i = &self.index;
         T::std(i.i0, i.i1)
@@ -486,7 +499,7 @@ pub(crate) trait NonStdKeywordsExt {
 
     fn insert_demoted_<T, I>(&mut self, key: SpecificKey<T, I>, value: String)
     where
-        SpecificKey<T, I>: AnyKey,
+        SpecificKey<T, I>: AnyStdKey,
     {
         self.insert_demoted(key.as_std(), value);
     }
@@ -717,12 +730,27 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
-        k: &[u8],
-        v: &[u8],
+        key: &[u8],
+        val: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
-        debug_assert!(!k.is_empty(), "key should not be empty string");
-        debug_assert!(!v.is_empty(), "value should not be empty string");
+    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+        enum TrimResult {
+            Trimmed(bool),
+            Empty(DummyTriFlag),
+        }
+
+        enum KeyValueResult<'a> {
+            Ignore(StdKey, StringOrBytes),
+            Empty(KeyOrBytes, DummyTriFlag),
+            NonEmpty(AnyKey, Cow<'a, str>, bool),
+            NonUtf8Value(AnyKey, TruncatedBytes),
+            NonAsciiKey(TruncatedBytes, TruncatedString, bool),
+            BothInvalid(TruncatedBytes, TruncatedBytes),
+        }
+
+        debug_assert!(!key.is_empty(), "key should not be empty string");
+        debug_assert!(!val.is_empty(), "value should not be empty string");
+
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
         let ignore = conf.ignore_standard_keys.as_matcher();
@@ -741,108 +769,151 @@ impl ParsedKeywords {
             Some((is_std, ks))
         };
 
-        let check_trim = |this: &mut Self, trimmed, flag| {
-            let tr = AsRef::<str>::as_ref(&trimmed);
-            if tr.is_empty() {
-                let sb = StringOrBytes::from(k.to_vec());
-                this.keys_with_empty_trimmed_values.push(sb.clone());
-                let e = BlankValueError(sb);
-                SwitchableErrorResult::new_switchable3(None, (), e, flag)
-                    .switchable_into_commutative()
+        let check_trim = |trimmed: &str, flag| {
+            if trimmed.is_empty() {
+                TrimResult::Empty(flag)
             } else {
-                if v.len() < tr.len() {
-                    let pair = (k.to_vec().into(), v.to_vec().into());
-                    this.keys_with_trimmed_values.push(pair);
-                }
-                LogResult::new_ok(Some(trimmed))
+                TrimResult::Trimmed(val.len() < trimmed.len())
             }
         };
 
-        let mut parse_value = || {
+        let parse_value = || {
             let flag = conf.trim_value_whitespace;
-            let res = if conf.use_latin1.is_set() {
-                let it = v.iter().copied().map(char::from);
-                if let Some(triflag) = DummyTriFlag::from_trim_value_whitespace(flag) {
+            let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
+            if conf.use_latin1.is_set() {
+                let it = val.iter().copied().map(char::from);
+                if let Some(tf) = triflag {
                     let trimmed: String = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
                         .collect();
-                    check_trim(self, Cow::Owned(trimmed), triflag)
+                    let tres = check_trim(trimmed.as_str(), tf);
+                    Some((Cow::Owned(trimmed), tres))
                 } else {
-                    // ASSUME this will always be a non-empty string since
-                    // it is using the value slice inputted to this function
-                    // which is validated not to be empty
-                    LogResult::new_ok(Some(Cow::Owned(it.collect())))
+                    Some((Cow::Owned(it.collect()), TrimResult::Trimmed(false)))
                 }
-            } else if let Ok(vv) = str::from_utf8(v) {
-                if let Some(triflag) = DummyTriFlag::from_trim_value_whitespace(flag) {
-                    check_trim(self, Cow::Borrowed(vv.trim()), triflag)
+            } else if let Ok(vv) = str::from_utf8(val) {
+                if let Some(tf) = triflag {
+                    let trimmed = vv.trim();
+                    let tres = check_trim(trimmed, tf);
+                    Some((Cow::Borrowed(trimmed), tres))
                 } else {
-                    LogResult::new_ok(Some(Cow::Borrowed(vv)))
+                    Some((Cow::Borrowed(vv), TrimResult::Trimmed(false)))
                 }
             } else {
-                let pairs = (k.to_vec().into(), v.to_vec().into());
-                self.byte_pairs.push(pairs);
-                LogResult::new_ok(None)
-            };
-            res.repack_warnings::<Vec<_>>()
-                .map_warnings_and_errors(KeywordInsertError::from)
+                None
+            }
         };
 
-        if let Some((is_std, kk)) = parse_key(k) {
+        let kv_res = if let Some((is_std, kstr)) = parse_key(key) {
             if is_std {
-                // Standard key: starts with '$', check that remaining chars
-                // are ASCII
-                if ignore.is_match(&kk) {
-                    let pair = (StdKey(kk), v.to_vec().into());
-                    self.ignored_std_keywords.push(pair);
-                    LogResult::new_ok(())
+                // Standard key: starts with '$' and is ASCII
+                if ignore.is_match(&kstr) {
+                    KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.to_vec()))
                 } else {
-                    parse_value().and_then_commutative(|maybe_value| {
-                        if let Some(value) = maybe_value {
-                            if to_nonstd.is_match(&kk) {
-                                let vo = value.into_owned();
-                                self.insert_nonunique_nonstd(kk, vo, conf)
-                            } else {
-                                let rk = renames.get(&kk).cloned().unwrap_or(kk);
-                                let rv = if let Some(s) = subs.get(&rk) {
-                                    s.sub(value.as_ref())
-                                } else {
-                                    value.into_owned()
-                                };
-                                self.insert_nonunique_std(rk, rv, conf)
+                    let ak = AnyKey::Std(StdKey(kstr));
+                    if let Some((value, trim_res)) = parse_value() {
+                        match trim_res {
+                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                            TrimResult::Trimmed(was_trimmed) => {
+                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
                             }
-                        } else {
-                            LogResult::new_ok(())
-                        }
-                    })
-                }
-            } else {
-                // Non-standard key: does not start with '$' but is still
-                // ASCII
-                parse_value().and_then_commutative(|maybe_value| {
-                    if let Some(value) = maybe_value.map(Cow::into_owned) {
-                        if to_std.is_match(&kk) {
-                            self.insert_nonunique_std(kk, value, conf)
-                        } else {
-                            self.insert_nonunique_nonstd(kk, value, conf)
                         }
                     } else {
-                        LogResult::new_ok(())
+                        KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
                     }
-                })
+                }
+            } else {
+                // Non-standard key: does not start with '$' and is ASCII
+                let ak = AnyKey::NonStd(NonStdKey(kstr));
+                if let Some((value, trim_res)) = parse_value() {
+                    match trim_res {
+                        TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                        TrimResult::Trimmed(was_trimmed) => {
+                            KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                        }
+                    }
+                } else {
+                    KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
+                }
             }
         } else {
-            // Non-ascii (possibly non-Utf8) key with possibly non-Utf-8 value:
-            // these are technically not allowed but save them anyways in case
-            // the user cares
-            parse_value().and_then_commutative(|maybe_value| {
-                if let Some(value) = maybe_value.map(Cow::into_owned) {
-                    let pair = (k.to_vec().into(), value.into_bytes().into());
-                    self.byte_pairs.push(pair);
+            // Non-ascii key with possibly non-Utf-8 value
+            let kbytes = TruncatedBytes(key.to_vec());
+            if let Some((value, trim_res)) = parse_value() {
+                match trim_res {
+                    TrimResult::Empty(flag) => {
+                        KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
+                    }
+                    TrimResult::Trimmed(was_trimmed) => {
+                        let tv = value.into_owned().into();
+                        KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
+                    }
                 }
+            } else {
+                KeyValueResult::BothInvalid(kbytes, val.to_vec().into())
+            }
+        };
+
+        match kv_res {
+            KeyValueResult::NonEmpty(k, v, was_trimmed) => {
+                if was_trimmed {
+                    let vo = StringOrBytes::from(TruncatedString(v.as_ref().to_owned()));
+                    let pair = (k.clone().into(), vo);
+                    self.diag.keys_with_trimmed_values.push(pair);
+                }
+                match k {
+                    AnyKey::Std(StdKey(kstr)) => {
+                        if to_nonstd.is_match(&kstr) {
+                            let vo = v.into_owned();
+                            self.insert_nonunique_nonstd(kstr, vo, conf)
+                        } else {
+                            let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
+                            let rv = if let Some(s) = subs.get(&rk) {
+                                s.sub(v.as_ref())
+                            } else {
+                                v.into_owned()
+                            };
+                            self.insert_nonunique_std(rk, rv, conf)
+                        }
+                    }
+                    AnyKey::NonStd(NonStdKey(kstr)) => {
+                        let vo = v.into_owned();
+                        if to_std.is_match(&kstr) {
+                            self.insert_nonunique_std(kstr, vo, conf)
+                        } else {
+                            self.insert_nonunique_nonstd(kstr, vo, conf)
+                        }
+                    }
+                }
+            }
+            KeyValueResult::Empty(k, flag) => {
+                self.diag.keys_with_empty_trimmed_values.push(k.clone());
+                let e = KeywordInsertError::from(BlankValueError(k));
+                SwitchableErrorResult::new_switchable3((), (), e, flag)
+                    .switchable_into_non_commutative()
+            }
+            KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
+                if was_trimmed {
+                    let vo = StringOrBytes::from(v.clone());
+                    let pair = (k.clone().into(), vo);
+                    self.diag.keys_with_trimmed_values.push(pair);
+                }
+                self.diag.values_with_non_ascii_keys.push((k, v));
                 LogResult::new_ok(())
-            })
+            }
+            KeyValueResult::NonUtf8Value(k, v) => {
+                self.diag.keys_with_non_utf8_values.push((k, v));
+                LogResult::new_ok(())
+            }
+            KeyValueResult::BothInvalid(k, v) => {
+                self.diag.byte_pairs.push((k, v));
+                LogResult::new_ok(())
+            }
+            KeyValueResult::Ignore(k, v) => {
+                self.diag.ignored_std_keywords.push((k, v));
+                LogResult::new_ok(())
+            }
         }
     }
 
@@ -851,10 +922,10 @@ impl ParsedKeywords {
         k: KeyString,
         value: String,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
             &mut self.std,
-            &mut self.non_unique_std_keywords,
+            &mut self.diag.non_unique_std_keywords,
             StdKey(k),
             value,
             conf,
@@ -866,10 +937,10 @@ impl ParsedKeywords {
         k: KeyString,
         value: String,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
             &mut self.nonstd,
-            &mut self.non_unique_nonstd_keywords,
+            &mut self.diag.non_unique_nonstd_keywords,
             NonStdKey(k),
             value,
             conf,
@@ -878,11 +949,11 @@ impl ParsedKeywords {
 
     fn insert_nonunique<K>(
         kws: &mut HashMap<K, String>,
-        nonunique: &mut Vec<(K, String)>,
+        nonunique: &mut Vec<(K, TruncatedString)>,
         k: K,
         value: String,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorResult<(), (), KeywordInsertError, KeywordInsertError>
+    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError>
     where
         K: Hash + Eq + Clone + AsRef<KeyString>,
         KeywordInsertError: From<KeyPresent<K>>,
@@ -895,10 +966,9 @@ impl ParsedKeywords {
                     key: key.clone(),
                     value: value.clone(),
                 };
-                nonunique.push((key, value));
+                nonunique.push((key, TruncatedString(value)));
                 LogResult::new_deferred_switchable3((), err.into(), flag)
-                    .switchable_into_commutative()
-                    .repack_warnings()
+                    .switchable_into_non_commutative()
             }
             Entry::Vacant(ent) => {
                 let v = conf
@@ -921,8 +991,9 @@ impl ParsedKeywords {
             .iter()
             .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
                 Entry::Occupied(e) => {
-                    self.non_unique_std_keywords
-                        .push((StdKey(k.clone()), v.clone()));
+                    self.diag
+                        .non_unique_std_keywords
+                        .push((StdKey(k.clone()), TruncatedString(v.clone())));
                     Some(KeyPresent::new(e.key().clone(), v.clone()))
                 }
                 Entry::Vacant(e) => {
@@ -931,6 +1002,94 @@ impl ParsedKeywords {
                 }
             });
         LogResult::new_switchable_iter3((), (), es, flag)
+    }
+}
+
+impl ParsedKeywordsDiagnostic {
+    pub(crate) fn into_flat_diag(
+        self,
+        delim: u8,
+        header_supp: HeaderAndSuppOffsets,
+        primary_split: SplitTEXTDiagnostics,
+        supp_split: Option<SplitTEXTDiagnostics>,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> DeferredWarningsAndErrors<
+        FlatTEXTDiagnostics,
+        InvalidKeywordCharsError,
+        InvalidKeywordCharsError,
+    > {
+        // Throw errors or warnings for any keys or values that have invalid
+        // chars. There are two flags for keys and values respectively. For any
+        // pairs that have both an invalid key and invalid value, throw error if
+        // either flag is set (likewise for warning).
+        macro_rules! go_err {
+            ($field:ident, $err:ident) => {
+                self.$field
+                    .iter()
+                    .cloned()
+                    .map(|(key, value)| $err { key, value })
+                    .map(InvalidKeywordCharsError::from)
+            };
+        }
+
+        let es_key = go_err!(values_with_non_ascii_keys, NonAsciiKeyError);
+        let es_value = go_err!(keys_with_non_utf8_values, NonUtf8ValueError);
+        let es_both = go_err!(byte_pairs, NonAsciiOrUtf8KeywordError);
+
+        let key_flag = conf.allow_non_ascii_keys.is_error();
+        let val_flag = conf.allow_non_utf8_values.is_error();
+
+        let mut es = vec![];
+        let mut ws = vec![];
+
+        match key_flag {
+            Some(true) => es.extend(es_key),
+            Some(false) => ws.extend(es_key),
+            None => (),
+        }
+        match val_flag {
+            Some(true) => es.extend(es_value),
+            Some(false) => ws.extend(es_value),
+            None => (),
+        }
+        match key_flag.zip(val_flag).map(|(x, y)| x || y) {
+            Some(true) => es.extend(es_both),
+            Some(false) => ws.extend(es_both),
+            None => (),
+        }
+
+        // Combine all keys/values with invalid chars into one list, since
+        // use probably doesn't want to see three.
+
+        macro_rules! go_byte_pairs {
+            ($field:ident) => {
+                self.$field
+                    .into_iter()
+                    .map(|(k, v)| (KeyOrBytes::from(k), StringOrBytes::from(v)))
+            };
+        }
+
+        let ks = go_byte_pairs!(values_with_non_ascii_keys);
+        let vs = go_byte_pairs!(keys_with_non_utf8_values);
+        let bs = go_byte_pairs!(byte_pairs);
+
+        let byte_pairs: Vec<_> = ks.chain(vs).chain(bs).collect();
+
+        let ret = FlatTEXTDiagnostics {
+            header_supp,
+            delimiter: delim,
+            byte_pairs,
+            non_unique_std_keywords: self.non_unique_std_keywords,
+            non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
+            ignored_standard_keywords: self.ignored_std_keywords,
+            keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
+            keys_with_trimmed_values: self.keys_with_trimmed_values,
+            primary_split,
+            supp_split,
+        };
+        LogResult::new_ok(ret)
+            .extend_deferred_errors(es)
+            .set_commutative_warnings(ws)
     }
 }
 
@@ -994,15 +1153,10 @@ pub enum KeywordInsertError {
 
 /// Error when key has blank value
 #[derive(Debug, PartialEq, Error)]
+#[error("skipping key {0} with blank value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct BlankValueError(pub StringOrBytes);
-
-impl fmt::Display for BlankValueError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "skipping key with blank value, {}", self.0.full())
-    }
-}
+pub struct BlankValueError(pub KeyOrBytes);
 
 /// Error when key is already present in hash table.
 #[derive(Debug, PartialEq, Error, new)]
@@ -1014,6 +1168,112 @@ pub struct KeyPresent<T> {
     pub key: T,
     pub value: String,
 }
+
+/// Error when keyword has any invalid chars.
+#[derive(Debug, Display, From, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum InvalidKeywordCharsError {
+    Key(NonAsciiKeyError),
+    Value(NonUtf8ValueError),
+    Both(NonAsciiOrUtf8KeywordError),
+}
+
+/// Error when key or value with invalid UTF-8 characters is encountered
+#[derive(Debug, Error)]
+#[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct NonAsciiOrUtf8KeywordError {
+    key: TruncatedBytes,
+    value: TruncatedBytes,
+}
+
+/// Error when key is not ASCII
+#[derive(Debug, Error)]
+#[error("non ASCII key encountered with bytes {key} and value '{value}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct NonAsciiKeyError {
+    key: TruncatedBytes,
+    value: TruncatedString,
+}
+
+/// Error when value is not Utf8
+#[derive(Debug, Error)]
+#[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct NonUtf8ValueError {
+    key: AnyKey,
+    value: TruncatedBytes,
+}
+
+/// A [`Vec<u8>`] optimized for displaying in errors.
+#[derive(Clone, From, PartialEq, Debug)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedBytes(pub Vec<u8>);
+
+impl fmt::Display for TruncatedBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let mut s = String::new();
+        for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
+            // Display all 'easy' control characters with escaped
+            // representation, display all printable chars as quoted characters,
+            // and display the rest as plain numbers
+            match x {
+                0 => s.push_str("\\0"),
+                7 => s.push_str("\\a"),
+                8 => s.push_str("\\b"),
+                9 => s.push_str("\\t"),
+                10 => s.push_str("\\n"),
+                11 => s.push_str("\\v"),
+                12 => s.push_str("\\f"),
+                13 => s.push_str("\\r"),
+                27 => s.push_str("\\e"),
+                c => {
+                    if (32..=127).contains(&c) {
+                        s.push('\'');
+                        s.push(char::from(c));
+                        s.push('\'');
+                    } else {
+                        let n = c.to_string();
+                        s.push_str(n.as_str());
+                    }
+                }
+            }
+            if i + 1 < TRUNCATED_BYTES_LIMIT {
+                s.push(',');
+            }
+        }
+        if self.0.len() > TRUNCATED_BYTES_LIMIT {
+            write!(f, "[{s},...]")
+        } else {
+            write!(f, "[{s}]")
+        }
+    }
+}
+
+/// A normal [`String`] that will be shortened when displaying if too long.
+#[derive(Clone, From, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedString(pub String);
+
+impl fmt::Display for TruncatedString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = self.0.chars().count();
+        if n > TRUNCATED_STR_LIMIT {
+            let s: String = self.0.chars().take(n).collect();
+            write!(f, "{s}…(more)")
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
+const TRUNCATED_BYTES_LIMIT: usize = 20;
+const TRUNCATED_STR_LIMIT: usize = 20;
 
 pub type StdPresent = KeyPresent<StdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;

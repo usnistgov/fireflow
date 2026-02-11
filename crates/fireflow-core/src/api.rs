@@ -33,14 +33,14 @@ use crate::segment::{
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
 };
-use crate::text::lookup::{OptKeyError, ReqKeyError, ReqMetarootKey as _, truncate_string};
+use crate::text::lookup::{OptKeyError, ReqKeyError, ReqMetarootKey as _};
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
 };
 use crate::validated::keys::{
-    BytesPairs, Key as _, KeywordInsertError, NonStdKey, ParsedKeywords, StdKey, StdKeywords,
-    StdPresent, StringOrBytes, ValidKeywords,
+    InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NonStdKey, ParsedKeywords,
+    StdKey, StdKeywords, StdPresent, StringOrBytes, TruncatedBytes, TruncatedString, ValidKeywords,
 };
 
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
@@ -51,10 +51,8 @@ use itertools::Itertools as _;
 use nonempty::NonEmpty;
 use thiserror::Error;
 
-use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
-use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -449,24 +447,24 @@ pub struct FlatTEXTDiagnostics {
     ///
     /// These have either a non-ASCII key or a non-UTF8 value (or both).
     /// Included here for debugging
-    pub byte_pairs: BytesPairs,
+    pub byte_pairs: Vec<(KeyOrBytes, StringOrBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, String)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedString)>,
 
     /// Nonstandard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, String)>,
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedString)>,
 
     /// Ignored standard keys with their values
     pub ignored_standard_keywords: Vec<(StdKey, StringOrBytes)>,
 
     /// Keys with empty values as a result of trimming whitespace.
-    pub keys_with_empty_trimmed_values: Vec<StringOrBytes>,
+    pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
 
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(StringOrBytes, StringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, StringOrBytes)>,
 
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTDiagnostics,
@@ -732,7 +730,7 @@ pub enum ParseFlatTEXTWarning {
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentWarning),
     Nextdata(OptKeyError<Nextdata>),
-    NonUtf8(NonUtf8KeywordError),
+    InvalidChars(InvalidKeywordCharsError),
     AppendSupp(StdPresent),
 }
 
@@ -745,8 +743,8 @@ pub enum ParseFlatTEXTError {
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
     Nextdata(ReqKeyError<Nextdata>),
-    NonUtf8(NonUtf8KeywordError),
-    AppendSupp(StdPresent),
+    InvalidKeyword(InvalidKeywordCharsError),
+    InvalidChars(StdPresent),
     NextdataOffset(NextdataOffsetsError),
 }
 
@@ -809,15 +807,12 @@ pub struct NoTEXTWordsError;
 
 /// Error when blank key is encountered in TEXT
 #[derive(Debug, Error, new)]
-#[error(
-    "skipping blank key in {kind} TEXT with value of '{}' in Latin-1",
-    truncate_string(self.bytes.as_latin1(21).as_str(), 20),
-)]
+#[error("skipping blank key in {kind} TEXT with value of '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct BlankKeyError {
     kind: TEXTKind,
-    bytes: StringOrBytes,
+    value: StringOrBytes,
 }
 
 /// Error when number of tokens in TEXT is not even
@@ -829,11 +824,15 @@ pub struct UnevenTokensError(TEXTKind);
 
 /// Error when final character in TEXT is not a delimiter
 #[derive(Debug, Error, new)]
+#[error(
+    "{kind} TEXT does not end with delim; instead ends with {n}-byte sequence: {bytes}",
+    n = self.bytes.0.len()
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct FinalDelimError {
     kind: TEXTKind,
-    bytes: NonEmpty<u8>,
+    bytes: TruncatedBytes,
 }
 
 #[derive(Clone, Copy, Debug, Display)]
@@ -842,34 +841,6 @@ enum TEXTKind {
     Primary,
     #[display("Supplemental")]
     Supplemental,
-}
-
-impl fmt::Display for FinalDelimError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        const MAX_FINAL_BYTES: usize = 20;
-        let n = self.bytes.len();
-        let xs: Vec<_> = self.bytes.iter().copied().take(MAX_FINAL_BYTES).collect();
-        let (what, s) = if let Ok(s) = str::from_utf8(&xs[..]) {
-            let ss = format!("'{s}'");
-            ("string", replace_whitespace_chars(ss.as_str()))
-        } else {
-            ("bytestring", xs.iter().join(","))
-        };
-        let cont = if let Some(diff) = n
-            .checked_sub(MAX_FINAL_BYTES)
-            .and_then(|x| NonZeroUsize::try_from(x).ok())
-        {
-            format!(" ({diff} more)")
-        } else {
-            String::new()
-        };
-        write!(
-            f,
-            "{} TEXT does not end with delim; ends with {what} of length {n}: \
-             {s}{cont}",
-            self.kind
-        )
-    }
 }
 
 /// Error when TEXT ends with even number of delimiters
@@ -886,15 +857,14 @@ pub struct EvenFinalDelimError;
 /// This can only happen in escaped TEXT
 #[derive(Debug, Error, new)]
 #[error(
-    "escaped delimiter encountered before unescaped delimiter and after {} in {} TEXT",
-    truncate_string(self.bytes.as_latin1(21).as_str(), 20),
-    self.kind
+    "escaped delimiter encountered before unescaped delimiter \
+     and after '{value}' in {kind} TEXT"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimBoundError {
-    bytes: StringOrBytes,
     kind: TEXTKind,
+    value: StringOrBytes,
 }
 
 /// Error when delimiter of supplemental TEXT does not match primary TEXT
@@ -908,32 +878,6 @@ pub struct DelimBoundError {
 pub struct DelimMismatch {
     supp: u8,
     delim: u8,
-}
-
-/// Error when key or value with invalid UTF-8 characters is encountered
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct NonUtf8KeywordError {
-    key: StringOrBytes,
-    value: StringOrBytes,
-}
-
-impl fmt::Display for NonUtf8KeywordError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = 20;
-        let go = |xs: &StringOrBytes| {
-            let s = &xs.as_latin1(n + 1);
-            truncate_string(s.as_str(), n)
-        };
-        write!(
-            f,
-            "non UTF-8 key/value pair encountered and dropped, \
-             first {n} chars of both as Latin-1 are '{}' and '{}'",
-            go(&self.key),
-            go(&self.value),
-        )
-    }
 }
 
 /// Result of guessing the escape more for TEXT.
@@ -1200,16 +1144,13 @@ impl FlatTEXTOutput {
 
                 let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-                let be_res = byte_errors(&kws.byte_pairs, conf)
-                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                    .map_errors(ParseFlatTEXTError::from);
-
                 nextdata_res
-                    .zip_f3_once(repair_res, be_res)
+                    .zip_f2_once(repair_res)
                     .set_err_value(())
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|(nextdata, (), ())| {
+                    .and_then_commutative(|(nextdata, ())| {
+                        // Check segments against $NEXTDATA
                         let es = if let Some(n) = nextdata {
                             let oconf: &ReadOffsetConfig = st.conf.as_ref();
                             let limit = oconf.overlap_correction_limit;
@@ -1217,28 +1158,24 @@ impl FlatTEXTOutput {
                         } else {
                             vec![]
                         };
-                        WarningsAndErrorsResult::new_err_from_iter(es, nextdata)
+                        let nd_res = WarningsAndErrorsResult::new_err_from_iter(es, ())
+                            .map_errors(ParseFlatTEXTError::from);
+
+                        // Build diagnostics output, throw errors for bad keywords
+                        let header_supp =
+                            HeaderAndSuppOffsets::new(header, supp_text_seg, nextdata);
+                        let diag_res = kws
+                            .diag
+                            .into_flat_diag(delim, header_supp, prim_out, supp_out, conf)
+                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
+                            .set_err_value(());
+                        nd_res
+                            .zip_commutative(diag_res)
                             .group()
                             .map_error(IOErrorGroup::Pure)
                     })
-                    .map_ok_value(|nextdata| {
-                        let header_supp =
-                            HeaderAndSuppOffsets::new(header, supp_text_seg, nextdata);
-                        let parse = FlatTEXTDiagnostics {
-                            header_supp,
-                            delimiter: delim,
-                            byte_pairs: kws.byte_pairs,
-                            non_unique_std_keywords: kws.non_unique_std_keywords,
-                            non_unique_nonstd_keywords: kws.non_unique_nonstd_keywords,
-                            ignored_standard_keywords: kws.ignored_std_keywords,
-                            keys_with_empty_trimmed_values: kws.keys_with_empty_trimmed_values,
-                            keys_with_trimmed_values: kws.keys_with_trimmed_values,
-                            primary_split: prim_out,
-                            supp_split: supp_out,
-                        };
-                        Self::new(vkws, parse)
-                    })
+                    .map_ok_value(|((), diag)| Self::new(vkws, diag))
             })
     }
 
@@ -1447,6 +1384,7 @@ impl SplitTEXTOutputInner {
                 } else {
                     let e = kws
                         .insert(key, value, conf)
+                        .non_commutative_into_commutative()
                         .map_commutative_warnings(ParseKeywordsIssue::from)
                         .map_errors(ParseKeywordsIssue::from);
                     insert_results.push(e);
@@ -1474,7 +1412,7 @@ impl SplitTEXTOutputInner {
         // If the last token was not a blank, we did not end on a delimiter.
         let delim_flag = conf.allow_missing_final_delim;
         let final_delim_err = NonEmpty::from_slice(prev_token)
-            .map(|bs| FinalDelimError::new(tk, bs))
+            .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
         let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
@@ -1530,6 +1468,7 @@ impl SplitTEXTOutputInner {
         let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
             let e = kws
                 .insert(kb, vb, conf)
+                .non_commutative_into_commutative()
                 .map_commutative_warnings(ParseKeywordsIssue::from)
                 .map_errors(ParseKeywordsIssue::from);
             insert_results.push(e);
@@ -1641,7 +1580,7 @@ impl SplitTEXTOutputInner {
         let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
             .switchable_into_commutative();
         let final_delim_err = NonEmpty::from_slice(lastbuf)
-            .map(|bs| FinalDelimError::new(tk, bs))
+            .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
         let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
@@ -1649,7 +1588,7 @@ impl SplitTEXTOutputInner {
 
         let bound_iter = tokens_with_boundary_delims
             .iter()
-            .map(|token| DelimBoundError::new(token.clone(), tk).into());
+            .map(|token| DelimBoundError::new(tk, token.clone()).into());
         let boundary_res =
             LogResult::new_switchable_iter3((), (), bound_iter, conf.allow_delim_at_boundary)
                 .switchable_into_commutative();
@@ -2113,24 +2052,6 @@ where
             LogResult::new_ok(None)
         }
     })
-}
-
-fn byte_errors(
-    byte_pairs: &BytesPairs,
-    conf: &ReadHeaderAndTEXTConfig,
-) -> DeferredWarningsAndErrors<(), NonUtf8KeywordError, NonUtf8KeywordError> {
-    let es = byte_pairs
-        .iter()
-        .cloned()
-        .map(|(key, value)| NonUtf8KeywordError { key, value });
-    LogResult::new_switchable_iter3((), (), es, conf.allow_non_utf8).switchable_into_commutative()
-}
-
-fn replace_whitespace_chars(s: &str) -> String {
-    s.replace('\n', "\\n")
-        .replace('\t', "\\t")
-        .replace('\r', "\\r")
-        .replace('\0', "\\0")
 }
 
 def_summary!(HeaderSummary, "could not parse HEADER");

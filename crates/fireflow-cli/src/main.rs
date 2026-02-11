@@ -374,19 +374,19 @@ fn run() -> AppResult<()> {
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
-    let allow_non_utf8 = tri_flag_arg::<AllowNonUtf8>(
-        ALLOW_NON_UTF8,
-        format!("Allow non-UTF8 characters in {text_seg} segment."),
-    );
-
     let use_latin1 = override_flag_arg(
         USE_LATIN1,
         format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
     );
 
     let allow_non_ascii_keywords = tri_flag_arg::<AllowNonAsciiKeywords>(
-        ALLOW_NON_ASCII_KEYWORDS,
+        ALLOW_NON_ASCII_KEYS,
         "Allow non-ASCII characters in keys.",
+    );
+
+    let allow_non_utf8 = tri_flag_arg::<AllowNonUtf8>(
+        ALLOW_NON_UTF8_VALUES,
+        format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
     let allow_missing_supp_text = tri_flag_arg::<AllowMissingSuppTEXT>(
@@ -1217,11 +1217,11 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;
     });
-    get_opt(s, ALLOW_NON_UTF8, |x| c.allow_non_utf8 = x);
     get_flag(s, USE_LATIN1, |x| c.use_latin1 = x);
-    get_opt(s, ALLOW_NON_ASCII_KEYWORDS, |x| {
-        c.allow_non_ascii_keywords = x;
+    get_opt(s, ALLOW_NON_ASCII_KEYS, |x| {
+        c.allow_non_ascii_keys = x;
     });
+    get_opt(s, ALLOW_NON_UTF8_VALUES, |x| c.allow_non_utf8_values = x);
     get_opt(s, ALLOW_MISSING_SUPP_TEXT, |x| {
         c.allow_missing_supp_text = x;
     });
@@ -1654,11 +1654,11 @@ const ALLOW_EMPTY_KEYS: &str = "allow-empty-keys";
 
 const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
 
-const ALLOW_NON_UTF8: &str = "allow-non-utf8";
-
 const USE_LATIN1: &str = "use-latin1";
 
-const ALLOW_NON_ASCII_KEYWORDS: &str = "allow-non-ascii-keywords";
+const ALLOW_NON_ASCII_KEYS: &str = "allow-non-ascii-keys";
+
+const ALLOW_NON_UTF8_VALUES: &str = "allow-non-utf8-values";
 
 const ALLOW_MISSING_SUPP_TEXT: &str = "allow-missing-supp-text";
 

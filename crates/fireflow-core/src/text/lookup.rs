@@ -4,8 +4,8 @@ use crate::config::{
 };
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    AnyKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKey, StdKeywords,
+    AnyStdKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
+    StdKey, StdKeywords, TruncatedString,
 };
 
 use super::index::{IndexFromOne, MeasIndex};
@@ -62,13 +62,14 @@ pub enum ReqKeyErrorInner<E, T, I> {
 
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Debug, Error)]
+#[error("key '{key}' with value '{value}' could not be parsed: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
     pub key: SpecificKey<T, I>,
-    pub value: String,
+    pub value: TruncatedString,
 }
 
 /// An error caused by a required standard key being missing
@@ -249,12 +250,12 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey + Copy,
+        SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStr,
     {
         let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k, v.to_owned()))
+            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -263,12 +264,12 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey + Copy,
+        SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStr,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k, v))
+            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -280,12 +281,12 @@ pub(crate) trait Required: Sized {
         conf: &ReadStdKeywordsConfig,
     ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey + Copy,
+        SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStrWith,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(&v, data, conf)
-            .map_err(|e| ParseKeyError::new(e, k, v))
+            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -294,7 +295,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<&str, MissingKeyError<Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
     {
         match kws.get(&k.as_std()) {
             Some(v) => Ok(v),
@@ -307,7 +308,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<String, MissingKeyError<Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
     {
         match kws.remove(&k.as_std()) {
             Some(v) => Ok(v),
@@ -325,12 +326,12 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         Self: FromStr,
     {
         Self::get_opt_inner(kws, k, |k_, v| {
             v.parse()
-                .map_err(|e| ParseKeyError::new(e, k_, v.to_owned()))
+                .map_err(|e| ParseKeyError::new(e, k_, TruncatedString(v.to_owned())))
         })
     }
 
@@ -344,7 +345,7 @@ pub(crate) trait Optional: Sized {
         ParseKeyError<Self::Err, Self, I>,
     >
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         Self: FromStr,
     {
         Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
@@ -355,11 +356,14 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         Self: FromStr,
     {
         kws.remove(&k.as_std())
-            .map(|v| v.parse().map_err(|e| ParseKeyError::new(e, k, v)))
+            .map(|v| {
+                v.parse()
+                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
+            })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
@@ -372,13 +376,14 @@ pub(crate) trait Optional: Sized {
         conf: &ReadStdKeywordsConfig,
     ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         Self: FromStrWith,
         Self::Diagnostic: Default,
     {
         kws.remove(&k.as_std())
             .map(|v| {
-                Self::from_str_with(v.as_str(), data, conf).map_err(|e| ParseKeyError::new(e, k, v))
+                Self::from_str_with(v.as_str(), data, conf)
+                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
             })
             .transpose()
             .map(|x| {
@@ -390,7 +395,7 @@ pub(crate) trait Optional: Sized {
 
     fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         Self: FromStr<Err = Infallible>,
     {
         let Ok(res) = Self::remove_opt(kws, k);
@@ -404,7 +409,7 @@ pub(crate) trait Optional: Sized {
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
     where
-        SpecificKey<Self, I>: AnyKey + Copy,
+        SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStr,
     {
         let flag = conf.process_optional_failure;
@@ -413,7 +418,7 @@ pub(crate) trait Optional: Sized {
             Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
             Err(e) => {
                 if flag.is_demote() {
-                    nonstd.insert_demoted(k.as_std(), e.value.clone());
+                    nonstd.insert_demoted(k.as_std(), e.value.0.clone());
                 }
                 LogResult::new_deferred_switchable3(Self::Outer::default(), e, triflag)
             }
@@ -433,7 +438,7 @@ pub(crate) trait Optional: Sized {
         ParseKeyError<Self::Err, Self, I>,
     >
     where
-        SpecificKey<Self, I>: AnyKey + Copy,
+        SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStrWith,
         Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
@@ -446,7 +451,7 @@ pub(crate) trait Optional: Sized {
             // TODO not dry
             Err(e) => {
                 if flag.is_demote() {
-                    nonstd.insert_demoted(k.as_std(), e.value.clone());
+                    nonstd.insert_demoted(k.as_std(), e.value.0.clone());
                 }
                 LogResult::new_deferred_switchable3(DiagnosedKeyword::default(), e, triflag)
             }
@@ -459,7 +464,7 @@ pub(crate) trait Optional: Sized {
         f: F,
     ) -> Result<Self::Outer, E>
     where
-        SpecificKey<Self, I>: AnyKey,
+        SpecificKey<Self, I>: AnyStdKey,
         F: FnOnce(SpecificKey<Self, I>, &str) -> Result<Self, E>,
     {
         kws.get(&k.as_std())
@@ -689,31 +694,5 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: fmt::Display,
     {
         (Self::std(i), self.to_string())
-    }
-}
-
-impl<E, T, I> fmt::Display for ParseKeyError<E, T, I>
-where
-    E: fmt::Display,
-    SpecificKey<T, I>: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let value = truncate_string(self.value.as_str(), 30);
-        write!(
-            f,
-            "key '{}' with value '{value}' could not be parsed: {}",
-            self.key, self.error
-        )
-    }
-}
-
-pub(crate) fn truncate_string(s: &str, n: usize) -> String {
-    // NOTE this is the length in bytes, not chars (ie doesn't care about
-    // utf-8), since this is just meant to make strings "shorter" it doesn't
-    // matter that much
-    if s.len() > n {
-        format!("{}…(more)", s.chars().take(n).collect::<String>())
-    } else {
-        s.into()
     }
 }

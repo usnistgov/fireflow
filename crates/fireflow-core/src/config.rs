@@ -526,25 +526,21 @@ pub struct ReadHeaderAndTEXTConfig {
     /// error rather than a warning if this is encountered.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
-    /// If `true`, allow non-utf8 byte sequences in TEXT.
-    ///
-    /// Tokens with such bytes will be dropped regardless of this keyword.
-    /// Setting this to `true` will emit an error rather than a warning in such
-    /// cases.
-    pub allow_non_utf8: AllowNonUtf8,
-
     /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: UseLatin1,
 
-    // TODO not used
     /// If `true`, allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
     /// may only contain letters, numbers, and start with '$'. Regardless, all
     /// compliant keys must only have ASCII. Setting this to `true` will emit
-    /// an error when encountering such a key. If `false`, the key will be kept
-    /// as a non-standard key.
-    pub allow_non_ascii_keywords: AllowNonAsciiKeywords,
+    /// an error when encountering such a key.
+    pub allow_non_ascii_keys: AllowNonAsciiKeywords,
+
+    /// If `true`, allow values with non-UTF8 characters.
+    ///
+    /// Tokens with such bytes will be dropped regardless of this keyword.
+    pub allow_non_utf8_values: AllowNonUtf8,
 
     /// If `true`, allow STEXT offsets to be missing from TEXT.
     ///
@@ -1294,6 +1290,7 @@ impl AppendFlag {
     }
 }
 
+// TODO this should not be empy
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
@@ -1653,8 +1650,8 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.allow_odd = TriFlag::True.into();
         self.allow_empty_keys = TriFlag::True.into();
         self.allow_delim_at_boundary = TriFlag::True.into();
-        self.allow_non_utf8 = TriFlag::True.into();
-        self.allow_non_ascii_keywords = TriFlag::True.into();
+        self.allow_non_utf8_values = TriFlag::True.into();
+        self.allow_non_ascii_keys = TriFlag::True.into();
         self.allow_missing_supp_text = TriFlag::True.into();
         self.allow_supp_text_own_delim = TriFlag::True.into();
         self.allow_missing_nextdata = TriFlag::True.into();

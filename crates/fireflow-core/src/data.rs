@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadOffsetConfig, TriFlag, TruncateEventValues,
+    ReadEventsConfig, ReadOffsetConfig, TruncateEventValues,
 };
 use crate::core::{
     AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -62,7 +62,7 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult,
     IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
-    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult,
 };
 use crate::macros::{def_summary, match_many_to_one};
@@ -2463,26 +2463,22 @@ where
                         }
                     }
                 }
-                let overrange_res = match econf.disallow_over_range.0 {
-                    TriFlag::False => ErrorGroup::try_new(es)
-                        .map_err(ReadDataframeError::from)
-                        .map_err(IOErrorGroup::new_pure_one)
-                        .into_log(),
-                    TriFlag::True => {
-                        let ws = es.fmap(ReadDataframeWarning::from);
-                        LogResult::new_ok(()).set_commutative_warnings(ws)
-                    }
-                    TriFlag::Silent => LogResult::new_ok(()),
-                };
-                overrange_res.map_ok_value(|()| {
-                    let cs = data
-                        .into_iter()
-                        .map(FCSColumn::from)
-                        .map(AnyFCSColumn::from);
-                    let out = EventsDiagnostics::new(None, None, None, truncated);
-                    let df = FCSDataFrame::try_new(cs).unwrap();
-                    (df, out)
-                })
+                let flag = econf.disallow_over_range;
+                SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
+                    .switchable_into_commutative()
+                    .group()
+                    .map_commutative_warnings(ReadDataframeWarning::from)
+                    .map_error(ReadDataframeError::from)
+                    .map_error(IOErrorGroup::new_pure_one)
+                    .map_ok_value(|()| {
+                        let cs = data
+                            .into_iter()
+                            .map(FCSColumn::from)
+                            .map(AnyFCSColumn::from);
+                        let out = EventsDiagnostics::new(None, None, None, truncated);
+                        let df = FCSDataFrame::try_new(cs).unwrap();
+                        (df, out)
+                    })
             })
     }
 
@@ -3082,22 +3078,19 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values))
             .collect();
         let trunc = es.iter().map(|e| e.as_ref().map(|x| x.row)).collect();
-        let overrange_res = match conf.disallow_over_range.0 {
-            TriFlag::False => ErrorGroup::try_new(es.into_iter().flatten())
-                .map_err(ReadDataframeError::from)
-                .map_err(ImpureError::Pure)
-                .into_log(),
-            TriFlag::True => {
-                let ws = es.into_iter().flatten().collect();
-                LogResult::new_ok(()).set_commutative_warnings(ws)
-            }
-            TriFlag::Silent => LogResult::new_ok(()),
-        };
-        overrange_res.map_ok_value(|()| {
-            let data = col_readers.into_iter().map(Readable::into_dataframe_column);
-            let df = FCSDataFrame::try_new(data).unwrap();
-            (df, trunc)
-        })
+
+        let flag = conf.disallow_over_range;
+        let flat_es = es.into_iter().flatten();
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), flat_es, flag)
+            .switchable_into_commutative()
+            .group()
+            .map_error(ReadDataframeError::from)
+            .map_error(ImpureError::Pure)
+            .map_ok_value(|()| {
+                let data = col_readers.into_iter().map(Readable::into_dataframe_column);
+                let df = FCSDataFrame::try_new(data).unwrap();
+                (df, trunc)
+            })
     }
 
     fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {

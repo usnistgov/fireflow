@@ -533,7 +533,7 @@ pub const NON_STD_MEAS_PAT_DEFAULT: &str = formatcp!("^P{NON_STD_MEAS_INDEX_PAT}
 
 pub const NON_STD_MEAS_INDEX_PAT: &str = "%n";
 
-pub const DEDUP_PNN_SEP: &str = "~";
+pub const DEDUP_PNN_SEP: char = '~';
 
 pub const DEFAULT_DATE_FORMAT: &str = "%d-%b-%Y";
 
@@ -550,3 +550,5 @@ pub const DEFAULT_TIME_FORMAT_3_1: &str =
 pub const BASE60_SECOND_SPEC: &str = "%!";
 
 pub const BASE100_SECOND_SPEC: &str = "%@";
+
+pub const PATTERN_DELIMITER: char = '/';

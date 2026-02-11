@@ -17,7 +17,7 @@ else:
 M = TypeVar("M", bound="BaseModel")
 
 _DEFAULT_CORRECTION = (0, 0)
-_DEFAULT_KEY_PATTERNS: pft.KeyPatterns = ([], [])
+_DEFAULT_KEY_PATTERNS: pft.KeyPatterns = []
 _DEFAULT_TRIFLAG: pft.TriFlag = "false"
 
 
@@ -79,7 +79,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     rename_standard_keys: dict[str, str] = {}
     replace_standard_key_values: dict[str, str] = {}
     append_standard_keywords: dict[str, str] = {}
-    substitute_standard_key_values: pft.SubPatterns = ({}, {})
+    substitute_standard_key_values: pft.SubPatterns = {}
 
 
 class _ReadStdKeywordsConfig(BaseModel):

@@ -1732,9 +1732,8 @@ mod python {
 
     use fireflow_types::python::ConfigError;
 
-    use itertools::Itertools as _;
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyTuple};
+    use pyo3::types::PyDict;
 
     use std::collections::HashMap;
     use std::convert::Infallible;
@@ -1854,59 +1853,38 @@ mod python {
         }
     }
 
-    // pass keypatterns via config as a tuple like ([String], [String]) where the
-    // first member is literal strings and the second is regex patterns
     impl<'py> FromPyObject<'py> for KeyPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (lits, pats): (Vec<String>, Vec<String>) = ob.extract()?;
-            let ret = Self::try_from_literals_and_patterns(
-                lits.into_iter().map(|x| (x, ())),
-                pats.into_iter().map(|x| (x, ())),
-            )?;
-            Ok(ret)
+            let xs: Vec<KeyStringOrPattern> = ob.extract()?;
+            Ok(Self(xs.into_iter().map(|x| (x, ())).collect()))
         }
     }
 
     impl<'py> IntoPyObject<'py> for KeyPatterns {
-        type Target = PyTuple;
+        type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let go = |(k, ())| match k {
-                KeyStringOrPattern::Literal(y) => Ok(y),
-                KeyStringOrPattern::Pattern(y) => Err(y),
-            };
-            let (lits, pats): (Vec<_>, Vec<_>) = self.0.into_iter().map(go).partition_result();
-            (lits, pats).into_pyobject(py)
+            self.0.keys().cloned().collect::<Vec<_>>().into_pyobject(py)
         }
     }
 
     type _SubPattern = HashMap<String, SubPattern>;
 
-    // pass subpatterns via config as a tuple like ({String, (...)}, {String, (...)})
-    // where the first member is literal strings and the second is regex patterns
     impl<'py> FromPyObject<'py> for SubPatterns {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (lits, pats): (_SubPattern, _SubPattern) = ob.extract()?;
-            let ret = Self::try_from_literals_and_patterns(lits, pats)?;
-            Ok(ret)
+            Ok(Self(ob.extract::<HashMap<_, _>>()?))
         }
     }
 
     impl<'py> IntoPyObject<'py> for SubPatterns {
-        type Target = PyTuple;
+        type Target = PyDict;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let go = |(k, v)| match k {
-                KeyStringOrPattern::Literal(y) => Ok((y, v)),
-                KeyStringOrPattern::Pattern(y) => Err((y, v)),
-            };
-            let (lits, pats): (HashMap<_, _>, HashMap<_, _>) =
-                self.0.into_iter().map(go).partition_result();
-            (lits, pats).into_pyobject(py)
+            self.0.into_pyobject(py)
         }
     }
 }

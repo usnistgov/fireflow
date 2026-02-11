@@ -6335,6 +6335,16 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
+    fn new_keystring_or_pattern() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringOrPattern);
+        let d = format!(
+            "if {ARG_TOKEN} contains non-ASCII characters, is empty, or is an invalid regex"
+        );
+        // TODO this exception is wrong for regexp
+        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
+        Self::default().rstype(path).exc(e)
+    }
+
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StdKey);
         let d = format!(
@@ -6431,6 +6441,10 @@ impl<E> PyDict<E> {
         Self::new(key.into(), value.into(), None, None)
     }
 
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.key, self.value, Some(rstype), self.exc)
+    }
+
     impl_py_prim_doc_default!("{}".into(), std::collections::HashMap);
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyDict<E1> {
@@ -6461,6 +6475,13 @@ impl<E: From<PyException>> PyDict<E> {
     fn new_keywords() -> Self {
         Self::new1(PyStr::default(), PyStr::default())
     }
+
+    fn new_sub_patterns() -> Self {
+        let path = config_path("SubPatterns");
+        let k = PyStr::new_keystring_or_pattern();
+        let v = PyTuple::new_sub_pattern();
+        Self::new1(k, v).rstype(path)
+    }
 }
 
 impl<E> PyList<E> {
@@ -6470,6 +6491,10 @@ impl<E> PyList<E> {
 
     fn exc(self, exc: impl Into<E>) -> Self {
         Self::new(self.inner, self.rstype, Some(exc.into()))
+    }
+
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(self.inner, Some(rstype), self.exc)
     }
 
     impl_py_prim_doc_default!("[]".into(), Vec);
@@ -6500,6 +6525,11 @@ impl<E: From<PyException>> PyList<E> {
         let inner_path = keyword_path("Vertex");
         let inner = PyTuple::new2(vec![RsFloat::F32; 2]);
         Self::new_non_empty(inner, &inner_path)
+    }
+
+    fn new_key_patterns() -> Self {
+        let path = config_path("KeyPatterns");
+        Self::new1(PyStr::new_keystring_or_pattern()).rstype(path)
     }
 }
 
@@ -6639,13 +6669,6 @@ impl<E> PyTuple<E> {
 }
 
 impl<E: From<PyException>> PyTuple<E> {
-    fn new_sub_patterns() -> Self {
-        let path = config_path("SubPatterns");
-        let lit = PyDict::new1(PyStr::new_keystring(), Self::new_sub_pattern());
-        let pat = PyDict::new1(PyStr::new_regexp(), Self::new_sub_pattern());
-        Self::new2([lit, pat]).rstype(path)
-    }
-
     fn new_sub_pattern() -> Self {
         let desc = format!(
             "if references in replacement string in {ARG_TOKEN} \
@@ -6725,15 +6748,6 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_unigate() -> Self {
         Self::new2([PyDecimal::default(), PyDecimal::default()]).rstype(keyword_path("UniGate"))
-    }
-
-    fn new_key_patterns() -> Self {
-        let path = config_path("KeyPatterns");
-        Self::new2([
-            PyList::new1(PyStr::new_keystring()),
-            PyList::new1(PyStr::new_regexp()),
-        ])
-        .rstype(path)
     }
 }
 
@@ -8813,7 +8827,7 @@ impl DocArgParam {
              expressions corresponding to {REGEXP_REF}."
         );
         let d = format!("{desc}. {common}");
-        Self::new_param(argname, PyTuple::new_key_patterns(), d).def_auto()
+        Self::new_param(argname, PyList::new_key_patterns(), d).def_auto()
     }
 
     fn new_rename_standard_keys() -> Self {
@@ -8854,7 +8868,7 @@ impl DocArgParam {
             bracket0 = code_str("${1}"),
             bracket1 = code_str("${cygnus}"),
         );
-        let p = PyTuple::new_sub_patterns();
+        let p = PyDict::new_sub_patterns();
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
 

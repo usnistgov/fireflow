@@ -86,6 +86,22 @@ pub enum KeyStringOrPattern {
     Pattern(CaseInsRegex),
 }
 
+impl FromStr for KeyStringOrPattern {
+    type Err = KeyStringsOrPatternsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(inner) = s
+            .strip_prefix(PATTERN_DELIMITER)
+            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
+        {
+            let ret = inner.parse::<CaseInsRegex>().map_err(KeyRegexError)?;
+            Ok(Self::Pattern(ret))
+        } else {
+            Ok(Self::Literal(s.parse::<KeyString>()?))
+        }
+    }
+}
+
 /// A collection of [`StdKey`]s and [`NonStdKey`]s and key/values with errors.
 #[derive(Default)]
 pub struct ParsedKeywords {
@@ -633,19 +649,6 @@ impl FromStr for NonStdKey {
             Ok(Self::new(ks.to_string()))
         } else {
             Err(NonStdKeyError::Prefix(ks))
-        }
-    }
-}
-
-impl FromStr for KeyStringOrPattern {
-    type Err = KeyStringsOrPatternsError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with(PATTERN_DELIMITER) && s.ends_with(PATTERN_DELIMITER) && s.len() > 1 {
-            let ret = s.parse::<CaseInsRegex>().map_err(KeyRegexError)?;
-            Ok(Self::Pattern(ret))
-        } else {
-            Ok(Self::Literal(s.parse::<KeyString>()?))
         }
     }
 }

@@ -19,7 +19,7 @@ use fireflow_core::segment::OffsetCorrection;
 use fireflow_core::text::keywords::ByteOrd2_0;
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::{AsciiStringError, KeyString, KeyStringOrPattern};
+use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
@@ -427,7 +427,7 @@ fn run() -> AppResult<()> {
             .action(ArgAction::Append)
             .value_name("KEY_OR_PAT")
             .help(help)
-            .value_parser(ValueParser::new(parse_keystring))
+            .value_parser(value_parser!(KeyStringOrPattern))
     };
 
     let ignore_std_key = make_key_str_args(
@@ -480,7 +480,7 @@ fn run() -> AppResult<()> {
             "Edit standard key values using KEY and SUB. The leading '$' \
              is implied for KEY. See {sub_header} for details."
         ))
-        .value_parser(ValueParser::new(parse_sub_pattern));
+        .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
     let all_flat_args = vec![
         version_override,
@@ -1493,14 +1493,6 @@ fn parse_other_width(s: &str) -> StrResult<OtherWidth> {
     OtherWidth::try_from(x).map_err(|e| e.to_string())
 }
 
-fn parse_keystring(s: &str) -> Result<KeyStringOrPattern, AsciiStringError> {
-    s.parse::<KeyString>().map(KeyStringOrPattern::Literal)
-}
-
-fn parse_sub_pattern(s: &str) -> StrResult<SubPatternPair> {
-    parse_sub_pattern_pair(s, |k| Ok(parse_keystring(k)?))
-}
-
 fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
     let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
     let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
@@ -1514,12 +1506,9 @@ fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
     Ok((kf, v.to_owned()))
 }
 
-fn parse_sub_pattern_pair<F>(s: &str, f: F) -> StrResult<SubPatternPair>
-where
-    F: FnOnce(&str) -> AppResult<KeyStringOrPattern>,
-{
+fn parse_sub_pattern_pair(s: &str) -> StrResult<SubPatternPair> {
     let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
-    let kf = f(k).map_err(|e| e.to_string())?;
+    let kf = k.parse::<KeyStringOrPattern>().map_err(|e| e.to_string())?;
     let vf = parse_sub_pattern_inner(v).map_err(|e| e.to_string())?;
     Ok((kf, vf))
 }

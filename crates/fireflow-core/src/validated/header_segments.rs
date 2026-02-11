@@ -60,7 +60,7 @@ impl ParsedHeaderSegments {
             .resolve_nowarn()
     }
 
-    /// Mae new collection of HEADER segments.
+    /// Make new collection of HEADER segments.
     ///
     /// Will try to fix overlaps subject to limit or will throw error.
     ///

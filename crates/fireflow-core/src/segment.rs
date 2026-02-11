@@ -248,6 +248,7 @@ enum InnerSegment<T, O> {
     Empty,
 }
 
+// TODO these will serialize to strings and not integers
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -1295,8 +1296,8 @@ impl OtherSegment20 {
             .count();
         let valid_buf = &buf[0..n_valid_bytes];
 
-        // Exit early if there are only spaces, nulls, or zero
-        if valid_buf.iter().all(|&x| x == 0 || x == 32 || x == 48) {
+        // Exit early if there are only spaces or nulls
+        if valid_buf.iter().all(|&x| x == 0) | valid_buf.iter().all(|&x| x == 32) {
             return LogResult::new_ok(None);
         }
 
@@ -1339,8 +1340,9 @@ impl OtherSegment20 {
                     let buf0 = &buf[i0..i1];
                     let buf1 = &buf[i1..i2];
 
-                    // If any regions are entirely blank or zero, just ignore them
-                    if !buf0.iter().chain(buf1.iter()).all(|&x| x == 32 || x == 48) {
+                    // If any regions are entirely blank/zero/null, just ignore them
+                    let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
+                    if !(all_are(0) || all_are(32) || all_are(48)) {
                         let r = Self::parse_other(buf0, buf1, &seg_conf);
                         results.push(r);
                     }
@@ -1350,7 +1352,7 @@ impl OtherSegment20 {
                     .into_iter()
                     .sequence_commutative()
                     .nowarn_into_warn()
-                    .map_ok_value(|xs| Some((NonEmpty::from_vec(xs).unwrap(), width)))
+                    .map_ok_value(|xs| NonEmpty::from_vec(xs).map(|ys| (ys, width)))
             })
             .group()
             .map_error(IOErrorGroup::Pure)

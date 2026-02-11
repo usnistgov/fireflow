@@ -30,6 +30,11 @@ from .conftest import lazy_fixture
 
 import ast
 
+LINK_NAME1 = "wubbalubbadubdub"
+LINK_NAME2 = "maple lattes"
+LINK_NAME3 = "silent man"
+
+# used for testing the pydantic model against the types in the pyi file
 with open("python/pyreflow/_pyreflow.pyi") as f:
     tree = ast.parse(f.read())
 
@@ -117,11 +122,6 @@ def blank_temporal_3_1() -> pf.Temporal3_1:
 @pytest.fixture
 def blank_temporal_3_2() -> pf.Temporal3_2:
     return pf.Temporal3_2(1.0)
-
-
-LINK_NAME1 = "wubbalubbadubdub"
-LINK_NAME2 = "maple lattes"
-LINK_NAME3 = "silent man"
 
 
 @pytest.fixture
@@ -2777,6 +2777,58 @@ class TestApiFunctions:
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[])
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1, 1])
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
+
+
+def mock_header_text(
+    v: str,
+    t0: int = 58,
+    t1: int = 0,
+    d0: int = 0,
+    d1: int = 0,
+    a0: int = 0,
+    a1: int = 0,
+    other_width: int = 8,
+    other_segs: list[tuple[int, int]] = [],
+    text: str = "",
+) -> str:
+    other = "".join(
+        [str(x).rjust(other_width) + str(y).rjust(other_width) for (x, y) in other_segs]
+    )
+    return f"{v}    {t0:>8}{t1:>8}{d0:>8}{d1:>8}{a0:>8}{a1:>8}{other}/"
+
+
+class TestConfig:
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize("max_other", [None, 0, 1, 5])
+    @pytest.mark.parametrize(
+        "other_segs",
+        [
+            [],
+            [(0, 0), (0, 0), (0, 0)],
+        ],
+    )
+    def test_max_other(
+        self,
+        version: str,
+        max_other: int | None,
+        other_segs: Any,
+        tmp_path: Path,
+    ) -> None:
+        other_segs = list(other_segs)  # for some reason these come in as tuple
+        t0 = len(other_segs) * 2 * 8 + 58
+        s = mock_header_text(version, t0=t0, t1=t0, text="/", other_segs=other_segs)
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+        out = pf.api.fcs_read_header(p, max_other=max_other)
+        if max_other == 0 or len(other_segs) == 0:
+            assert out.segments.other_segs is None
+        elif max_other is None:
+            os_out, _ = out.segments.other_segs
+            assert os_out == other_segs
+        else:
+            os_out, _ = out.segments.other_segs
+            assert os_out == other_segs[0:max_other]
 
 
 class TestReadWrite:

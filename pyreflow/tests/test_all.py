@@ -2799,6 +2799,44 @@ def mock_header_text(
 
 class TestConfig:
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize(
+        "other_segs, other_corrections",
+        [
+            [[], []],
+            [[(0, -1)], [(0, 1)]],
+            [[(0, -1)], [(0, 1), (0, 10000000)]],
+        ],
+    )
+    def test_other_corrections(
+        self,
+        version: str,
+        other_segs: Any,
+        other_corrections: list[tuple[int, int]],
+        tmp_path: Path,
+    ) -> None:
+        other_segs = list(other_segs)  # for some reason these come in as tuple
+        other_corrections = list(other_corrections)
+        t0 = len(other_segs) * 2 * 8 + 58
+        s = mock_header_text(version, t0=t0, t1=t0, text="/", other_segs=other_segs)
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+        out = pf.api.fcs_read_header(p, other_corrections=other_corrections)
+        if len(other_segs) == 0:
+            assert out.segments.other_segs is None
+        else:
+            print(other_segs)
+            os_out, _ = out.segments.other_segs
+            norm_corrections = [
+                (other_corrections[i] if i < len(other_corrections) else (0, 0))
+                for i, _ in enumerate(other_segs)
+            ]
+
+            assert os_out == [
+                (x + a, y + b) for ((x, y), (a, b)) in zip(other_segs, norm_corrections)
+            ]
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     @pytest.mark.parametrize("max_other", [None, 0, 1, 5])
     @pytest.mark.parametrize(
         "other_segs",

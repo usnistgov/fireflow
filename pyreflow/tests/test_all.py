@@ -2927,13 +2927,7 @@ class TestConfig:
         assert out.segments.other_segs[1] == other_width
 
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
-    @pytest.mark.parametrize("other_width", [8, 11, 13, 17, 20])
-    def test_squish_offsets(
-        self,
-        version: str,
-        other_width: int,
-        tmp_path: Path,
-    ) -> None:
+    def test_squish_offsets(self, version: str, tmp_path: Path) -> None:
         s = mock_header_text(version, t0=58, t1=58, d0=59, d1=0, text="/")
         p = tmp_path / "thing.fcs"
         with open(p, "w") as f:

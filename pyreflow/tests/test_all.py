@@ -2868,6 +2868,64 @@ class TestConfig:
             os_out, _ = out.segments.other_segs
             assert os_out == other_segs[0:max_other]
 
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize("other_width", [8, 11, 13, 17, 20])
+    def test_guess_other_width(
+        self,
+        version: str,
+        other_width: int,
+        tmp_path: Path,
+    ) -> None:
+        other_segs = [(0, 0), (0, 0)]
+        t0 = len(other_segs) * 2 * other_width + 58
+        s = mock_header_text(
+            version,
+            t0=t0,
+            t1=t0,
+            text="/",
+            other_width=other_width,
+            other_segs=other_segs,
+        )
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+
+        # without guessing, all but default (which is 8) will emit exceptions
+        # for every segment piece they try and fail to parse
+        if other_width == 8:
+            out = pf.api.fcs_read_header(p, guess_other_width="none")
+            assert out.segments.other_segs[1] == other_width
+        elif other_width == 11:
+            with pytest.RaisesGroup(
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+            ):
+                pf.api.fcs_read_header(p, guess_other_width="none")
+        elif other_width in [13, 17, 20]:
+            with pytest.RaisesGroup(
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+                pf.FileLayoutError,
+            ):
+                pf.api.fcs_read_header(p, guess_other_width="none")
+        else:
+            assert False, "unknown width"
+
+        # none of these will emit warnings/errors since the guess succeeds
+        out = pf.api.fcs_read_header(p, guess_other_width="error")
+        assert out.segments.other_segs[1] == other_width
+
+        out = pf.api.fcs_read_header(p, guess_other_width="warn")
+        assert out.segments.other_segs[1] == other_width
+
+        out = pf.api.fcs_read_header(p, guess_other_width="silent")
+        assert out.segments.other_segs[1] == other_width
+
 
 class TestReadWrite:
     @staticmethod

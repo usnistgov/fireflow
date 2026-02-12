@@ -270,6 +270,40 @@ struct NonEmptySegment<T, O> {
     dataset_offset: O,
 }
 
+/// A valid ASCII char in an OTHER segment.
+#[derive(Clone, Copy, PartialEq)]
+enum CharType {
+    /// Minus sign ('-')
+    Minus,
+    /// space or \0
+    Null,
+    /// Any ASCII digit 0-9
+    Digit,
+    /// Anything else
+    Other,
+}
+
+impl From<u8> for CharType {
+    fn from(value: u8) -> Self {
+        if value == 0 || value == 32 {
+            Self::Null
+        } else if value == 45 {
+            Self::Minus
+        } else if (48..=57).contains(&value) {
+            Self::Digit
+        } else {
+            Self::Other
+        }
+    }
+}
+
+impl CharType {
+    fn is_digit_or_minus(self) -> bool {
+        matches!(self, Self::Digit | Self::Minus)
+    }
+}
+
+// TODO move this to a more general module
 pub(crate) enum OneOrTwo<X> {
     One(X),
     Two(X, X),
@@ -1226,8 +1260,6 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl OtherSegment20 {
-    // TODO this won't deal with offsets like 0,-1, which hopefully aren't too
-    // common.
     #[allow(clippy::type_complexity)]
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
@@ -1276,7 +1308,7 @@ impl OtherSegment20 {
         // Read the offsets.
         //
         // TODO (minor optimization opportunity) This will take all bytes
-        // between offset 58 and the next required offset (ie from
+        // between offset 58 and the next *required* offset (ie from
         // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of case, the first segment
         // will be one of these three. However, it is theoretically possible
         // that this region has both the OTHER offsets and the OTHER segments
@@ -1285,15 +1317,31 @@ impl OtherSegment20 {
         // (in earlier versions this was even less restricted since they did not
         // specify a width). In these cases, reading bytes like this will
         // result in the OTHER segments themselves being read twice (here they
-        // be read and ignored).
+        // will be read and ignored).
         let mut buf = vec![];
         io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
 
-        // Only consider bytes which are spaces, nulls, or digits.
-        let n_valid_bytes = buf
-            .iter()
-            .take_while(|&&x| x == 0 || x == 32 || (48..=57).contains(&x))
-            .count();
+        // Only consider bytes which are spaces, nulls, minus sign, or digits
+        // where a minus sign must always immediately precede a digit
+        let mut n_valid_bytes = 0;
+        let mut prev_was_minus = false;
+        for &c in &buf {
+            let t = CharType::from(c);
+            if prev_was_minus && t != CharType::Digit {
+                // Char is not a digit following a minus sign, decrement by one
+                // byte before breaking loop since the previous minus sign does
+                // not go with a digit. ASSUME this will not underflow because
+                // the previous char cannot be minus on the first iteration.
+                n_valid_bytes -= 1;
+                break;
+            }
+            match t {
+                CharType::Minus => prev_was_minus = true,
+                CharType::Null | CharType::Digit => prev_was_minus = false,
+                CharType::Other => break,
+            }
+            n_valid_bytes += 1;
+        }
         let valid_buf = &buf[0..n_valid_bytes];
 
         // Exit early if there are only spaces or nulls
@@ -1388,12 +1436,26 @@ impl OtherSegment20 {
         max_other: Option<NonZeroU64>,
     ) -> Result<OtherWidth, GuessOtherWidthError> {
         const MIN_WIDTH: u8 = 8;
-        let is_null = |x: u8| x == 0 || x == 32;
-        debug_assert!(
-            xs.iter().all(|x| is_null(*x) || (48..58).contains(x)),
-            "stream must be all one of null, space, or a digit"
-        );
-        debug_assert!(!xs.is_empty(), "stream must be non-empty");
+
+        #[cfg(debug_assertions)]
+        {
+            let cs: Vec<_> = xs.iter().copied().map(CharType::from).collect();
+            assert!(!xs.is_empty(), "stream must be non-empty");
+            assert!(
+                cs.iter().all(|&x| x != CharType::Other),
+                "stream must be all one of null, space, minus sign, or a digit"
+            );
+            assert!(
+                !cs.iter()
+                    .tuple_windows()
+                    .any(|(&prev, &this)| prev == CharType::Minus && this != CharType::Digit),
+                "stream has minus sign which is not followed by digit"
+            );
+            assert!(
+                cs.last().is_some_and(|&x| x != CharType::Minus),
+                "stream ends with minus sign"
+            );
+        }
 
         // Indices where chars changed (false = null->digit, true = digit->null)
         let mut digit_starts: Vec<usize> = vec![];
@@ -1414,30 +1476,34 @@ impl OtherSegment20 {
             };
 
             // Get boundaries of "digit streams" which are contiguous streams of
-            // digit characters separated by at least one space or null char.
-            // The boundaries will be constructed as intervals like (start, end)
-            // where start and end are the indices of the start and end of the
-            // stream.
+            // digit characters separated by at least one space or null char
+            // which may or may not have a minus sign in front. The boundaries
+            // will be constructed as intervals like (start, end) where start
+            // and end are the indices of the start and end of the stream.
             let mut it = these_bytes.iter();
-            let mut prev_was_null = is_null(*it.by_ref().next().unwrap());
-            // If first char is digit, push start boundary to balance the ends
-            if !prev_was_null {
+            let mut prev_char_type = CharType::from(*it.by_ref().next().unwrap());
+            // If first char is digit or minus, push start boundary to balance the ends
+            if prev_char_type.is_digit_or_minus() {
                 digit_starts.push(0);
             }
             for (&x, i) in it.zip(1..) {
-                let this_is_null = is_null(x);
-                if prev_was_null != this_is_null {
-                    if this_is_null {
+                let this_char_type = CharType::from(x);
+                if prev_char_type != this_char_type {
+                    if this_char_type == CharType::Null {
                         digit_ends.push(i);
-                    } else {
+                    } else if prev_char_type == CharType::Null {
                         digit_starts.push(i);
                     }
                 }
-                prev_was_null = this_is_null;
+                prev_char_type = this_char_type;
             }
-            // If previous was a digit, add a boundary to the end
-            if !prev_was_null {
+            if prev_char_type == CharType::Digit {
+                // If previous was a digit, add a boundary to the end
                 digit_ends.push(these_bytes.len());
+            } else if prev_char_type == CharType::Minus {
+                // If previous was a minus, the last char in the last digit is
+                // a minus for this width, which is invalid.
+                return None;
             }
             let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
             debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
@@ -1948,8 +2014,44 @@ mod tests {
     }
 
     #[test]
+    fn other_width_2x8_minus() {
+        let s = b"       0      -1";
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
+    }
+
+    #[test]
+    fn other_width_2x8_big_minus() {
+        let s = b"       0-1000000";
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
+    }
+
+    #[test]
+    fn other_width_2x8_first_minus() {
+        let s = b"-1000000       0";
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
+    }
+
+    #[test]
     fn other_width_4x8() {
         let s = b"       0       0    2112   90125";
+        assert_eq!(
+            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            Ok(8)
+        );
+    }
+
+    #[test]
+    fn other_width_4x8_minus() {
+        let s = b"       0       0    2112  -90125";
         assert_eq!(
             OtherSegment20::guess_other_width(s, None).map(u8::from),
             Ok(8)

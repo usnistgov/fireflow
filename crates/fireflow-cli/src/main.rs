@@ -210,7 +210,7 @@ fn run() -> AppResult<()> {
 
     let correction_arg = |long: &'static str, in_header: bool, seg: &ANSIString| {
         let src = if in_header { &header_seg } else { &text_seg };
-        let h = format!("Adjustment for {seg} offsets from {src}.");
+        let h = format!("Correction for {seg} offsets from {src}.");
         Arg::new(long)
             .long(long)
             .value_name("BEGIN,END")
@@ -223,6 +223,16 @@ fn run() -> AppResult<()> {
     let text_correction = correction_arg(TEXT_COR, true, &text_seg);
     let data_correction = correction_arg(DATA_COR, true, &data_seg);
     let analysis_correction = correction_arg(ANALYSIS_COR, true, &analysis_seg);
+
+    let other_correction = Arg::new(OTHER_CORR)
+        .long(OTHER_CORR)
+        .value_name("BEGIN,END")
+        .action(ArgAction::Append)
+        .value_parser(ValueParser::new(parse_offsets))
+        .help(format!(
+            "Correction for {other_seg} offsets. This can be given multiple \
+             times and will be applied to offsets in the order given."
+        ));
 
     let max_other = opt_arg::<usize>(
         MAX_OTHER,
@@ -261,6 +271,7 @@ fn run() -> AppResult<()> {
         text_correction,
         data_correction,
         analysis_correction,
+        other_correction,
         max_other,
         other_width,
         guess_other_width,
@@ -1170,7 +1181,13 @@ fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig 
     get_correction(sargs, DATA_COR, |x| conf.data_correction = x);
     get_correction(sargs, ANALYSIS_COR, |x| conf.analysis_correction = x);
 
-    // don't add other corrections since these aren't used in this api (yet)
+    if let Some(xs) = sargs.get_many::<(i32, i32)>(OTHER_CORR) {
+        conf.other_corrections = xs
+            .into_iter()
+            .copied()
+            .map(OffsetCorrection::from)
+            .collect();
+    }
 
     get_opt(sargs, MAX_OTHER, |x| conf.max_other = x);
     get_opt(sargs, OTHER_WIDTH, |x| conf.other_width = x);
@@ -1236,17 +1253,9 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     });
     get_flag(s, TRIM_TEXT_END, |x| c.trim_text_end = x);
 
-    if let Some(xs) = s.get_many::<KeyStringOrPattern>(IGNORE_STD_KEYS) {
-        c.ignore_standard_keys = xs.cloned().collect();
-    }
-
-    if let Some(xs) = s.get_many::<KeyStringOrPattern>(PROMOTE_TO_STD) {
-        c.promote_to_standard = xs.cloned().collect();
-    }
-
-    if let Some(xs) = s.get_many::<KeyStringOrPattern>(DEMOTE_FROM_STD) {
-        c.demote_from_standard = xs.cloned().collect();
-    }
+    get_many::<KeyStringOrPattern, _, _>(s, IGNORE_STD_KEYS, |xs| c.ignore_standard_keys = xs);
+    get_many::<KeyStringOrPattern, _, _>(s, PROMOTE_TO_STD, |xs| c.promote_to_standard = xs);
+    get_many::<KeyStringOrPattern, _, _>(s, DEMOTE_FROM_STD, |xs| c.demote_from_standard = xs);
 
     if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
         let Ok(ys) = xs
@@ -1265,9 +1274,9 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| c.replace_standard_key_values = x);
     let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| c.append_standard_keywords = x);
 
-    if let Some(xs) = s.get_many::<SubPatternPair>(SUB_STD_KEY_VALS) {
-        c.substitute_standard_key_values = xs.cloned().collect();
-    }
+    get_many(s, SUB_STD_KEY_VALS, |xs| {
+        c.substitute_standard_key_values = xs;
+    });
 
     c
 }
@@ -1450,6 +1459,15 @@ where
     let _ = sargs.get_one(name).cloned().map(f);
 }
 
+fn get_many<T, F, X>(sargs: &ArgMatches, name: &str, mut f: F)
+where
+    X: FromIterator<T>,
+    F: FnMut(X),
+    T: Clone + Sync + Send + 'static,
+{
+    let _ = sargs.get_many::<T>(name).map(|xs| f(xs.cloned().collect()));
+}
+
 fn get_flag<T, F>(sargs: &ArgMatches, name: &str, f: F)
 where
     F: FnMut(T),
@@ -1613,6 +1631,8 @@ const TEXT_COR: &str = "text-correction";
 const DATA_COR: &str = "data-correction";
 
 const ANALYSIS_COR: &str = "analysis-correction";
+
+const OTHER_CORR: &str = "other-correction";
 
 const MAX_OTHER: &str = "max-other";
 

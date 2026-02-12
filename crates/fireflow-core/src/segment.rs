@@ -13,14 +13,16 @@ use crate::logging::{
 };
 use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
-    OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
+    MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
 use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
-use crate::validated::keys::{Key, StdKeywords, StringOrBytes};
+use crate::validated::keys::{
+    AnyStdKey as _, Key, SpecificKey, StdKeywords, StringOrBytes, TruncatedString,
+};
 
 use fireflow_types::config::ProcessKeywordFailure;
 
@@ -387,8 +389,8 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
     fn pair_to_segment<C>(
-        x0: Self::B,
-        x1: Self::E,
+        x0: i128,
+        x1: i128,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> Result<
@@ -404,12 +406,23 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
         Self::B: Copy,
         Self::E: Copy,
     {
-        let y0 = i128::from(x0);
-        let y1 = i128::from(x1);
         let new_conf = NewSegmentConfig::from_read_config(corr, st);
-        let raw = UncorrectedSegment::new(y0, y1);
-        Segment::try_new(y0, y1, &new_conf).map(|x| (x, raw))
+        let raw = UncorrectedSegment::new(x0, x1);
+        Segment::try_new(x0, x1, &new_conf).map(|x| (x, raw))
     }
+}
+
+macro_rules! lookup_req {
+    ($kws:ident, $fun:ident) => {{
+        let k = SpecificKey::default();
+        match $kws.$fun(&k.as_std()) {
+            Some(v) => v
+                .parse::<i128>()
+                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                .map_err(ReqKeyErrorInner::from),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError(k))),
+        }
+    }};
 }
 
 /// Operations to obtain required segment from TEXT keywords
@@ -446,15 +459,29 @@ where
     }
 
     fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::B::get_metaroot_req(kws).map_err(ReqSegmentKeyError::Begin);
-        let x1 = Self::E::get_metaroot_req(kws).map_err(ReqSegmentKeyError::End);
+        let x0 = Self::get_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
+        let x1 = Self::get_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
     }
 
     fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::B::remove_metaroot_req(kws).map_err(ReqSegmentKeyError::Begin);
-        let x1 = Self::E::remove_metaroot_req(kws).map_err(ReqSegmentKeyError::End);
+        let x0 = Self::remove_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
+        let x1 = Self::remove_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1)
+    }
+
+    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_req!(kws, get)
+    }
+
+    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_req!(kws, remove)
     }
 }
 
@@ -607,7 +634,7 @@ where
         match pair {
             // TEXT offsets found, compare with HEADER
             Ok((x0, x1)) => {
-                let uncorr_txt = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
+                let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected offsets are identical, not a mismatch
                     LogResult::new_ok(header_pair)
@@ -633,6 +660,18 @@ where
             }
         }
     }
+}
+
+macro_rules! lookup_opt {
+    ($kws:ident, $fun:ident) => {{
+        let k = SpecificKey::default();
+        $kws.$fun(&k.as_std())
+            .map(|v| {
+                v.parse::<i128>()
+                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            })
+            .transpose()
+    }};
 }
 
 /// Operations to obtain optional segment from TEXT keywords
@@ -671,16 +710,32 @@ where
     }
 
     fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
-        let x0 = Self::B::get_root_opt(kws).map_err(OptSegmentKeyError::Begin);
-        let x1 = Self::E::get_root_opt(kws).map_err(OptSegmentKeyError::End);
+        let x0 = Self::get_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
+        let x1 = Self::get_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
     fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
         // TODO these should process optional keywords the same as everything else
-        let x0 = Self::B::remove_root_opt(kws).map_err(OptSegmentKeyError::Begin);
-        let x1 = Self::E::remove_root_opt(kws).map_err(OptSegmentKeyError::End);
+        let x0 = Self::remove_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
+        let x1 = Self::remove_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
+    }
+
+    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_opt!(kws, get)
+    }
+
+    fn remove_opt<K>(
+        kws: &mut StdKeywords,
+    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_opt!(kws, remove)
     }
 }
 
@@ -824,7 +879,7 @@ where
             Ok(None) => LogResult::new_ok(header_pair),
             // TEXT offsets found without errors, compare with HEADER
             Ok(Some((x0, x1))) => {
-                let uncorr_txt = UncorrectedSegment::new(i128::from(x0), i128::from(x1));
+                let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected HEADER and TEXT are identical, just use HEADER
                     LogResult::new_ok(header_pair)
@@ -847,9 +902,9 @@ where
     }
 }
 
-type ReqPair<B, E> = Result<(B, E), OneOrTwo<ReqSegmentKeyError<B, E>>>;
+type ReqPair<B, E> = Result<(i128, i128), OneOrTwo<ReqSegmentKeyError<B, E>>>;
 
-type OptPair<B, E> = Result<Option<(B, E)>, OneOrTwo<OptSegmentKeyError<B, E>>>;
+type OptPair<B, E> = Result<Option<(i128, i128)>, OneOrTwo<OptSegmentKeyError<B, E>>>;
 
 /// Denotes that a type comes from a specific part of the FCS file
 pub(crate) trait HasSource {

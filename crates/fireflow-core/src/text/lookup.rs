@@ -570,12 +570,12 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     // }
 
     // TODO this shouldn't be necessary
-    fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
-    where
-        Self: FromStr,
-    {
-        Self::remove_opt(kws, SpecificKey::default())
-    }
+    // fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::remove_opt(kws, SpecificKey::default())
+    // }
 
     fn remove_root_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where

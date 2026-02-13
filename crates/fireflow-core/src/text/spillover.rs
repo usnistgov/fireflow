@@ -210,11 +210,12 @@ impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
     type Diagnostic = Trimmed;
+    type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &str,
         ordered_names: Self::Payload<'_>,
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
         let (m, was_trimmed) = GenericSpillover::from_str(s, trim_flag)?;

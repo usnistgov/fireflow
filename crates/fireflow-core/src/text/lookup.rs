@@ -1,6 +1,6 @@
 use crate::config::{
     ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
-    ReadStdKeywordsConfig, TrimIntraValueWhitespace,
+    TrimIntraValueWhitespace,
 };
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
@@ -213,12 +213,9 @@ pub trait FromStrWith: Sized {
     type Err;
     type Payload<'a>;
     type Diagnostic;
+    type Config;
 
-    fn from_str_with(
-        _: &str,
-        _: Self::Payload<'_>,
-        _: &ReadStdKeywordsConfig,
-    ) -> FromStrWithResult<Self>;
+    fn from_str_with(_: &str, _: Self::Payload<'_>, _: &Self::Config) -> FromStrWithResult<Self>;
 }
 
 // this won't be necessary once rust gets specialization
@@ -228,6 +225,7 @@ macro_rules! impl_from_str_with_delim {
             type Err = $e;
             type Payload<'a> = ();
             type Diagnostic = Option<String>;
+            type Config = crate::config::ReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &str,
@@ -278,7 +276,7 @@ pub(crate) trait Required: Sized {
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyStdKey + Copy,
@@ -373,7 +371,7 @@ pub(crate) trait Optional: Sized {
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AnyStdKey,
@@ -441,7 +439,7 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
@@ -521,7 +519,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         kws: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
@@ -608,7 +606,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
     }
@@ -684,7 +682,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
     }

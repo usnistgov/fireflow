@@ -664,8 +664,9 @@ impl FromStrWith for Scale {
     type Err = ScaleError;
     type Payload<'a> = ();
     type Diagnostic = ScaleDiagnostic;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x: TrimmedKeyword<_>| {
             let d = x.trimmed.map(ScaleDiagnostic::Trimmed).unwrap_or_default();
             DiagnosedKeyword::new(x.native, d)
@@ -1386,8 +1387,9 @@ impl FromStrWith for TemporalScale3_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
     type Diagnostic = TemporalScaleDiagnostic;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleDiagnostic::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
@@ -1666,8 +1668,9 @@ impl FromStrWith for LastModified {
     type Err = LastModifiedError;
     type Payload<'a> = ();
     type Diagnostic = ();
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
             return NaiveDateTime::parse_from_str(s, pat.as_str())
                 .map(Self)
@@ -1756,8 +1759,9 @@ impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
     type Diagnostic = Trimmed;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -1948,8 +1952,9 @@ impl FromStrWith for Feature {
     type Err = FeatureError;
     type Payload<'a> = ();
     type Diagnostic = bool;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
             Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
             Err(e) => {
@@ -2046,8 +2051,9 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
     type Diagnostic = Trimmed;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -2728,8 +2734,9 @@ impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
     type Diagnostic = ScaleDiagnostic;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, data: (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, data: (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Scale::from_str_with(s, data, conf).map(|x| x.first_once(Self))
     }
 }
@@ -3524,8 +3531,9 @@ impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
     type Diagnostic = TemporalScaleDiagnostic;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleDiagnostic::Forced(s.to_owned());

@@ -78,11 +78,12 @@ where
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
     type Diagnostic = ();
+    type Config = ReadStdKeywordsConfig;
 
     fn from_str_with<'a>(
         s: &str,
         (): (),
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
             pat.parse_str(s)?.into()
@@ -273,11 +274,12 @@ impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
     type Diagnostic = ();
+    type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &str,
         (): (),
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s, pattern.as_ref())

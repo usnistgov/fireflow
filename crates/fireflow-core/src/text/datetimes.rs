@@ -151,11 +151,12 @@ macro_rules! impl_from_str_with {
             type Err = FCSDateTimeError;
             type Payload<'a> = ();
             type Diagnostic = ();
+            type Config = ReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &str,
                 (): (),
-                conf: &ReadStdKeywordsConfig,
+                conf: &Self::Config,
             ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
                 FCSDateTime::from_str_with(s, (), conf).map(|x| x.first_once(Self))
             }
@@ -170,11 +171,12 @@ impl FromStrWith for FCSDateTime {
     type Err = FCSDateTimeError;
     type Payload<'a> = ();
     type Diagnostic = ();
+    type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &str,
         (): (),
-        conf: &ReadStdKeywordsConfig,
+        conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists

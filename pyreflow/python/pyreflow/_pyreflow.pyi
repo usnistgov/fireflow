@@ -1917,7 +1917,7 @@ class HeaderAndSuppOffsets:
     def __new__(
         cls,
         header: Header,
-        supp_text: tuple[Segment, Segment] | None,
+        supp_text: tuple[Segment | None, Segment] | None,
         nextdata: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...

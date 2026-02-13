@@ -489,7 +489,7 @@ pub struct HeaderAndSuppOffsets {
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
-    pub supp_text: Option<(SupplementalTextSegment, UncorrectedSegment)>,
+    pub supp_text: Option<(Option<SupplementalTextSegment>, UncorrectedSegment)>,
 
     /// NEXTDATA offset
     ///
@@ -836,14 +836,6 @@ pub struct FinalDelimError {
     bytes: TruncatedBytes,
 }
 
-#[derive(Clone, Copy, Debug, Display)]
-enum TEXTKind {
-    #[display("Primary")]
-    Primary,
-    #[display("Supplemental")]
-    Supplemental,
-}
-
 /// Error when TEXT ends with even number of delimiters
 ///
 /// This can only happen in escaped TEXT
@@ -879,6 +871,15 @@ pub struct DelimBoundError {
 pub struct DelimMismatch {
     supp: u8,
     delim: u8,
+}
+
+/// Differentiate TEXT being primary or supplemental
+#[derive(Clone, Copy, Debug, Display)]
+enum TEXTKind {
+    #[display("Primary")]
+    Primary,
+    #[display("Supplemental")]
+    Supplemental,
 }
 
 /// Result of guessing the escape more for TEXT.
@@ -928,6 +929,24 @@ struct TrimTEXTData {
     trailing: usize,
 }
 
+/// Indicates what was found for supplemental TEXT.
+#[derive(Clone, Copy)]
+enum SuppTEXTResult {
+    Present(SupplementalTextSegment, UncorrectedSegment),
+    Ignored(UncorrectedSegment),
+    NotFound,
+}
+
+impl From<SuppTEXTResult> for Option<(Option<SupplementalTextSegment>, UncorrectedSegment)> {
+    fn from(value: SuppTEXTResult) -> Self {
+        match value {
+            SuppTEXTResult::Present(x, y) => Some((Some(x), y)),
+            SuppTEXTResult::Ignored(y) => Some((None, y)),
+            SuppTEXTResult::NotFound => None,
+        }
+    }
+}
+
 impl HeaderAndSuppOffsets {
     /// Ensure this segment does not overlap with other segments.
     ///
@@ -947,25 +966,29 @@ impl HeaderAndSuppOffsets {
             // modified since it has already been read. Therefore, only change
             // the offsets of the new segment if its ending offset is within
             // STEXT.
-            let stxt_error = self.supp_text.as_ref().and_then(|(supp, _)| {
-                let stxt_seg = supp.try_as_generic()?;
-                if this_seg.as_pair() < stxt_seg.as_pair() {
-                    let overlap = this_seg.get_tail_overlap(&stxt_seg);
-                    if overlap <= limit.0 {
-                        s.truncate(overlap);
-                        None
+            let stxt_error = self
+                .supp_text
+                .as_ref()
+                .and_then(|(x, _)| x.as_ref())
+                .and_then(|supp| {
+                    let stxt_seg = supp.try_as_generic()?;
+                    if this_seg.as_pair() < stxt_seg.as_pair() {
+                        let overlap = this_seg.get_tail_overlap(&stxt_seg);
+                        if overlap <= limit.0 {
+                            s.truncate(overlap);
+                            None
+                        } else {
+                            let e = SegmentOverlapError::new(this_seg, stxt_seg);
+                            Some(SegmentValidationError::from(e))
+                        }
                     } else {
-                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
-                        Some(SegmentValidationError::from(e))
+                        let overlap = stxt_seg.get_tail_overlap(&this_seg);
+                        (overlap > 0).then(|| {
+                            let e = SegmentOverlapError::new(this_seg, stxt_seg);
+                            SegmentValidationError::from(e)
+                        })
                     }
-                } else {
-                    let overlap = stxt_seg.get_tail_overlap(&this_seg);
-                    (overlap > 0).then(|| {
-                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
-                        SegmentValidationError::from(e)
-                    })
-                }
-            });
+                });
             // Check for any errors between this segment and HEADER segments,
             // modifying as necessary and as overlap limit permits.
             self.header
@@ -1110,26 +1133,25 @@ impl FlatTEXTOutput {
                     .map_ok_value(|escaped| (kws, delim, escaped))
             })
             .and_then_commutative(|(mut kws, delim, prim_out)| {
-                if conf.ignore_supp_text.is_set() {
-                    LogResult::new_ok((delim, kws, None, prim_out, None))
-                } else {
-                    lookup_stext_offsets(&kws.std, &mut header, st)
-                        .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                        .map_errors(ParseFlatTEXTError::from)
-                        .group()
-                        .map_error(IOErrorGroup::Pure)
-                        .set_err_value(())
-                        .and_then_commutative(|seg| {
+                lookup_supp_text_offsets(&kws.std, &mut header, st)
+                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                    .map_errors(ParseFlatTEXTError::from)
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .set_err_value(())
+                    .and_then_commutative(|seg| {
+                        if let SuppTEXTResult::Present(corr_seg, _) = seg {
                             buf.clear();
-                            let corr_seg = seg.as_ref().map(|(c, _)| c);
                             SplitTEXTDiagnostics::h_read_supp(
-                                h, corr_seg, &mut kws, &mut buf, delim, conf,
+                                h, &corr_seg, &mut kws, &mut buf, delim, conf,
                             )
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
                             .map_ok_value(|supp_out| (delim, kws, seg, prim_out, supp_out))
-                        })
-                }
+                        } else {
+                            LogResult::new_ok((delim, kws, seg, prim_out, None))
+                        }
+                    })
             })
             .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_out, supp_out)| {
                 let nextdata_res = Nextdata::lookup_ro(&kws.std, conf)
@@ -1164,7 +1186,7 @@ impl FlatTEXTOutput {
 
                         // Build diagnostics output, throw errors for bad keywords
                         let header_supp =
-                            HeaderAndSuppOffsets::new(header, supp_text_seg, nextdata);
+                            HeaderAndSuppOffsets::new(header, supp_text_seg.into(), nextdata);
                         let diag_res = kws
                             .diag
                             .into_flat_diag(delim, header_supp, prim_out, supp_out, conf)
@@ -1245,7 +1267,7 @@ impl SplitTEXTDiagnostics {
     /// Read supp TEXT from file handle and store keywords in hash table.
     fn h_read_supp<R: Read + Seek>(
         h: &mut BufReader<R>,
-        maybe_seg: Option<&SupplementalTextSegment>,
+        seg: &SupplementalTextSegment,
         kws: &mut ParsedKeywords,
         buf: &mut Vec<u8>,
         delim: u8,
@@ -1256,14 +1278,10 @@ impl SplitTEXTDiagnostics {
         ParseSupplementalTEXTError,
         (),
     > {
-        if let Some(seg) = maybe_seg {
-            io_to_log!(seg.h_read_contents(h, buf));
-            Self::supp_from_bytes(kws, delim, buf, conf)
-                .group()
-                .map_error(IOErrorGroup::Pure)
-        } else {
-            LogResult::new_ok(None)
-        }
+        io_to_log!(seg.h_read_contents(h, buf));
+        Self::supp_from_bytes(kws, delim, buf, conf)
+            .group()
+            .map_error(IOErrorGroup::Pure)
     }
 
     /// Read primary TEXT from bytes and store keywords in hash table.
@@ -1922,24 +1940,16 @@ fn split_first_delim<'a>(
     }
 }
 
-fn lookup_stext_offsets<C>(
+fn lookup_supp_text_offsets<C>(
     kws: &StdKeywords,
     header: &mut Header,
     st: &ReadState<C>,
-) -> DeferredWarningsAndErrors<
-    Option<(SupplementalTextSegment, UncorrectedSegment)>,
-    STextSegmentWarning,
-    STextSegmentError,
->
+) -> DeferredWarningsAndErrors<SuppTEXTResult, STextSegmentWarning, STextSegmentError>
 where
     C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
 {
     let hconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
     let oconf: &ReadOffsetConfig = st.conf.as_ref();
-    debug_assert!(
-        !hconf.ignore_supp_text.is_set(),
-        "tried to get supp TEXT offsets when supp TEXT is ignored"
-    );
     // At this point, we have not yet overridden the version since we have not
     // read STEXT and therefore might not have all keywords. This puts us in a
     // bit of an awkward spot in the case we wish to autodetect the version.
@@ -1996,6 +2006,12 @@ where
     };
     res.and_then_deferred(|maybe| {
         if let Some((mut seg_stxt, uncorr_stxt)) = maybe {
+            // Return uncorrected segments without any processing if ignored
+            let uncorr_only = SuppTEXTResult::Ignored(uncorr_stxt);
+            if hconf.ignore_supp_text.is_set() {
+                return LogResult::new_ok(uncorr_only);
+            }
+
             // Offsets found, check for validity
             let uncorr_ptxt = header.uncorrected_segments.text;
             let uncorr_anal = header.uncorrected_segments.analysis;
@@ -2009,7 +2025,7 @@ where
                 // in the future.
                 let flag = hconf.allow_duplicated_supp_text;
                 let e = DuplicateSTextError::new(uncorr_stxt, loc);
-                SwitchableErrorsResult::new_switchable3(None, None, e, flag)
+                SwitchableErrorsResult::new_switchable3(uncorr_only, uncorr_only, e, flag)
                     .map_switchable_errors(STextSegmentError::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(STextSegmentWarning::from)
@@ -2017,7 +2033,7 @@ where
 
             if seg_stxt.is_empty() {
                 // supp TEXT is empty, nothing else to do
-                LogResult::new_ok(None)
+                LogResult::new_ok(uncorr_only)
             } else if uncorr_ptxt == uncorr_stxt {
                 // Primary and supp are identical, keep primary
                 go(AnyRegion::Text)
@@ -2044,13 +2060,13 @@ where
                     .map(STextSegmentError::from);
                 // TODO throw warnings sometimes for these?
                 ErrorsResult::new_err_from_iter(es, ())
-                    .set_ok_value(Some((seg_stxt, uncorr_stxt)))
-                    .set_err_value(None)
+                    .set_ok_value(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
+                    .set_err_value(uncorr_only)
                     .nowarn_into_warn()
             }
         } else {
             // No offsets found
-            LogResult::new_ok(None)
+            LogResult::new_ok(SuppTEXTResult::NotFound)
         }
     })
 }

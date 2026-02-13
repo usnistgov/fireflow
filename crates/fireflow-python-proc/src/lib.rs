@@ -1349,7 +1349,8 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
         PyOpt::new1(
-            PyTuple::new1(PyTuple::new_supp_text_segment()).add(PyTuple::new_uncorrected_segment()),
+            PyTuple::new1(PyOpt::new1(PyTuple::new_supp_text_segment()))
+                .add(PyTuple::new_uncorrected_segment()),
         ),
         format!("Supplemental {TEXT} offsets if given (corrected and uncorrected)."),
         |_, _| quote!(self.0.supp_text.as_ref().copied()),

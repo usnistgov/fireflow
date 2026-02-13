@@ -3091,6 +3091,7 @@ class TestConfig:
         def go_not_none(out: pf.api.FlatTEXTOutput) -> None:
             supp = out.flat_diagnostics.header_supp.supp_text
             assert supp is not None
+            assert supp[0] is None
             assert supp[1] == (58, 98)
 
         # no supp text in 2.0 so no error

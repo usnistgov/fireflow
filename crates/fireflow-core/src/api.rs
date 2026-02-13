@@ -2031,8 +2031,8 @@ where
             };
 
             if seg_stxt.is_empty() {
-                // supp TEXT is empty, nothing else to do
-                LogResult::new_ok(uncorr_only)
+                // supp TEXT is empty, return as-is
+                LogResult::new_ok(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
             } else if uncorr_ptxt == uncorr_stxt {
                 // Primary and supp are identical, keep primary
                 go(AnyRegion::Text)

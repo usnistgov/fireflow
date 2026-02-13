@@ -1570,7 +1570,6 @@ impl SplitTEXTOutputInner {
             } else {
                 valuebuf.clone()
             };
-            push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
 
             if consec_blanks & 1 == 0 {
                 even_delim_err = Some(EvenFinalDelimError.into());

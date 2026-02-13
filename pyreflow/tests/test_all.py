@@ -3076,6 +3076,28 @@ class TestConfig:
 
         pf.api.fcs_read_flat_text(p, nextdata_correction=1)
 
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_dup_supp_text_exact(self, version: str, tmp_path: Path) -> None:
+        kws = {"$BEGINSTEXT": "58", "$ENDSTEXT": "98"}  # exactly equal to TEXT
+        s = mock_header_text(version, kws=kws)
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+
+        # no supp text in 2.0 so no error
+        if version == "FCS2.0":
+            pf.api.fcs_read_flat_text(p)
+            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
+            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+        else:
+            with pytest.RaisesGroup(pf.FileLayoutError):
+                pf.api.fcs_read_flat_text(p)
+
+            with pytest.warns(pf.PyreflowWarning):
+                pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
+
+            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+
 
 class TestReadWrite:
     @staticmethod

@@ -3116,6 +3116,32 @@ class TestConfig:
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
             go_not_none(out)
 
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_delim_escaped(self, version: str, tmp_path: Path) -> None:
+        # NOTE more cases are tested internally in rust, this is to ensure the
+        # python api works as indended
+        text = "/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/aaa//bbb/bbb/ccc/ddd/"
+        s = mock_header(version, t=(58, len(text) + 57), rest=text)
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+
+        out = pf.api.fcs_read_flat_text(p)
+        assert len(out.kws.nonstd) == 2
+        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 0
+
+        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="guess_escaped")
+        assert len(out.kws.nonstd) == 2
+        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
+
+        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="guess_unescaped")
+        assert len(out.kws.nonstd) == 2
+        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
+
+        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="unescaped")
+        assert len(out.kws.nonstd) == 2
+        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
+
 
 class TestReadWrite:
     @staticmethod

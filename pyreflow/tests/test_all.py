@@ -3112,6 +3112,9 @@ class TestConfig:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
             go_not_none(out)
 
+            out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
+            go_not_none(out)
+
 
 class TestReadWrite:
     @staticmethod

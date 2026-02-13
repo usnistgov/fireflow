@@ -333,8 +333,11 @@ fn run() -> AppResult<()> {
 
     let supp_text_correction = correction_arg(SUPP_TEXT_COR, false, &supp_text_seg);
 
-    let nextdata_correction =
-        opt_arg::<u64>(NEXTDATA_COR, "INT", format!("Correction for {nextdata}"));
+    let nextdata_correction = Arg::new(NEXTDATA_COR)
+        .long(NEXTDATA_COR)
+        .value_name("INT")
+        .value_parser(value_parser!(i32))
+        .help(format!("Correction for {nextdata}"));
 
     let allow_overlapping_supp_text = tri_flag_arg::<AllowDuplicatedSuppTEXT>(
         ALLOW_DUPLICATED_SUPP_TEXT,

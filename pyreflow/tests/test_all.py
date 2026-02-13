@@ -3084,19 +3084,33 @@ class TestConfig:
         with open(p, "w") as f:
             f.write(s)
 
+        def go_none(out: pf.api.FlatTEXTOutput) -> None:
+            supp = out.flat_diagnostics.header_supp.supp_text
+            assert supp is None
+
+        def go_not_none(out: pf.api.FlatTEXTOutput) -> None:
+            supp = out.flat_diagnostics.header_supp.supp_text
+            assert supp is not None
+            assert supp[1] == (58, 98)
+
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            pf.api.fcs_read_flat_text(p)
-            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
-            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+            out = pf.api.fcs_read_flat_text(p)
+            go_none(out)
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
+            go_none(out)
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+            go_none(out)
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 pf.api.fcs_read_flat_text(p)
 
             with pytest.warns(pf.PyreflowWarning):
-                pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
+                out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
+                go_not_none(out)
 
-            pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
+            go_not_none(out)
 
 
 class TestReadWrite:

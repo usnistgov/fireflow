@@ -174,13 +174,11 @@ impl ParsedHeaderSegments {
     where
         I: HasRegion,
     {
+        // ASSUME incoming iterator is sorted.
+        // TODO check this assumption (without consuming iterator)
         if let Some(txt_seg) = s.try_as_generic() {
             let mut errors = vec![];
             let mut it = xs.into_iter();
-            debug_assert!(
-                it.by_ref().is_sorted_by_key(|x| x.1.as_pair()),
-                "not sorted"
-            );
             let mut hdr_pair = None;
             // Skip all HEADER segments that come before TEXT seg
             while let p @ Some((_, hdr_seg)) = it.next() {

@@ -1,6 +1,6 @@
 import numpy as np
 import inspect as ins
-from typing import cast, Any, NamedTuple
+from typing import cast, Any, NamedTuple, TypeVar, Callable
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -9,6 +9,8 @@ from copy import deepcopy
 import pytest
 
 from pyreflow.typing import (
+    Segment,
+    TriFlag,
     Trigger,
     MixedType,
     Datatype,
@@ -2780,7 +2782,6 @@ class TestApiFunctions:
 
 
 def mock_fcs_file(path: Path, xs: bytes) -> None:
-    print(xs)
     with open(path, "wb") as f:
         f.write(xs)
 
@@ -2836,6 +2837,19 @@ def mock_header_text(
     return mock_header(path, v, t, d, a, other_width, other_segs, all_rest)
 
 
+X = TypeVar("X")
+
+
+def _test_tri_flag(f: Callable[[TriFlag], X], comp: X, err: type) -> None:
+    with pytest.RaisesGroup(err):
+        f("false")
+
+    with pytest.warns(pf.PyreflowWarning):
+        assert f("true") == comp
+
+    assert f("silent") == comp
+
+
 class TestConfig:
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     @pytest.mark.parametrize(
@@ -2862,7 +2876,6 @@ class TestConfig:
         if len(other_segs) == 0:
             assert out.segments.other_segs is None
         else:
-            print(other_segs)
             os_out, _ = out.segments.other_segs
             norm_corrections = [
                 (other_corrections[i] if i < len(other_corrections) else (0, 0))
@@ -3044,20 +3057,23 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         mock_header_text(p, version, kws=kws)
 
+        def go(corr: tuple[int, int]) -> tuple[Segment | None, Segment] | None:
+            out = pf.api.fcs_read_flat_text(p, supp_text_correction=corr)
+            return out.flat_diagnostics.header_supp.supp_text
+
         if version == "FCS2.0":
             # 2.0 shouldn't parse supp text at all
-            out = pf.api.fcs_read_flat_text(p, supp_text_correction=(0, 0))
-            out.flat_diagnostics.header_supp.supp_text is None
+            assert go((0, 0)) is None
+            assert go((0, 1)) is None
         elif version == "FCS3.2":
             # supp text is optional for 3.2 so it emits warning
             with pytest.warns(pf.PyreflowWarning):
-                out = pf.api.fcs_read_flat_text(p, supp_text_correction=(0, 0))
-                out.flat_diagnostics.header_supp.supp_text is None
+                assert go((0, 0)) is None
+            assert go((0, 1)) == ((0, 0), (0, -1))
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
-                pf.api.fcs_read_flat_text(p, supp_text_correction=(0, 0))
-
-        pf.api.fcs_read_flat_text(p, supp_text_correction=(0, 1))
+                go((0, 0))
+            assert go((0, 1)) == ((0, 0), (0, -1))
 
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     def test_nextdata_correction(self, version: str, tmp_path: Path) -> None:
@@ -3080,12 +3096,6 @@ class TestConfig:
             supp = out.flat_diagnostics.header_supp.supp_text
             assert supp is None
 
-        def go_not_none(out: pf.api.FlatTEXTOutput) -> None:
-            supp = out.flat_diagnostics.header_supp.supp_text
-            assert supp is not None
-            assert supp[0] is None
-            assert supp[1] == (58, 98)
-
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="false")
@@ -3095,18 +3105,16 @@ class TestConfig:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
             go_none(out)
         else:
-            with pytest.RaisesGroup(pf.FileLayoutError):
-                pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="false")
 
-            with pytest.warns(pf.PyreflowWarning):
-                out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
-                go_not_none(out)
+            def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
+                out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
+                return out.flat_diagnostics.header_supp.supp_text
 
-            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
-            go_not_none(out)
+            comp: tuple[Segment | None, Segment] | None = (None, (58, 98))
+            _test_tri_flag(go, comp, pf.FileLayoutError)
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
-            go_not_none(out)
+            assert out.flat_diagnostics.header_supp.supp_text == comp
 
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     def test_delim_escaped(self, version: str, tmp_path: Path) -> None:
@@ -3140,12 +3148,113 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        with pytest.RaisesGroup(pf.FileLayoutError):
-            pf.api.fcs_read_flat_text(p, allow_non_ascii_delim="false")
+        def go(f: TriFlag) -> int:
+            out = pf.api.fcs_read_flat_text(p, allow_non_ascii_delim=f)
+            return out.flat_diagnostics.delimiter
 
-        with pytest.warns(pf.PyreflowWarning):
-            out = pf.api.fcs_read_flat_text(p, allow_non_ascii_delim="true")
-            assert out.flat_diagnostics.delimiter == 0
+        _test_tri_flag(go, 0, pf.FileLayoutError)
+
+    # TODO repeat this for supp
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_missing_final_delim(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> bool:
+            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
+            return out.flat_diagnostics.primary_split.missing_final_delim
+
+        _test_tri_flag(go, True, pf.FileLayoutError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_non_unique(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$NEXTDATA/666/"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[tuple[str, str]]:
+            out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
+            return out.flat_diagnostics.non_unique_std_keywords
+
+        # TODO the $ should be implied
+        _test_tri_flag(go, [("$NEXTDATA", "666")], pf.ParseKeyError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_non_unique_nonstd(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/slayer/42/slayer/420/"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[tuple[str, str]]:
+            out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
+            return out.flat_diagnostics.non_unique_nonstd_keywords
+
+        _test_tri_flag(go, [("slayer", "420")], pf.ParseKeyError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_odd(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> str | bytes:
+            out = pf.api.fcs_read_flat_text(p, allow_odd=f)
+            return out.flat_diagnostics.primary_split.last_odd_token
+
+        comp: str | bytes = "xxx"
+        _test_tri_flag(go, comp, pf.FileLayoutError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_allow_empty_keys(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//herman/"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[str | bytes]:
+            out = pf.api.fcs_read_flat_text(
+                p, allow_empty_keys=f, delim_escape_mode="unescaped"
+            )
+            return out.flat_diagnostics.primary_split.values_with_blank_keys
+
+        comp: list[str | bytes] = ["herman"]
+        _test_tri_flag(go, comp, pf.FileLayoutError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0///",
+            b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA///0/",
+        ],
+    )
+    def test_allow_delim_at_boundary(
+        self, version: str, tmp_path: Path, text: bytes
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[str | bytes]:
+            out = pf.api.fcs_read_flat_text(
+                p, allow_delim_at_boundary=f, delim_escape_mode="escaped"
+            )
+            return out.flat_diagnostics.primary_split.tokens_with_boundary_delims
+
+        comp: list[str | bytes] = ["0"]
+        _test_tri_flag(go, comp, pf.FileLayoutError)
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_use_latin1(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
+        p = tmp_path / "thing.fcs"
+        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        with pytest.RaisesGroup(pf.FileLayoutError):
+            pf.api.fcs_read_flat_text(p, use_latin1=False)
+
+        out = pf.api.fcs_read_flat_text(p, use_latin1=True)
+        out.kws.nonstd["tool"] == "Ænima"
 
 
 class TestReadWrite:

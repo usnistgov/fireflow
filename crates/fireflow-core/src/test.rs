@@ -1,4 +1,3 @@
-use crate::config::ReadStdKeywordsConfig;
 use crate::text::lookup::FromStrWith;
 use crate::text::optional::DisplayMaybe;
 
@@ -24,7 +23,7 @@ where
 pub fn assert_from_to_str_with<T>(
     s: &str,
     payload: <T as FromStrWith>::Payload<'_>,
-    conf: &ReadStdKeywordsConfig,
+    conf: &<T as FromStrWith>::Config,
 ) where
     T: FromStrWith + Display,
     <T as FromStrWith>::Err: Display,
@@ -57,7 +56,7 @@ where
 pub fn assert_from_to_str_maybe_with<T>(
     s: &str,
     payload: <T as FromStrWith>::Payload<'_>,
-    conf: &ReadStdKeywordsConfig,
+    conf: &<T as FromStrWith>::Config,
 ) where
     T: FromStrWith + DisplayMaybe,
     <T as FromStrWith>::Err: Display,
@@ -91,7 +90,7 @@ pub fn assert_from_to_str_almost_with<T>(
     s0: &str,
     s1: &str,
     payload: <T as FromStrWith>::Payload<'_>,
-    conf: &ReadStdKeywordsConfig,
+    conf: &<T as FromStrWith>::Config,
 ) where
     T: FromStrWith + Display,
     <T as FromStrWith>::Err: Display,

@@ -31,9 +31,10 @@ use crate::segment::{
     UncorrectedSegment,
 };
 use crate::text::keywords::{
-    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, Tot,
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadOptNextdataError,
+    ReadReqNextdataError, Tot,
 };
-use crate::text::lookup::{OptKeyError, ReqKeyError, ReqMetarootKey as _};
+use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
@@ -729,7 +730,7 @@ pub enum ParseFlatTEXTWarning {
     Primary(ParseKeywordsIssue),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentWarning),
-    Nextdata(OptKeyError<Nextdata>),
+    Nextdata(ReadOptNextdataError),
     InvalidChars(InvalidKeywordCharsError),
     AppendSupp(StdPresent),
 }
@@ -742,7 +743,7 @@ pub enum ParseFlatTEXTError {
     Primary(ParsePrimaryTEXTError),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
-    Nextdata(ReqKeyError<Nextdata>),
+    Nextdata(ReadReqNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
     InvalidChars(StdPresent),
     NextdataOffset(NextdataOffsetsError),

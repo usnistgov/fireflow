@@ -1,7 +1,7 @@
 use crate::config::{
     ConfigFlag as _, DummyTriFlag, ForceLinearScale, OverlapCorrectionLimit,
     ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey,
-    TriFlag, TrimIntraValueWhitespace, TruncateEventValues,
+    TriErrorFlag as _, TrimIntraValueWhitespace, TruncateEventValues,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -41,7 +41,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
     AnyStdKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
-    StdKeywords, TruncatedString,
+    SpecificKey, StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
@@ -74,7 +74,9 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::{DiagnosedKeyword, FromStrWithResult, OptKeyError, Trimmed, TrimmedKeyword};
+use super::lookup::{
+    DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
+};
 
 #[cfg(feature = "python")]
 use {
@@ -552,29 +554,27 @@ impl Nextdata {
     pub(crate) fn lookup_ro(
         kws: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredWarningAndError<Option<Self>, OptKeyError<Self>, ReqKeyError<Self>> {
-        let ret = match conf.allow_missing_nextdata.0 {
-            TriFlag::True => LogResult::Succ(Self::get_root_opt(kws).into_succ()),
-            TriFlag::False => Self::get_metaroot_req(kws)
-                .map(Some)
+    ) -> DeferredWarningAndError<Option<Self>, ReadOptNextdataError, ReadReqNextdataError> {
+        let k = SpecificKey::default();
+        match conf.allow_missing_nextdata.is_error() {
+            Some(true) => Self::get_req_with(kws, k, (), conf)
+                .map(|x| Some(x.native))
                 .into_log()
                 .set_err_value(None),
-            TriFlag::Silent => {
-                LogResult::new_ok(kws.get(&Self::std()).and_then(|s| s.parse::<Self>().ok()))
+            Some(false) => {
+                let ret = Self::get_opt_with(kws, k, (), conf)
+                    .map(|x| x.native)
+                    .into_succ();
+                LogResult::Succ(ret)
             }
-        };
-        ret.map_deferred_value(|x| {
-            x.map(|y| {
-                let c = i128::from(conf.nextdata_correction);
-                let z = i128::from(y.0).saturating_add(c);
-                let out = if z < 0 {
-                    0_u64
-                } else {
-                    u64::try_from(z).unwrap_or(u64::MAX)
-                };
-                Self(UintZeroPad20(out))
-            })
-        })
+            None => {
+                let ret = kws
+                    .get(&k.as_std())
+                    .and_then(|v| Self::from_str_with(v, (), conf).ok())
+                    .map(|x| x.native);
+                LogResult::new_ok(ret)
+            }
+        }
     }
 
     pub(crate) fn validate_text_offset<I>(
@@ -598,6 +598,43 @@ impl Nextdata {
         }
     }
 }
+
+impl FromStrWith for Nextdata {
+    type Err = ParseNextdataError;
+    type Payload<'a> = ();
+    type Diagnostic = ();
+    type Config = ReadHeaderAndTEXTConfig;
+
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+        let corr = i128::from(conf.nextdata_correction);
+        let x = s.parse::<i128>()?;
+        let y = x.saturating_add(corr);
+        if y < 0 {
+            Err(ParseNextdataError::from(NegativeNextdataError(x)))
+        } else {
+            let out = u64::try_from(y).unwrap_or(u64::MAX);
+            Ok(DiagnosedKeyword::new1(Self(UintZeroPad20(out))))
+        }
+    }
+}
+
+pub type ReadOptNextdataError = ParseKeyError<ParseNextdataError, Nextdata, ()>;
+pub type ReadReqNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
+
+/// Error when parsing [`Nextdata`] from [`String`]
+#[derive(Debug, Display, From, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ParseNextdataError {
+    Int(ParseIntError),
+    Negative(NegativeNextdataError),
+}
+
+/// Error when $NEXTDATA is negative
+#[derive(Debug, Error)]
+#[error("$NEXTDATA value is negative ({0})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NegativeNextdataError(i128);
 
 /// The value for the $PnE key (all versions).
 ///

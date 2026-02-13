@@ -257,6 +257,23 @@ pub(crate) trait Required: Sized {
             .map_err(ReqKeyErrorInner::from)
     }
 
+    #[allow(clippy::type_complexity)]
+    fn get_req_with<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyStdKey + Copy,
+        Self: FromStrWith,
+    {
+        let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        Self::from_str_with(v, data, conf)
+            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            .map_err(ReqKeyErrorInner::from)
+    }
+
     fn remove_req<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
@@ -327,10 +344,34 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyStdKey,
         Self: FromStr,
     {
-        Self::get_opt_inner(kws, k, |k_, v| {
-            v.parse()
-                .map_err(|e| ParseKeyError::new(e, k_, TruncatedString(v.to_owned())))
-        })
+        kws.get(&k.as_std())
+            .map(|v| {
+                v.parse()
+                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            })
+            .transpose()
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn get_opt_with<I>(
+        kws: &StdKeywords,
+        k: SpecificKey<Self, I>,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    where
+        SpecificKey<Self, I>: AnyStdKey,
+        Self: FromStrWith,
+        Self::Diagnostic: Default,
+    {
+        kws.get(&k.as_std())
+            .map(|v| {
+                Self::from_str_with(v, data, conf)
+                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            })
+            .transpose()
+            .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
     }
 
     fn get_or_ignore_opt<I>(
@@ -454,21 +495,6 @@ pub(crate) trait Optional: Sized {
                 LogResult::new_deferred_switchable3(DiagnosedKeyword::default(), e, triflag)
             }
         }
-    }
-
-    fn get_opt_inner<F, E, I>(
-        kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
-        f: F,
-    ) -> Result<Self::Outer, E>
-    where
-        SpecificKey<Self, I>: AnyStdKey,
-        F: FnOnce(SpecificKey<Self, I>, &str) -> Result<Self, E>,
-    {
-        kws.get(&k.as_std())
-            .map(|v| f(k, v))
-            .transpose()
-            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 }
 

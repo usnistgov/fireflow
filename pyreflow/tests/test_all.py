@@ -3038,6 +3038,8 @@ class TestConfig:
 
     # TODO test data_remainder_limit
 
+    # TODO test version_override
+
     @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
     def test_supp_text_correction(self, version: str, tmp_path: Path) -> None:
         kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "-1"}
@@ -3060,6 +3062,19 @@ class TestConfig:
                 pf.api.fcs_read_flat_text(p)
 
         pf.api.fcs_read_flat_text(p, supp_text_correction=(0, 1))
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    def test_nextdata_correction(self, version: str, tmp_path: Path) -> None:
+        kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "0"}
+        s = mock_header_text(version, kws=kws, nextdata=-1)
+        p = tmp_path / "thing.fcs"
+        with open(p, "w") as f:
+            f.write(s)
+
+        with pytest.RaisesGroup(pf.ParseKeywordValueError):
+            pf.api.fcs_read_flat_text(p)
+
+        pf.api.fcs_read_flat_text(p, nextdata_correction=1)
 
 
 class TestReadWrite:

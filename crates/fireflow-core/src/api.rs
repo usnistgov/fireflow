@@ -31,8 +31,7 @@ use crate::segment::{
     UncorrectedSegment,
 };
 use crate::text::keywords::{
-    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadOptNextdataError,
-    ReadReqNextdataError, Tot,
+    AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::dataframe::FCSDataFrame;
@@ -431,6 +430,7 @@ pub struct FlatDatasetFromKwsOutput {
     pub events_diagnostics: EventsDiagnostics,
 }
 
+// TODO should all these std/nonstd keys just be keystrings since the $ is implied?
 /// Data pertaining to parsing the TEXT segment.
 #[allow(clippy::too_many_arguments)]
 #[derive(new, Clone, PartialEq)]
@@ -438,11 +438,6 @@ pub struct FlatDatasetFromKwsOutput {
 pub struct FlatTEXTDiagnostics {
     /// HEADER data and supplemental TEXT offsets
     pub header_supp: HeaderAndSuppOffsets,
-
-    /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
-    pub delimiter: u8,
 
     /// Keywords that could not be parsed.
     ///
@@ -500,8 +495,14 @@ pub struct HeaderAndSuppOffsets {
 
 /// Data pertaining to parsing the TEXT segment.
 #[derive(new, Clone, PartialEq)]
+#[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SplitTEXTDiagnostics {
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    pub delimiter: u8,
+
     /// `true` if TEXT delimiters were escaped
     pub escaped: bool,
 
@@ -524,8 +525,11 @@ pub struct SplitTEXTDiagnostics {
     /// `true` if final delimiter was missing
     pub missing_final_delim: bool,
 
-    /// Length of trailing whitespace after TEXT in bytes
-    pub trailing_whitespace_length: usize,
+    /// `true` if there was an extra delimiter after TEXT which was ignored
+    pub has_extra_delim: bool,
+
+    /// Training bytes after TEXT
+    pub trailing_bytes: Vec<u8>,
 }
 
 struct SplitTEXTOutputInner {
@@ -730,7 +734,7 @@ pub enum ParseFlatTEXTWarning {
     Primary(ParseKeywordsIssue),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentWarning),
-    Nextdata(ReadOptNextdataError),
+    Nextdata(ReadNextdataError),
     InvalidChars(InvalidKeywordCharsError),
     AppendSupp(StdPresent),
 }
@@ -743,7 +747,7 @@ pub enum ParseFlatTEXTError {
     Primary(ParsePrimaryTEXTError),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
-    Nextdata(ReadReqNextdataError),
+    Nextdata(ReadNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
     InvalidChars(StdPresent),
     NextdataOffset(NextdataOffsetsError),
@@ -1147,13 +1151,13 @@ impl FlatTEXTOutput {
                             )
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
-                            .map_ok_value(|supp_out| (delim, kws, seg, prim_out, supp_out))
+                            .map_ok_value(|supp_out| (kws, seg, prim_out, supp_out))
                         } else {
-                            LogResult::new_ok((delim, kws, seg, prim_out, None))
+                            LogResult::new_ok((kws, seg, prim_out, None))
                         }
                     })
             })
-            .and_then_commutative(|(delim, mut kws, supp_text_seg, prim_out, supp_out)| {
+            .and_then_commutative(|(mut kws, supp_text_seg, prim_out, supp_out)| {
                 let nextdata_res = Nextdata::lookup_ro(&kws.std, conf)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
@@ -1189,7 +1193,7 @@ impl FlatTEXTOutput {
                             HeaderAndSuppOffsets::new(header, supp_text_seg.into(), nextdata);
                         let diag_res = kws
                             .diag
-                            .into_flat_diag(delim, header_supp, prim_out, supp_out, conf)
+                            .into_flat_diag(header_supp, prim_out, supp_out, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
                             .set_err_value(());
@@ -1336,11 +1340,12 @@ impl SplitTEXTDiagnostics {
         tk: TEXTKind,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let (trimmed_bytes, remainder): (&[u8], &[u8]) = if conf.trim_text_end.is_set() {
-            TrimTEXTData::split_trimmed(delim, bytes)
-        } else {
-            (bytes, &[])
-        };
+        let (trimmed_bytes, has_final, remainder): (&[u8], bool, &[u8]) =
+            if conf.trim_text_end.is_set() {
+                TrimTEXTData::split_trimmed(delim, bytes)
+            } else {
+                (bytes, false, &[])
+            };
         let escaped = GuessedEscapeMode::is_escaped(delim, trimmed_bytes, conf.delim_escape_mode);
         let res = if escaped {
             SplitTEXTOutputInner::split_escaped(kws, delim, trimmed_bytes, tk, conf)
@@ -1348,12 +1353,14 @@ impl SplitTEXTDiagnostics {
             SplitTEXTOutputInner::split_unescaped(kws, delim, trimmed_bytes, tk, conf)
         };
         res.map_ok_value(|inner| Self {
+            delimiter: delim,
             keys_with_blank_values: inner.keys_with_blank_values,
             values_with_blank_keys: inner.values_with_blank_keys,
             tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
             last_odd_token: inner.last_odd_token,
             missing_final_delim: inner.missing_final_delim,
-            trailing_whitespace_length: remainder.len(),
+            has_extra_delim: has_final,
+            trailing_bytes: remainder.to_vec(),
             escaped,
         })
     }
@@ -1786,7 +1793,7 @@ impl GuessedEscapeMode {
 
 impl TrimTEXTData {
     /// Split bytes into untrimmed and trimmed slices.
-    fn split_trimmed(delim: u8, bytes: &[u8]) -> (&[u8], &[u8]) {
+    fn split_trimmed(delim: u8, bytes: &[u8]) -> (&[u8], bool, &[u8]) {
         Self::from_bytes(delim, bytes).split_bytes(bytes)
     }
 
@@ -1817,18 +1824,13 @@ impl TrimTEXTData {
         self.total_delim() & 1 == 0 && self.final_delim > 1
     }
 
-    fn split_bytes<'a>(&self, bytes: &'a [u8]) -> (&'a [u8], &'a [u8]) {
-        let n_trim = if self.has_final_double_delim() {
-            self.trailing + 1
-        } else {
-            self.trailing
-        };
-        // Split the raw byte segment (or not if it is empty)
-        if let Some(split_index) = bytes.len().checked_sub(n_trim) {
-            bytes.split_at(split_index)
-        } else {
-            (bytes, &[])
-        }
+    fn split_bytes<'a>(&self, bytes: &'a [u8]) -> (&'a [u8], bool, &'a [u8]) {
+        let has_final = self.has_final_double_delim();
+        let n_trim = self.trailing + usize::from(has_final);
+        debug_assert!(n_trim <= bytes.len(), "trying to trim more than length");
+        let split_index = bytes.len() - n_trim;
+        let (trimmed, rem) = bytes.split_at(split_index);
+        (trimmed, has_final, &rem[usize::from(has_final)..])
     }
 }
 

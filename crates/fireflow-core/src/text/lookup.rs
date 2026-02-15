@@ -353,26 +353,26 @@ pub(crate) trait Optional: Sized {
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
-    #[allow(clippy::type_complexity)]
-    fn get_opt_with<I>(
-        kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
-        data: Self::Payload<'_>,
-        conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
-    where
-        SpecificKey<Self, I>: AnyStdKey,
-        Self: FromStrWith,
-        Self::Diagnostic: Default,
-    {
-        kws.get(&k.as_std())
-            .map(|v| {
-                Self::from_str_with(v, data, conf)
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
-            })
-            .transpose()
-            .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
-    }
+    // #[allow(clippy::type_complexity)]
+    // fn get_opt_with<I>(
+    //     kws: &StdKeywords,
+    //     k: SpecificKey<Self, I>,
+    //     data: Self::Payload<'_>,
+    //     conf: &Self::Config,
+    // ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    // where
+    //     SpecificKey<Self, I>: AnyStdKey,
+    //     Self: FromStrWith,
+    //     Self::Diagnostic: Default,
+    // {
+    //     kws.get(&k.as_std())
+    //         .map(|v| {
+    //             Self::from_str_with(v, data, conf)
+    //                 .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+    //         })
+    //         .transpose()
+    //         .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
+    // }
 
     fn get_or_ignore_opt<I>(
         kws: &StdKeywords,

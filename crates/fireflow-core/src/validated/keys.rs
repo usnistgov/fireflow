@@ -1008,7 +1008,6 @@ impl ParsedKeywords {
 impl ParsedKeywordsDiagnostic {
     pub(crate) fn into_flat_diag(
         self,
-        delim: u8,
         header_supp: HeaderAndSuppOffsets,
         primary_split: SplitTEXTDiagnostics,
         supp_split: Option<SplitTEXTDiagnostics>,
@@ -1077,7 +1076,6 @@ impl ParsedKeywordsDiagnostic {
 
         let ret = FlatTEXTDiagnostics {
             header_supp,
-            delimiter: delim,
             byte_pairs,
             non_unique_std_keywords: self.non_unique_std_keywords,
             non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
@@ -1182,7 +1180,7 @@ pub enum InvalidKeywordCharsError {
 #[derive(Debug, Error)]
 #[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiOrUtf8KeywordError {
     key: TruncatedBytes,
     value: TruncatedBytes,
@@ -1192,7 +1190,7 @@ pub struct NonAsciiOrUtf8KeywordError {
 #[derive(Debug, Error)]
 #[error("non ASCII key encountered with bytes {key} and value '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiKeyError {
     key: TruncatedBytes,
     value: TruncatedString,
@@ -1202,7 +1200,7 @@ pub struct NonAsciiKeyError {
 #[derive(Debug, Error)]
 #[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonUtf8ValueError {
     key: AnyKey,
     value: TruncatedBytes,

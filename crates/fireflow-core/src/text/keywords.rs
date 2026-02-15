@@ -551,29 +551,27 @@ pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
 pub struct Nextdata(pub UintZeroPad20);
 
 impl Nextdata {
+    // TODO unlike all other keyword lookup ops this won't demote a bad key on
+    // failure since it is read-only. Not sure how to fix this without
+    // destroying many other things
     pub(crate) fn lookup_ro(
         kws: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredWarningAndError<Option<Self>, ReadOptNextdataError, ReadReqNextdataError> {
+    ) -> DeferredWarningAndError<Option<Self>, ReadNextdataError, ReadNextdataError> {
         let k = SpecificKey::default();
-        match conf.allow_missing_nextdata.is_error() {
-            Some(true) => Self::get_req_with(kws, k, (), conf)
-                .map(|x| Some(x.native))
-                .into_log()
-                .set_err_value(None),
-            Some(false) => {
-                let ret = Self::get_opt_with(kws, k, (), conf)
-                    .map(|x| x.native)
-                    .into_succ();
-                LogResult::Succ(ret)
+        if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
+            let res = Self::get_req_with(kws, k, (), conf).map(|x| Some(x.native));
+            if is_err {
+                res.into_log().set_err_value(None)
+            } else {
+                LogResult::Succ(res.into_succ())
             }
-            None => {
-                let ret = kws
-                    .get(&k.as_std())
-                    .and_then(|v| Self::from_str_with(v, (), conf).ok())
-                    .map(|x| x.native);
-                LogResult::new_ok(ret)
-            }
+        } else {
+            let ret = kws
+                .get(&k.as_std())
+                .and_then(|v| Self::from_str_with(v, (), conf).ok())
+                .map(|x| x.native);
+            LogResult::new_ok(ret)
         }
     }
 
@@ -618,8 +616,7 @@ impl FromStrWith for Nextdata {
     }
 }
 
-pub type ReadOptNextdataError = ParseKeyError<ParseNextdataError, Nextdata, ()>;
-pub type ReadReqNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
+pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
 
 /// Error when parsing [`Nextdata`] from [`String`]
 #[derive(Debug, Display, From, Error)]

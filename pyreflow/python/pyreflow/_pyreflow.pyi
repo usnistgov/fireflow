@@ -1888,15 +1888,19 @@ class DatasetSegments:
 class SplitTEXTDiagnostics:
     def __new__(
         cls,
+        delimiter: int,
         escaped: bool,
         keys_with_blank_values: list[bytes | str],
         values_with_blank_keys: list[bytes | str],
         tokens_with_boundary_delims: list[bytes | str],
         last_odd_token: bytes | str,
         missing_final_delim: bool,
-        trailing_whitespace_length: int,
+        has_extra_delim: bool,
+        trailing_bytes: bytes,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def delimiter(self) -> int: ...
     @property
     def escaped(self) -> bool: ...
     @property
@@ -1910,7 +1914,9 @@ class SplitTEXTDiagnostics:
     @property
     def missing_final_delim(self) -> bool: ...
     @property
-    def trailing_whitespace_length(self) -> int: ...
+    def has_extra_delim(self) -> bool: ...
+    @property
+    def trailing_bytes(self) -> bytes: ...
 
 @final
 class HeaderAndSuppOffsets:
@@ -1933,7 +1939,6 @@ class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_supp: HeaderAndSuppOffsets,
-        delimiter: int,
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
@@ -1946,8 +1951,6 @@ class FlatTEXTDiagnostics:
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_supp(self) -> HeaderAndSuppOffsets: ...
-    @property
-    def delimiter(self) -> int: ...
     @property
     def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property

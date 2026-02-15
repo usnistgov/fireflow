@@ -9,6 +9,8 @@ from copy import deepcopy
 import pytest
 
 from pyreflow.typing import (
+    TrimValueWhitespace,
+    DelimEscapeMode,
     Segment,
     TriFlag,
     Trigger,
@@ -31,6 +33,8 @@ import polars as pl
 from .conftest import lazy_fixture
 
 import ast
+
+X = TypeVar("X")
 
 LINK_NAME1 = "wubbalubbadubdub"
 LINK_NAME2 = "maple lattes"
@@ -365,6 +369,10 @@ def parameterize_versions(
         [lazy_fixture(f"{t}_{v}") for v in versions for t in targets],
     )
 
+
+all_versions = pytest.mark.parametrize(
+    "version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
+)
 
 all_blank_core = parameterize_versions(
     "core",
@@ -2781,77 +2789,82 @@ class TestApiFunctions:
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
 
 
-def mock_fcs_file(path: Path, xs: bytes) -> None:
-    with open(path, "wb") as f:
-        f.write(xs)
-
-
-def mock_header(
-    path: Path,
-    v: str,
-    t: tuple[int, int] = (0, 0),
-    d: tuple[int, int] = (0, 0),
-    a: tuple[int, int] = (0, 0),
-    other_width: int = 8,
-    other_segs: list[tuple[int, int]] = [],
-    rest: bytes = b"",
-) -> None:
-    def fmt_offset(pair: tuple[int, int], width: int) -> str:
-        return str(pair[0]).rjust(width) + str(pair[1]).rjust(width)
-
-    req = [fmt_offset(t, 8), fmt_offset(d, 8), fmt_offset(a, 8)]
-    offsets = "".join(req + [fmt_offset(s, other_width) for s in other_segs])
-    mock_fcs_file(path, bytes(v + "    " + offsets, "utf-8") + rest)
-
-
-def mock_header_text(
-    path: Path,
-    v: str,
-    tdiff: tuple[int, int] = (0, 0),
-    d: tuple[int, int] = (0, 0),
-    a: tuple[int, int] = (0, 0),
-    other_width: int = 8,
-    other_segs: list[tuple[int, int]] = [],
-    delim: int = 47,
-    kws: dict[str, str] = {},
-    nextdata: int | None = 0,
-    rest: bytes = b"",
-) -> None:
-    assert delim < 256, "delim must be one byte"
-    delim_byte = delim.to_bytes(1)
-    if nextdata is not None:
-        kws["$NEXTDATA"] = str(nextdata)
-    text = (
-        delim_byte
-        + delim_byte.join(
-            [
-                bytes(x, "utf-8") + delim_byte + bytes(y, "utf-8")
-                for (x, y) in kws.items()
-            ]
-        )
-        + delim_byte
-    )
-    all_rest = text + rest
-    t0 = 58 + len(other_segs) * 2 * other_width
-    t = (t0, t0 + len(text) - 1)
-    return mock_header(path, v, t, d, a, other_width, other_segs, all_rest)
-
-
-X = TypeVar("X")
-
-
-def _test_tri_flag(f: Callable[[TriFlag], X], comp: X, err: type) -> None:
-    with pytest.RaisesGroup(err):
-        f("false")
-
-    with pytest.warns(pf.PyreflowWarning):
-        assert f("true") == comp
-
-    assert f("silent") == comp
-
-
 class TestConfig:
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @staticmethod
+    def mock_fcs_file(path: Path, xs: bytes) -> None:
+        with open(path, "wb") as f:
+            f.write(xs)
+
+    @classmethod
+    def mock_header(
+        cls,
+        path: Path,
+        v: str,
+        t: tuple[int, int] = (0, 0),
+        d: tuple[int, int] = (0, 0),
+        a: tuple[int, int] = (0, 0),
+        other_width: int = 8,
+        other_segs: list[tuple[int, int]] = [],
+        rest: bytes = b"",
+    ) -> None:
+        def fmt_offset(pair: tuple[int, int], width: int) -> str:
+            return str(pair[0]).rjust(width) + str(pair[1]).rjust(width)
+
+        req = [fmt_offset(t, 8), fmt_offset(d, 8), fmt_offset(a, 8)]
+        offsets = "".join(req + [fmt_offset(s, other_width) for s in other_segs])
+        cls.mock_fcs_file(path, bytes(v + "    " + offsets, "utf-8") + rest)
+
+    @classmethod
+    def mock_header_text(
+        cls,
+        path: Path,
+        v: str,
+        tdiff: tuple[int, int] = (0, 0),
+        d: tuple[int, int] = (0, 0),
+        a: tuple[int, int] = (0, 0),
+        other_width: int = 8,
+        other_segs: list[tuple[int, int]] = [],
+        delim: int = 47,
+        kws: dict[str, str] = {},
+        nextdata: int | None = 0,
+        rest: bytes = b"",
+    ) -> None:
+        assert delim < 256, "delim must be one byte"
+        delim_byte = delim.to_bytes(1)
+        if nextdata is not None:
+            kws["$NEXTDATA"] = str(nextdata)
+        text = (
+            delim_byte
+            + delim_byte.join(
+                [
+                    bytes(x, "utf-8") + delim_byte + bytes(y, "utf-8")
+                    for (x, y) in kws.items()
+                ]
+            )
+            + delim_byte
+        )
+        all_rest = text + rest
+        t0 = 58 + len(other_segs) * 2 * other_width
+        t = (t0, t0 + len(text) - 1)
+        return cls.mock_header(path, v, t, d, a, other_width, other_segs, all_rest)
+
+    @staticmethod
+    def _test_tri_flag(f: Callable[[TriFlag], X], comp: X, err: list[type]) -> None:
+        with pytest.RaisesGroup(*err):
+            f("false")
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert f("true") == comp
+
+        assert f("silent") == comp
+
+    @staticmethod
+    def _test_tri_flag_nofail(f: Callable[[TriFlag], X], comp: X) -> None:
+        assert f("false") == comp
+        assert f("true") == comp
+        assert f("silent") == comp
+
+    @all_versions
     @pytest.mark.parametrize(
         "other_segs, other_corrections",
         [
@@ -2871,7 +2884,7 @@ class TestConfig:
         other_corrections = list(other_corrections)
         t0 = len(other_segs) * 2 * 8 + 58
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
+        self.mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
         out = pf.api.fcs_read_header(p, other_corrections=other_corrections)
         if len(other_segs) == 0:
             assert out.segments.other_segs is None
@@ -2886,7 +2899,7 @@ class TestConfig:
                 (x + a, y + b) for ((x, y), (a, b)) in zip(other_segs, norm_corrections)
             ]
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     @pytest.mark.parametrize("max_other", [None, 0, 1, 5])
     @pytest.mark.parametrize(
         "other_segs",
@@ -2905,7 +2918,7 @@ class TestConfig:
         other_segs = list(other_segs)  # for some reason these come in as tuple
         t0 = len(other_segs) * 2 * 8 + 58
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
+        self.mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
         out = pf.api.fcs_read_header(p, max_other=max_other)
         if max_other == 0 or len(other_segs) == 0:
             assert out.segments.other_segs is None
@@ -2916,7 +2929,7 @@ class TestConfig:
             os_out, _ = out.segments.other_segs
             assert os_out == other_segs[0:max_other]
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     @pytest.mark.parametrize("other_width", [8, 11, 13, 17, 20])
     def test_guess_other_width(
         self,
@@ -2927,7 +2940,7 @@ class TestConfig:
         other_segs = [(0, 0), (0, 0)]
         t0 = len(other_segs) * 2 * other_width + 58
         p = tmp_path / "thing.fcs"
-        mock_header(
+        self.mock_header(
             p,
             version,
             t=(t0, t0),
@@ -2972,10 +2985,10 @@ class TestConfig:
         out = pf.api.fcs_read_header(p, guess_other_width="silent")
         assert out.segments.other_segs[1] == other_width
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_squish_offsets(self, version: str, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, 58), d=(59, 0), rest=b"/")
+        self.mock_header(p, version, t=(58, 58), d=(59, 0), rest=b"/")
 
         with pytest.RaisesGroup(pf.FileLayoutError):
             pf.api.fcs_read_header(p, squish_offsets=False)
@@ -2988,13 +3001,13 @@ class TestConfig:
             out = pf.api.fcs_read_header(p, squish_offsets=True)
             assert out.segments.data_seg == (0, 0)
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     @pytest.mark.parametrize("data_end, analysis_end", [(0, -1), (-1, 0)])
     def test_allow_pseudoempty_req_header(
         self, version: str, data_end: int, analysis_end: int, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
-        mock_header(
+        self.mock_header(
             p, version, t=(58, 58), d=(0, data_end), a=(0, analysis_end), rest=b"/"
         )
 
@@ -3005,14 +3018,14 @@ class TestConfig:
         assert out.segments.data_seg == (0, 0)
         assert out.segments.analysis_seg == (0, 0)
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     @pytest.mark.parametrize("other_end", [0, -1])
     def test_allow_pseudoempty_other(
         self, version: str, other_end: int, tmp_path: Path
     ) -> None:
         t0 = 58 + 8 * 2
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(t0, t0), other_segs=[(0, other_end)], rest=b"/")
+        self.mock_header(p, version, t=(t0, t0), other_segs=[(0, other_end)], rest=b"/")
 
         if other_end == 0:
             out = pf.api.fcs_read_header(p, allow_pseudoempty=False)
@@ -3024,10 +3037,10 @@ class TestConfig:
         out = pf.api.fcs_read_header(p, allow_pseudoempty=True)
         assert out.segments.other_segs[0][0] == (0, 0)
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_truncate_offset_limit(self, version: str, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, 59), rest=b"/")
+        self.mock_header(p, version, t=(58, 59), rest=b"/")
 
         with pytest.RaisesGroup(pf.FileLayoutError):
             pf.api.fcs_read_header(p, truncate_offset_limit=0)
@@ -3035,10 +3048,10 @@ class TestConfig:
         out = pf.api.fcs_read_header(p, truncate_offset_limit=1)
         assert out.segments.text_seg == (58, 58)
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_overlap_correction_limit(self, version: str, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, 59), d=(59, 62), rest=b"/data")
+        self.mock_header(p, version, t=(58, 59), d=(59, 62), rest=b"/data")
 
         with pytest.RaisesGroup(pf.FileLayoutError):
             pf.api.fcs_read_header(p, overlap_correction_limit=0)
@@ -3051,11 +3064,11 @@ class TestConfig:
 
     # TODO test version_override
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_supp_text_correction(self, version: str, tmp_path: Path) -> None:
         kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "-1"}
         p = tmp_path / "thing.fcs"
-        mock_header_text(p, version, kws=kws)
+        self.mock_header_text(p, version, kws=kws)
 
         def go(corr: tuple[int, int]) -> tuple[Segment | None, Segment] | None:
             out = pf.api.fcs_read_flat_text(p, supp_text_correction=corr)
@@ -3075,142 +3088,126 @@ class TestConfig:
                 go((0, 0))
             assert go((0, 1)) == ((0, 0), (0, -1))
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_nextdata_correction(self, version: str, tmp_path: Path) -> None:
         kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "0"}
         p = tmp_path / "thing.fcs"
-        mock_header_text(p, version, kws=kws, nextdata=-1)
+        self.mock_header_text(p, version, kws=kws, nextdata=-1)
 
         with pytest.RaisesGroup(pf.ParseKeywordValueError):
             pf.api.fcs_read_flat_text(p, nextdata_correction=0)
 
         pf.api.fcs_read_flat_text(p, nextdata_correction=1)
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_dup_supp_text_exact(self, version: str, tmp_path: Path) -> None:
         kws = {"$BEGINSTEXT": "58", "$ENDSTEXT": "98"}  # exactly equal to TEXT
         p = tmp_path / "thing.fcs"
-        mock_header_text(p, version, kws=kws)
+        self.mock_header_text(p, version, kws=kws)
 
-        def go_none(out: pf.api.FlatTEXTOutput) -> None:
-            supp = out.flat_diagnostics.header_supp.supp_text
-            assert supp is None
+        def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
+            return out.flat_diagnostics.header_supp.supp_text
 
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="false")
-            go_none(out)
-            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="true")
-            go_none(out)
-            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text="silent")
-            go_none(out)
+            self._test_tri_flag_nofail(go, None)
         else:
-
-            def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
-                out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
-                return out.flat_diagnostics.header_supp.supp_text
-
             comp: tuple[Segment | None, Segment] | None = (None, (58, 98))
-            _test_tri_flag(go, comp, pf.FileLayoutError)
+            self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
             assert out.flat_diagnostics.header_supp.supp_text == comp
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_delim_escaped(self, version: str, tmp_path: Path) -> None:
         # NOTE more cases are tested internally in rust, this is to ensure the
         # python api works as indended
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/aaa//bbb/bbb/ccc/ddd/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="escaped")
-        assert len(out.kws.nonstd) == 2
-        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 0
+        def go(f: DelimEscapeMode, n_nonstd: int, n_blank: int) -> None:
+            out = pf.api.fcs_read_flat_text(p, delim_escape_mode=f)
+            assert len(out.kws.nonstd) == n_nonstd
+            blank = out.flat_diagnostics.primary_split.keys_with_blank_values
+            assert len(blank) == n_blank
 
-        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="guess_escaped")
-        assert len(out.kws.nonstd) == 2
-        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
+        go("escaped", 2, 0)
+        go("guess_escaped", 2, 1)
+        go("guess_unescaped", 2, 1)
+        go("unescaped", 2, 1)
 
-        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="guess_unescaped")
-        assert len(out.kws.nonstd) == 2
-        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
-
-        out = pf.api.fcs_read_flat_text(p, delim_escape_mode="unescaped")
-        assert len(out.kws.nonstd) == 2
-        assert len(out.flat_diagnostics.primary_split.keys_with_blank_values) == 1
-
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_non_ascii_delim(self, version: str, tmp_path: Path) -> None:
         delim = b"\0"
         kws = [b"$BEGINSTEXT", b"0", b"$ENDSTEXT", b"0", b"$NEXTDATA", b"0"]
         text = delim + delim.join(kws) + delim
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> int:
             out = pf.api.fcs_read_flat_text(p, allow_non_ascii_delim=f)
-            return out.flat_diagnostics.delimiter
+            return out.flat_diagnostics.primary_split.delimiter
 
-        _test_tri_flag(go, 0, pf.FileLayoutError)
+        self._test_tri_flag(go, 0, [pf.FileLayoutError])
 
     # TODO repeat this for supp
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_missing_final_delim(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> bool:
             out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
             return out.flat_diagnostics.primary_split.missing_final_delim
 
-        _test_tri_flag(go, True, pf.FileLayoutError)
+        self._test_tri_flag(go, True, [pf.FileLayoutError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_non_unique(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$NEXTDATA/666/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> list[tuple[str, str]]:
             out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
             return out.flat_diagnostics.non_unique_std_keywords
 
-        # TODO the $ should be implied
-        _test_tri_flag(go, [("$NEXTDATA", "666")], pf.ParseKeyError)
+        self._test_tri_flag(go, [("$NEXTDATA", "666")], [pf.ParseKeyError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_non_unique_nonstd(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/slayer/42/slayer/420/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> list[tuple[str, str]]:
             out = pf.api.fcs_read_flat_text(p, allow_nonunique=f)
             return out.flat_diagnostics.non_unique_nonstd_keywords
 
-        _test_tri_flag(go, [("slayer", "420")], pf.ParseKeyError)
+        self._test_tri_flag(go, [("slayer", "420")], [pf.ParseKeyError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_odd(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> str | bytes:
             out = pf.api.fcs_read_flat_text(p, allow_odd=f)
             return out.flat_diagnostics.primary_split.last_odd_token
 
         comp: str | bytes = "xxx"
-        _test_tri_flag(go, comp, pf.FileLayoutError)
+        self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_allow_empty_keys(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//herman/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> list[str | bytes]:
             out = pf.api.fcs_read_flat_text(
@@ -3219,9 +3216,9 @@ class TestConfig:
             return out.flat_diagnostics.primary_split.values_with_blank_keys
 
         comp: list[str | bytes] = ["herman"]
-        _test_tri_flag(go, comp, pf.FileLayoutError)
+        self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     @pytest.mark.parametrize(
         "text",
         [
@@ -3233,7 +3230,7 @@ class TestConfig:
         self, version: str, tmp_path: Path, text: bytes
     ) -> None:
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> list[str | bytes]:
             out = pf.api.fcs_read_flat_text(
@@ -3242,19 +3239,224 @@ class TestConfig:
             return out.flat_diagnostics.primary_split.tokens_with_boundary_delims
 
         comp: list[str | bytes] = ["0"]
-        _test_tri_flag(go, comp, pf.FileLayoutError)
+        self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
-    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"])
+    @all_versions
     def test_use_latin1(self, version: str, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
         p = tmp_path / "thing.fcs"
-        mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        with pytest.RaisesGroup(pf.FileLayoutError):
+        with pytest.RaisesGroup(pf.ParseKeyError):
             pf.api.fcs_read_flat_text(p, use_latin1=False)
 
         out = pf.api.fcs_read_flat_text(p, use_latin1=True)
         out.kws.nonstd["tool"] == "Ænima"
+
+    @all_versions
+    def test_allow_non_ascii_keys(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/t\0\0l/Aenima/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[tuple[str | bytes, str | bytes]]:
+            out = pf.api.fcs_read_flat_text(p, allow_non_ascii_keys=f)
+            return out.flat_diagnostics.byte_pairs
+
+        comp: list[tuple[str | bytes, str | bytes]] = [(b"t\0\0l", "Aenima")]
+        self._test_tri_flag(go, comp, [pf.ParseKeyError])
+
+    @all_versions
+    def test_allow_non_utf8_values(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> list[tuple[str | bytes, str | bytes]]:
+            out = pf.api.fcs_read_flat_text(p, allow_non_utf8_values=f)
+            return out.flat_diagnostics.byte_pairs
+
+        comp: list[tuple[str | bytes, str | bytes]] = [("tool", b"\xc6nima")]
+        self._test_tri_flag(go, comp, [pf.ParseKeyError])
+
+    @all_versions
+    def test_allow_missing_supp_text(self, version: str, tmp_path: Path) -> None:
+        text = b"/$NEXTDATA/0/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
+            out = pf.api.fcs_read_flat_text(p, allow_missing_supp_text=f)
+            return out.flat_diagnostics.header_supp.supp_text
+
+        if version in ["FCS2.0", "FCS3.2"]:
+            # supp text doesn't exist in 2.0 and is optional in 3.2, so no
+            # error for these two
+            self._test_tri_flag_nofail(go, None)
+        else:
+            self._test_tri_flag(go, None, [pf.ParseKeywordValueError] * 2)
+
+    @all_versions
+    def test_allow_supp_text_own_delim(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/101/$ENDSTEXT/118/$NEXTDATA/0/\\microsoft\\ntfs:(\\"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, 100), rest=text)
+
+        def go(f: TriFlag) -> tuple[dict[str, str], int, int | None]:
+            out = pf.api.fcs_read_flat_text(p, allow_supp_text_own_delim=f)
+            prim_delim = out.flat_diagnostics.primary_split.delimiter
+            supp = out.flat_diagnostics.supp_split
+            supp_delim = None if supp is None else supp.delimiter
+            return (out.kws.nonstd, prim_delim, supp_delim)
+
+        if version == "FCS2.0":
+            comp0: tuple[dict[str, str], int, int | None] = ({}, 47, None)
+            self._test_tri_flag_nofail(go, comp0)
+        else:
+            nstd = {"microsoft": "ntfs:("}
+            comp1: tuple[dict[str, str], int, int | None] = (nstd, 47, 92)
+            self._test_tri_flag(go, comp1, [pf.FileLayoutError])
+
+    @all_versions
+    def test_allow_missing_nextdata(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> int | None:
+            out = pf.api.fcs_read_flat_text(p, allow_missing_nextdata=f)
+            return out.flat_diagnostics.header_supp.nextdata
+
+        self._test_tri_flag(go, None, [pf.ParseKeywordValueError])
+
+    @all_versions
+    def test_trim_value_whitespace(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$CYT/ /"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(
+            f: TrimValueWhitespace,
+        ) -> tuple[list[tuple[str | bytes, str | bytes]], list[str | bytes]]:
+            out = pf.api.fcs_read_flat_text(p, trim_value_whitespace=f)
+            trimmed = out.flat_diagnostics.keys_with_trimmed_values
+            empty = out.flat_diagnostics.keys_with_empty_trimmed_values
+            return (trimmed, empty)
+
+        # no error if trimming isn't desired, blank $CYT is perfectly valid by
+        # FCS standard (although not very smart)
+        assert go("notrim") == ([], [])
+
+        with pytest.RaisesGroup(pf.ParseKeyError):
+            assert go("trim") == ([], ["$CYT"])
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("trim_blank_warn") == ([], ["$CYT"])
+
+        assert go("trim_blank_silent") == ([], ["$CYT"])
+
+    @all_versions
+    @pytest.mark.parametrize(
+        "delim, extra, errors",
+        [
+            (False, b" ", [pf.FileLayoutError, pf.FileLayoutError]),
+            (True, b"", [pf.FileLayoutError]),
+            (True, b" ", [pf.FileLayoutError]),
+        ],
+    )
+    def test_trim_text_end_extra_blank(
+        self,
+        version: str,
+        delim: bool,
+        extra: bytes,
+        errors: list[type],
+        tmp_path: Path,
+    ) -> None:
+        xs = (b"/" if delim else b"") + extra
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/" + xs
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: bool) -> None:
+            out = pf.api.fcs_read_flat_text(p, trim_text_end=f)
+            x = out.flat_diagnostics.primary_split.has_extra_delim
+            bs = out.flat_diagnostics.primary_split.trailing_bytes
+            assert (x, bs) == (delim, extra)
+
+        with pytest.RaisesGroup(*errors):
+            go(False)
+
+        go(True)
+
+    @all_versions
+    def test_ignore_standard_keys(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$CYT/T1000/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["CYT"])
+        assert out.flat_diagnostics.ignored_standard_keywords == [("$CYT", "T1000")]
+
+    @all_versions
+    def test_rename_standard_keys(self, version: str, tmp_path: Path) -> None:
+        pub = "eprint.iacr.org/2025/1237.pdf"
+        text = (
+            b"|$BEGINSTEXT|0|$ENDSTEXT|0|$NEXTDATA|0|$CYT|" + bytes(pub, "utf-8") + b"|"
+        )
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(p, rename_standard_keys={"CYT": "CITE"})
+        assert out.kws.std["$CITE"] == pub
+
+    @all_versions
+    def test_promote_to_standard(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/PLUTO/planet/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(p, promote_to_standard=["PLUTO"])
+        assert out.kws.std["$PLUTO"] == "planet"
+
+    @all_versions
+    def test_demote_from_standard(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$BLUETOOTH/reliable/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(p, demote_from_standard=["BLUETOOTH"])
+        assert out.kws.nonstd["BLUETOOTH"] == "reliable"
+
+    @all_versions
+    def test_replace_std_key_vals(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$DARTH_VADER/evil/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(
+            p, replace_standard_key_values={"DARTH_VADER": "misunderstood"}
+        )
+        assert out.kws.std["$DARTH_VADER"] == "misunderstood"
+
+    @all_versions
+    def test_append_std_kws(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(p, append_standard_keywords={"CRAZY": "genius"})
+        assert out.kws.std["$CRAZY"] == "genius"
+
+    @all_versions
+    def test_sub_standard_keys(self, version: str, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$OP/Megadeath/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        out = pf.api.fcs_read_flat_text(
+            p, substitute_standard_key_values={"OP": ("death", "deth", False)}
+        )
+        assert out.kws.std["$OP"] == "Megadeth"
 
 
 class TestReadWrite:
@@ -3262,7 +3464,7 @@ class TestReadWrite:
     def _assert_uncore_text_empty(
         uncore: pf.api.StdTEXTOutput,
     ) -> None:
-        assert uncore.flat_diagnostics.delimiter == 30
+        assert uncore.flat_diagnostics.primary_split.delimiter == 30
         assert len(uncore.flat_diagnostics.byte_pairs) == 0
         assert len(uncore.std_diagnostics.pseudostandard) == 0
         assert len(uncore.std_diagnostics.hyper_par) == 0
@@ -3272,7 +3474,7 @@ class TestReadWrite:
     def _assert_uncore_dataset_empty(
         uncore: pf.api.StdDatasetOutput,
     ) -> None:
-        assert uncore.flat_diagnostics.delimiter == 30
+        assert uncore.flat_diagnostics.primary_split.delimiter == 30
         assert len(uncore.flat_diagnostics.byte_pairs) == 0
         assert len(uncore.dataset.std_diagnostics.pseudostandard) == 0
         assert len(uncore.dataset.std_diagnostics.hyper_par) == 0
@@ -3519,49 +3721,6 @@ class TestReadWrite:
         assert un_core.flat_diagnostics.header_supp.supp_text is not None
 
 
-HEADER_ALIASES = ["OffsetCorrection", "GuessOtherWidth"]
-
-FLAT_TEXT_ALIASES = [
-    "VersionOverride",
-    "TriFlag",
-    "DelimEscapeMode",
-    "TrimValueWhitespace",
-    "KeyPatterns",
-    "SubPatterns",
-]
-
-STD_TEXT_ALIASES = [
-    "ForceLinearScale",
-    "TemporalOpticalKey",
-    "ProcessTimeOpticalKeys",
-    "ProcessKeywordFailure",
-    "SpilloverMeasurementMode",
-    "AllowHeaderTextOffsetMismatch",
-    "ByteOrd",
-]
-
-READ_EVENTS_ALIASES = ["TruncateEventValues", "AllowHeaderTextOffsetMismatch"]
-
-ALL_ALIASES = (
-    HEADER_ALIASES + FLAT_TEXT_ALIASES + STD_TEXT_ALIASES + READ_EVENTS_ALIASES
-)
-
-
-class StubMismatch(NamedTuple):
-    argname: str
-    pydantic_type: str
-    pyi_type: str
-    pydantic_default: str
-    pyi_default: str
-
-    def __str__(self) -> str:
-        return (
-            f"pyi is '{self.pyi_type}' with default '{self.pyi_default}' "
-            f"and pydantic is '{self.pydantic_type}' with default "
-            f"'{self.pydantic_default}' for {self.argname}"
-        )
-
-
 # Ensure pydantic classes match their corresponding API functions. This is
 # somewhat tested elsewhere since we call these API functions internally in
 # the pydantic classes, but this will ensure that the types/defaults/names match
@@ -3569,6 +3728,33 @@ class StubMismatch(NamedTuple):
 # guaranteed to be true for the default value and names but not necessarily the
 # type (until we get proper introspection)
 class TestPydantic:
+    HEADER_ALIASES = ["OffsetCorrection", "GuessOtherWidth"]
+
+    FLAT_TEXT_ALIASES = [
+        "VersionOverride",
+        "TriFlag",
+        "DelimEscapeMode",
+        "TrimValueWhitespace",
+        "KeyPatterns",
+        "SubPatterns",
+    ]
+
+    STD_TEXT_ALIASES = [
+        "ForceLinearScale",
+        "TemporalOpticalKey",
+        "ProcessTimeOpticalKeys",
+        "ProcessKeywordFailure",
+        "SpilloverMeasurementMode",
+        "AllowHeaderTextOffsetMismatch",
+        "ByteOrd",
+    ]
+
+    READ_EVENTS_ALIASES = ["TruncateEventValues", "AllowHeaderTextOffsetMismatch"]
+
+    ALL_ALIASES = (
+        HEADER_ALIASES + FLAT_TEXT_ALIASES + STD_TEXT_ALIASES + READ_EVENTS_ALIASES
+    )
+
     @pytest.mark.parametrize(
         "pydantic_class, fun_name",
         [
@@ -3584,6 +3770,20 @@ class TestPydantic:
         ],
     )
     def test_fun_sig_vs_pydantic(self, pydantic_class: type, fun_name: str) -> None:
+        class StubMismatch(NamedTuple):
+            argname: str
+            pydantic_type: str
+            pyi_type: str
+            pydantic_default: str
+            pyi_default: str
+
+            def __str__(self) -> str:
+                return (
+                    f"pyi is '{self.pyi_type}' with default '{self.pyi_default}' "
+                    f"and pydantic is '{self.pydantic_type}' with default "
+                    f"'{self.pydantic_default}' for {self.argname}"
+                )
+
         only_in_pyi = []
         unequal = []
         pydantic_seen = []
@@ -3598,7 +3798,7 @@ class TestPydantic:
         # import types that we might need to resolve
         import pyreflow.typing as pft
 
-        resolved = {a: getattr(pft, a) for a in ALL_ALIASES}
+        resolved = {a: getattr(pft, a) for a in self.ALL_ALIASES}
 
         # find function we want (and puke if we can't find it)
         node = next(

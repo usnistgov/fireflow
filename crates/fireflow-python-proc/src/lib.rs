@@ -1392,13 +1392,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.header_supp.clone().into()),
     );
 
-    let delim = DocArgROIvar::new_ivar_ro(
-        "delimiter",
-        RsInt::U8,
-        format!("Delimiter used to parse {TEXT}."),
-        |_, _| quote!(self.0.delimiter),
-    );
-
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
         PyList::new1(
@@ -1470,7 +1463,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let args = [
         header_supp,
-        delim,
         byte_pairs,
         non_unique_std,
         non_unique_nonstd,
@@ -1498,6 +1490,13 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
+
+    let delim = DocArgROIvar::new_ivar_ro(
+        "delimiter",
+        RsInt::U8,
+        format!("Delimiter used to parse {TEXT}."),
+        |_, _| quote!(self.0.delimiter),
+    );
 
     let escaped = DocArgROIvar::new_ivar_ro(
         "escaped",
@@ -1541,21 +1540,30 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.missing_final_delim),
     );
 
-    let trailing_whitespace_length = DocArgROIvar::new_ivar_ro(
-        "trailing_whitespace_length",
-        RsInt::Usize,
-        format!("Number of whitespace characters after {TEXT}"),
-        |_, _| quote!(self.0.trailing_whitespace_length),
+    let has_extra_delim = DocArgROIvar::new_ivar_ro(
+        "has_extra_delim",
+        PyBool::default(),
+        format!("{TRUE} if {TEXT} does has an extra delimiter which was ignored."),
+        |_, _| quote!(self.0.has_extra_delim),
+    );
+
+    let trailing_bytes = DocArgROIvar::new_ivar_ro(
+        "trailing_bytes",
+        PyBytes::default(),
+        format!("Trailing bytes after {TEXT}"),
+        |_, _| quote!(self.0.trailing_bytes.clone()),
     );
 
     let args = [
+        delim,
         escaped,
         keys_with_blank_values,
         values_with_blank_keys,
         tokens_with_boundary_delims,
         last_odd_token,
         missing_final_delim,
-        trailing_whitespace_length,
+        has_extra_delim,
+        trailing_bytes,
     ];
 
     let doc = DocString::new_class(format!(

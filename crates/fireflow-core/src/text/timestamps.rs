@@ -6,6 +6,7 @@ use crate::text::optional::KeywordPairMaybe;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
+use fireflow_types::config::DEFAULT_DATE_FORMAT;
 use type_families::ApplyOnce as _;
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -98,7 +99,7 @@ where
 #[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(FCS_DATE_FORMAT))]
+#[display("{}", _0.format(DEFAULT_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
 impl<X> Timestamps<X> {
@@ -265,11 +266,6 @@ pub struct ReversedTimestampsError;
 
 type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 
-// TODO redundant
-// the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-// "jan", "jaN", etc
-const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
-
 impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
@@ -292,9 +288,10 @@ impl FromStrWith for FCSDate {
 
 impl FCSDate {
     fn parse_with_pattern(s: &str, pat: &str) -> Result<Self, FCSDateError> {
-        NaiveDate::parse_from_str(s, pat)
-            .or(Err(FCSDateError))
-            .map(FCSDate)
+        match NaiveDate::parse_from_str(s, pat) {
+            Ok(v) => Ok(Self(v)),
+            Err(_) => Err(FCSDateError::Config(ConfigFCSDateError(pat.to_owned()))),
+        }
     }
 }
 
@@ -302,14 +299,28 @@ impl FromStr for FCSDate {
     type Err = FCSDateError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::parse_with_pattern(s, FCS_DATE_FORMAT)
+        NaiveDate::parse_from_str(s, DEFAULT_DATE_FORMAT)
+            .or(Err(FCSDateError::Std(StdFCSDateError)))
+            .map(Self)
     }
 }
 
 /// Error when parsing [`FCSDate`] from string
+#[derive(Debug, Display, Error)]
+pub enum FCSDateError {
+    Std(StdFCSDateError),
+    Config(ConfigFCSDateError),
+}
+
+/// Error when parsing [`FCSDate`] from string using [`crate::validated::datepattern::DatePattern`]
+#[derive(Debug, Error)]
+#[error("value is not like given pattern '{0}'")]
+pub struct ConfigFCSDateError(String);
+
+/// Error when parsing [`FCSDate`] from string using default format.
 #[derive(Debug, Error)]
 #[error("must be like 'dd-mmm-yyyy'")]
-pub struct FCSDateError;
+pub struct StdFCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Clone, Copy, Eq, PartialOrd, From, Into, Display, Debug)]

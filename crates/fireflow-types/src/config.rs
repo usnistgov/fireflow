@@ -535,6 +535,8 @@ pub const NON_STD_MEAS_INDEX_PAT: &str = "%n";
 
 pub const DEDUP_PNN_SEP: char = '~';
 
+// the "%b" format is case-insensitive so this should work for "Jan", "JAN",
+// "jan", "jaN", etc
 pub const DEFAULT_DATE_FORMAT: &str = "%d-%b-%Y";
 
 pub const DEFAULT_LAST_MODIFIED_FORMAT: &str = "%d-%b-%Y %H:%M:%S";

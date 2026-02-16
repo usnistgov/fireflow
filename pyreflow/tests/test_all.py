@@ -8,9 +8,9 @@ from copy import deepcopy
 
 import pytest
 
+import pyreflow.typing as pt
+
 from pyreflow.typing import (
-    TrimValueWhitespace,
-    DelimEscapeMode,
     Segment,
     TriFlag,
     Trigger,
@@ -2795,9 +2795,8 @@ class TestConfig:
         with open(path, "wb") as f:
             f.write(xs)
 
-    @classmethod
+    @staticmethod
     def mock_header(
-        cls,
         path: Path,
         v: str,
         t: tuple[int, int] = (0, 0),
@@ -2812,41 +2811,116 @@ class TestConfig:
 
         req = [fmt_offset(t, 8), fmt_offset(d, 8), fmt_offset(a, 8)]
         offsets = "".join(req + [fmt_offset(s, other_width) for s in other_segs])
-        cls.mock_fcs_file(path, bytes(v + "    " + offsets, "utf-8") + rest)
+        TestConfig.mock_fcs_file(path, bytes(v + "    " + offsets, "utf-8") + rest)
 
-    @classmethod
+    @staticmethod
     def mock_header_text(
-        cls,
         path: Path,
         v: str,
-        tdiff: tuple[int, int] = (0, 0),
-        d: tuple[int, int] = (0, 0),
-        a: tuple[int, int] = (0, 0),
+        text_diff: tuple[int, int] = (0, 0),
+        header_data: Segment = (0, 0),
+        header_analysis: Segment = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
+        stext: Segment | None = (0, 0),
         nextdata: int | None = 0,
         rest: bytes = b"",
     ) -> None:
+        # avoid mutating the default value
+        flat_kws = list(kws.items())
         assert delim < 256, "delim must be one byte"
         delim_byte = delim.to_bytes(1)
         if nextdata is not None:
-            kws["$NEXTDATA"] = str(nextdata)
+            flat_kws.append(("$NEXTDATA", str(nextdata)))
+        if stext is not None:
+            flat_kws.append(("$BEGINSTEXT", str(stext[0])))
+            flat_kws.append(("$ENDSTEXT", str(stext[1])))
         text = (
             delim_byte
             + delim_byte.join(
                 [
                     bytes(x, "utf-8") + delim_byte + bytes(y, "utf-8")
-                    for (x, y) in kws.items()
+                    for (x, y) in flat_kws
                 ]
             )
             + delim_byte
         )
         all_rest = text + rest
         t0 = 58 + len(other_segs) * 2 * other_width
-        t = (t0, t0 + len(text) - 1)
-        return cls.mock_header(path, v, t, d, a, other_width, other_segs, all_rest)
+        t = (t0 + text_diff[0], t0 + len(text) - 1 + text_diff[1])
+        return TestConfig.mock_header(
+            path,
+            v,
+            t,
+            header_data,
+            header_analysis,
+            other_width,
+            other_segs,
+            all_rest,
+        )
+
+    @staticmethod
+    def mock_header_std_text(
+        path: Path,
+        v: str,
+        text_diff: tuple[int, int] = (0, 0),
+        header_data: Segment = (0, 0),
+        header_analysis: Segment = (0, 0),
+        other_width: int = 8,
+        other_segs: list[tuple[int, int]] = [],
+        delim: int = 47,
+        kws: dict[str, str] = {},
+        stext: Segment | None = (0, 0),
+        text_data: Segment | None = (0, 0),
+        text_analysis: Segment | None = (0, 0),
+        nextdata: int | None = 0,
+        par: int | None = 0,
+        tot: int | None = 0,
+        cyt: str | None = "Orbatron",
+        mode: pt.Mode | None = "L",
+        datatype: Datatype | None = "I",
+        byteord: ByteOrd | None = [1, 2, 3, 4],
+        rest: bytes = b"",
+    ) -> None:
+        _kws = {**kws}
+        td = None if text_data is None or v == "FCS2.0" else text_data
+        ta = None if text_analysis is None or v == "FCS2.0" else text_analysis
+        st = None if stext is None or v == "FCS2.0" else stext
+        if tot is not None:
+            _kws["$TOT"] = str(tot)
+        if par is not None:
+            _kws["$PAR"] = str(par)
+        if cyt is not None:
+            _kws["$CYT"] = str(cyt)
+        if mode is not None:
+            _kws["$MODE"] = mode
+        if datatype is not None:
+            _kws["$DATATYPE"] = datatype
+        if isinstance(byteord, list):
+            _kws["$BYTEORD"] = ",".join(map(str, byteord))
+        elif isinstance(byteord, str):
+            _kws["$BYTEORD"] = byteord
+        if td is not None:
+            _kws["$BEGINDATA"] = str(td[0])
+            _kws["$ENDDATA"] = str(td[1])
+        if ta is not None:
+            _kws["$BEGINANALYSIS"] = str(ta[0])
+            _kws["$ENDANALYSIS"] = str(ta[1])
+        return TestConfig.mock_header_text(
+            path,
+            v,
+            text_diff,
+            header_data,
+            header_analysis,
+            other_width,
+            other_segs,
+            delim,
+            kws=_kws,
+            stext=st,
+            rest=rest,
+        )
 
     @staticmethod
     def _test_tri_flag(f: Callable[[TriFlag], X], comp: X, err: list[type]) -> None:
@@ -2857,6 +2931,13 @@ class TestConfig:
             assert f("true") == comp
 
         assert f("silent") == comp
+
+    @staticmethod
+    def _test_config_flag(f: Callable[[bool], X], comp: X, err: list[type]) -> None:
+        with pytest.RaisesGroup(*err):
+            f(False)
+
+        assert f(True) == comp
 
     @staticmethod
     def _test_tri_flag_nofail(f: Callable[[TriFlag], X], comp: X) -> None:
@@ -3066,9 +3147,8 @@ class TestConfig:
 
     @all_versions
     def test_supp_text_correction(self, version: str, tmp_path: Path) -> None:
-        kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "-1"}
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws=kws)
+        self.mock_header_text(p, version, stext=(0, -1))
 
         def go(corr: tuple[int, int]) -> tuple[Segment | None, Segment] | None:
             out = pf.api.fcs_read_flat_text(p, supp_text_correction=corr)
@@ -3090,9 +3170,8 @@ class TestConfig:
 
     @all_versions
     def test_nextdata_correction(self, version: str, tmp_path: Path) -> None:
-        kws = {"$BEGINSTEXT": "0", "$ENDSTEXT": "0"}
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws=kws, nextdata=-1)
+        self.mock_header_text(p, version, nextdata=-1)
 
         with pytest.RaisesGroup(pf.ParseKeywordValueError):
             pf.api.fcs_read_flat_text(p, nextdata_correction=0)
@@ -3101,9 +3180,10 @@ class TestConfig:
 
     @all_versions
     def test_allow_dup_supp_text_exact(self, version: str, tmp_path: Path) -> None:
-        kws = {"$BEGINSTEXT": "58", "$ENDSTEXT": "98"}  # exactly equal to TEXT
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws=kws)
+        # exactly equal to TEXT
+        text_coords = (58, 98)
+        self.mock_header_text(p, version, stext=text_coords)
 
         def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
@@ -3113,7 +3193,7 @@ class TestConfig:
         if version == "FCS2.0":
             self._test_tri_flag_nofail(go, None)
         else:
-            comp: tuple[Segment | None, Segment] | None = (None, (58, 98))
+            comp: tuple[Segment | None, Segment] | None = (None, text_coords)
             self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
@@ -3127,7 +3207,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        def go(f: DelimEscapeMode, n_nonstd: int, n_blank: int) -> None:
+        def go(f: pt.DelimEscapeMode, n_nonstd: int, n_blank: int) -> None:
             out = pf.api.fcs_read_flat_text(p, delim_escape_mode=f)
             assert len(out.kws.nonstd) == n_nonstd
             blank = out.flat_diagnostics.primary_split.keys_with_blank_values
@@ -3140,11 +3220,8 @@ class TestConfig:
 
     @all_versions
     def test_non_ascii_delim(self, version: str, tmp_path: Path) -> None:
-        delim = b"\0"
-        kws = [b"$BEGINSTEXT", b"0", b"$ENDSTEXT", b"0", b"$NEXTDATA", b"0"]
-        text = delim + delim.join(kws) + delim
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, delim=0)
 
         def go(f: TriFlag) -> int:
             out = pf.api.fcs_read_flat_text(p, allow_non_ascii_delim=f)
@@ -3281,9 +3358,8 @@ class TestConfig:
 
     @all_versions
     def test_allow_missing_supp_text(self, version: str, tmp_path: Path) -> None:
-        text = b"/$NEXTDATA/0/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, stext=None)
 
         def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
             out = pf.api.fcs_read_flat_text(p, allow_missing_supp_text=f)
@@ -3319,9 +3395,8 @@ class TestConfig:
 
     @all_versions
     def test_allow_missing_nextdata(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, nextdata=None)
 
         def go(f: TriFlag) -> int | None:
             out = pf.api.fcs_read_flat_text(p, allow_missing_nextdata=f)
@@ -3331,12 +3406,11 @@ class TestConfig:
 
     @all_versions
     def test_trim_value_whitespace(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$CYT/ /"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$CYT": " "})
 
         def go(
-            f: TrimValueWhitespace,
+            f: pt.TrimValueWhitespace,
         ) -> tuple[list[tuple[str | bytes, str | bytes]], list[str | bytes]]:
             out = pf.api.fcs_read_flat_text(p, trim_value_whitespace=f)
             trimmed = out.flat_diagnostics.keys_with_trimmed_values
@@ -3390,9 +3464,8 @@ class TestConfig:
 
     @all_versions
     def test_ignore_standard_keys(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$CYT/T1000/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$CYT": "T1000"})
 
         out = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["CYT"])
         assert out.flat_diagnostics.ignored_standard_keywords == [("$CYT", "T1000")]
@@ -3400,38 +3473,32 @@ class TestConfig:
     @all_versions
     def test_rename_standard_keys(self, version: str, tmp_path: Path) -> None:
         pub = "eprint.iacr.org/2025/1237.pdf"
-        text = (
-            b"|$BEGINSTEXT|0|$ENDSTEXT|0|$NEXTDATA|0|$CYT|" + bytes(pub, "utf-8") + b"|"
-        )
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$CYT": pub}, delim=10)
 
         out = pf.api.fcs_read_flat_text(p, rename_standard_keys={"CYT": "CITE"})
         assert out.kws.std["$CITE"] == pub
 
     @all_versions
     def test_promote_to_standard(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/PLUTO/planet/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"PLUTO": "planet"})
 
         out = pf.api.fcs_read_flat_text(p, promote_to_standard=["PLUTO"])
         assert out.kws.std["$PLUTO"] == "planet"
 
     @all_versions
     def test_demote_from_standard(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$BLUETOOTH/reliable/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$BLUETOOTH": "reliable"})
 
         out = pf.api.fcs_read_flat_text(p, demote_from_standard=["BLUETOOTH"])
         assert out.kws.nonstd["BLUETOOTH"] == "reliable"
 
     @all_versions
     def test_replace_std_key_vals(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$DARTH_VADER/evil/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$DARTH_VADER": "evil"})
 
         out = pf.api.fcs_read_flat_text(
             p, replace_standard_key_values={"DARTH_VADER": "misunderstood"}
@@ -3440,23 +3507,267 @@ class TestConfig:
 
     @all_versions
     def test_append_std_kws(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version)
 
         out = pf.api.fcs_read_flat_text(p, append_standard_keywords={"CRAZY": "genius"})
         assert out.kws.std["$CRAZY"] == "genius"
 
     @all_versions
     def test_sub_standard_keys(self, version: str, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$OP/Megadeath/"
         p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+        self.mock_header_text(p, version, kws={"$OP": "Megadeath"})
 
         out = pf.api.fcs_read_flat_text(
             p, substitute_standard_key_values={"OP": ("death", "deth", False)}
         )
         assert out.kws.std["$OP"] == "Megadeth"
+
+    @all_versions
+    def test_dedup_meas_names(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "poppy",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$P2N": "poppy",
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "32",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=2, tot=0)
+
+        def go(f: bool) -> list[str]:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                dedup_measurement_names=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return core.all_shortnames
+
+        self._test_config_flag(go, ["poppy~0", "poppy~1"], [pf.RelationalError])
+
+    @all_versions
+    def test_trim_intra_value_whitespace(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "BTC", "$P1E": "0, 0", "$P1B": "32", "$P1R": "32"}
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: bool) -> None:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                trim_intra_value_whitespace=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+
+        self._test_config_flag(go, None, [pf.ParseKeywordValueError])
+
+    @all_versions
+    def test_time_meas_pattern(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "T!ME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        if version != "FCS2.0":
+            kws["$TIMESTEP"] = "1.0"
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: str) -> str | None:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                time_meas_pattern=f,
+                disallow_deprecated="silent",
+                process_extra_timestep="drop_silent",
+            )
+            t = core.temporal
+            return None if t is None else t[1]
+
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert go("TIME") == "TIME"
+        assert go("NoTime") is None
+        assert go("T!ME") == "T!ME"
+
+    @all_versions
+    def test_allow_missing_time(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "nottimeatall", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: TriFlag) -> bool:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                allow_missing_time=f,
+                disallow_deprecated="silent",
+            )
+            return core.temporal is None
+
+        self._test_tri_flag(go, True, [pf.RelationalError])
+
+    @all_versions
+    def test_force_linear_scale_time(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "TIME", "$P1E": "1,2", "$P1B": "32", "$P1R": "32"}
+        if version != "FCS2.0":
+            kws["$TIMESTEP"] = "1.0"
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: pt.ForceLinearScale) -> None:
+            _, _ = pf.api.fcs_read_std_text(
+                p,
+                force_linear_scale=f,
+                disallow_deprecated="silent",
+            )
+
+        with pytest.RaisesGroup(pf.ParseKeywordValueError):
+            go("none")
+        go("time_only")
+
+    @all_versions
+    def test_force_linear_scale_not_time(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "toothpicks", "$P1E": "1,2", "$P1B": "32", "$P1R": "32"}
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0, datatype="F")
+
+        def go(f: pt.ForceLinearScale) -> None:
+            _, _ = pf.api.fcs_read_std_text(
+                p,
+                force_linear_scale=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+
+        with pytest.RaisesGroup(pf.RelationalError, flatten_subgroups=True):
+            go("none")
+        go("all")
+
+    @all_versions
+    def test_ignore_time_optical_keys(self, version: str, tmp_path: Path) -> None:
+        jiggawatt = "10000000000000000000000000000"
+        kws = {
+            "$P1N": "TIME",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$P1O": jiggawatt,
+        }
+        if version != "FCS2.0":
+            kws["$TIMESTEP"] = "1.0"
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(
+            f: list[pt.TemporalOpticalKey], g: pt.ProcessTimeOpticalKeys
+        ) -> tuple[dict[str, str], dict[str, str]]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                ignore_time_optical_keys=f,
+                process_time_optical_keys=g,
+                disallow_deprecated="silent",
+            )
+            ps = uncore.std_diagnostics.pseudostandard
+            ns = core.measurements[0].nonstandard_keywords
+            return (ps, ns)
+
+        with pytest.RaisesGroup(pf.RelationalError):
+            # dummy assertions which should all fail at the error catch
+            assert go([], "demote_warn") == ({}, {})
+            assert go([], "demote_silent") == ({}, {})
+            assert go([], "drop_warn") == ({}, {})
+            assert go([], "drop_silent") == ({}, {})
+            assert go(["L"], "demote_warn") == ({}, {})
+            assert go(["L"], "demote_silent") == ({}, {})
+            assert go(["L"], "drop_warn") == ({}, {})
+            assert go(["L"], "drop_silent") == ({}, {})
+        with pytest.warns(pf.PyreflowWarning):
+            assert go(["O"], "demote_warn") == ({}, {"P1O": jiggawatt})
+            assert go(["O"], "drop_warn") == ({}, {})
+        go(["O"], "demote_silent") == ({}, {"$P1O": jiggawatt})
+        go(["O"], "drop_silent") == ({}, {})
+
+    @all_versions
+    @pytest.mark.parametrize(
+        "p1n, p2n, spillover, named_error, indexed_error",
+        [
+            ("x", "y", "2,x,y,0,0,0,0", False, True),
+            ("x", "y", "2,1,2,0,0,0,0", True, False),
+            ("1", "2", "2,1,2,0,0,0,0", False, False),
+        ],
+    )
+    def test_spillover_meas_mode(
+        self,
+        version: str,
+        spillover: str,
+        p1n: str,
+        p2n: str,
+        named_error: bool,
+        indexed_error: bool,
+        tmp_path: Path,
+    ) -> None:
+        kws = {
+            "$P1N": p1n,
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$P2N": p2n,
+            "$P2E": "0,0",
+            "$P2B": "32",
+            "$P2R": "32",
+            "$SPILLOVER": spillover,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=2, tot=0)
+
+        def go(f: pt.SpilloverMeasurementMode) -> None:
+            _, _ = pf.api.fcs_read_std_text(
+                p,
+                spillover_measurement_mode=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+
+        if version in ["FCS2.0", "FCS3.0"]:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                go("named")
+                go("guess")
+                go("indexed")
+        else:
+            go("guess")
+            if named_error:
+                with pytest.RaisesGroup(pf.RelationalError):
+                    go("named")
+            else:
+                go("named")
+            if indexed_error:
+                with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                    go("indexed")
+            else:
+                go("indexed")
+
+    @all_versions
+    def test_date_pattern(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$DATE": "01.19.2038",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0, datatype="F")
+
+        def go(f: str | None) -> bool:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                date_pattern=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return core.date is not None
+
+        with pytest.RaisesGroup(pf.ParseKeywordValueError):
+            assert go(None)
+        assert go("%m.%d.%Y")
 
 
 class TestReadWrite:

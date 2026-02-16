@@ -10,11 +10,11 @@ use crate::config::{
     WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _, IsTot,
-    LayoutConvertError, LayoutOps as _, LookupLayoutError, LookupLayoutWarning,
+    CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
+    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
+    IsTot, LayoutConvertError, LayoutOps as _, LookupLayoutError, LookupLayoutWarning,
     MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
-    ReadDataframeWarning, ScaleDatatypeMismatchError, VersionedDataLayout,
+    ReadDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
@@ -1501,8 +1501,9 @@ pub trait HasAppliedGates3_2 {
     fn applied_gates3_2_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_2;
 }
 
-pub trait AsScaleTransform {
-    fn as_transform(&self) -> ScaleTransform;
+pub trait AsScaleOrTransform {
+    type S: Default;
+    fn as_scale_or_transform(&self) -> Self::S;
 }
 
 pub trait Versioned {
@@ -2142,13 +2143,6 @@ impl<O> Optical<O> {
                     .iter()
                     .map(|(k, v)| (k.to_string(), v.clone())),
             )
-    }
-
-    pub(crate) fn as_transform(&self) -> ScaleTransform
-    where
-        O: AsScaleTransform,
-    {
-        self.specific.as_transform()
     }
 
     fn loss_errors(&self, i: MeasIndex) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
@@ -3754,7 +3748,10 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
@@ -3765,7 +3762,10 @@ where
         measurements: TemporalsAndOpticals<M>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         self.set_measurements_inner(measurements)
     }
@@ -3784,7 +3784,10 @@ where
         layout: <M::Ver as Versioned>::Layout,
     ) -> Result<(), MeasLayoutMismatchError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         layout.check_measurement_vector(&self.measurements)?;
         self.layout = layout;
@@ -3804,7 +3807,10 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let meas = layout.try_new_measurements::<M>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
@@ -3820,7 +3826,10 @@ where
         layout: <M::Ver as Versioned>::Layout,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         self.set_measurements_and_layout_inner(measurements, layout)
     }
@@ -3832,7 +3841,10 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let meas = self.layout.try_new_measurements::<M>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
@@ -3845,13 +3857,18 @@ where
         measurements: TemporalsAndOpticals<M>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let xforms: Vec<_> = measurements
             .iter()
             .map(|m| {
-                m.as_ref()
-                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+                m.as_ref().both(
+                    |_| <M::Optical as AsScaleOrTransform>::S::default(),
+                    |r| r.specific.as_scale_or_transform(),
+                )
             })
             .collect();
         self.layout.check_transforms_and_len(&xforms[..])?;
@@ -3865,13 +3882,18 @@ where
         layout: <M::Ver as Versioned>::Layout,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let xforms: Vec<_> = measurements
             .iter()
             .map(|m| {
-                m.as_ref()
-                    .both(|_| ScaleTransform::default(), Optical::as_transform)
+                m.as_ref().both(
+                    |_| <M::Optical as AsScaleOrTransform>::S::default(),
+                    |r| r.specific.as_scale_or_transform(),
+                )
             })
             .collect();
         layout.check_transforms_and_len(&xforms[..])?;
@@ -4299,10 +4321,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical + AsScaleTransform,
+        M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -4337,10 +4362,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical + AsScaleTransform,
+        M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -4360,10 +4388,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical + AsScaleTransform,
         Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
+        M::Optical: LookupOptical + AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
@@ -4670,9 +4701,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        M::Optical: AsScaleTransform,
         Version: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         // this should be true since the length of both is derived from $PAR
         debug_assert!(
@@ -4731,7 +4765,10 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         layout: <M::Ver as Versioned>::Layout,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         Measurements::try_new(measurements)
             .map_err(NewCoreError::from)
@@ -4763,7 +4800,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         allow_drop: bool,
     ) -> ErrorsResult<(), (), BrokenOrDependentLinkError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
     {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
@@ -4800,13 +4837,16 @@ where
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical + AsScaleTransform,
+        M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -4840,12 +4880,15 @@ where
         R: Read + Seek,
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        M::Optical: LookupOptical + AsScaleTransform,
+        M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -5208,7 +5251,10 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsAndDataError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let meas_n = xs.len();
         let data_n = df.ncols();
@@ -5229,7 +5275,10 @@ where
         df: FCSDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let meas_n = measurements.len();
         let data_n = df.ncols();
@@ -5251,7 +5300,10 @@ where
         df: FCSDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
     {
         let meas_n = measurements.len();
         let data_n = df.ncols();
@@ -7282,26 +7334,30 @@ impl PrivVersioned for Version3_0 {}
 impl PrivVersioned for Version3_1 {}
 impl PrivVersioned for Version3_2 {}
 
-impl AsScaleTransform for InnerOptical2_0 {
-    fn as_transform(&self) -> ScaleTransform {
-        self.scale.map(Into::into).unwrap_or_default()
+impl AsScaleOrTransform for InnerOptical2_0 {
+    type S = Scale;
+    fn as_scale_or_transform(&self) -> Self::S {
+        self.scale.unwrap_or(Scale::Linear)
     }
 }
 
-impl AsScaleTransform for InnerOptical3_0 {
-    fn as_transform(&self) -> ScaleTransform {
+impl AsScaleOrTransform for InnerOptical3_0 {
+    type S = ScaleTransform;
+    fn as_scale_or_transform(&self) -> Self::S {
         self.scale
     }
 }
 
-impl AsScaleTransform for InnerOptical3_1 {
-    fn as_transform(&self) -> ScaleTransform {
+impl AsScaleOrTransform for InnerOptical3_1 {
+    type S = ScaleTransform;
+    fn as_scale_or_transform(&self) -> Self::S {
         self.scale
     }
 }
 
-impl AsScaleTransform for InnerOptical3_2 {
-    fn as_transform(&self) -> ScaleTransform {
+impl AsScaleOrTransform for InnerOptical3_2 {
+    type S = ScaleTransform;
+    fn as_scale_or_transform(&self) -> Self::S {
         self.scale
     }
 }

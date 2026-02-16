@@ -636,10 +636,11 @@ pub struct NegativeNextdataError(i128);
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Debug, Display, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
+    #[default]
     #[display("0,0")]
     Linear,
 

@@ -56,7 +56,7 @@ use crate::config::{
     ReadEventsConfig, ReadOffsetConfig, TruncateEventValues,
 };
 use crate::core::{
-    AsScaleTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
@@ -796,26 +796,46 @@ where
         self.h_write_df_inner(h, df, skip_conv_check)
     }
 
-    fn check_measurement_vector_nolen<N, T, O: AsScaleTransform>(
+    fn check_measurement_vector_nolen<N, T, O: AsScaleOrTransform>(
         &self,
         meas: &Measurements<N, T, O>,
-    ) -> Result<(), ScaleDatatypeMismatchError> {
+    ) -> Result<(), ScaleDatatypeMismatchError>
+    where
+        O::S: CheckedScaleTransform,
+        <O::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <O::S as CheckedScaleTransform>::Err,
+                <O::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
+    {
         let xforms: Vec<_> = meas
-            .iter_with(&|_, _| ScaleTransform::default(), &|_, m| {
-                m.value.as_transform()
+            .iter_with(&|_, _| O::S::default(), &|_, m| {
+                m.value.specific.as_scale_or_transform()
             })
             .collect();
         self.check_transforms(&xforms[..])?;
         Ok(())
     }
 
-    fn check_measurement_vector<N, T, O: AsScaleTransform>(
+    fn check_measurement_vector<N, T, O: AsScaleOrTransform>(
         &self,
         meas: &Measurements<N, T, O>,
-    ) -> Result<(), MeasLayoutMismatchError> {
+    ) -> Result<(), MeasLayoutMismatchError>
+    where
+        O::S: CheckedScaleTransform,
+        <O::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <O::S as CheckedScaleTransform>::Err,
+                <O::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
+    {
         let xforms: Vec<_> = meas
-            .iter_with(&|_, _| ScaleTransform::default(), &|_, m| {
-                m.value.as_transform()
+            .iter_with(&|_, _| O::S::default(), &|_, m| {
+                m.value.specific.as_scale_or_transform()
             })
             .collect();
         self.check_transforms_and_len(&xforms[..])
@@ -827,7 +847,15 @@ where
         measurements: NamedTemporalsAndOpticals<M>,
     ) -> Result<Measurements<M::Name, M::Temporal, M::Optical>, MeasurementsWithLayoutError>
     where
-        M::Optical: AsScaleTransform,
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+                <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
     {
         let ms = NamedVec::try_new(measurements)?;
         self.check_measurement_vector(&ms)
@@ -847,6 +875,7 @@ where
 /// A scale transform which may be checked against a datatype to ensure compatibility
 pub trait CheckedScaleTransform {
     type Err;
+    type Summary;
 
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
 }
@@ -4047,6 +4076,7 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
 
 impl CheckedScaleTransform for Scale {
     type Err = ScaleMismatchError;
+    type Summary = ScaleMismatchSummary;
 
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
         if datatype != AlphaNumType::Integer && matches!(self, Self::Log(_)) {
@@ -4058,6 +4088,7 @@ impl CheckedScaleTransform for Scale {
 
 impl CheckedScaleTransform for ScaleTransform {
     type Err = ScaleTransformMismatchError;
+    type Summary = ScaleTransformMismatchSummary;
 
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
         if datatype != AlphaNumType::Integer && !self.is_noop() {
@@ -5175,6 +5206,11 @@ pub struct MeasLayoutLengthsError {
     meas_n: usize,
     layout_n: usize,
 }
+
+pub type ScaleErrorGroup<M> = ErrorGroup<
+    <<<M as VersionedMetaroot>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+    <<<M as VersionedMetaroot>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+>;
 
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
 

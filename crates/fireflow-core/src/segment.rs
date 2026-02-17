@@ -566,9 +566,13 @@ where
         let missing_flag = dconf.allow_missing_required_offsets;
         let limit = oconf.overlap_correction_limit;
 
-        let default_warning = || {
+        let ret_default = |es: Vec<ReqSegmentWithDefaultError<Self>>| {
+            let mut res = LogResult::new_switchable_iter3(header_pair, (), es, missing_flag)
+                .switchable_into_commutative()
+                .map_commutative_warnings(ReqSegmentWithDefaultWarning::from);
             let w = ReqSegmentWithDefaultWarning::from(SegmentDefaultWarning::default());
-            LogResult::new_ok(header_pair).set_commutative_warnings(vec![w])
+            res.eval_warning(|_| Some(w));
+            res
         };
 
         let mut pair_to_text = |uncorr_txt: UncorrectedSegment, mismatch_warn| {
@@ -592,14 +596,7 @@ where
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
-                Err(e) => default_warning().extend_warnings_or_errors3(
-                    Some(ReqSegmentWithDefaultErrorInner::from(e)),
-                    |_| (),
-                    |()| (),
-                    ReqSegmentWithDefaultWarning::Error,
-                    |x| x,
-                    missing_flag,
-                ),
+                Err(e) => ret_default(vec![ReqSegmentWithDefaultErrorInner::from(e)]),
             }
         };
 
@@ -648,15 +645,10 @@ where
             Err(es) => {
                 let es0 = es
                     .fmap(ReqSegmentError::Key)
-                    .fmap(ReqSegmentWithDefaultErrorInner::from);
-                default_warning().extend_warnings_or_errors3(
-                    es0,
-                    |_| (),
-                    |()| (),
-                    ReqSegmentWithDefaultWarning::Error,
-                    |e| e,
-                    missing_flag,
-                )
+                    .fmap(ReqSegmentWithDefaultErrorInner::from)
+                    .into_iter()
+                    .collect();
+                ret_default(es0)
             }
         }
     }

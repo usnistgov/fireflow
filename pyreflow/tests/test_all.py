@@ -2957,6 +2957,11 @@ class TestConfig:
         assert f("silent") == comp
 
     @staticmethod
+    def _test_config_flag_nofail(f: Callable[[bool], X], comp: X) -> None:
+        assert f(False) == comp
+        assert f(True) == comp
+
+    @staticmethod
     def _test_process_kw_fail_flag(
         f: Callable[[pt.ProcessKeywordFailure], X],
         comp_demote: X,
@@ -4145,6 +4150,98 @@ class TestConfig:
 
         assert go("^P%n") == (extra, {})
         assert go("^#P%n") == ({}, extra)
+
+    @all_versions
+    def test_text_data_correction(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_data=(0, -1))
+
+        def go(f: tuple[int, int]) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                text_data_correction=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.data_seg
+
+        if version == "FCS2.0":
+            assert go((0, 0)) == (0, 0)
+            assert go((0, 1)) == (0, 0)
+        else:
+            with pytest.RaisesGroup(pf.FileLayoutError):
+                assert go((0, 0)) == (0, 0)
+            assert go((0, 1)) == (0, 0)
+
+    @all_versions
+    def test_text_analysis_correction(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_analysis=(0, -1))
+
+        def go(f: tuple[int, int]) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                text_analysis_correction=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.analysis_seg
+
+        if version == "FCS2.0":
+            assert go((0, 0)) == (0, 0)
+            assert go((0, 1)) == (0, 0)
+        elif version == "FCS3.2":
+            # TODO shouldn't this be an error?
+            with pytest.warns(pf.PyreflowWarning):
+                assert go((0, 0)) == (0, 0)
+            assert go((0, 1)) == (0, 0)
+        else:
+            with pytest.RaisesGroup(pf.FileLayoutError):
+                assert go((0, 0)) == (0, 0)
+            assert go((0, 1)) == (0, 0)
+
+    @all_versions
+    def test_ignore_text_data_offsets(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_data=(0, -1))
+
+        def go(f: bool) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                ignore_text_data_offsets=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.data_seg
+
+        if version == "FCS2.0":
+            self._test_config_flag_nofail(go, (0, 0))
+        else:
+            self._test_config_flag(go, (0, 0), [pf.FileLayoutError])
+
+    @all_versions
+    def test_ignore_text_analysis_offsets(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
+
+        def go(f: bool) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                ignore_text_analysis_offsets=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.analysis_seg
+
+        if version == "FCS2.0":
+            self._test_config_flag_nofail(go, (0, 0))
+        elif version == "FCS3.2":
+            # TODO shouldn't this be an error?
+            with pytest.warns(pf.PyreflowWarning):
+                assert go(False) == (0, 0)
+            assert go(True) == (0, 0)
+        else:
+            self._test_config_flag(go, (0, 0), [pf.FileLayoutError])
 
 
 class TestReadWrite:

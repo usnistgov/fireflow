@@ -10250,11 +10250,12 @@ pub struct MeasMismatchError {
     index: MeasIndex,
 }
 
+// TODO this error is confusing for any temporal type which is not unit
 impl fmt::Display for MeasMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let k = self.index;
         if self.key_is_optical {
-            write!(f, "optical index {k} must not be assigned empty-tuple")
+            write!(f, "optical index {k} must not be assigned temporal type")
         } else {
             write!(f, "temporal index {k} must be assigned empty tuple")
         }

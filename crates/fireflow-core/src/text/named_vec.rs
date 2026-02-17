@@ -508,7 +508,8 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
                 .sequence_commutative()
-                .map_errors(|i| f_error((i + offset).into(), false))
+                // TODO make wrapper for bools like this
+                .map_errors(|i| f_error((i + offset).into(), true))
         };
 
         self.check_keys_length(&xs[..], true)
@@ -524,7 +525,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 let left_res = check_optical(xs_left, 0);
                 let center_res = x_center
                     .center()
-                    .ok_or(f_error(nleft.into(), true))
+                    .ok_or(f_error(nleft.into(), false))
                     .into_log();
                 let right_res = check_optical(xs_right, nleft + 1);
                 left_res

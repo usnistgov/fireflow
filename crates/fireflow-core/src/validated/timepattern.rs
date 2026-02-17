@@ -1,7 +1,8 @@
 use fireflow_types::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
 
 use chrono::{NaiveTime, ParseError, Timelike as _};
-use derive_more::{AsRef, From};
+use derive_more::{AsRef, Display, From};
+use derive_new::new;
 use thiserror::Error;
 
 use std::fmt;
@@ -38,30 +39,33 @@ enum FractionType {
 
 impl TimePattern {
     pub(crate) fn parse_str(&self, s: &str) -> Result<NaiveTime, ParseWithTimePatternError> {
-        let t = NaiveTime::parse_from_str(s, self.pat.as_str())?;
-        match &self.fraction {
-            FractionType::Native => Ok(t),
-            FractionType::Centisecond => {
-                // "nanoseconds" are actually centiseconds, so make sure they
-                // don't exceed 99 and then convert to real nanoseconds
-                let c = t.nanosecond();
-                if c > 99 {
-                    Err(ParseWithTimePatternError::ExceededCenti)
-                } else {
-                    Ok(t.with_nanosecond(c * 10_000_000).unwrap())
+        let go = || {
+            let t = NaiveTime::parse_from_str(s, self.pat.as_str())?;
+            match &self.fraction {
+                FractionType::Native => Ok(t),
+                FractionType::Centisecond => {
+                    // "nanoseconds" are actually centiseconds, so make sure they
+                    // don't exceed 99 and then convert to real nanoseconds
+                    let c = t.nanosecond();
+                    if c > 99 {
+                        Err(InnerPatternError::ExceededCenti)
+                    } else {
+                        Ok(t.with_nanosecond(c * 10_000_000).unwrap())
+                    }
+                }
+                FractionType::Sexagesimal => {
+                    // "nanoseconds" are actually 1/60 seconds, so make sure they
+                    // don't exceed 59 and then convert to real nanoseconds
+                    let c = t.nanosecond();
+                    if c > 59 {
+                        Err(InnerPatternError::ExceededSexa)
+                    } else {
+                        Ok(t.with_nanosecond(c * 1_000_000_000 / 60).unwrap())
+                    }
                 }
             }
-            FractionType::Sexagesimal => {
-                // "nanoseconds" are actually 1/60 seconds, so make sure they
-                // don't exceed 59 and then convert to real nanoseconds
-                let c = t.nanosecond();
-                if c > 59 {
-                    Err(ParseWithTimePatternError::ExceededSexa)
-                } else {
-                    Ok(t.with_nanosecond(c * 1_000_000_000 / 60).unwrap())
-                }
-            }
-        }
+        };
+        go().map_err(|e| ParseWithTimePatternError::new(e, self.pat.clone()))
     }
 }
 
@@ -171,13 +175,20 @@ impl fmt::Display for TimePattern {
 pub struct TimePatternError(String);
 
 /// Error when parsing [`NaiveTime`] from string using [`TimePattern`]
-#[derive(From, Debug, Error)]
-pub enum ParseWithTimePatternError {
-    #[error("{0}")]
+#[derive(Debug, Error, new)]
+#[error("{inner} with pattern '{pattern}'")]
+pub struct ParseWithTimePatternError {
+    inner: InnerPatternError,
+    pattern: String,
+}
+
+#[derive(From, Debug, Display)]
+enum InnerPatternError {
+    #[display("{_0}")]
     Native(ParseError),
-    #[error("centiseconds exceeded 99")]
+    #[display("centiseconds exceeded 99")]
     ExceededCenti,
-    #[error("1/60th fraction seconds exceeded 60")]
+    #[display("1/60th fraction seconds exceeded 60")]
     ExceededSexa,
 }
 

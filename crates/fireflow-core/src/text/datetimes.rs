@@ -7,7 +7,9 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
 
-use chrono::{DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, TimeZone as _};
+use chrono::{
+    DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, ParseError, TimeZone as _,
+};
 use derive_more::{AsRef, Display, From, Into};
 use std::mem;
 use thiserror::Error;
@@ -183,7 +185,7 @@ impl FromStrWith for FCSDateTime {
             DateTime::parse_from_str(s, pat.as_str())
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
-                .map_err(|_| FCSDateTimeError::AltFormat(pat.to_owned()))
+                .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
         } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
             // next, try to parse without a timezone, defaulting to localtime and
             // converting to a fixed offset
@@ -229,8 +231,8 @@ pub struct ReversedDatetimesError;
 pub enum FCSDateTimeError {
     #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
     Format,
-    #[error("could not parse with pattern '{0}'")]
-    AltFormat(String),
+    #[error("{0} with pattern '{1}'")]
+    AltFormat(ParseError, String),
     #[error(
         "timestamp parsed using localtime due to missing timezone, but this time \
          occurred when clock was turned backward which resulted in ambiguous UTC time"

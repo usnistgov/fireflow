@@ -4466,27 +4466,29 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             let (mut extra, errors) =
                 ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
 
-            if let Some(t) = mem::take(&mut extra.timestep) {
-                let flag = sconf.process_extra_timestep;
-                core_res = core_res
-                    .map_ok_value(|mut core| {
-                        if flag.is_demote() {
-                            core.0
-                                .metaroot
-                                .nonstandard_keywords
-                                .insert_demoted(Timestep::std(), t);
-                        }
-                        core
-                    })
-                    .extend_warnings_or_errors3(
-                        Some(TimestepFoundError),
-                        |_v| (),
-                        |_p| (),
-                        StdTEXTFromFlatTEXTWarning::from,
-                        StdTEXTFromFlatTEXTErrorInner::from,
-                        flag.as_triflag(),
-                    );
-            }
+            let flag = sconf.process_extra_timestep;
+            core_res = core_res
+                .extend_warnings_or_errors3(
+                    // Check this first because we might take the timestamp out
+                    // of this slot below to demote it
+                    extra.timestep.is_some().then_some(TimestepFoundError),
+                    |_v| (),
+                    |_p| (),
+                    StdTEXTFromFlatTEXTWarning::from,
+                    StdTEXTFromFlatTEXTErrorInner::from,
+                    flag.as_triflag(),
+                )
+                .map_ok_value(|mut core| {
+                    if flag.is_demote()
+                        && let Some(t) = mem::take(&mut extra.timestep)
+                    {
+                        core.0
+                            .metaroot
+                            .nonstandard_keywords
+                            .insert_demoted(Timestep::std(), t);
+                    }
+                    core
+                });
 
             macro_rules! go_extra {
                 ($proc:ident, $keyvals:ident, $errors:ident) => {

@@ -2982,11 +2982,11 @@ impl ExtraStdKeywords {
         let maximal_version = |v| (v < current_version).then_some(ExtraKeywordClass::VersionLE(v));
         let eq_version = |v| (current_version != v).then_some(ExtraKeywordClass::VersionEQ(v));
 
-        let maximal_indexed_version = |v, i: MeasIndex| {
+        let minimal_indexed_version = |v, i: MeasIndex| {
             if usize::from(i) >= par.0 {
                 Some(ExtraKeywordClass::HyperPar)
             } else {
-                maximal_version(v)
+                minimal_version(v)
             }
         };
 
@@ -3014,9 +3014,9 @@ impl ExtraStdKeywords {
                 RootKeywordClass::OptLE3_1 => maximal_version(Version::FCS3_1),
                 _ => None,
             },
-            AnyKeywordClass::MeasOptGE3_0(i) => maximal_indexed_version(Version::FCS3_0, i),
-            AnyKeywordClass::MeasOptGE3_1(i) => maximal_indexed_version(Version::FCS3_1, i),
-            AnyKeywordClass::MeasOptGE3_2(i) => maximal_indexed_version(Version::FCS3_2, i),
+            AnyKeywordClass::MeasOptGE3_0(i) => minimal_indexed_version(Version::FCS3_0, i),
+            AnyKeywordClass::MeasOptGE3_1(i) => minimal_indexed_version(Version::FCS3_1, i),
+            AnyKeywordClass::MeasOptGE3_2(i) => minimal_indexed_version(Version::FCS3_2, i),
             AnyKeywordClass::MeasOptEq3_0or3_1(i) => {
                 if usize::from(i) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)

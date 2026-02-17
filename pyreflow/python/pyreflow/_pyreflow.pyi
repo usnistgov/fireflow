@@ -891,7 +891,7 @@ class _Core3_2:
     all_awh_features: _OpticalKeyVals[Feature]
     all_other_features: _OpticalKeyVals[str]
     all_analytes: _OpticalKeyVals[str]
-    all_measurement_types: list[str]
+    all_measurement_types: list[str | bool]
 
 class _CoreMeasCalibration(Generic[_C]):
     all_calibrations: _OpticalKeyVals[_C]

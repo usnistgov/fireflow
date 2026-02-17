@@ -37,7 +37,7 @@ import ast
 X = TypeVar("X")
 
 LINK_NAME1 = "wubbalubbadubdub"
-LINK_NAME2 = "maple lattes"
+LINK_NAME2 = "maple latte"
 LINK_NAME3 = "silent man"
 
 # used for testing the pydantic model against the types in the pyi file
@@ -2945,6 +2945,23 @@ class TestConfig:
         assert f("true") == comp
         assert f("silent") == comp
 
+    @staticmethod
+    def _test_process_kw_fail_flag(
+        f: Callable[[pt.ProcessKeywordFailure], X],
+        comp_demote: X,
+        comp_drop: X,
+        err: list[type],
+    ) -> None:
+        with pytest.RaisesGroup(*err):
+            f("error")
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert f("demote_warn") == comp_demote
+            assert f("drop_warn") == comp_drop
+
+        assert f("demote_silent") == comp_demote
+        assert f("drop_silent") == comp_drop
+
     @all_versions
     @pytest.mark.parametrize(
         "other_segs, other_corrections",
@@ -3754,7 +3771,7 @@ class TestConfig:
             "$DATE": "01.19.2038",
         }
         p = tmp_path / "thing.fcs"
-        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0, datatype="F")
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
         def go(f: str | None) -> bool:
             core, _ = pf.api.fcs_read_std_text(
@@ -3768,6 +3785,341 @@ class TestConfig:
         with pytest.RaisesGroup(pf.ParseKeywordValueError):
             assert go(None)
         assert go("%m.%d.%Y")
+
+    @all_versions
+    def test_time_pattern(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$BTIM": "23_59_15",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: str | None) -> bool:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                time_pattern=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return core.btim is not None
+
+        with pytest.RaisesGroup(pf.ParseKeywordValueError):
+            assert go(None)
+        assert go("%H_%M_%S")
+
+    @all_versions
+    def test_datetime_pattern(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$BEGINDATETIME": "2112_01_01_00_00_00.0+0001",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: str | None) -> bool:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                datetime_pattern=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            if isinstance(core, pf.CoreTEXT3_2):
+                return core.begindatetime is not None
+            else:
+                return False
+
+        if version == "FCS3.2":
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert go(None)
+            assert go("%Y_%m_%d_%H_%M_%S.%f%z")
+        else:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go(None)
+                assert go("%Y_%m_%d_%H_%M_%S.%f%z")
+
+    @all_versions
+    def test_last_modified(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$LAST_MODIFIED": "2112_01_01_00_00_00",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: str | None) -> bool:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                last_modified_pattern=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            if isinstance(core, pf.CoreTEXT3_2 | pf.CoreTEXT3_1):
+                return core.last_modified is not None
+            else:
+                return False
+
+        if version in ["FCS3.1", "FCS3.2"]:
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert go(None)
+            assert go("%Y_%m_%d_%H_%M_%S")
+        else:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go(None)
+                assert go("%Y_%m_%d_%H_%M_%S")
+
+    @all_versions
+    def test_allow_other_feature(self, version: str, tmp_path: Path) -> None:
+        feat = "black_hole_density"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$P1FEATURE": feat,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: bool) -> tuple[str | tuple[()] | None, str | tuple[()] | None]:
+            core, _ = pf.api.fcs_read_std_text(
+                p,
+                allow_other_feature=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            if isinstance(core, pf.CoreTEXT3_2):
+                return (core.all_awh_features[0], core.all_features[0])
+            else:
+                return (None, None)
+
+        if version == "FCS3.2":
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert not go(False)
+            assert go(True) == (None, feat)
+        else:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go(False) == (None, None)
+                assert go(True) == (None, None)
+
+    @all_versions
+    def test_process_pseudostandard(self, version: str, tmp_path: Path) -> None:
+        val = "I mean, camaraderie"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$COMMENT": val,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], dict[str, str]]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                process_pseudostandard=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return (core.nonstandard_keywords, uncore.std_diagnostics.pseudostandard)
+
+        self._test_process_kw_fail_flag(
+            go,
+            ({"COMMENT": val}, {}),
+            ({}, {"$COMMENT": val}),
+            [pf.ExtraKeywordError],
+        )
+
+    @all_versions
+    def test_process_hyper_par(self, version: str, tmp_path: Path) -> None:
+        val = "uae_sightings"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$P2N": val,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], dict[str, str]]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                process_hyper_par=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return (core.nonstandard_keywords, uncore.std_diagnostics.hyper_par)
+
+        self._test_process_kw_fail_flag(
+            go,
+            ({"P2N": val}, {}),
+            ({}, {"$P2N": val}),
+            [pf.ExtraKeywordError],
+        )
+
+    @all_versions
+    def test_process_other_version(self, version: str, tmp_path: Path) -> None:
+        val = "42,bla,blaa,blaaa"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$UNICODE": val,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], dict[str, str]]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                process_other_version=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return (core.nonstandard_keywords, uncore.std_diagnostics.other_version)
+
+        if version != "FCS3.0":
+            self._test_process_kw_fail_flag(
+                go,
+                ({"UNICODE": val}, {}),
+                ({}, {"$UNICODE": val}),
+                [pf.ExtraKeywordError],
+            )
+        else:
+            assert go("error") == ({}, {})
+            assert go("demote_warn") == ({}, {})
+            assert go("demote_silent") == ({}, {})
+            assert go("drop_warn") == ({}, {})
+            assert go("drop_silent") == ({}, {})
+
+    @all_versions
+    def test_process_extra_timestep(self, version: str, tmp_path: Path) -> None:
+        val = "1.618033988749"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$TIMESTEP": val,
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: pt.ProcessKeywordFailure) -> tuple[dict[str, str], None | str]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                process_extra_timestep=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return (core.nonstandard_keywords, uncore.std_diagnostics.timestep)
+
+        if version != "FCS2.0":
+            self._test_process_kw_fail_flag(
+                go,
+                ({"TIMESTEP": val}, None),
+                ({}, val),
+                [pf.ExtraKeywordError],
+            )
+        else:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("error") == ({}, None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("demote_warn") == ({}, None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("demote_silent") == ({}, None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("drop_warn") == ({}, None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("drop_silent") == ({}, None)
+
+    @all_versions
+    def test_fix_log_scale_offsets(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "2,0",
+            "$P1B": "32",
+            "$P1R": "32",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: bool) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                fix_log_scale_offsets=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return True
+
+        self._test_config_flag(go, True, [pf.ParseKeywordValueError])
+
+    @all_versions
+    def test_disallow_localtime(self, version: str, tmp_path: Path) -> None:
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": "32",
+            "$BEGINDATETIME": "2112-01-01T00:00:00.0",
+        }
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: bool) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                disallow_localtime=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return True
+
+        if version == "FCS3.2":
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert not go(True)
+            assert go(False)
+        else:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert not go(False)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert not go(True)
+
+    @all_versions
+    def test_non_std_meas_pat(self, version: str, tmp_path: Path) -> None:
+        extra = {"#P1LASER": "42pm"}
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", **extra}
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: str) -> tuple[dict[str, str], dict[str, str]]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                nonstandard_measurement_pattern=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return (
+                core.nonstandard_keywords,
+                core.measurements[0].nonstandard_keywords,
+            )
+
+        assert go("^P%n") == (extra, {})
+        assert go("^#P%n") == ({}, extra)
 
 
 class TestReadWrite:

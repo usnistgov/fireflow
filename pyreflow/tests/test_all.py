@@ -1200,17 +1200,19 @@ class TestCore:
             setattr(core, attr, [10000000000000000000000, ()])
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    @pytest.mark.parametrize("attr", ["all_measurement_types"])
     def test_meas_3_2_measurement_types(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
         new = "--- --"
-        getattr(core, attr) == ["", False]
-        setattr(core, attr, [new, True])
-        getattr(core, attr) == [new, True]
+        core.all_measurement_types == ["", False]
+        core.all_measurement_types = [new, True]
+        core.all_measurement_types == [new, True]
         with pytest.raises(TypeError):
-            setattr(core, attr, [10000000000000000000000, None])
-            setattr(core, attr, ["-.--.----..", "false"])
+            core.all_measurement_types = [10000000000000000000000, None]  # type: ignore
+        with pytest.RaisesGroup(pf.RelationalError):
+            # relational error because a string (optical) is being assigned to
+            # the temporal index
+            core.all_measurement_types = ["-.--.----..", "false"]
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
@@ -2583,6 +2585,7 @@ class TestApiFunctions:
         conf = pfp.PyreflowReadStdTEXTConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_text(p, **conf.model_dump(), dataset_offset=0)
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_texts(p, **conf.model_dump())
 
     def test_read_std_text_pd(
@@ -2595,6 +2598,7 @@ class TestApiFunctions:
         conf = pfp.PyreflowReadStdTEXTConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = conf.read_std_text(p)
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = conf.read_std_texts(p)
 
     def test_read_flat_dataset(
@@ -2629,6 +2633,7 @@ class TestApiFunctions:
         conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_dataset(p, **conf.model_dump(), dataset_offset=0)
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = pf.api.fcs_read_std_datasets(p, **conf.model_dump())
 
     def test_read_std_dataset_pd(
@@ -2641,6 +2646,7 @@ class TestApiFunctions:
         conf = pfp.PyreflowReadStdDatasetConfig()
         with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = conf.read_std_dataset(p)
+        with pytest.RaisesGroup(pf.RelationalError, pf.ExtraKeywordError):
             _ = conf.read_std_datasets(p)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
@@ -2652,6 +2658,7 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_header(p, other_width=20)
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_header(p, other_width=7)
+        with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_header(p, other_width=21)
 
     def test_key_patterns(
@@ -2679,6 +2686,7 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"dollar": "bitcoin"})
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"": "notblank"})
+        with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"notblank": ""})
 
     def test_replace_standard_key_values(
@@ -2773,6 +2781,7 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n")
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="")
+        with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="n")
 
     def test_int_byteord_override(
@@ -2785,7 +2794,9 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1])
         with pytest.raises(pf.InvalidKeywordValueError):
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[])
+        with pytest.raises(pf.InvalidKeywordValueError):
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1, 1])
+        with pytest.raises(OverflowError):
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
 
 
@@ -2957,6 +2968,7 @@ class TestConfig:
 
         with pytest.warns(pf.PyreflowWarning):
             assert f("demote_warn") == comp_demote
+        with pytest.warns(pf.PyreflowWarning):
             assert f("drop_warn") == comp_drop
 
         assert f("demote_silent") == comp_demote
@@ -3689,15 +3701,23 @@ class TestConfig:
         with pytest.RaisesGroup(pf.RelationalError):
             # dummy assertions which should all fail at the error catch
             assert go([], "demote_warn") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go([], "demote_silent") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go([], "drop_warn") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go([], "drop_silent") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go(["L"], "demote_warn") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go(["L"], "demote_silent") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go(["L"], "drop_warn") == ({}, {})
+        with pytest.RaisesGroup(pf.RelationalError):
             assert go(["L"], "drop_silent") == ({}, {})
         with pytest.warns(pf.PyreflowWarning):
             assert go(["O"], "demote_warn") == ({}, {"P1O": jiggawatt})
+        with pytest.warns(pf.PyreflowWarning):
             assert go(["O"], "drop_warn") == ({}, {})
         go(["O"], "demote_silent") == ({}, {"$P1O": jiggawatt})
         go(["O"], "drop_silent") == ({}, {})
@@ -3746,7 +3766,9 @@ class TestConfig:
         if version in ["FCS2.0", "FCS3.0"]:
             with pytest.RaisesGroup(pf.ExtraKeywordError):
                 go("named")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
                 go("guess")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
                 go("indexed")
         else:
             go("guess")
@@ -3842,6 +3864,7 @@ class TestConfig:
         else:
             with pytest.RaisesGroup(pf.ExtraKeywordError):
                 assert go(None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
                 assert go("%Y_%m_%d_%H_%M_%S.%f%z")
 
     @all_versions
@@ -3890,7 +3913,9 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: bool) -> tuple[str | tuple[()] | None, str | tuple[()] | None]:
+        Ret = tuple[str | tuple[()] | None, str | tuple[()] | None]
+
+        def go(f: bool) -> Ret:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 allow_other_feature=f,
@@ -3903,12 +3928,12 @@ class TestConfig:
                 return (None, None)
 
         if version == "FCS3.2":
-            with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                assert not go(False)
-            assert go(True) == (None, feat)
+            comp: Ret = (None, feat)
+            self._test_config_flag(go, comp, [pf.ParseKeywordValueError])
         else:
             with pytest.RaisesGroup(pf.ExtraKeywordError):
                 assert go(False) == (None, None)
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
                 assert go(True) == (None, None)
 
     @all_versions

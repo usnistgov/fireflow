@@ -422,13 +422,17 @@ pub struct EventsDiagnostics {
     /// delimited and there is no event width.
     pub tot_event_mismatch: Option<bool>,
 
-    /// Columns for which at least one event was truncated to fit $PnR.
+    /// Columns for which at least one event was over $PnR.
     ///
-    /// Length of vector will be equal to $PAR. If truncation event is found,
-    /// the index in the vector corresponding to the column will contain the
-    /// row number, otherwise [`Option::None`].
-    pub truncated_columns: Vec<Option<usize>>,
+    /// Length of vector will be equal to $PAR. Elements correspond to column
+    /// indices and will be `None` if not overrange. Otherwise, the first
+    /// [`usize`] will be the row that has the first overrange value, and the
+    /// second [`bool`] will be `true` if the value was truncated to fit and
+    /// false otherwise.
+    pub overrange_columns: Vec<OverrangeColumn>,
 }
+
+type OverrangeColumn = Option<(usize, bool)>;
 
 #[derive(new)]
 struct ComputedRowsResult {
@@ -456,6 +460,31 @@ impl_functor_once!(
     mut f,
     ConvertedRange::new(f(self.native), self.non_truncated)
 );
+
+/// Result of possibly truncated value
+enum TruncatedResult {
+    None,
+    Truncated(usize),
+    Overrange(MeasIndex, usize, Range),
+}
+
+impl TruncatedResult {
+    fn into_err(self) -> Option<EventOverRangeError> {
+        if let Self::Overrange(i, j, r) = self {
+            Some(EventOverRangeError::new(j, i, r))
+        } else {
+            None
+        }
+    }
+
+    fn as_col(&self) -> OverrangeColumn {
+        match self {
+            Self::None => None,
+            Self::Truncated(i) => Some((*i, true)),
+            Self::Overrange(_, i, _) => Some((*i, false)),
+        }
+    }
+}
 
 /// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
@@ -1003,11 +1032,7 @@ trait Readable<S> {
         buf: &mut Vec<u8>,
     ) -> IOResult<(), ReadDataframeError>;
 
-    fn check_range(
-        &mut self,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> Option<EventOverRangeError>;
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -1569,31 +1594,32 @@ where
         Ok(())
     }
 
-    fn check_range(
-        &mut self,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> Option<EventOverRangeError> {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         let dt = self.column_type.datatype();
         let (upper_limit, rng) = self.column_type.as_range();
         if dt.matches_truncation(trunc) {
             // If we wish to truncate this column, silently truncate without
             // throwing any errors
-            for x in &mut self.data {
+            let mut j = None;
+            for (rowi, x) in self.data.iter_mut().enumerate() {
                 if *x > upper_limit {
+                    if j.is_none() {
+                        j = Some(rowi);
+                    }
                     *x = upper_limit;
                 }
             }
+            j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
         } else {
             // Otherwise, scan through the values and return error on first
             // encounter with overrange value
             for (rowi, x) in self.data.iter().enumerate() {
                 if *x > upper_limit {
-                    return Some(EventOverRangeError::new(rowi, i, rng));
+                    return TruncatedResult::Overrange(i, rowi, rng);
                 }
             }
+            TruncatedResult::None
         }
-        None
     }
 }
 
@@ -1617,11 +1643,7 @@ impl Readable<Endian> for ReaderMixedType {
         }
     }
 
-    fn check_range(
-        &mut self,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> Option<EventOverRangeError> {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match self {
             Self::Ascii(c) => c.check_range(i, trunc),
             Self::Uint(c) => c.check_range(i, trunc),
@@ -1646,11 +1668,7 @@ impl Readable<Endian> for AnyReaderBitmask {
         match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
     }
 
-    fn check_range(
-        &mut self,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> Option<EventOverRangeError> {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match_any_uint!(self, AnyBitmask, c, { c.check_range(i, trunc) })
     }
 }
@@ -2463,7 +2481,7 @@ where
                     "columns must all be same length"
                 );
                 let mut es = vec![];
-                let mut truncated = vec![None; rs.len()];
+                let mut overrange = vec![None; rs.len()];
                 let econf: &ReadEventsConfig = conf.as_ref();
                 let trunc = econf.truncate_event_values;
                 let col_iter = data.iter_mut().zip(rs).enumerate();
@@ -2473,8 +2491,8 @@ where
                         for (rowi, x) in col.iter_mut().enumerate() {
                             if *x > r.0 {
                                 *x = r.0;
-                                if truncated[i].is_none() {
-                                    truncated[i] = Some(rowi);
+                                if overrange[i].is_none() {
+                                    overrange[i] = Some((rowi, true));
                                 }
                             }
                         }
@@ -2485,8 +2503,8 @@ where
                         for (rowi, x) in col.iter().enumerate() {
                             if *x > r.0 {
                                 es.push(EventOverRangeError::new(rowi, i.into(), r.0.into()));
-                                if truncated[i].is_none() {
-                                    truncated[i] = Some(rowi);
+                                if overrange[i].is_none() {
+                                    overrange[i] = Some((rowi, false));
                                 }
                             }
                         }
@@ -2504,7 +2522,7 @@ where
                             .into_iter()
                             .map(FCSColumn::from)
                             .map(AnyFCSColumn::from);
-                        let out = EventsDiagnostics::new(None, None, None, truncated);
+                        let out = EventsDiagnostics::new(None, None, None, overrange);
                         let df = FCSDataFrame::try_new(cs).unwrap();
                         (df, out)
                     })
@@ -3078,7 +3096,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         buf: &mut Vec<u8>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<Option<usize>>),
+        (FCSDataFrame, Vec<OverrangeColumn>),
         EventOverRangeError,
         ReadDataframeError,
     >
@@ -3101,16 +3119,16 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 }
             }
         }
-        let es: Vec<_> = col_readers
+        let rs: Vec<_> = col_readers
             .iter_mut()
             .enumerate()
             .map(|(i, c)| c.check_range(i.into(), conf.truncate_event_values))
             .collect();
-        let trunc = es.iter().map(|e| e.as_ref().map(|x| x.row)).collect();
+        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
 
         let flag = conf.disallow_over_range;
-        let flat_es = es.into_iter().flatten();
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), flat_es, flag)
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .group()
             .map_error(ReadDataframeError::from)
@@ -3118,7 +3136,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .map_ok_value(|()| {
                 let data = col_readers.into_iter().map(Readable::into_dataframe_column);
                 let df = FCSDataFrame::try_new(data).unwrap();
-                (df, trunc)
+                (df, overrange)
             })
     }
 

@@ -989,10 +989,18 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
     );
 
     let truncated_columns = DocArgROIvar::new_ivar_ro(
-        "truncated_columns",
-        PyList::new1(PyOpt::new1(RsInt::Usize)),
-        format!("Columns for which at least one event was truncated to fit {PNR}."),
-        |_, _| quote!(self.0.truncated_columns.clone()),
+        "overrange_columns",
+        PyList::new1(PyOpt::new1(
+            PyTuple::new1(RsInt::Usize).add(PyBool::default()),
+        )),
+        format!(
+            "Columns for which at least one event was out of range via {PNR}. \
+             Each index corresponds to a column in {DATA}. Elements will be \
+             {NONE} if not overrange at all, otherwise the first integer \
+             is the first row that is overrange and the second boolean is \
+             {TRUE} if the value was truncated."
+        ),
+        |_, _| quote!(self.0.overrange_columns.clone()),
     );
 
     let args = [

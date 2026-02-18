@@ -4471,12 +4471,7 @@ class TestConfig:
     def test_disallow_range_truncation(self, version: str, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         val = "10000000000000000000000000000000000000000000000000000000000000000"
-        kws = {
-            "$P1N": "xyz",
-            "$P1E": "0,0",
-            "$P1B": "32",
-            "$P1R": val,
-        }
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": val}
         self.mock_header_std_text(p, version, kws=kws, par=1)
 
         def go(f: TriFlag) -> bool:
@@ -4494,6 +4489,176 @@ class TestConfig:
         with pytest.RaisesGroup(pf.RelationalError):
             assert go("true")
         assert go("silent")
+
+    @pytest.mark.parametrize(
+        "version, data_seg",
+        [
+            ("FCS2.0", (170, 182)),
+            ("FCS3.0", (256, 268)),
+            ("FCS3.1", (256, 268)),
+            ("FCS3.2", (256, 268)),
+        ],
+    )
+    def test_allow_uneven_event_width(
+        self, version: str, data_seg: Segment, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        tot = 3
+        remainder = 1
+        data = b"\0" * (4 * tot + remainder)
+        self.mock_header_std_text(
+            p,
+            version,
+            header_data=data_seg,
+            text_data=data_seg,
+            kws=kws,
+            par=1,
+            tot=tot,
+            rest=data,
+        )
+
+        def go(f: TriFlag) -> int | None:
+            out = pf.api.fcs_read_flat_dataset(p, allow_uneven_event_width=f)
+            return out.dataset.events_diagnostics.event_data_remainder
+
+        comp: int | None = remainder
+        self._test_tri_flag(go, comp, [pf.FileLayoutError])
+
+    @pytest.mark.parametrize(
+        "version, data_seg",
+        [
+            ("FCS2.0", (170, 181)),
+            ("FCS3.0", (256, 267)),
+            ("FCS3.1", (256, 267)),
+            ("FCS3.2", (256, 267)),
+        ],
+    )
+    def test_allow_tot_mismatch(
+        self, version: str, data_seg: Segment, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        tot = 3
+        data = b"\0" * (4 * tot)
+        self.mock_header_std_text(
+            p,
+            version,
+            header_data=data_seg,
+            text_data=data_seg,
+            kws=kws,
+            par=1,
+            tot=tot + 1,
+            rest=data,
+        )
+
+        def go(f: TriFlag) -> bool | None:
+            out = pf.api.fcs_read_flat_dataset(p, allow_tot_mismatch=f)
+            return out.dataset.events_diagnostics.tot_event_mismatch
+
+        comp: bool | None = True
+        self._test_tri_flag(go, comp, [pf.FileLayoutError])
+
+    @pytest.mark.parametrize(
+        "version, data_seg",
+        [
+            ("FCS2.0", (170, 181)),
+            ("FCS3.0", (256, 267)),
+            ("FCS3.1", (256, 267)),
+            ("FCS3.2", (256, 267)),
+        ],
+    )
+    def test_truncate_event_values_int(
+        self, version: str, data_seg: Segment, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
+        tot = 3
+        data = b"\f" * (4 * tot)
+        self.mock_header_std_text(
+            p,
+            version,
+            header_data=data_seg,
+            text_data=data_seg,
+            kws=kws,
+            par=1,
+            tot=tot,
+            rest=data,
+        )
+
+        def go(f: pt.TruncateEventValues, g: TriFlag) -> list[tuple[int, bool] | None]:
+            out = pf.api.fcs_read_flat_dataset(
+                p,
+                truncate_event_values=f,
+                disallow_over_range=g,
+            )
+            return out.dataset.events_diagnostics.overrange_columns
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("none", "false") == [(0, False)]
+        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
+            assert go("none", "true") == [(0, False)]
+        assert go("none", "silent") == [(0, False)]
+
+        assert go("int_only", "false") == [(0, True)]
+        assert go("int_only", "true") == [(0, True)]
+        assert go("int_only", "silent") == [(0, True)]
+        assert go("all", "false") == [(0, True)]
+        assert go("all", "true") == [(0, True)]
+        assert go("all", "silent") == [(0, True)]
+
+    @pytest.mark.parametrize(
+        "version, data_seg",
+        [
+            ("FCS2.0", (170, 181)),
+            ("FCS3.0", (256, 267)),
+            ("FCS3.1", (256, 267)),
+            ("FCS3.2", (256, 267)),
+        ],
+    )
+    def test_truncate_event_values_float(
+        self, version: str, data_seg: Segment, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
+        tot = 3
+        data = b"\x7f\x7f\xff\xff" * tot  # ~3.4e38 in big endian
+        self.mock_header_std_text(
+            p,
+            version,
+            header_data=data_seg,
+            text_data=data_seg,
+            kws=kws,
+            byteord=[4, 3, 2, 1],
+            datatype="F",
+            par=1,
+            tot=tot,
+            rest=data,
+        )
+
+        def go(f: pt.TruncateEventValues, g: TriFlag) -> list[tuple[int, bool] | None]:
+            out = pf.api.fcs_read_flat_dataset(
+                p,
+                truncate_event_values=f,
+                disallow_over_range=g,
+            )
+            return out.dataset.events_diagnostics.overrange_columns
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("none", "false") == [(0, False)]
+        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
+            assert go("none", "true") == [(0, False)]
+        assert go("none", "silent") == [(0, False)]
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("int_only", "false") == [(0, False)]
+        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
+            assert go("int_only", "true") == [(0, False)]
+        assert go("int_only", "silent") == [(0, False)]
+
+        assert go("all", "false") == [(0, True)]
+        assert go("all", "true") == [(0, True)]
+        assert go("all", "silent") == [(0, True)]
 
 
 class TestReadWrite:

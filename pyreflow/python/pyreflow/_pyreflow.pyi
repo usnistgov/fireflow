@@ -1988,7 +1988,7 @@ class EventsDiagnostics:
         event_width: int | None,
         event_data_remainder: int | None,
         tot_event_mismatch: bool | None,
-        truncated_columns: list[int | None],
+        overrange_columns: list[tuple[int, bool] | None],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1998,7 +1998,7 @@ class EventsDiagnostics:
     @property
     def tot_event_mismatch(self) -> bool | None: ...
     @property
-    def truncated_columns(self) -> list[int | None]: ...
+    def overrange_columns(self) -> list[tuple[int, bool] | None]: ...
 
 @final
 class KeywordVersionScore:

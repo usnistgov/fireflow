@@ -4243,6 +4243,258 @@ class TestConfig:
         else:
             self._test_config_flag(go, (0, 0), [pf.FileLayoutError])
 
+    @all_versions
+    def test_allow_header_text_offset_mismatch_data(
+        self, version: str, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+
+        self._test_allow_header_text_offset_mismatch(p, version, False)
+
+    @all_versions
+    def test_allow_header_text_offset_mismatch_analysis(
+        self, version: str, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+
+        self._test_allow_header_text_offset_mismatch(p, version, True)
+
+    @staticmethod
+    def _test_allow_header_text_offset_mismatch(
+        path: Path, version: str, is_analysis: bool
+    ) -> None:
+        if version == "FCS2.0":
+            header = (0, 0)
+            # this should trigger an error if it is read at all since it starts
+            # in the header
+            text = (0, 1)
+        else:
+            header = (222, 225)
+            text = (222, 224)
+        if is_analysis:
+            hd = (0, 0)
+            td = (0, 0)
+            ha = header
+            ta = text
+        else:
+            hd = header
+            td = text
+            ha = (0, 0)
+            ta = (0, 0)
+        TestConfig.mock_header_std_text(
+            path,
+            version,
+            header_data=hd,
+            text_data=td,
+            header_analysis=ha,
+            text_analysis=ta,
+            rest=b"\0\0\0\0",
+        )
+
+        def go(f: pt.AllowHeaderTextOffsetMismatch) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                path,
+                allow_header_text_offset_mismatch=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            if is_analysis:
+                return uncore.dataset_segs.analysis_seg
+            else:
+                return uncore.dataset_segs.data_seg
+
+        if version == "FCS2.0":
+            assert go("error") == header
+            assert go("header_warn") == header
+            assert go("header_silent") == header
+            assert go("text_warn") == header
+            assert go("text_silent") == header
+        else:
+            with pytest.RaisesGroup(pf.FileLayoutError):
+                assert go("error") == header
+            with pytest.warns(pf.PyreflowWarning):
+                assert go("header_warn") == header
+            with pytest.warns(pf.PyreflowWarning):
+                assert go("text_warn") == text
+            assert go("header_silent") == header
+            assert go("text_silent") == text
+
+    @all_versions
+    def test_allow_missing_required_offsets_data(
+        self, version: str, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_data=None)
+
+        def go(f: TriFlag) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                allow_missing_required_offsets=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.data_seg
+
+        if version == "FCS2.0":
+            assert go("false") == (0, 0)
+            assert go("true") == (0, 0)
+            assert go("silent") == (0, 0)
+        else:
+            with pytest.RaisesGroup(
+                pf.ParseKeywordValueError, pf.ParseKeywordValueError
+            ):
+                assert go("false") == (0, 0)
+            with pytest.warns(
+                pf.PyreflowWarning, match="missing required key|could not obtain"
+            ):
+                assert go("true") == (0, 0)
+            # TODO this is misleading because emitting a warning isn't exactly "silent"
+            with pytest.warns(pf.PyreflowWarning, match="could not obtain"):
+                assert go("silent") == (0, 0)
+
+    @all_versions
+    def test_allow_missing_required_offsets_analysis(
+        self, version: str, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, text_analysis=None)
+
+        def go(f: TriFlag) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                allow_missing_required_offsets=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return uncore.dataset_segs.analysis_seg
+
+        if version in ["FCS2.0", "FCS3.2"]:
+            assert go("false") == (0, 0)
+            assert go("true") == (0, 0)
+            assert go("silent") == (0, 0)
+        else:
+            with pytest.RaisesGroup(
+                pf.ParseKeywordValueError, pf.ParseKeywordValueError
+            ):
+                assert go("false") == (0, 0)
+            with pytest.warns(
+                pf.PyreflowWarning, match="missing required key|could not obtain"
+            ):
+                assert go("true") == (0, 0)
+            # TODO this is misleading because emitting a warning isn't exactly "silent"
+            with pytest.warns(pf.PyreflowWarning, match="could not obtain"):
+                assert go("silent") == (0, 0)
+
+    @all_versions
+    def test_process_optional_failure(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        val = "January Nine-teen twenty12"
+        kws = {"$DATE": val}
+        self.mock_header_std_text(p, version, kws=kws)
+
+        def go(f: pt.ProcessKeywordFailure) -> dict[str, str]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                process_optional_failure=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            return core.nonstandard_keywords
+
+        # $MODE is also demoted due to disallow_deprecated flag
+        comp = {"DATE": val} if version != "FCS3.2" else {"DATE": val, "MODE": "L"}
+        self._test_process_kw_fail_flag(go, comp, {}, [pf.ParseKeywordValueError])
+
+    @all_versions
+    def test_int_widths_from_byteord(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "24", "$P1R": "32"}
+        self.mock_header_std_text(p, version, kws=kws, par=1)
+
+        def go(f: bool) -> int:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                integer_widths_from_byteord=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            lt = core.layout
+            if isinstance(lt, pf.OrderedUint24Layout | pf.OrderedUint32Layout):
+                return lt.byte_width
+            elif isinstance(lt, pf.EndianUintLayout):
+                assert len(lt.byte_widths) == 1
+                return lt.byte_widths[0]
+            else:
+                assert False
+
+        if version in ["FCS2.0", "FCS3.0"]:
+            self._test_config_flag(go, 4, [pf.RelationalError])
+        else:
+            assert go(True) == 3
+            assert go(False) == 3
+
+    @all_versions
+    def test_int_byteord_override(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        self.mock_header_std_text(p, version, kws=kws, par=1, byteord=[1, 2, 3])
+
+        def go(f: pt.ByteOrd | None) -> int:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                integer_byteord_override=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            lt = core.layout
+            if isinstance(lt, pf.OrderedUint32Layout):
+                return lt.byte_width
+            elif isinstance(lt, pf.EndianUintLayout):
+                assert len(lt.byte_widths) == 1
+                return lt.byte_widths[0]
+            else:
+                assert False
+
+        if version in ["FCS2.0", "FCS3.0"]:
+            with pytest.RaisesGroup(pf.RelationalError):
+                assert go(None)
+            assert go([1, 2, 3, 4])
+        else:
+            # this option does nothing for 3.1+ so these should just fail via
+            # bad parse for $BYTEORD
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert go(None)
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert go([1, 2, 3, 4])
+
+    @all_versions
+    def test_disallow_range_truncation(self, version: str, tmp_path: Path) -> None:
+        p = tmp_path / "thing.fcs"
+        val = "10000000000000000000000000000000000000000000000000000000000000000"
+        kws = {
+            "$P1N": "xyz",
+            "$P1E": "0,0",
+            "$P1B": "32",
+            "$P1R": val,
+        }
+        self.mock_header_std_text(p, version, kws=kws, par=1)
+
+        def go(f: TriFlag) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                disallow_range_truncation=f,
+                time_meas_pattern="NoTime",
+                disallow_deprecated="silent",
+            )
+            # TODO return diagnostics for ranges that were trimmed
+            return True
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("false")
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert go("true")
+        assert go("silent")
+
 
 class TestReadWrite:
     @staticmethod

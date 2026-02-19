@@ -3679,6 +3679,33 @@ class TestConfig:
         self._test_tri_flag(go, True, [pf.RelationalError])
 
     @all_versions
+    def test_add_missing_timestep(self, version: str, tmp_path: Path) -> None:
+        kws = {"$P1N": "TIME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        p = tmp_path / "thing.fcs"
+        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+
+        def go(f: float | None) -> tuple[float | None, bool]:
+            core, uncore = pf.api.fcs_read_std_text(
+                p,
+                add_missing_timestep=f,
+                disallow_deprecated="silent",
+            )
+            assert core.temporal is not None
+            t = core.temporal[2]
+            if isinstance(t, pf.Temporal2_0):
+                return (None, uncore.std_diagnostics.timestep_added)
+            else:
+                return (t.timestep, uncore.std_diagnostics.timestep_added)
+
+        if version == "FCS2.0":
+            assert go(None) == (None, False)
+            assert go(1.0) == (None, False)
+        else:
+            with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                assert go(None) == (None, False)
+            assert go(1.0) == (1.0, True)
+
+    @all_versions
     def test_force_linear_scale_time(self, version: str, tmp_path: Path) -> None:
         kws = {"$P1N": "TIME", "$P1E": "1,2", "$P1B": "32", "$P1R": "32"}
         if version != "FCS2.0":

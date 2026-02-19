@@ -1079,6 +1079,7 @@ class CoreTEXT3_0(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         text_data_correction: OffsetCorrection = (0, 0),
         text_analysis_correction: OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1182,6 +1183,7 @@ class CoreTEXT3_1(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = (0, 0),
         text_analysis_correction: OffsetCorrection = (0, 0),
@@ -1287,6 +1289,7 @@ class CoreTEXT3_2(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         text_data_correction: OffsetCorrection = (0, 0),
@@ -1488,6 +1491,7 @@ class CoreDataset3_0(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         # layout args
         text_data_correction: OffsetCorrection = (0, 0),
         text_analysis_correction: OffsetCorrection = (0, 0),
@@ -1611,6 +1615,7 @@ class CoreDataset3_1(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         # layout args
         text_data_correction: OffsetCorrection = (0, 0),
@@ -1736,6 +1741,7 @@ class CoreDataset3_2(
         disallow_deprecated: TriFlag = "false",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "^P%n",
+        add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         # layout args
@@ -1849,6 +1855,7 @@ class StdTEXTDiagnostics:
         scale: list[ScaleDiagnostic],
         trimmed: list[tuple[str, str]],
         temporal_optical_pairs: list[tuple[str, str]],
+        timestep_added: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1869,6 +1876,8 @@ class StdTEXTDiagnostics:
     def trimmed(self) -> list[tuple[str, str]]: ...
     @property
     def temporal_optical_pairs(self) -> list[tuple[str, str]]: ...
+    @property
+    def timestep_added(self) -> bool: ...
 
 @final
 class DatasetSegments:
@@ -2354,6 +2363,7 @@ def fcs_read_std_text(
     disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "^P%n",
+    add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
@@ -2504,6 +2514,7 @@ def fcs_read_std_dataset(
     disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "^P%n",
+    add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
@@ -2646,6 +2657,7 @@ def fcs_read_std_texts(
     disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "^P%n",
+    add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
@@ -2798,6 +2810,7 @@ def fcs_read_std_datasets(
     disallow_deprecated: TriFlag = "false",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "^P%n",
+    add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args

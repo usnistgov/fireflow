@@ -86,6 +86,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     trim_intra_value_whitespace: bool = False
     time_meas_pattern: str | None = "^(TIME|Time)$"
     allow_missing_time: pft.TriFlag = _DEFAULT_TRIFLAG
+    add_missing_timestep: float | None = None
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn"

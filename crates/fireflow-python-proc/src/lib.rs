@@ -1154,6 +1154,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
 
+    let timestep_added = DocArgROIvar::new_ivar_ro(
+        "timestep_added",
+        PyBool::default(),
+        "{TRUE} if {TIMESTEP} was missing and added via configuration.",
+        |_, _| quote!(self.0.timestep_added),
+    );
+
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
             pseudostandard,
@@ -1165,6 +1172,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             scale,
             trimmed,
             tmp_opt_pairs,
+            timestep_added,
         ]);
     let inner_args = doc.idents_into();
 
@@ -8085,6 +8093,7 @@ impl DocArgParam {
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let parse_indexed_spillover = Self::new_spillover_meas_mode_param();
         let disallow_localtime = Self::new_disallow_localtime_param();
+        let add_missing_timestep = Self::new_add_missing_timestep_param();
 
         let std_common_args = [
             Self::new_dedup_meas_names_param(),
@@ -8110,10 +8119,17 @@ impl DocArgParam {
         .into_iter();
 
         let ps: Vec<_> = match version {
-            Some(Version::FCS2_0 | Version::FCS3_0) => std_common_args.collect(),
-            Some(Version::FCS3_1) => std_common_args.chain([parse_indexed_spillover]).collect(),
+            Some(Version::FCS2_0) => std_common_args.collect(),
+            Some(Version::FCS3_0) => std_common_args.chain([add_missing_timestep]).collect(),
+            Some(Version::FCS3_1) => std_common_args
+                .chain([add_missing_timestep, parse_indexed_spillover])
+                .collect(),
             _ => std_common_args
-                .chain([parse_indexed_spillover, disallow_localtime])
+                .chain([
+                    add_missing_timestep,
+                    parse_indexed_spillover,
+                    disallow_localtime,
+                ])
                 .collect(),
         };
 
@@ -8234,6 +8250,16 @@ impl DocArgParam {
         let d = "Choose what to do when time measurement is be missing.";
         let exc = PyreflowError::Relational;
         Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d, exc)
+    }
+
+    fn new_add_missing_timestep_param() -> Self {
+        let d = format!(
+            "Set {TIMESTEP} if it is not present and required. \
+             This will do nothing on FCS2.0 files since this version \
+             does not specify {TIMESTEP}."
+        );
+        let pt = PyOpt::new1(PyFloat::new_timestep());
+        Self::new_param("add_missing_timestep", pt, d).def_auto()
     }
 
     fn new_force_linear_scale_param() -> Self {

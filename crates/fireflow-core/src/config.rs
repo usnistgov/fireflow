@@ -17,7 +17,8 @@ use crate::segment::{
     SupplementalTextSegmentId, TEXTCorrection,
 };
 use crate::text::index::MeasIndex;
-use crate::text::keywords as kws;
+use crate::text::keywords::{self as kws, Timestep};
+use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
@@ -39,6 +40,7 @@ use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATT
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
+use num_traits::identities::One as _;
 use regex::{self, Regex};
 use thiserror::Error;
 
@@ -661,7 +663,15 @@ pub struct ReadStdKeywordsConfig {
     /// Allow time to be absent even [`Self::time_meas_pattern`] is set.
     pub allow_missing_time: AllowMissingTime,
 
-    /// Force $PnE to be linear (`"0.0"`).
+    /// Set $TIMESTEP if it is not present and required.
+    ///
+    /// This will do nothing on FCS2.0 files since this version does not
+    /// specify $TIMESTEP.
+    pub add_missing_timestep: Option<Timestep>,
+
+    // TODO add level to force this only on float layouts, which is where
+    // this problem is common
+    /// Force $PnE to be linear (`"0,0"`).
     pub force_linear_scale: ForceLinearScale,
 
     /// Ignore optical keywords in time channel.
@@ -1660,6 +1670,7 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
 impl HasStrategy for ReadStdKeywordsConfig {
     fn with_scalpal(&mut self) {
         self.dedup_measurement_names = true.into();
+        self.add_missing_timestep = Some(PositiveFloat::one().into());
         self.trim_intra_value_whitespace = true.into();
         self.spillover_measurement_mode = SpilloverMeasurementMode::Guess;
         self.allow_other_feature = true.into();

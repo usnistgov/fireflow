@@ -60,9 +60,9 @@ use crate::text::keywords::{
     ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par,
     PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
     PseudostandardError, Range, Scale, ScaleDiagnostic, Smno, Src, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep, TimestepFoundError, Tot,
-    Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep, TimestepAdded,
+    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
+    Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -1379,15 +1379,15 @@ pub struct StdTEXTDiagnostics {
     pub trimmed: Vec<(StdKey, String)>,
     /// Optical keys that were found in the temporal measurement.
     pub temporal_optical_pairs: Vec<(StdKey, String)>,
+    /// $TIMESTEP was missing and was added via config
+    pub timestep_added: TimestepAdded,
 }
 
 impl StdTEXTDiagnostics {
     fn from_extra(
         extra: ExtraStdKeywords,
         original_names: Vec<Option<Shortname>>,
-        scale: Vec<AnyScaleDiagnostic>,
-        trimmed: Vec<(StdKey, String)>,
-        temporal_optical_pairs: Vec<(StdKey, String)>,
+        meas: MeasurementDiagnostics,
     ) -> Self {
         Self {
             pseudostandard: extra.pseudostandard,
@@ -1396,11 +1396,20 @@ impl StdTEXTDiagnostics {
             other_version: extra.other_version,
             timestep: extra.timestep,
             original_names,
-            scale,
-            trimmed,
-            temporal_optical_pairs,
+            scale: meas.scale,
+            trimmed: meas.trimmed,
+            temporal_optical_pairs: meas.tmp_opt_pairs,
+            timestep_added: meas.timestep_added,
         }
     }
+}
+
+#[derive(new)]
+pub struct MeasurementDiagnostics {
+    scale: Vec<AnyScaleDiagnostic>,
+    trimmed: Vec<(StdKey, String)>,
+    tmp_opt_pairs: Vec<(StdKey, String)>,
+    timestep_added: TimestepAdded,
 }
 
 #[derive(new)]
@@ -1422,6 +1431,7 @@ pub struct DiagnosedTemporal<M> {
     scale: TemporalScaleDiagnostic,
     trimmed: Vec<(StdKey, String)>,
     tmp_opt_pairs: Vec<(StdKey, String)>,
+    timestep_added: TimestepAdded,
 }
 
 #[derive(new)]
@@ -1930,6 +1940,7 @@ impl<T> Temporal<T> {
                 specific.scale,
                 specific.trimmed,
                 specific.tmp_opt_pairs,
+                specific.timestep_added,
             )
         })
     }
@@ -4130,18 +4141,12 @@ where
             })
     }
 
-    #[allow(clippy::type_complexity)]
     fn lookup_measurements<C>(
         std: &mut StdKeywords,
         names: Vec<M::Name>,
         nonstd: Vec<NonStdKeywords>,
         conf: &C,
-    ) -> LookupMeasurementResult<(
-        NamedTemporalsAndOpticals<M>,
-        Vec<AnyScaleDiagnostic>,
-        Vec<(StdKey, String)>,
-        Vec<(StdKey, String)>,
-    )>
+    ) -> LookupMeasurementResult<(NamedTemporalsAndOpticals<M>, MeasurementDiagnostics)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
@@ -4196,18 +4201,12 @@ where
                             Temporal::lookup_temporal(std, meas_nonstd, j, conf)
                                 .map_errors(LookupMeasurementError::from)
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
-                                .map_ok_value(|x| {
-                                    let ret = Element::Center((name, x.this));
-                                    (ret, x.scale.into(), x.trimmed, x.tmp_opt_pairs)
-                                })
+                                .map_ok_value(|x| Element::Center((name, x)))
                         }
                         Element::NonCenter(k) => Optical::lookup_optical(std, j, meas_nonstd, conf)
                             .map_errors(LookupMeasurementError::from)
                             .map_commutative_warnings(LookupMeasurementWarning::from)
-                            .map_ok_value(|x| {
-                                let ret = Element::NonCenter((k, x.this));
-                                (ret, x.scale.into(), x.trimmed, vec![])
-                            }),
+                            .map_ok_value(|x| Element::NonCenter((k, x))),
                     })
             })
             .sequence_commutative()
@@ -4216,13 +4215,25 @@ where
                 let mut ds = vec![];
                 let mut trimmed = vec![];
                 let mut tops = vec![];
-                for (m, d, ps, ts) in xs {
-                    ms.push(m);
-                    ds.push(d);
-                    trimmed.extend(ps);
-                    tops.extend(ts);
+                let mut timestep_added = false;
+                for x in xs {
+                    match x {
+                        Element::Center((name, y)) => {
+                            ms.push(Element::Center((name, y.this)));
+                            ds.push(y.scale.into());
+                            trimmed.extend(y.trimmed);
+                            tops.extend(y.tmp_opt_pairs);
+                            timestep_added = timestep_added || y.timestep_added;
+                        }
+                        Element::NonCenter((name, y)) => {
+                            ms.push(Element::NonCenter((name, y.this)));
+                            ds.push(y.scale.into());
+                            trimmed.extend(y.trimmed);
+                        }
+                    }
                 }
-                (ms, ds, trimmed, tops)
+                let d = MeasurementDiagnostics::new(ds, trimmed, tops, timestep_added);
+                (ms, d)
             })
     }
 
@@ -4408,6 +4419,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let version = M::Ver::fcs_version();
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
+        macro_rules! go_err {
+            ($x:expr) => {
+                $x.map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                    .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+            };
+        }
+
         par_res.and_then_commutative(|par| {
             let std = &mut kws.std;
             let nonstd = &mut kws.nonstd;
@@ -4418,55 +4436,37 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                 // Lookup $PnN and layout (which are independent of each other)
                 .and_then_commutative(|mut meas_nonstd| {
-                    Self::lookup_names(std, &mut meas_nonstd[..], conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                        .map_ok_value(|n| (n, meas_nonstd))
+                    let ret = Self::lookup_names(std, &mut meas_nonstd[..], conf)
+                        .map_ok_value(|n| (n, meas_nonstd));
+                    go_err!(ret)
                 })
                 // Lookup root and measurement keywords (which depend on $PnN)
                 // and layout
                 .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
-                        <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref())
-                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+                        <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref());
 
                     let root_res =
-                        Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf)
-                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+                        Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf);
 
-                    let meas_res = Self::lookup_measurements(std, dedup_names, meas_nonstd, conf)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+                    let meas_res = Self::lookup_measurements(std, dedup_names, meas_nonstd, conf);
 
-                    root_res
-                        .zip3_commutative(meas_res, layout_res)
+                    go_err!(root_res)
+                        .zip3_commutative(go_err!(meas_res), go_err!(layout_res))
                         .map_ok_value(|x| (x, original_names))
                 })
-                .and_then_commutative(
-                    |((mut metaroot_out, meas_out, layout_out), original_names)| {
-                        let (meas, meas_scale, meas_trimmed, tmp_opt_pairs) = meas_out;
-                        metaroot_out.trimmed.extend(meas_trimmed);
-                        Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
-                            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-                            .map_ok_value(|ret| {
-                                (
-                                    ret,
-                                    original_names,
-                                    meas_scale,
-                                    metaroot_out.trimmed,
-                                    tmp_opt_pairs,
-                                )
-                            })
-                    },
-                );
+                .and_then_commutative(|((metaroot_out, meas_out, layout_out), original_names)| {
+                    let (meas, mut meas_diag) = meas_out;
+                    meas_diag.trimmed.extend(metaroot_out.trimmed);
+                    let ret = Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
+                        .map_ok_value(|ret| (ret, original_names, meas_diag));
+                    go_err!(ret)
+                });
 
             let gate = core_res
                 .as_ref()
-                .and_then(|(core, _, _, _, _)| core.metaroot.specific.gate())
+                .and_then(|(core, _, _)| core.metaroot.specific.gate())
                 .unwrap_or(Gate::from(0));
 
             // Push pseudostandard/unused warnings/errors
@@ -4524,14 +4524,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, original_names, scale, trimmed, tmp_opt_pairs)| {
-                let d = StdTEXTDiagnostics::from_extra(
-                    extra,
-                    original_names,
-                    scale,
-                    trimmed,
-                    tmp_opt_pairs,
-                );
+            core_res.map_ok_value(|(ret, original_names, diag)| {
+                let d = StdTEXTDiagnostics::from_extra(extra, original_names, diag);
                 (ret, d)
             })
         })
@@ -7545,7 +7539,7 @@ impl LookupTemporal for InnerTemporal2_0 {
             .map_errors(LookupTemporalError::from)
             .map_ok_value(|(s, p, tmp_opt_pairs)| {
                 let this = Self::new(s.native, p);
-                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs)
+                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, false)
             })
     }
 }
@@ -7574,14 +7568,14 @@ impl LookupTemporal for InnerTemporal3_0 {
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
-        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let timestep = Timestep::lookup(std, conf.as_ref()).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
         gain.zip3_commutative(peak, tmp_opt)
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, p, tmp_opt_pairs), (s, t))| {
-                let this = Self::new(t, p);
-                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs)
+                let this = Self::new(t.native, p);
+                DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, t.diagnostic)
             })
     }
 }
@@ -7614,7 +7608,7 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
-        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let timestep = Timestep::lookup(std, conf.as_ref()).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
         gain.zip4_commutative(dpy, peak, tmp_opt)
             .map_errors(LookupTemporalError::from)
@@ -7622,8 +7616,8 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
                 let trimmed = d_trimmed.into_iter().collect();
-                let ret = Self::new(t, d, p);
-                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs)
+                let ret = Self::new(t.native, d, p);
+                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
             })
     }
 }
@@ -7658,7 +7652,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
-        let timestep = Timestep::remove_metaroot_req(std).map_err(LookupTemporalError::from);
+        let timestep = Timestep::lookup(std, conf.as_ref()).map_err(LookupTemporalError::from);
         let req_res = scale.zip(timestep);
         gain.zip4_commutative(dpy, meas, tmp_opt)
             .map_errors(LookupTemporalError::from)
@@ -7666,8 +7660,8 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_ok_value(|((_, d_out, m, tmp_opt_pairs), (s, t))| {
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
                 let trimmed = d_trimmed.into_iter().collect();
-                let ret = Self::new(t, d, m);
-                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs)
+                let ret = Self::new(t.native, d, m);
+                DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
             })
     }
 }

@@ -844,7 +844,7 @@ pub enum LookupTemporalGainError {
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Display, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
@@ -862,7 +862,21 @@ impl Timestep {
     pub(crate) fn loss_error(self) -> Option<UnitaryKeyLossError<Self>> {
         (!self.0.is_one()).then_some(UnitaryKeyLossError::default())
     }
+
+    pub(crate) fn lookup(
+        std: &mut StdKeywords,
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedKeyword<Self, TimestepAdded>, ReqKeyError<Self>> {
+        match Self::remove_metaroot_req(std) {
+            Ok(x) => Ok(DiagnosedKeyword::new(x, false)),
+            Err(e) => conf
+                .add_missing_timestep
+                .map_or(Err(e), |x| Ok(DiagnosedKeyword::new(x, true))),
+        }
+    }
 }
+
+pub(crate) type TimestepAdded = bool;
 
 /// The value of the $VOL keyword
 #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]

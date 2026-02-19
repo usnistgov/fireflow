@@ -1731,6 +1731,7 @@ mod python {
 
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
+    use regex::Regex;
 
     use std::collections::HashMap;
     use std::convert::Infallible;
@@ -1811,11 +1812,19 @@ mod python {
         }
     }
 
+    // Don't use FromStr for this because it is more natural in Python to use
+    // None for "not set"; FromStr maps None to "NoTime"
     impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let s: String = ob.extract()?;
-            s.parse::<Self>()
-                .map_err(|e| ConfigError::new_err(e.to_string()))
+            if ob.is_none() {
+                Ok(Self(None))
+            } else {
+                let s: String = ob.extract()?;
+                let r = s
+                    .parse::<Regex>()
+                    .map_err(|e| ConfigError::new_err(e.to_string()))?;
+                Ok(Self(Some(r)))
+            }
         }
     }
 

@@ -8221,8 +8221,10 @@ impl DocArgParam {
     }
 
     fn new_time_meas_pattern_param() -> Self {
-        let path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
-        let pytype = PyStr::new_regexp().rstype(path);
+        let path: Path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
+        let pytype = PyOpt::new1(PyStr::new_regexp().rstype(path.clone()))
+            .default_from_inner()
+            .rstype(path);
         let d = format!(
             "A pattern to match the {PNN} of the time measurement. \
              If {none}, do not try to find a time measurement.",

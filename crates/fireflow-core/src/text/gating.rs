@@ -328,6 +328,8 @@ impl AppliedGates2_0 {
                 Self::try_new(gated_measurements.0.0, scheme).map_err(LookupAppliedGatesError::Link)
             })
             .map_err_value(|ret| {
+                // TODO this should not be deferred (ditto all others like
+                // this); consume the value and demote if required
                 if rconf.process_optional_failure.is_demote() {
                     ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));

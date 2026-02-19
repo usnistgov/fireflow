@@ -1,5 +1,5 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::logging::{DeferredError, DeferredWarningsAndErrors, LogResult};
+use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
 use crate::text::optional::KeywordPairMaybe;
@@ -7,7 +7,6 @@ use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use fireflow_types::config::DEFAULT_DATE_FORMAT;
-use type_families::ApplyOnce as _;
 
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
@@ -102,13 +101,14 @@ where
 #[display("{}", _0.format(DEFAULT_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
+type OldInputs<X> = (Option<Btim<X>>, Option<Etim<X>>, Option<FCSDate>);
+
 impl<X> Timestamps<X> {
     pub fn try_new(
         btim: Option<Btim<X>>,
         etim: Option<Etim<X>>,
         date: Option<FCSDate>,
-        // TODO return inputs and not self
-    ) -> DeferredError<Self, ReversedTimestampsError>
+    ) -> ErrorResult<Self, OldInputs<X>, ReversedTimestampsError>
     where
         X: PartialOrd,
     {
@@ -116,7 +116,8 @@ impl<X> Timestamps<X> {
         if ret.valid() {
             LogResult::new_ok(ret)
         } else {
-            LogResult::new_err(ReversedTimestampsError).set_err_value(ret)
+            let old = (ret.btim, ret.etim, ret.date);
+            LogResult::new_err(ReversedTimestampsError).set_err_value(old)
         }
     }
 
@@ -182,8 +183,9 @@ impl<X> Timestamps<X> {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<
+    ) -> WarningsAndErrorsResult<
         Self,
+        (),
         LookupTimestampsError<X, X::Err>,
         LookupTimestampsError<X, X::Err>,
     >
@@ -197,6 +199,7 @@ impl<X> Timestamps<X> {
             ($x:expr) => {
                 $x.map_switchable_errors(LookupTimestampsError::from)
                     .switchable_into_commutative()
+                    .set_err_value(())
                     .into_semigroup::<Vec<_>, _>()
             };
         }
@@ -205,25 +208,18 @@ impl<X> Timestamps<X> {
         let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         go!(b)
-            .zip_f3_once(go!(e), go!(d))
-            .and_then_deferred(|(btim, etim, date)| {
+            .zip3_commutative(go!(e), go!(d))
+            .and_then_commutative(|(btim, etim, date)| {
                 Self::try_new(btim.into_native(), etim.into_native(), date.into_native())
                     .map_errors(LookupTimestampsError::Reversed)
-                    .map_err_value(|ret| {
+                    .map_err_value(|(old_btim, old_etim, old_date)| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            ret.date
-                                .as_ref()
-                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
-                            ret.btim
-                                .as_ref()
-                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
-                            ret.etim
-                                .as_ref()
-                                .inspect(|&x| nonstd.insert_demoted_metaroot(x));
+                            nonstd.insert_demoted_metaroot_opt(old_btim);
+                            nonstd.insert_demoted_metaroot_opt(old_etim);
+                            nonstd.insert_demoted_metaroot_opt(old_date);
                         }
-                        ret
                     })
                     .into_semigroup()
                     .nowarn_into_warn()

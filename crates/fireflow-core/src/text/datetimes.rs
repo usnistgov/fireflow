@@ -1,11 +1,11 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::UnitaryKeyLossError;
-use crate::logging::{DeferredError, DeferredWarningsAndErrors, LogResult};
+use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
-use type_families::{ApplyOnce as _, BifunctorOnce as _};
+use type_families::BifunctorOnce as _;
 
 use chrono::{
     DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, ParseError, TimeZone as _,
@@ -61,13 +61,13 @@ impl Datetimes {
     pub fn try_new(
         begin: Option<BeginDateTime>,
         end: Option<EndDateTime>,
-        // TODO return inputs and not self
-    ) -> DeferredError<Self, ReversedDatetimesError> {
+    ) -> ErrorResult<Self, (Option<BeginDateTime>, Option<EndDateTime>), ReversedDatetimesError>
+    {
         let ret = Self { begin, end };
         if ret.valid() {
             LogResult::new_ok(ret)
         } else {
-            LogResult::new_err(ReversedDatetimesError).set_err_value(ret)
+            LogResult::new_err(ReversedDatetimesError).set_err_value((ret.begin, ret.end))
         }
     }
 
@@ -102,34 +102,37 @@ impl Datetimes {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<Self, LookupDatetimesError, LookupDatetimesError>
+    ) -> WarningsAndErrorsResult<Self, (), LookupDatetimesError, LookupDatetimesError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
-            .map_switchable_errors(LookupDatetimesError::from)
-            .switchable_into_commutative()
-            .into_semigroup::<Vec<_>, _>();
-        let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf)
-            .map_switchable_errors(LookupDatetimesError::from)
-            .switchable_into_commutative()
-            .into_semigroup::<Vec<_>, _>();
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map_switchable_errors(LookupDatetimesError::from)
+                    .switchable_into_commutative()
+                    .set_err_value(())
+                    .into_semigroup::<Vec<_>, _>()
+            };
+        }
+        let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        b.zip_f2_once(e).and_then_deferred(|(begin, end)| {
-            Self::try_new(begin.into_native(), end.into_native())
-                .map_errors(LookupDatetimesError::from)
-                .map_err_value(|ret| {
-                    // If creating the new datetime object failed,
-                    // optionally transfer component keys to nonstandard
-                    if rconf.process_optional_failure.is_demote() {
-                        ret.begin.inspect(|x| nonstd.insert_demoted_metaroot(x));
-                        ret.end.inspect(|x| nonstd.insert_demoted_metaroot(x));
-                    }
-                    ret
-                })
-                .into_semigroup()
-                .nowarn_into_warn()
-        })
+        go!(b)
+            .zip_commutative(go!(e))
+            .and_then_commutative(|(begin, end)| {
+                Self::try_new(begin.into_native(), end.into_native())
+                    .map_errors(LookupDatetimesError::from)
+                    .map_err_value(|(old_begin, old_end)| {
+                        // If creating the new datetime object failed,
+                        // optionally transfer component keys to nonstandard
+                        if rconf.process_optional_failure.is_demote() {
+                            nonstd.insert_demoted_metaroot_opt(old_begin);
+                            nonstd.insert_demoted_metaroot_opt(old_end);
+                        }
+                    })
+                    .into_semigroup()
+                    .nowarn_into_warn()
+            })
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {

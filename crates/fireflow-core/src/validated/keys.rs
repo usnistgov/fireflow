@@ -514,6 +514,13 @@ pub(crate) trait NonStdKeywordsExt {
         self.insert_demoted(k, v);
     }
 
+    fn insert_demoted_metaroot_opt<T: OptMetarootKey + fmt::Display>(&mut self, value: Option<T>) {
+        if let Some(val) = value {
+            let (k, v) = val.root_pair_std();
+            self.insert_demoted(k, v);
+        }
+    }
+
     fn insert_demoted_metaroot_<T: Key + fmt::Display>(&mut self, value: &T) {
         self.insert_demoted_(SpecificKey::<T, ()>::default(), value.to_string());
     }

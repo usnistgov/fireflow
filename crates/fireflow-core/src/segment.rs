@@ -250,7 +250,6 @@ enum InnerSegment<T, O> {
     Empty,
 }
 
-// TODO these will serialize to strings and not integers
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -2154,8 +2153,8 @@ mod serialize {
                 Self::NonEmpty(s) => s.serialize(serializer),
                 Self::Empty => {
                     let mut state = serializer.serialize_struct("EmptySegment", 2)?;
-                    state.serialize_field("start", "0")?;
-                    state.serialize_field("end", "0")?;
+                    state.serialize_field("start", &0_u8)?;
+                    state.serialize_field("end", &0_u8)?;
                     state.end()
                 }
             }

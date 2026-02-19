@@ -1548,7 +1548,7 @@ pub(crate) trait PrivVersioned: Versioned {
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 layout_out
                     .layout
-                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, &st.conf)
+                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|(df, event_out)| {
@@ -4901,7 +4901,7 @@ where
                 let or = hns.header.segments.others_reader();
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 text.layout
-                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, &st.conf)
+                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|(data, event_out)| {

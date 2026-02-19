@@ -49,7 +49,6 @@ class _OffsetConfig(BaseModel):
     allow_pseudoempty: bool = False
     truncate_offset_limit: int = 0
     overlap_correction_limit: int = 0
-    data_remainder_limit: int = 0
 
 
 class _ReadFlatTEXTConfig(BaseModel):
@@ -120,6 +119,7 @@ class _ReadDataKeywordsConfig(BaseModel):
 
 
 class _ReadEventsConfig(BaseModel):
+    data_remainder_limit: int = 0
     allow_uneven_event_width: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_tot_mismatch: pft.TriFlag = _DEFAULT_TRIFLAG
     truncate_event_values: pft.TruncateEventValues = "int_only"

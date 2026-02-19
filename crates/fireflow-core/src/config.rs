@@ -376,22 +376,6 @@ pub struct ReadOffsetConfig {
     /// of indicated bytes such that the two offsets no longer overlap (if
     /// possible given the limit). For most cases, this only needs to be `1`.
     pub overlap_correction_limit: OverlapCorrectionLimit,
-
-    // TODO move this to event config since it only applies to reading DATA
-    /// The maximum number of bytes to correct DATA based on event width.
-    ///
-    /// For all but ASCII delimited layouts, dividing length of DATA by event
-    /// width should exactly equal $TOT. In some cases, DATA will be too long by
-    /// one byte, and thus this division will produce a remainder of 1. This
-    /// flag will permit remainders up to a certain limit which will then be
-    /// used to correct the ending offset so that DATA is a perfect multiple of
-    /// event width.
-    ///
-    /// Note, the ending offset will only be decreased, so this assumes that the
-    /// ending offset is between 0 and event width bytes too long. If it is too
-    /// short, this will trigger a different error for $TOT not matching the
-    /// computed number of events.
-    pub data_remainder_limit: DataRemainderLimit,
 }
 
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
@@ -940,6 +924,21 @@ pub struct ReadDataKeywordsConfig {
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadEventsConfig {
+    /// The maximum number of bytes to correct DATA based on event width.
+    ///
+    /// For all but ASCII delimited layouts, dividing length of DATA by event
+    /// width should exactly equal $TOT. In some cases, DATA will be too long by
+    /// one byte, and thus this division will produce a remainder of 1. This
+    /// flag will permit remainders up to a certain limit which will then be
+    /// used to correct the ending offset so that DATA is a perfect multiple of
+    /// event width.
+    ///
+    /// Note, the ending offset will only be decreased, so this assumes that the
+    /// ending offset is between 0 and event width bytes too long. If it is too
+    /// short, this will trigger a different error for $TOT not matching the
+    /// computed number of events.
+    pub data_remainder_limit: DataRemainderLimit,
+
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
     /// In practice, having such a mismatch likely means either PnB or the DATA
@@ -1635,7 +1634,6 @@ impl HasStrategy for ReadOffsetConfig {
         // always work but will likely take care of %80 of cases.
         self.truncate_offset_limit = 1.into();
         self.overlap_correction_limit = 1.into();
-        self.data_remainder_limit = 1.into();
     }
 }
 
@@ -1709,6 +1707,7 @@ impl HasStrategy for ReadDataKeywordsConfig {
 
 impl HasStrategy for ReadEventsConfig {
     fn with_scalpal(&mut self) {
+        self.data_remainder_limit = 1.into();
         self.allow_uneven_event_width = TriFlag::True.into();
         self.allow_tot_mismatch = TriFlag::True.into();
     }

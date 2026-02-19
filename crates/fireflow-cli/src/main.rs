@@ -1209,7 +1209,6 @@ fn get_offsets_config(s: &ArgMatches) -> config::ReadOffsetConfig {
     get_opt(s, OVERLAP_CORRECTION_LIMIT, |x| {
         c.overlap_correction_limit = x;
     });
-    get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
 
     c
 }
@@ -1362,20 +1361,19 @@ fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
     conf
 }
 
-fn get_dataset_inner_config(sargs: &ArgMatches) -> config::ReadEventsConfig {
-    let strat = get_strategy(sargs);
-    let mut conf = config::ReadEventsConfig::new_with_strategy(strat);
+fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
+    let strat = get_strategy(s);
+    let mut c = config::ReadEventsConfig::new_with_strategy(strat);
 
-    get_opt(sargs, ALLOW_TOT_MISMATCH, |x| conf.allow_tot_mismatch = x);
-    get_opt(sargs, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
-        conf.allow_uneven_event_width = x;
+    get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
+    get_opt(s, ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
+    get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
+        c.allow_uneven_event_width = x;
     });
-    get_opt(sargs, TRUNCATE_EVENT_VALUES, |x| {
-        conf.truncate_event_values = x;
-    });
-    get_opt(sargs, DISALLOW_OVER_RANGE, |x| conf.disallow_over_range = x);
+    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.truncate_event_values = x);
+    get_opt(s, DISALLOW_OVER_RANGE, |x| c.disallow_over_range = x);
 
-    conf
+    c
 }
 
 fn get_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
@@ -1411,7 +1409,7 @@ fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFla
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         layout: get_layout_config(sargs),
-        data: get_dataset_inner_config(sargs),
+        data: get_events_config(sargs),
         shared: get_shared_config(sargs),
     }
 }
@@ -1423,7 +1421,7 @@ fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdD
         offset: get_offsets_config(sargs),
         standard: get_std_inner_config(sargs),
         layout: get_layout_config(sargs),
-        data: get_dataset_inner_config(sargs),
+        data: get_events_config(sargs),
         shared: get_shared_config(sargs),
     }
 }

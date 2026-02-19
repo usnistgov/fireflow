@@ -1384,6 +1384,8 @@ class CoreDataset2_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
+        # data args
+        data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
@@ -1466,7 +1468,6 @@ class CoreDataset3_0(
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         overlap_correction_limit: int = 0,
-        data_remainder_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1498,6 +1499,8 @@ class CoreDataset3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
+        # data args
+        data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
@@ -1588,7 +1591,6 @@ class CoreDataset3_1(
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         overlap_correction_limit: int = 0,
-        data_remainder_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1619,6 +1621,8 @@ class CoreDataset3_1(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
+        # data args
+        data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
@@ -1712,7 +1716,6 @@ class CoreDataset3_2(
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
         overlap_correction_limit: int = 0,
-        data_remainder_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
@@ -1744,6 +1747,8 @@ class CoreDataset3_2(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
+        # data args
+        data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
@@ -2232,7 +2237,6 @@ def fcs_read_header(
     # offset args
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     dataset_offset: int = 0,
 ) -> Header: ...
 
@@ -2252,7 +2256,6 @@ def fcs_read_flat_text(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2303,7 +2306,6 @@ def fcs_read_std_text(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2387,7 +2389,6 @@ def fcs_read_flat_dataset(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2428,6 +2429,7 @@ def fcs_read_flat_dataset(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
@@ -2454,7 +2456,6 @@ def fcs_read_std_dataset(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2517,6 +2518,7 @@ def fcs_read_std_dataset(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
@@ -2545,7 +2547,6 @@ def fcs_read_flat_texts(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2597,7 +2598,6 @@ def fcs_read_std_texts(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2682,7 +2682,6 @@ def fcs_read_flat_datasets(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2723,6 +2722,7 @@ def fcs_read_flat_datasets(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
@@ -2750,7 +2750,6 @@ def fcs_read_std_datasets(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2813,6 +2812,7 @@ def fcs_read_std_datasets(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
@@ -2831,7 +2831,6 @@ def fcs_read_flat_dataset_with_keywords(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # layout args
     text_data_correction: OffsetCorrection = (0, 0),
     text_analysis_correction: OffsetCorrection = (0, 0),
@@ -2844,6 +2843,7 @@ def fcs_read_flat_dataset_with_keywords(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
@@ -2872,7 +2872,6 @@ def fcs_summarize(
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
-    data_remainder_limit: int = 0,
     # flat args
     version_override: VersionOverride | None = None,
     supp_text_correction: OffsetCorrection = (0, 0),
@@ -2913,6 +2912,7 @@ def fcs_summarize(
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
     # data args
+    data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",

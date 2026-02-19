@@ -8039,7 +8039,6 @@ impl DocArgParam {
                 Self::new_allow_pseudoempty_param(),
                 Self::new_truncate_offset_limit_param(),
                 Self::new_overlap_correction_limit_param(),
-                Self::new_data_remainder_limit_param(),
             ]
         };
         let js = ps.iter().map(IsDocArg::record_into).collect();
@@ -8167,16 +8166,13 @@ impl DocArgParam {
     }
 
     fn new_read_events_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let allow_uneven_event_width = Self::new_allow_uneven_event_width_param();
-        let allow_tot_mismatch = Self::new_allow_tot_mismatch_param();
-        let truncate_event_values = Self::new_truncate_event_values();
-        let disallow_over_range = Self::new_disallow_over_range();
         let conf = config_path("ReadEventsConfig");
         let ps = vec![
-            allow_uneven_event_width,
-            allow_tot_mismatch,
-            truncate_event_values,
-            disallow_over_range,
+            Self::new_data_remainder_limit_param(),
+            Self::new_allow_uneven_event_width_param(),
+            Self::new_allow_tot_mismatch_param(),
+            Self::new_truncate_event_values(),
+            Self::new_disallow_over_range(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)

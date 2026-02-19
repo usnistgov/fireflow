@@ -7506,7 +7506,6 @@ impl LookupOptical for InnerOptical3_2 {
                 let (w, w_trimmed) = w_out.into_indexed_pair(i);
                 let (c, c_trimmed) = c_out.into_opt_indexed_pair(i);
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
-                // TODO return something for feature
                 let ret = Self::new(s, w, c, d, anal, f.native, m, tag, det_name);
                 let trimmed = c_trimmed
                     .into_iter()

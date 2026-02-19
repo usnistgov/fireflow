@@ -441,10 +441,9 @@ struct ComputedRowsResult {
     remainder: u64,
 }
 
-// TODO this doesn't need to be public
 /// Output of converting $PnR to native rust type.
 #[derive(new)]
-pub struct ConvertedRange<T> {
+pub(crate) struct ConvertedRange<T> {
     /// The native value
     pub(crate) native: T,
 
@@ -452,7 +451,7 @@ pub struct ConvertedRange<T> {
     pub(crate) non_truncated: Option<Range>,
 }
 
-impl_kind1!(pub ConvertedRangeFamily, ConvertedRange);
+impl_kind1!(pub(crate) ConvertedRangeFamily, ConvertedRange);
 
 impl_functor_once!(
     ConvertedRange,
@@ -3748,16 +3747,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         if cs.iter().all(|c| c.width == Width::Variable) {
             cs.into_iter()
                 .enumerate()
-                .map(|(i, c)| {
-                    // TODO not DRY, exactly like the from range/width function
-                    // for AsciiRange
-                    AsciiRange::from_range(c.range, flag)
-                        .map_switchable_errors(|e| IndexedError::new(i, e))
-                        .map_switchable_errors(IndexedRangeToAsciiError)
-                        .switchable_into_commutative()
-                        .map_errors(AsciiRangeFromKeywordsError::from)
-                        .repack()
-                })
+                .map(|(i, c)| AsciiRange::from_range_indexed(c.range, i.into(), flag))
                 .sequence_def()
                 .map_ok_value(|rs| {
                     let ranges = rs.iter().map(|r| r.native.value()).collect();

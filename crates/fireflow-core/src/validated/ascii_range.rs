@@ -124,12 +124,7 @@ impl AsciiRange {
         IndexedRangeToAsciiError,
         AsciiRangeFromKeywordsError,
     > {
-        let rng_res = Self::from_range(range, flag)
-            .map_switchable_errors(|e| IndexedError::new(i, e))
-            .map_switchable_errors(IndexedRangeToAsciiError)
-            .switchable_into_commutative()
-            .map_errors(AsciiRangeFromKeywordsError::from)
-            .into_semigroup();
+        let rng_res = Self::from_range_indexed(range, i, flag);
         let chars_res = Chars::try_from(width)
             .map_err(|e| IndexedError::new(i, e))
             .map_err(IndexedWidthToCharsError)
@@ -145,6 +140,24 @@ impl AsciiRange {
                     .into_log()
                     .map_ok_value(|ar| ConvertedRange::new(ar, cr.non_truncated))
             })
+    }
+
+    pub(crate) fn from_range_indexed(
+        range: Range,
+        i: MeasIndex,
+        flag: DisallowRangeTrunc,
+    ) -> WarningsAndErrorsResult<
+        ConvertedRange<Self>,
+        ConvertedRange<Self>,
+        IndexedRangeToAsciiError,
+        AsciiRangeFromKeywordsError,
+    > {
+        Self::from_range(range, flag)
+            .map_switchable_errors(|e| IndexedError::new(i, e))
+            .map_switchable_errors(IndexedRangeToAsciiError)
+            .switchable_into_commutative()
+            .map_errors(AsciiRangeFromKeywordsError::from)
+            .into_semigroup()
     }
 
     pub(crate) fn chars(&self) -> Chars {

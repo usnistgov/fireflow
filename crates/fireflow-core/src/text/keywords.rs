@@ -1,7 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, ForceLinearScale, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TemporalOpticalKey,
-    TriErrorFlag as _, TrimIntraValueWhitespace, TruncateEventValues,
+    ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
+    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
@@ -49,6 +48,7 @@ use crate::validated::shortname::Shortname;
 
 use type_families::{BifunctorOnce as _, FunctorOnce as _, impl_functor, impl_kind1};
 
+use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};

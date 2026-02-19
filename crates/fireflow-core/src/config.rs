@@ -29,19 +29,11 @@ use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-// pub export here to keep the docs for all configuration flags in this crate
-pub use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, AllowHeaderTEXTOffsetMismatchError, DelimEscapeMode,
-    DelimEscapeModeError, ForceLinearScale, ForceLinearScaleError, GuessOtherWidth,
-    GuessOtherWidthError, ProcessKeywordFailureError, ProcessTemporalOpticalKeys,
-    ProcessTemporalOpticalKeysError, SpilloverMeasurementMode, SpilloverMeasurementModeError,
-    TemporalOpticalKey, TemporalOpticalKeyError, TriFlag, TriFlagError, TrimValueWhitespace,
-    TrimValueWhitespaceError, TruncateEventValues, TruncateEventValuesError,
-};
-
 use fireflow_types::config::{
-    ProcessKeywordFailure, ReadStrategy, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
+    ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy, SpilloverMeasurementMode,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, TruncateEventValues, VERSION_EARLIEST_LEVEL,
+    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 
@@ -941,10 +933,13 @@ pub struct ReadEventsConfig {
 
     /// If `true`, allow event width to not perfectly divide DATA.
     ///
-    /// In practice, having such a mismatch likely means either PnB or the DATA
+    /// In practice, having such a mismatch likely means either &PnB or the DATA
     /// offsets are incorrect.
     ///
     /// Does not apply to delimited ASCII, which does not have a fixed width.
+    ///
+    /// This flag will do nothing if [`Self::data_remainder_limit`] is used to
+    /// fix the DATA offsets such that they have no remainder.
     pub allow_uneven_event_width: AllowUnevenEventWidth,
 
     /// If `true`, allow $TOT to not match number of events in DATA.
@@ -1155,7 +1150,7 @@ pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
     }
 }
 
-/// Error when parsing a [`TriFlag`] from `"true"` or `"silent"`.
+/// Error when parsing a [`fireflow_types::config::TriFlag`] from `"true"` or `"silent"`.
 #[derive(Error, Debug)]
 #[error("Must be one of 'silent' or 'true'")]
 pub struct PartialTriErrorFlagError;
@@ -1364,7 +1359,7 @@ pub struct TruncateOffsetLimit(pub u64);
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct OverlapCorrectionLimit(pub u64);
 
-/// The maximum number of bytes the DATA ending offset may be decreased based on event width.
+/// The max length the DATA end offset may be decreased based on event width.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct DataRemainderLimit(pub u64);

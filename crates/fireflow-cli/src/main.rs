@@ -2,17 +2,14 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys,
-    AllowHeaderTEXTOffsetMismatch, AllowMissingFinalDelim, AllowMissingNextdata,
-    AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime, AllowNonAsciiDelim,
-    AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd, AllowSuppTEXTOwnDelim,
-    AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit, DatasetOffset, DelimEscapeMode,
-    DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, ForceLinearScale, GuessOtherWidth,
-    HasStrategy as _, NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep,
-    ProcessHyperPar, ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard,
-    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TimeMeasNamePattern,
-    TriErrorFlag, TriFlag, TrimValueWhitespace, TruncateEventValues, TruncateOffsetLimit,
-    VersionOverride,
+    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowMissingFinalDelim,
+    AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
+    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd,
+    AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
+    DatasetOffset, DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _,
+    NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar,
+    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern,
+    TriErrorFlag, TruncateOffsetLimit, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -23,6 +20,11 @@ use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::timepattern::TimePattern;
+use fireflow_types::config::{
+    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
+    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
+    TrimValueWhitespace, TruncateEventValues,
+};
 use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,

@@ -1,6 +1,6 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    ConfigFlag as _, DatasetOffset, DatasetOffsetError, DelimEscapeMode, OverlapCorrectionLimit,
+    ConfigFlag as _, DatasetOffset, DatasetOffsetError, OverlapCorrectionLimit,
     ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
@@ -43,6 +43,7 @@ use crate::validated::keys::{
     StdKey, StdKeywords, StdPresent, StringOrBytes, TruncatedBytes, TruncatedString, ValidKeywords,
 };
 
+use fireflow_types::config::DelimEscapeMode;
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};

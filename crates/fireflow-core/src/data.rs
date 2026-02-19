@@ -52,8 +52,7 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, TruncateEventValues,
+    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig, ReadEventsConfig,
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -97,6 +96,7 @@ use crate::validated::dataframe::{
 };
 use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
 
+use fireflow_types::config::TruncateEventValues;
 use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};

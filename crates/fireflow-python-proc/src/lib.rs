@@ -8237,7 +8237,7 @@ impl DocArgParam {
     }
 
     fn new_force_linear_scale_param() -> Self {
-        let path = config_path("ForceLinearScale");
+        let path = types_config_path("ForceLinearScale");
         let pt = PyLiteral::new2(ForceLinearScale::iter_str(), path);
         let d = format!(
             "Force {PNE} to be linear. Use {time} to only \
@@ -8286,7 +8286,7 @@ impl DocArgParam {
             drop = code_str(TMP_OPT_DROP_WARN_LEVEL),
             drop_silent = code_str(TMP_OPT_DROP_SILENT_LEVEL),
         );
-        let path = config_path("ProcessTemporalOpticalKeys");
+        let path = types_config_path("ProcessTemporalOpticalKeys");
         let pt = PyLiteral::new2(ProcessTemporalOpticalKeys::iter_str(), path);
         Self::new_param("process_time_optical_keys", pt, d).def_auto()
     }
@@ -8303,7 +8303,7 @@ impl DocArgParam {
             indexed = code_str(SPILLOVER_INDEXED_LEVEL),
             guess = code_str(SPILLOVER_GUESS_LEVEL),
         );
-        let path = config_path("SpilloverMeasurementMode");
+        let path = types_config_path("SpilloverMeasurementMode");
         let pt = PyLiteral::new2(SpilloverMeasurementMode::iter_str(), path);
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
@@ -8563,7 +8563,7 @@ impl DocArgParam {
     }
 
     fn new_guess_other_width_param() -> Self {
-        let path = config_path("GuessOtherWidth");
+        let path = types_config_path("GuessOtherWidth");
         let pt = PyLiteral::new2(GuessOtherWidth::iter_str(), path);
         let d = format!(
             "Guess the width of {OTHER} segments. Valid values are {none} \
@@ -8676,7 +8676,7 @@ impl DocArgParam {
     }
 
     fn new_delim_escape_mode() -> Self {
-        let path = config_path("DelimEscapeMode");
+        let path = types_config_path("DelimEscapeMode");
         let d = format!(
             "Determine how to escape delims in {TEXT}. If {escaped} \
              or {unescaped}, escape or do not escape delimiters \
@@ -8812,7 +8812,7 @@ impl DocArgParam {
             trim_blank_warn = code_str(TRIM_BLANK_WARN_LEVEL),
             trim_blank_nowarn = code_str(TRIM_BLANK_SILENT_LEVEL),
         );
-        let rstype = config_path("TrimValueWhitespace");
+        let rstype = types_config_path("TrimValueWhitespace");
         let pt = PyLiteral::new2(TrimValueWhitespace::iter_str(), rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
@@ -8946,7 +8946,7 @@ impl DocArgParam {
             text_silent = code_str(MISMATCH_TEXT_SILENT_LEVEL),
             error = code_str(MISMATCH_ERROR_LEVEL),
         );
-        let path = config_path("AllowHeaderTEXTOffsetMismatch");
+        let path = types_config_path("AllowHeaderTEXTOffsetMismatch");
         let pt = PyLiteral::new2(AllowHeaderTEXTOffsetMismatch::iter_str(), path);
         Self::new_param(n, pt, d).def_auto()
     }
@@ -8987,7 +8987,7 @@ impl DocArgParam {
     }
 
     fn new_truncate_event_values() -> Self {
-        let path = config_path("TruncateEventValues");
+        let path = types_config_path("TruncateEventValues");
         let d = format!(
             "Control which measurements will be truncated via {PNR}. If {int}, \
              truncate integer measurements only. If {all}, truncate all \
@@ -9766,6 +9766,11 @@ fn keyword_path(n: &str) -> Path {
 fn config_path(n: &str) -> Path {
     let t = format_ident!("{n}");
     parse_quote!(fireflow_core::config::#t)
+}
+
+fn types_config_path(n: &str) -> Path {
+    let t = format_ident!("{n}");
+    parse_quote!(fireflow_types::config::#t)
 }
 
 fn pyoptical(version: Version) -> Ident {

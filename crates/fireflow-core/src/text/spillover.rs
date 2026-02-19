@@ -1,6 +1,4 @@
-use crate::config::{
-    ConfigFlag as _, ReadStdKeywordsConfig, SpilloverMeasurementMode, TrimIntraValueWhitespace,
-};
+use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
@@ -9,6 +7,8 @@ use super::index::MeasIndex;
 use super::lookup::{DiagnosedKeyword, FromStrWith, FromStrWithResult, Trimmed};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
+
+use fireflow_types::config::SpilloverMeasurementMode;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

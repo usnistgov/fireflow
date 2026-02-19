@@ -46,15 +46,15 @@ use crate::text::deprecated::{
 };
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
-    AppliedGates3_0To3_2Error, AppliedGates3_2, GatingSchemeLossError, LookupAppliedGates2_0Error,
-    LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
+    AppliedGates3_0To3_2Error, AppliedGates3_2, GatedMeasurements, GatingSchemeLossError,
+    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, Analyte, AnyScaleDiagnostic, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
     Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
     Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, HyperGateError,
+    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError,
     HyperParError, Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
     LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
     ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par,
@@ -1626,6 +1626,9 @@ pub trait VersionedMetaroot: Sized {
     type Optical: VersionedOptical<Ver = Self::Ver>;
     type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave<Shortname>;
+
+    /// Return value of $GATE if it exists.
+    fn gate(&self) -> Option<Gate>;
 
     /// Return error if any named links are broken
     fn meas_invalid_named_links_inner(
@@ -4461,10 +4464,13 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     },
                 );
 
+            let gate = core_res
+                .as_ref()
+                .and_then(|(core, _, _, _, _)| core.metaroot.specific.gate())
+                .unwrap_or(Gate::from(0));
+
             // Push pseudostandard/unused warnings/errors
-            // TODO fix gate arg
-            let (mut extra, errors) =
-                ExtraStdKeywords::split_keywords(kws.std, version, par, 10000.into());
+            let (mut extra, errors) = ExtraStdKeywords::split_keywords(kws.std, version, par, gate);
 
             let flag = sconf.process_extra_timestep;
             core_res = core_res
@@ -8534,6 +8540,11 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type Temporal = InnerTemporal2_0;
     type Name = Option<Shortname>;
 
+    fn gate(&self) -> Option<Gate> {
+        let g: &GatedMeasurements = self.applied_gates.as_ref();
+        g.gate()
+    }
+
     fn meas_invalid_named_links_inner(
         &self,
         _: &NamedSet<'_>,
@@ -8625,6 +8636,11 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type Optical = InnerOptical3_0;
     type Temporal = InnerTemporal3_0;
     type Name = Option<Shortname>;
+
+    fn gate(&self) -> Option<Gate> {
+        let g: &GatedMeasurements = self.applied_gates.as_ref();
+        g.gate()
+    }
 
     fn meas_invalid_named_links_inner(
         &self,
@@ -8731,6 +8747,11 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type Optical = InnerOptical3_1;
     type Temporal = InnerTemporal3_1;
     type Name = Identity<Shortname>;
+
+    fn gate(&self) -> Option<Gate> {
+        let g: &GatedMeasurements = self.applied_gates.as_ref();
+        g.gate()
+    }
 
     fn meas_invalid_named_links_inner(
         &self,
@@ -8839,6 +8860,10 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type Optical = InnerOptical3_2;
     type Temporal = InnerTemporal3_2;
     type Name = Identity<Shortname>;
+
+    fn gate(&self) -> Option<Gate> {
+        None
+    }
 
     fn meas_invalid_named_links_inner(
         &self,

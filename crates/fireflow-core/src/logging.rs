@@ -3171,6 +3171,13 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
             }
         }
     }
+
+    pub(crate) fn as_ref(&self) -> Option<&V> {
+        match self {
+            Succ(s) => Some(&s.value),
+            Fail(_) => None,
+        }
+    }
 }
 
 /// Split the IO error away from an impure result.

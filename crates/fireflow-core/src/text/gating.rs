@@ -55,6 +55,7 @@ use super::keywords::ScaleDiagnostic;
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates2_0 {
+    #[as_ref(GatedMeasurements)]
     #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
     #[as_ref(Option<Gating>)]
@@ -66,6 +67,7 @@ pub struct AppliedGates2_0 {
 #[derive(Clone, PartialEq, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AppliedGates3_0 {
+    #[as_ref(GatedMeasurements)]
     #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
     #[as_ref(Option<Gating>)]
@@ -335,8 +337,7 @@ impl AppliedGates2_0 {
     }
 
     pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
-        let g = self.gated_measurements.0.len();
-        let gate = if g == 0 { None } else { Some(Gate(g)) };
+        let gate = self.gated_measurements.gate();
         self.gated_measurements
             .0
             .iter()
@@ -477,8 +478,7 @@ impl AppliedGates3_0 {
     }
 
     pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
-        let g = self.gated_measurements.0.len();
-        let gate = if g == 0 { None } else { Some(Gate(g)) };
+        let gate = self.gated_measurements.gate();
         self.gated_measurements
             .0
             .iter()
@@ -1132,6 +1132,14 @@ impl TryFrom<MeasOrGateIndex> for GateIndex {
 }
 
 impl GatedMeasurements {
+    pub(crate) fn gate(&self) -> Option<Gate> {
+        if self.0.is_empty() {
+            None
+        } else {
+            Some(Gate(self.0.len()))
+        }
+    }
+
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,

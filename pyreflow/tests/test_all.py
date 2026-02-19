@@ -4010,6 +4010,8 @@ class TestConfig:
             [pf.ExtraKeywordError],
         )
 
+    # TODO also test $GATE hyper_par
+
     @all_versions
     def test_process_hyper_par(self, version: str, tmp_path: Path) -> None:
         val = "uae_sightings"

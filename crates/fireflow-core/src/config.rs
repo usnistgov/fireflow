@@ -1255,7 +1255,6 @@ impl DummyTriFlag {
         f.map(Into::into)
     }
 
-    // TODO not DRY
     pub(crate) fn from_guess_other_width(x: GuessOtherWidth) -> Option<Self> {
         let r = match x {
             GuessOtherWidth::None => None,
@@ -1284,7 +1283,8 @@ impl AppendFlag {
     }
 }
 
-// TODO this should not be empy
+// TODO this could match an empty string which will never make sense; it may
+// make sense to forbid such patterns
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".

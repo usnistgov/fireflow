@@ -329,8 +329,6 @@ impl KeywordOptimizer {
                 RootKeywordClass::Cyt => self.found_cyt = true,
                 RootKeywordClass::Tot => self.found_tot = true,
                 RootKeywordClass::Mode => {
-                    // TODO if this fails we should just bug out immediately since
-                    // this is required
                     let m = value
                         .parse::<Mode>()
                         .map(|m| match m {
@@ -341,7 +339,6 @@ impl KeywordOptimizer {
                     self.mode_value = m;
                 }
                 RootKeywordClass::Byteord => {
-                    // TODO ditto Mode
                     if let Ok(res) = value.parse::<ByteOrd2_0>() {
                         self.non_endian_byteord = !res.is_endian();
                     }
@@ -4234,6 +4231,11 @@ mod python {
         TemporalScaleDiagnostic, Trigger, UniGate, Unicode, Vertex,
     };
 
+    use fireflow_types::keywords::{
+        SCALE_DIAGNOSTIC_FORCED, SCALE_DIAGNOSTIC_LOG, SCALE_DIAGNOSTIC_TRIMMED,
+        SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
+        TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
+    };
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -4470,19 +4472,19 @@ mod python {
         }
     }
 
-    // TODO use const crate for these values so they don't get lost
     impl<'py> FromPyObject<'py> for ScaleDiagnostic {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
                 match y.as_str() {
-                    "forced" => Ok(Self::Forced(x)),
-                    "log" => Ok(Self::LogFixed(x)),
-                    "trimmed" => Ok(Self::Trimmed(x)),
-                    "trimmed_log" => Ok(Self::TrimmedLogFixed(x)),
-                    _ => Err(PyValueError::new_err(
-                        "second string must be 'forced', 'log', 'trimmed', \
-                         or 'trimmed_log'",
-                    )),
+                    SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
+                    SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
+                    SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
+                    SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(Self::TrimmedLogFixed(x)),
+                    _ => Err(PyValueError::new_err(format!(
+                        "second string must be '{SCALE_DIAGNOSTIC_FORCED}', \
+                         '{SCALE_DIAGNOSTIC_LOG}', '{SCALE_DIAGNOSTIC_TRIMMED}', \
+                         or '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
+                    ))),
                 }
             } else {
                 Ok(Self::None)
@@ -4490,16 +4492,16 @@ mod python {
         }
     }
 
-    // TODO ditto
     impl<'py> FromPyObject<'py> for TemporalScaleDiagnostic {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
                 match y.as_str() {
-                    "forced" => Ok(Self::Forced(x)),
-                    "trimmed" => Ok(Self::Trimmed(x)),
-                    _ => Err(PyValueError::new_err(
-                        "second string must be 'forced' or 'trimmed'",
-                    )),
+                    TEMPORAL_SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
+                    TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
+                    _ => Err(PyValueError::new_err(format!(
+                        "second string must be '{TEMPORAL_SCALE_DIAGNOSTIC_FORCED}' \
+                         or '{TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED}'"
+                    ))),
                 }
             } else {
                 Ok(Self::None)
@@ -4507,7 +4509,6 @@ mod python {
         }
     }
 
-    // TODO ditto
     impl<'py> IntoPyObject<'py> for ScaleDiagnostic {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
@@ -4516,16 +4517,15 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::None => None,
-                Self::Forced(x) => Some((x, "forced")),
-                Self::LogFixed(x) => Some((x, "log")),
-                Self::Trimmed(x) => Some((x, "trimmed")),
-                Self::TrimmedLogFixed(x) => Some((x, "trimmed_log")),
+                Self::Forced(x) => Some((x, SCALE_DIAGNOSTIC_FORCED)),
+                Self::LogFixed(x) => Some((x, SCALE_DIAGNOSTIC_LOG)),
+                Self::Trimmed(x) => Some((x, SCALE_DIAGNOSTIC_TRIMMED)),
+                Self::TrimmedLogFixed(x) => Some((x, SCALE_DIAGNOSTIC_TRIMMED_LOG)),
             };
             ret.into_bound_py_any(py)
         }
     }
 
-    // TODO ditto
     impl<'py> IntoPyObject<'py> for TemporalScaleDiagnostic {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
@@ -4534,8 +4534,8 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::None => None,
-                Self::Forced(x) => Some((x, "forced")),
-                Self::Trimmed(x) => Some((x, "trimmed")),
+                Self::Forced(x) => Some((x, TEMPORAL_SCALE_DIAGNOSTIC_FORCED)),
+                Self::Trimmed(x) => Some((x, TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED)),
             };
             ret.into_bound_py_any(py)
         }

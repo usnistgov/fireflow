@@ -451,17 +451,8 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AnyStdKey + Copy,
         Self: FromStr,
     {
-        let flag = conf.process_optional_failure;
-        let triflag = flag.as_triflag();
-        match Self::remove_opt(kws, k) {
-            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
-            Err(e) => {
-                if flag.is_demote() {
-                    nonstd.insert_demoted(k.as_std(), e.value.0.clone());
-                }
-                LogResult::new_deferred_switchable3(Self::Outer::default(), e, triflag)
-            }
-        }
+        let res = Self::remove_opt(kws, k);
+        process_opt_key(res, k, nonstd, conf.process_optional_failure)
     }
 
     #[allow(clippy::type_complexity)]
@@ -483,18 +474,8 @@ pub(crate) trait Optional: Sized {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let flag = rconf.process_optional_failure;
-        let triflag = flag.as_triflag();
-        match Self::remove_opt_with(std, k, data, conf.as_ref()) {
-            Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
-            // TODO not dry
-            Err(e) => {
-                if flag.is_demote() {
-                    nonstd.insert_demoted(k.as_std(), e.value.0.clone());
-                }
-                LogResult::new_deferred_switchable3(DiagnosedKeyword::default(), e, triflag)
-            }
-        }
+        let res = Self::remove_opt_with(std, k, data, conf.as_ref());
+        process_opt_key(res, k, nonstd, rconf.process_optional_failure)
     }
 }
 
@@ -582,24 +563,6 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     {
         Self::get_opt(kws, SpecificKey::default())
     }
-
-    // fn get_or_ignore_root_opt(
-    //     kws: &StdKeywords,
-    //     conf: &ReadLayoutConfig,
-    // ) -> DeferredSwitchableError<Self::Outer, AllowOptionalDropping, OptKeyError<Self>>
-    // where
-    //     Self: FromStr,
-    // {
-    //     Self::get_or_ignore_opt(kws, SpecificKey::default(), conf)
-    // }
-
-    // TODO this shouldn't be necessary
-    // fn remove_root_opt(kws: &mut StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
-    // where
-    //     Self: FromStr,
-    // {
-    //     Self::remove_opt(kws, SpecificKey::default())
-    // }
 
     fn remove_root_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where
@@ -718,5 +681,27 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self: fmt::Display,
     {
         (Self::std(i), self.to_string())
+    }
+}
+
+fn process_opt_key<E, I, K, X>(
+    res: Result<X, ParseKeyError<E, K, I>>,
+    k: SpecificKey<K, I>,
+    nonstd: &mut NonStdKeywords,
+    flag: ProcessOptionalFailure,
+) -> DeferredSwitchableError<X, DummyTriFlag, ParseKeyError<E, K, I>>
+where
+    SpecificKey<K, I>: AnyStdKey + Copy,
+    X: Default,
+{
+    let triflag = flag.as_triflag();
+    match res {
+        Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
+        Err(e) => {
+            if flag.is_demote() {
+                nonstd.insert_demoted(k.as_std(), e.value.0.clone());
+            }
+            LogResult::new_deferred_switchable3(X::default(), e, triflag)
+        }
     }
 }

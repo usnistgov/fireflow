@@ -6,6 +6,7 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
     ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
+use crate::fixed_vec::OneOrTwo;
 use crate::header::Version;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
@@ -26,7 +27,7 @@ use crate::validated::keys::{
 
 use fireflow_types::config::ProcessKeywordFailure;
 
-use type_families::{Functor as _, impl_functor, impl_kind1};
+use type_families::Functor as _;
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -37,7 +38,7 @@ use thiserror::Error;
 
 use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
-use std::iter::{self, once, repeat};
+use std::iter::repeat;
 use std::marker::PhantomData;
 use std::num::{NonZeroU64, ParseIntError};
 use std::str::FromStr;
@@ -301,52 +302,6 @@ impl From<u8> for CharType {
 impl CharType {
     fn is_digit_or_minus(self) -> bool {
         matches!(self, Self::Digit | Self::Minus)
-    }
-}
-
-// TODO move this to a more general module
-pub(crate) enum OneOrTwo<X> {
-    One(X),
-    Two(X, X),
-}
-
-impl_kind1!(pub(crate) OneOrTwoFamily, OneOrTwo);
-
-impl_functor!(
-    OneOrTwo,
-    self,
-    mut f,
-    match self {
-        Self::One(x) => OneOrTwo::One(f(x)),
-        Self::Two(x, y) => OneOrTwo::Two(f(x), f(y)),
-    }
-);
-
-impl<X> IntoIterator for OneOrTwo<X> {
-    type Item = X;
-    type IntoIter = iter::Chain<iter::Once<X>, <Option<X> as IntoIterator>::IntoIter>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let (x, y) = self.split();
-        once(x).chain(y)
-    }
-}
-
-impl<X> OneOrTwo<X> {
-    pub(crate) fn split(self) -> (X, Option<X>) {
-        match self {
-            Self::One(x) => (x, None),
-            Self::Two(x, y) => (x, Some(y)),
-        }
-    }
-
-    fn from_results<A, B>(x: Result<A, X>, y: Result<B, X>) -> Result<(A, B), Self> {
-        match (x, y) {
-            (Ok(a), Ok(b)) => Ok((a, b)),
-            (Err(a), Ok(_)) => Err(Self::One(a)),
-            (Ok(_), Err(b)) => Err(Self::One(b)),
-            (Err(a), Err(b)) => Err(Self::Two(a, b)),
-        }
     }
 }
 
@@ -2193,12 +2148,6 @@ mod python {
         }
     }
 
-    // TODO this shouldn't be necessary. The only reason this is required for
-    // the python interface is because the output classes which have segments
-    // in them also have constructors for the sake of completion. These segments
-    // can't be used anywhere so there is no point in validating them, but this
-    // implies we should have yet another type just for "read-only output"
-    // segments
     impl<'py, I, S, T> FromPyObject<'py> for Segment<I, S, T>
     where
         T: FromPyObject<'py> + Zero + Ord,

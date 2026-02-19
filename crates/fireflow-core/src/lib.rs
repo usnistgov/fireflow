@@ -2,6 +2,7 @@ pub mod api;
 pub mod config;
 pub mod core;
 pub mod data;
+mod fixed_vec;
 pub mod header;
 pub mod logging;
 mod macros;

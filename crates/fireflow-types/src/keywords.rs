@@ -61,3 +61,13 @@ pub enum MeasKeywordClass {
 
 pub const BYTEORD_BIG: &str = "big";
 pub const BYTEORD_LITTLE: &str = "little";
+
+// Scale Diagnostic flags
+
+pub const SCALE_DIAGNOSTIC_FORCED: &str = "forced";
+pub const SCALE_DIAGNOSTIC_LOG: &str = "log";
+pub const SCALE_DIAGNOSTIC_TRIMMED: &str = "trimmed";
+pub const SCALE_DIAGNOSTIC_TRIMMED_LOG: &str = "trimmed_log";
+
+pub const TEMPORAL_SCALE_DIAGNOSTIC_FORCED: &str = "forced";
+pub const TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED: &str = "trimmed";

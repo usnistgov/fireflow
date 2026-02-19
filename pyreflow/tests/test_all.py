@@ -3234,6 +3234,46 @@ class TestConfig:
             assert out.flat_diagnostics.header_supp.supp_text == comp
 
     @all_versions
+    def test_allow_dup_supp_text_other(self, version: str, tmp_path: Path) -> None:
+        # STEXT and OTHER are duplicated, keep STEXT
+        p = tmp_path / "thing.fcs"
+        stext_coords = (117, 163)
+        stext = b"/This/is/what/it/sounds/like/when/devs/cry/.../"
+        self.mock_header_text(
+            p,
+            version,
+            other_segs=[stext_coords],
+            stext=stext_coords,
+            rest=stext,
+        )
+
+        Supp = tuple[Segment | None, Segment] | None
+        Ret = tuple[Supp, list[Segment]]
+
+        def go(f: TriFlag) -> Ret:
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
+            h = out.flat_diagnostics.header_supp
+            o = h.header.segments.other_segs
+            return (h.supp_text, None if o is None else o[0])
+
+        # no supp text in 2.0 so no error
+        if version == "FCS2.0":
+            comp0: Ret = (None, [stext_coords])
+            self._test_tri_flag_nofail(go, comp0)
+        else:
+            comp1: Ret = ((stext_coords, stext_coords), [(0, 0)])
+            self._test_tri_flag(go, comp1, [pf.FileLayoutError])
+
+            out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
+            assert out.flat_diagnostics.header_supp.supp_text == (None, stext_coords)
+            assert (
+                out.flat_diagnostics.header_supp.header.segments.other_segs is not None
+            )
+            assert out.flat_diagnostics.header_supp.header.segments.other_segs[0] == [
+                stext_coords
+            ]
+
+    @all_versions
     def test_delim_escaped(self, version: str, tmp_path: Path) -> None:
         # NOTE more cases are tested internally in rust, this is to ensure the
         # python api works as indended

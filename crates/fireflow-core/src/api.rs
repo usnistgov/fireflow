@@ -662,12 +662,16 @@ pub enum STextSegmentWarning {
 
 /// Error when supplement and primary TEXT offsets are identity
 #[derive(Error, Debug, new)]
-#[error("{location} and supplemental TEXT have identical offsets: {offsets}")]
+#[error(
+    "{location} and supplemental TEXT have identical offsets, keeping {}: {offsets}",
+    if self.keep_supp { "latter" } else { "former" }
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DuplicateSTextError {
     offsets: UncorrectedSegment,
     location: AnyRegion,
+    keep_supp: bool,
 }
 
 /// Warning when parsing multiple [`FlatDatasetOutput`]s
@@ -1444,7 +1448,6 @@ impl SplitTEXTOutputInner {
         let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
             .switchable_into_commutative();
 
-        // TODO these should be ignore regardless
         let blank_key_errors = values_with_blank_keys
             .iter()
             .map(|k| BlankKeyError::new(tk, k.clone()));
@@ -2008,9 +2011,10 @@ where
     res.and_then_deferred(|maybe| {
         if let Some((mut seg_stxt, uncorr_stxt)) = maybe {
             // Return uncorrected segments without any processing if ignored
-            let uncorr_only = SuppTEXTResult::Ignored(uncorr_stxt);
+            let present = SuppTEXTResult::Present(seg_stxt, uncorr_stxt);
+            let ignored = SuppTEXTResult::Ignored(uncorr_stxt);
             if hconf.ignore_supp_text.is_set() {
-                return LogResult::new_ok(uncorr_only);
+                return LogResult::new_ok(ignored);
             }
 
             // Offsets found, check for validity
@@ -2025,8 +2029,8 @@ where
                 // TODO it may be necessary to configure which segment to keep
                 // in the future.
                 let flag = hconf.allow_duplicated_supp_text;
-                let e = DuplicateSTextError::new(uncorr_stxt, loc);
-                SwitchableErrorsResult::new_switchable3(uncorr_only, uncorr_only, e, flag)
+                let e = DuplicateSTextError::new(uncorr_stxt, loc, false);
+                SwitchableErrorsResult::new_switchable3(ignored, ignored, e, flag)
                     .map_switchable_errors(STextSegmentError::from)
                     .switchable_into_commutative()
                     .map_commutative_warnings(STextSegmentWarning::from)
@@ -2034,21 +2038,31 @@ where
 
             if seg_stxt.is_empty() {
                 // supp TEXT is empty, return as-is
-                LogResult::new_ok(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
+                LogResult::new_ok(present)
             } else if uncorr_ptxt == uncorr_stxt {
                 // Primary and supp are identical, keep primary
                 go(AnyRegion::Text)
             } else if uncorr_ptxt == uncorr_anal {
                 // Supp and ANALYSIS are the same, keep latter
                 go(AnyRegion::Analysis)
-            } else if uncorr_others.contains(&uncorr_stxt) {
-                // Supp and one OTHER offset are the same, keep the OTHER
-                // ASSUME all other offsets are unique.
+            } else if let Some(i) = uncorr_others.iter().position(|s| s == &uncorr_stxt) {
+                // Supp and one OTHER offset are the same, keep Supp and remove
+                // matching OTHER with the assumption that Supp is actually
+                // a real supp text and not some binary blob.
                 //
-                // TODO this will do the wrong thing for some files, see
-                // FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an example which
-                // actually has supp TEXT
-                go(AnyRegion::Other)
+                // TODO this assumption can be checked by reading the segment
+                // but this would make this function way more complex.
+                //
+                // See FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an example of
+                // this
+                // LogResult::new_ok(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
+                header.segments.remove_other(i);
+                let flag = hconf.allow_duplicated_supp_text;
+                let e = DuplicateSTextError::new(uncorr_stxt, AnyRegion::Other, true);
+                SwitchableErrorsResult::new_switchable3(present, present, e, flag)
+                    .map_switchable_errors(STextSegmentError::from)
+                    .switchable_into_commutative()
+                    .map_commutative_warnings(STextSegmentWarning::from)
             } else {
                 // Supp not identical to anything else, check for overlaps and
                 // keep if there are none. ASSUME the HEADER segments have
@@ -2061,8 +2075,8 @@ where
                     .map(STextSegmentError::from);
                 // TODO throw warnings sometimes for these?
                 ErrorsResult::new_err_from_iter(es, ())
-                    .set_ok_value(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
-                    .set_err_value(uncorr_only)
+                    .set_ok_value(present)
+                    .set_err_value(ignored)
                     .nowarn_into_warn()
             }
         } else {

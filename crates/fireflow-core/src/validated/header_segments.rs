@@ -162,6 +162,15 @@ impl ParsedHeaderSegments {
         }
     }
 
+    /// Set OTHER segment at index to empty.
+    ///
+    /// Will panic if out of bounds.
+    pub(crate) fn remove_other(&mut self, i: usize) {
+        if let Some((xs, _)) = self.other.as_mut() {
+            xs[i] = Segment::default();
+        }
+    }
+
     fn as_others(&self) -> impl Iterator<Item = &OtherSegment20> {
         self.other.iter().flat_map(|(os, _)| os.iter())
     }

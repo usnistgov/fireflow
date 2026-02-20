@@ -2990,7 +2990,7 @@ class TestConfig:
     )
     def test_other_corrections(
         self,
-        version: str,
+        version: pt.FCSVersion,
         other_segs: Any,
         other_corrections: list[tuple[int, int]],
         tmp_path: Path,
@@ -3025,7 +3025,7 @@ class TestConfig:
     )
     def test_max_other(
         self,
-        version: str,
+        version: pt.FCSVersion,
         max_other: int | None,
         other_segs: Any,
         tmp_path: Path,
@@ -3048,7 +3048,7 @@ class TestConfig:
     @pytest.mark.parametrize("other_width", [8, 11, 13, 17, 20])
     def test_guess_other_width(
         self,
-        version: str,
+        version: pt.FCSVersion,
         other_width: int,
         tmp_path: Path,
     ) -> None:
@@ -3101,7 +3101,7 @@ class TestConfig:
         assert out.segments.other_segs[1] == other_width
 
     @all_versions
-    def test_squish_offsets(self, version: str, tmp_path: Path) -> None:
+    def test_squish_offsets(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 58), d=(59, 0), rest=b"/")
 
@@ -3119,7 +3119,7 @@ class TestConfig:
     @all_versions
     @pytest.mark.parametrize("data_end, analysis_end", [(0, -1), (-1, 0)])
     def test_allow_pseudoempty_req_header(
-        self, version: str, data_end: int, analysis_end: int, tmp_path: Path
+        self, version: pt.FCSVersion, data_end: int, analysis_end: int, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(
@@ -3136,7 +3136,7 @@ class TestConfig:
     @all_versions
     @pytest.mark.parametrize("other_end", [0, -1])
     def test_allow_pseudoempty_other(
-        self, version: str, other_end: int, tmp_path: Path
+        self, version: pt.FCSVersion, other_end: int, tmp_path: Path
     ) -> None:
         t0 = 58 + 8 * 2
         p = tmp_path / "thing.fcs"
@@ -3153,7 +3153,9 @@ class TestConfig:
         assert out.segments.other_segs[0][0] == (0, 0)
 
     @all_versions
-    def test_truncate_offset_limit(self, version: str, tmp_path: Path) -> None:
+    def test_truncate_offset_limit(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 59), rest=b"/")
 
@@ -3164,7 +3166,9 @@ class TestConfig:
         assert out.segments.text_seg == (58, 58)
 
     @all_versions
-    def test_overlap_correction_limit(self, version: str, tmp_path: Path) -> None:
+    def test_overlap_correction_limit(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 59), d=(59, 62), rest=b"/data")
 
@@ -3180,7 +3184,7 @@ class TestConfig:
     # TODO test version_override
 
     @all_versions
-    def test_supp_text_correction(self, version: str, tmp_path: Path) -> None:
+    def test_supp_text_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=(0, -1))
 
@@ -3203,7 +3207,7 @@ class TestConfig:
             assert go((0, 1)) == ((0, 0), (0, -1))
 
     @all_versions
-    def test_nextdata_correction(self, version: str, tmp_path: Path) -> None:
+    def test_nextdata_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, nextdata=-1)
 
@@ -3213,7 +3217,9 @@ class TestConfig:
         pf.api.fcs_read_flat_text(p, nextdata_correction=1)
 
     @all_versions
-    def test_allow_dup_supp_text_exact(self, version: str, tmp_path: Path) -> None:
+    def test_allow_dup_supp_text_exact(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         # exactly equal to TEXT
         text_coords = (58, 98)
@@ -3234,7 +3240,9 @@ class TestConfig:
             assert out.flat_diagnostics.header_supp.supp_text == comp
 
     @all_versions
-    def test_allow_dup_supp_text_other(self, version: str, tmp_path: Path) -> None:
+    def test_allow_dup_supp_text_other(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         # STEXT and OTHER are duplicated, keep STEXT
         p = tmp_path / "thing.fcs"
         stext_coords = (117, 163)
@@ -3274,7 +3282,7 @@ class TestConfig:
             ]
 
     @all_versions
-    def test_delim_escaped(self, version: str, tmp_path: Path) -> None:
+    def test_delim_escaped(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         # NOTE more cases are tested internally in rust, this is to ensure the
         # python api works as indended
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/aaa//bbb/bbb/ccc/ddd/"
@@ -3293,7 +3301,7 @@ class TestConfig:
         go("unescaped", 2, 1)
 
     @all_versions
-    def test_non_ascii_delim(self, version: str, tmp_path: Path) -> None:
+    def test_non_ascii_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, delim=0)
 
@@ -3306,7 +3314,9 @@ class TestConfig:
     # TODO repeat this for supp
 
     @all_versions
-    def test_allow_missing_final_delim(self, version: str, tmp_path: Path) -> None:
+    def test_allow_missing_final_delim(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3318,7 +3328,7 @@ class TestConfig:
         self._test_tri_flag(go, True, [pf.FileLayoutError])
 
     @all_versions
-    def test_allow_non_unique(self, version: str, tmp_path: Path) -> None:
+    def test_allow_non_unique(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$NEXTDATA/666/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3330,7 +3340,9 @@ class TestConfig:
         self._test_tri_flag(go, [("$NEXTDATA", "666")], [pf.ParseKeyError])
 
     @all_versions
-    def test_allow_non_unique_nonstd(self, version: str, tmp_path: Path) -> None:
+    def test_allow_non_unique_nonstd(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/slayer/42/slayer/420/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3342,7 +3354,7 @@ class TestConfig:
         self._test_tri_flag(go, [("slayer", "420")], [pf.ParseKeyError])
 
     @all_versions
-    def test_allow_odd(self, version: str, tmp_path: Path) -> None:
+    def test_allow_odd(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3355,7 +3367,7 @@ class TestConfig:
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
     @all_versions
-    def test_allow_empty_keys(self, version: str, tmp_path: Path) -> None:
+    def test_allow_empty_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//herman/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3378,7 +3390,7 @@ class TestConfig:
         ],
     )
     def test_allow_delim_at_boundary(
-        self, version: str, tmp_path: Path, text: bytes
+        self, version: pt.FCSVersion, tmp_path: Path, text: bytes
     ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3393,7 +3405,7 @@ class TestConfig:
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
     @all_versions
-    def test_use_latin1(self, version: str, tmp_path: Path) -> None:
+    def test_use_latin1(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3405,7 +3417,7 @@ class TestConfig:
         out.kws.nonstd["tool"] == "Ænima"
 
     @all_versions
-    def test_allow_non_ascii_keys(self, version: str, tmp_path: Path) -> None:
+    def test_allow_non_ascii_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/t\0\0l/Aenima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3418,7 +3430,9 @@ class TestConfig:
         self._test_tri_flag(go, comp, [pf.ParseKeyError])
 
     @all_versions
-    def test_allow_non_utf8_values(self, version: str, tmp_path: Path) -> None:
+    def test_allow_non_utf8_values(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3431,7 +3445,9 @@ class TestConfig:
         self._test_tri_flag(go, comp, [pf.ParseKeyError])
 
     @all_versions
-    def test_allow_missing_supp_text(self, version: str, tmp_path: Path) -> None:
+    def test_allow_missing_supp_text(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=None)
 
@@ -3447,7 +3463,9 @@ class TestConfig:
             self._test_tri_flag(go, None, [pf.ParseKeywordValueError] * 2)
 
     @all_versions
-    def test_allow_supp_text_own_delim(self, version: str, tmp_path: Path) -> None:
+    def test_allow_supp_text_own_delim(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         text = b"/$BEGINSTEXT/101/$ENDSTEXT/118/$NEXTDATA/0/\\microsoft\\ntfs:(\\"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 100), rest=text)
@@ -3468,7 +3486,9 @@ class TestConfig:
             self._test_tri_flag(go, comp1, [pf.FileLayoutError])
 
     @all_versions
-    def test_allow_missing_nextdata(self, version: str, tmp_path: Path) -> None:
+    def test_allow_missing_nextdata(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, nextdata=None)
 
@@ -3479,7 +3499,9 @@ class TestConfig:
         self._test_tri_flag(go, None, [pf.ParseKeywordValueError])
 
     @all_versions
-    def test_trim_value_whitespace(self, version: str, tmp_path: Path) -> None:
+    def test_trim_value_whitespace(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": " "})
 
@@ -3514,7 +3536,7 @@ class TestConfig:
     )
     def test_trim_text_end_extra_blank(
         self,
-        version: str,
+        version: pt.FCSVersion,
         delim: bool,
         extra: bytes,
         errors: list[type],
@@ -3537,7 +3559,7 @@ class TestConfig:
         go(True)
 
     @all_versions
-    def test_ignore_standard_keys(self, version: str, tmp_path: Path) -> None:
+    def test_ignore_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": "T1000"})
 
@@ -3545,7 +3567,7 @@ class TestConfig:
         assert out.flat_diagnostics.ignored_standard_keywords == [("$CYT", "T1000")]
 
     @all_versions
-    def test_rename_standard_keys(self, version: str, tmp_path: Path) -> None:
+    def test_rename_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         pub = "eprint.iacr.org/2025/1237.pdf"
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": pub}, delim=10)
@@ -3554,7 +3576,7 @@ class TestConfig:
         assert out.kws.std["$CITE"] == pub
 
     @all_versions
-    def test_promote_to_standard(self, version: str, tmp_path: Path) -> None:
+    def test_promote_to_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"PLUTO": "planet"})
 
@@ -3562,7 +3584,7 @@ class TestConfig:
         assert out.kws.std["$PLUTO"] == "planet"
 
     @all_versions
-    def test_demote_from_standard(self, version: str, tmp_path: Path) -> None:
+    def test_demote_from_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$BLUETOOTH": "reliable"})
 
@@ -3570,7 +3592,7 @@ class TestConfig:
         assert out.kws.nonstd["BLUETOOTH"] == "reliable"
 
     @all_versions
-    def test_replace_std_key_vals(self, version: str, tmp_path: Path) -> None:
+    def test_replace_std_key_vals(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$DARTH_VADER": "evil"})
 
@@ -3580,7 +3602,7 @@ class TestConfig:
         assert out.kws.std["$DARTH_VADER"] == "misunderstood"
 
     @all_versions
-    def test_append_std_kws(self, version: str, tmp_path: Path) -> None:
+    def test_append_std_kws(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version)
 
@@ -3588,7 +3610,7 @@ class TestConfig:
         assert out.kws.std["$CRAZY"] == "genius"
 
     @all_versions
-    def test_sub_standard_keys(self, version: str, tmp_path: Path) -> None:
+    def test_sub_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$OP": "Megadeath"})
 
@@ -3598,7 +3620,7 @@ class TestConfig:
         assert out.kws.std["$OP"] == "Megadeth"
 
     @all_versions
-    def test_dedup_meas_names(self, version: str, tmp_path: Path) -> None:
+    def test_dedup_meas_names(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "poppy",
             "$P1E": "0,0",
@@ -3624,7 +3646,9 @@ class TestConfig:
         self._test_config_flag(go, ["poppy~0", "poppy~1"], [pf.RelationalError])
 
     @all_versions
-    def test_trim_intra_value_whitespace(self, version: str, tmp_path: Path) -> None:
+    def test_trim_intra_value_whitespace(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         kws = {"$P1N": "BTC", "$P1E": "0, 0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -3640,7 +3664,7 @@ class TestConfig:
         self._test_config_flag(go, None, [pf.ParseKeywordValueError])
 
     @all_versions
-    def test_time_meas_pattern(self, version: str, tmp_path: Path) -> None:
+    def test_time_meas_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {"$P1N": "T!ME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         if version != "FCS2.0":
             kws["$TIMESTEP"] = "1.0"
@@ -3663,7 +3687,7 @@ class TestConfig:
         assert go("T!ME") == "T!ME"
 
     @all_versions
-    def test_allow_missing_time(self, version: str, tmp_path: Path) -> None:
+    def test_allow_missing_time(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {"$P1N": "nottimeatall", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -3679,7 +3703,7 @@ class TestConfig:
         self._test_tri_flag(go, True, [pf.RelationalError])
 
     @all_versions
-    def test_add_missing_timestep(self, version: str, tmp_path: Path) -> None:
+    def test_add_missing_timestep(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {"$P1N": "TIME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -3706,44 +3730,115 @@ class TestConfig:
             assert go(1.0) == (1.0, True)
 
     @all_versions
-    def test_force_linear_scale_time(self, version: str, tmp_path: Path) -> None:
-        kws = {"$P1N": "TIME", "$P1E": "1,2", "$P1B": "32", "$P1R": "32"}
+    @pytest.mark.parametrize("datatype", ["A", "F", "D", "I"])
+    def test_force_linear_scale(
+        self, version: pt.FCSVersion, datatype: pt.Datatype, tmp_path: Path
+    ) -> None:
+        if datatype == "A":
+            width = "10"
+        elif datatype == "D":
+            width = "64"
+        else:
+            width = "32"
+
+        if datatype == "D" and version in ["FCS2.0", "FCS3.0"]:
+            byteord = list(range(1, 9))
+        else:
+            byteord = list(range(1, 5))
+
+        kws = {
+            "$P1N": "dgx",
+            "$P1E": "1,2",
+            "$P1B": width,
+            "$P1R": "32",
+            "$P2N": "mac_mini",
+            "$P2E": "1,3",
+            "$P2B": width,
+            "$P2R": "32",
+            "$P3N": "TIME",
+            "$P3E": "1,4",
+            "$P3B": width,
+            "$P3R": "32",
+        }
         if version != "FCS2.0":
             kws["$TIMESTEP"] = "1.0"
         p = tmp_path / "thing.fcs"
-        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
+        self.mock_header_std_text(
+            p,
+            version,
+            kws=kws,
+            par=3,
+            tot=0,
+            byteord=byteord,
+            datatype=datatype,
+        )
 
-        def go(f: pt.ForceLinearScale) -> None:
-            _, _ = pf.api.fcs_read_std_text(
+        Scales = list[tuple[float, float] | float]
+        Diags = list[pt.ScaleDiagnostic]
+
+        def go(f: pt.ForceLinearScale) -> tuple[Scales, Diags]:
+            core, uncore = pf.api.fcs_read_std_text(
                 p,
                 force_linear_scale=f,
                 disallow_deprecated="silent",
             )
+            ss = (
+                [
+                    s
+                    if isinstance(s, tuple)
+                    and len(s) == 2
+                    and isinstance(s[0], float)
+                    and isinstance(s[1], float)
+                    else (s if isinstance(s, float) else 1.0)
+                    for s in core.all_scales
+                ]
+                if isinstance(core, pf.CoreTEXT2_0)
+                else core.all_scale_transforms
+            )
+            ds = uncore.std_diagnostics.scale
+            return (ss, ds)
 
+        # All combinations should trigger one error when parsing TIME; this is
+        # a keyword parsing error which precludes checking the other two
+        # measurements in the case of non-int and F/D/A datatype since this only
+        # happens after all keywords are successfully parsed and we have a full
+        # layout to check
         with pytest.RaisesGroup(pf.ParseKeywordValueError):
             go("none")
-        go("time_only")
+
+        int_result = ([(1.0, 2.0), (1.0, 3.0), 1.0], [None, None, ("1,4", "forced")])
+        non_int_result = (
+            [1.0, 1.0, 1.0],
+            [("1,2", "forced"), ("1,3", "forced"), ("1,4", "forced")],
+        )
+
+        if datatype == "I":
+            # Simply fixing time for integer layouts should result in a valid
+            # layout
+            assert go("time_only") == int_result
+        else:
+            # For non-int layouts, the non-time measurement will trigger
+            # relational errors (one for each measurement) since these datatype
+            # do not allow log-scaling
+            with pytest.RaisesGroup(
+                pf.RelationalError, pf.RelationalError, flatten_subgroups=True
+            ):
+                assert go("time_only")
+
+        if datatype == "I":
+            # This should do the same thing as just fixing time above
+            assert go("all_non_int") == int_result
+        else:
+            # This should result in valid layout by forcing all scales to linear
+            assert go("all_non_int") == non_int_result
+
+        # This should work in all cases; everything should be forced
+        assert go("all") == non_int_result
 
     @all_versions
-    def test_force_linear_scale_not_time(self, version: str, tmp_path: Path) -> None:
-        kws = {"$P1N": "toothpicks", "$P1E": "1,2", "$P1B": "32", "$P1R": "32"}
-        p = tmp_path / "thing.fcs"
-        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0, datatype="F")
-
-        def go(f: pt.ForceLinearScale) -> None:
-            _, _ = pf.api.fcs_read_std_text(
-                p,
-                force_linear_scale=f,
-                time_meas_pattern=None,
-                disallow_deprecated="silent",
-            )
-
-        with pytest.RaisesGroup(pf.RelationalError, flatten_subgroups=True):
-            go("none")
-        go("all")
-
-    @all_versions
-    def test_ignore_time_optical_keys(self, version: str, tmp_path: Path) -> None:
+    def test_ignore_time_optical_keys(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         jiggawatt = "10000000000000000000000000000"
         kws = {
             "$P1N": "TIME",
@@ -3805,7 +3900,7 @@ class TestConfig:
     )
     def test_spillover_meas_mode(
         self,
-        version: str,
+        version: pt.FCSVersion,
         spillover: str,
         p1n: str,
         p2n: str,
@@ -3856,7 +3951,7 @@ class TestConfig:
                 go("indexed")
 
     @all_versions
-    def test_date_pattern(self, version: str, tmp_path: Path) -> None:
+    def test_date_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -3881,7 +3976,7 @@ class TestConfig:
         assert go("%m.%d.%Y")
 
     @all_versions
-    def test_time_pattern(self, version: str, tmp_path: Path) -> None:
+    def test_time_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -3906,7 +4001,7 @@ class TestConfig:
         assert go("%H_%M_%S")
 
     @all_versions
-    def test_datetime_pattern(self, version: str, tmp_path: Path) -> None:
+    def test_datetime_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -3940,7 +4035,7 @@ class TestConfig:
                 assert go("%Y_%m_%d_%H_%M_%S.%f%z")
 
     @all_versions
-    def test_last_modified(self, version: str, tmp_path: Path) -> None:
+    def test_last_modified(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -3973,7 +4068,7 @@ class TestConfig:
                 assert go("%Y_%m_%d_%H_%M_%S")
 
     @all_versions
-    def test_allow_other_feature(self, version: str, tmp_path: Path) -> None:
+    def test_allow_other_feature(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         feat = "black_hole_density"
         kws = {
             "$P1N": "xyz",
@@ -4009,7 +4104,9 @@ class TestConfig:
                 assert go(True) == (None, None)
 
     @all_versions
-    def test_process_pseudostandard(self, version: str, tmp_path: Path) -> None:
+    def test_process_pseudostandard(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         val = "I mean, camaraderie"
         kws = {
             "$P1N": "xyz",
@@ -4040,7 +4137,7 @@ class TestConfig:
     # TODO also test $GATE hyper_par
 
     @all_versions
-    def test_process_hyper_par(self, version: str, tmp_path: Path) -> None:
+    def test_process_hyper_par(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         val = "uae_sightings"
         kws = {
             "$P1N": "xyz",
@@ -4069,7 +4166,9 @@ class TestConfig:
         )
 
     @all_versions
-    def test_process_other_version(self, version: str, tmp_path: Path) -> None:
+    def test_process_other_version(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         val = "42,bla,blaa,blaaa"
         kws = {
             "$P1N": "xyz",
@@ -4105,7 +4204,9 @@ class TestConfig:
             assert go("drop_silent") == ({}, {})
 
     @all_versions
-    def test_process_extra_timestep(self, version: str, tmp_path: Path) -> None:
+    def test_process_extra_timestep(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         val = "1.618033988749"
         kws = {
             "$P1N": "xyz",
@@ -4146,7 +4247,9 @@ class TestConfig:
                 assert go("drop_silent") == ({}, None)
 
     @all_versions
-    def test_fix_log_scale_offsets(self, version: str, tmp_path: Path) -> None:
+    def test_fix_log_scale_offsets(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "2,0",
@@ -4168,7 +4271,7 @@ class TestConfig:
         self._test_config_flag(go, True, [pf.ParseKeywordValueError])
 
     @all_versions
-    def test_disallow_localtime(self, version: str, tmp_path: Path) -> None:
+    def test_disallow_localtime(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4199,7 +4302,7 @@ class TestConfig:
                 assert not go(True)
 
     @all_versions
-    def test_non_std_meas_pat(self, version: str, tmp_path: Path) -> None:
+    def test_non_std_meas_pat(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         extra = {"#P1LASER": "42pm"}
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", **extra}
         p = tmp_path / "thing.fcs"
@@ -4221,7 +4324,7 @@ class TestConfig:
         assert go("^#P%n") == ({}, extra)
 
     @all_versions
-    def test_text_data_correction(self, version: str, tmp_path: Path) -> None:
+    def test_text_data_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
@@ -4243,7 +4346,9 @@ class TestConfig:
             assert go((0, 1)) == (0, 0)
 
     @all_versions
-    def test_text_analysis_correction(self, version: str, tmp_path: Path) -> None:
+    def test_text_analysis_correction(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=(0, -1))
 
@@ -4270,7 +4375,9 @@ class TestConfig:
             assert go((0, 1)) == (0, 0)
 
     @all_versions
-    def test_ignore_text_data_offsets(self, version: str, tmp_path: Path) -> None:
+    def test_ignore_text_data_offsets(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
@@ -4289,7 +4396,9 @@ class TestConfig:
             self._test_config_flag(go, (0, 0), [pf.FileLayoutError])
 
     @all_versions
-    def test_ignore_text_analysis_offsets(self, version: str, tmp_path: Path) -> None:
+    def test_ignore_text_analysis_offsets(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
 
@@ -4314,7 +4423,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_header_text_offset_mismatch_data(
-        self, version: str, tmp_path: Path
+        self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
 
@@ -4322,7 +4431,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_header_text_offset_mismatch_analysis(
-        self, version: str, tmp_path: Path
+        self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
 
@@ -4330,7 +4439,7 @@ class TestConfig:
 
     @staticmethod
     def _test_allow_header_text_offset_mismatch(
-        path: Path, version: str, is_analysis: bool
+        path: Path, version: pt.FCSVersion, is_analysis: bool
     ) -> None:
         if version == "FCS2.0":
             header = (0, 0)
@@ -4390,7 +4499,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_missing_required_offsets_data(
-        self, version: str, tmp_path: Path
+        self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=None)
@@ -4423,7 +4532,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_missing_required_offsets_analysis(
-        self, version: str, tmp_path: Path
+        self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=None)
@@ -4455,7 +4564,9 @@ class TestConfig:
                 assert go("silent") == (0, 0)
 
     @all_versions
-    def test_process_optional_failure(self, version: str, tmp_path: Path) -> None:
+    def test_process_optional_failure(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         val = "January Nine-teen twenty12"
         kws = {"$DATE": val}
@@ -4475,7 +4586,9 @@ class TestConfig:
         self._test_process_kw_fail_flag(go, comp, {}, [pf.ParseKeywordValueError])
 
     @all_versions
-    def test_int_widths_from_byteord(self, version: str, tmp_path: Path) -> None:
+    def test_int_widths_from_byteord(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "24", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1)
@@ -4503,7 +4616,7 @@ class TestConfig:
             assert go(False) == 3
 
     @all_versions
-    def test_int_byteord_override(self, version: str, tmp_path: Path) -> None:
+    def test_int_byteord_override(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1, byteord=[1, 2, 3])
@@ -4537,7 +4650,9 @@ class TestConfig:
                 assert go([1, 2, 3, 4])
 
     @all_versions
-    def test_disallow_range_truncation(self, version: str, tmp_path: Path) -> None:
+    def test_disallow_range_truncation(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
         p = tmp_path / "thing.fcs"
         val = "10000000000000000000000000000000000000000000000000000000000000000"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": val}
@@ -4569,7 +4684,7 @@ class TestConfig:
         ],
     )
     def test_allow_uneven_event_width(
-        self, version: str, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
@@ -4604,7 +4719,7 @@ class TestConfig:
         ],
     )
     def test_allow_tot_mismatch(
-        self, version: str, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
@@ -4638,7 +4753,7 @@ class TestConfig:
         ],
     )
     def test_truncate_event_values_int(
-        self, version: str, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
@@ -4686,7 +4801,7 @@ class TestConfig:
         ],
     )
     def test_truncate_event_values_float(
-        self, version: str, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}

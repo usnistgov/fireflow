@@ -99,7 +99,6 @@ class _ReadStdKeywordsConfig(BaseModel):
     process_hyper_par: pft.ProcessKeywordFailure = "error"
     process_other_version: pft.ProcessKeywordFailure = "error"
     process_extra_timestep: pft.ProcessKeywordFailure = "error"
-    disallow_deprecated: pft.TriFlag = _DEFAULT_TRIFLAG
     fix_log_scale_offsets: bool = False
     nonstandard_measurement_pattern: str | None = "^P%n"
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named"
@@ -117,6 +116,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
     disallow_range_truncation: pft.TriFlag = _DEFAULT_TRIFLAG
+    disallow_deprecated: pft.TriFlag = _DEFAULT_TRIFLAG
 
 
 class _ReadEventsConfig(BaseModel):

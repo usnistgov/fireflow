@@ -669,9 +669,10 @@ pub struct ReadStdKeywordsConfig {
     /// specify $TIMESTEP.
     pub add_missing_timestep: Option<Timestep>,
 
-    // TODO add level to force this only on float layouts, which is where
-    // this problem is common
-    /// Force $PnE to be linear (`"0,0"`).
+    /// Force $PnE to be linear (`"0,0"`) if it is not already.
+    ///
+    /// This may be necessary for some files which set $DATATYPE to be `"F"` or
+    /// `"D"` which do not allow log scaling.
     pub force_linear_scale: ForceLinearScale,
 
     /// Ignore optical keywords in time channel.
@@ -774,11 +775,6 @@ pub struct ReadStdKeywordsConfig {
     /// to `true` will suppress the resulting error, but one should make sure
     /// that time is indeed really missing.
     pub process_extra_timestep: ProcessExtraTimestep,
-
-    /// If `true`, throw an error if TEXT includes any deprecated features.
-    ///
-    /// If `false`, merely throw a warning.
-    pub disallow_deprecated: DisallowDeprecated,
 
     /// If `true`, try to fix log-scale $PnE and $GnE keywords.
     ///
@@ -920,6 +916,11 @@ pub struct ReadDataKeywordsConfig {
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
     pub disallow_range_truncation: DisallowRangeTrunc,
+
+    /// If `true`, throw an error if TEXT includes any deprecated features.
+    ///
+    /// If `false`, merely throw a warning.
+    pub disallow_deprecated: DisallowDeprecated,
 }
 
 /// Specific instructions for reading events from DATA segment
@@ -1671,6 +1672,7 @@ impl HasStrategy for ReadStdKeywordsConfig {
     fn with_scalpal(&mut self) {
         self.dedup_measurement_names = true.into();
         self.add_missing_timestep = Some(PositiveFloat::one().into());
+        self.force_linear_scale = ForceLinearScale::AllNonInt;
         self.trim_intra_value_whitespace = true.into();
         self.spillover_measurement_mode = SpilloverMeasurementMode::Guess;
         self.allow_other_feature = true.into();
@@ -1692,9 +1694,6 @@ impl HasStrategy for ReadStdKeywordsConfig {
         self.process_other_version = ProcessKeywordFailure::DropWarn.into();
         self.process_extra_timestep = ProcessKeywordFailure::DropWarn.into();
         self.allow_missing_time = TriFlag::True.into();
-        // This will make $PnE compatible with all layouts at the expense of
-        // destroying any log-scaling information.
-        self.force_linear_scale = ForceLinearScale::All;
     }
 }
 

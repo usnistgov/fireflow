@@ -188,6 +188,7 @@ impl_multiflag!(
 
 pub const FORCE_LINEAR_NONE_LEVEL: &str = NONE_LEVEL;
 pub const FORCE_LINEAR_TIME_LEVEL: &str = "time_only";
+pub const FORCE_LINEAR_NON_INT_LEVEL: &str = "all_non_int";
 pub const FORCE_LINEAR_ALL_LEVEL: &str = ALL_LEVEL;
 
 impl_multiflag!(
@@ -199,17 +200,19 @@ impl_multiflag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ForceLinearScaleError,
     /// Do not force.
-    None,     FORCE_LINEAR_NONE_LEVEL;
+    None,      FORCE_LINEAR_NONE_LEVEL;
     /// Only force the temporal measurement.
-    TimeOnly, FORCE_LINEAR_TIME_LEVEL;
+    TimeOnly,  FORCE_LINEAR_TIME_LEVEL;
+    /// Force all non-integer measurements and temporal measurement.
+    AllNonInt, FORCE_LINEAR_NON_INT_LEVEL;
     /// Force all measurements.
-    All,      FORCE_LINEAR_ALL_LEVEL;
+    All,       FORCE_LINEAR_ALL_LEVEL;
 );
 
 impl ForceLinearScale {
     #[must_use]
     pub fn time_selected(self) -> bool {
-        matches!(self, Self::TimeOnly | Self::All)
+        !matches!(self, Self::None)
     }
 }
 

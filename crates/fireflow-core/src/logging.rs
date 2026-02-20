@@ -2248,6 +2248,36 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
             Fail(x) => Fail(x.nowarn_into_warn().fmap_once(fp)),
         }
     }
+
+    pub(crate) fn nowarn_extend_warning_or_error3<Fe, Fp, X, M>(
+        self,
+        msg: M,
+        fp: Fp,
+        fe: Fe,
+        flag: X,
+    ) -> WarningAndErrorsResult<V, P, M, E>
+    where
+        X: TriErrorFlag,
+        Fp: FnOnce(V) -> P,
+        Fe: FnOnce(M) -> E,
+        EC: Extend<E> + IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+    {
+        match flag.is_error() {
+            None => self.nowarn_into_warn().repack_errors(),
+            Some(true) => match self {
+                Succ(s) => Fail(Failure::new_from_one(fe(msg), fp(s.value))),
+                Fail(e) => {
+                    let mut es = e.errors.repack();
+                    es.extend(iter::once(fe(msg)));
+                    Fail(Failure::new_from_many(es, e.value))
+                }
+            },
+            Some(false) => match self {
+                Succ(s) => Succ(s.set_warnings(Some(msg))),
+                Fail(e) => Fail(Failure::new(Some(msg), e.errors.repack(), e.value)),
+            },
+        }
+    }
 }
 
 //

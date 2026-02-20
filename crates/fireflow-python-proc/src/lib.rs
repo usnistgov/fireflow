@@ -5,10 +5,10 @@ use fireflow_types::config::{
     DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
     DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
-    EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL,
-    ForceLinearScale, GuessOtherWidth, IncludeReqOrOpt, IncludeRootOrMeas, KW_DEMOTE_SILENT_LEVEL,
-    KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL,
-    MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
+    EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
+    FORCE_LINEAR_TIME_LEVEL, ForceLinearScale, GuessOtherWidth, IncludeReqOrOpt, IncludeRootOrMeas,
+    KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL,
+    KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
     OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, ProcessKeywordFailure,
@@ -8112,7 +8112,6 @@ impl DocArgParam {
             Self::new_process_hyper_par_param(),
             Self::new_process_other_version_param(),
             Self::new_process_extra_timestep_param(),
-            Self::new_disallow_deprecated_param(),
             Self::new_fix_log_scale_offsets_param(),
             Self::new_nonstandard_measurement_pattern_param(),
         ]
@@ -8158,18 +8157,22 @@ impl DocArgParam {
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
+        let disallow_deprecated = Self::new_disallow_deprecated_param();
 
         let layout_ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => {
-                [process_optional_failure, disallow_range_truncation]
-                    .into_iter()
-                    .collect()
-            }
+            Some(Version::FCS3_1 | Version::FCS3_2) => [
+                process_optional_failure,
+                disallow_range_truncation,
+                disallow_deprecated,
+            ]
+            .into_iter()
+            .collect(),
             _ => [
                 process_optional_failure,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
+                disallow_deprecated,
             ]
             .into_iter()
             .collect(),
@@ -8267,9 +8270,11 @@ impl DocArgParam {
         let pt = PyLiteral::new2(ForceLinearScale::iter_str(), path);
         let d = format!(
             "Force {PNE} to be linear. Use {time} to only \
-             change the temporal measurement, {all} to change all \
-             measurements, and {none} to change no measurements.",
+             change the temporal measurement, {non_int} to change all \
+             non-integer measurements and temporal measurement, {all} to change \
+             all measurements, and {none} to change no measurements.",
             time = code_str(FORCE_LINEAR_TIME_LEVEL),
+            non_int = code_str(FORCE_LINEAR_NON_INT_LEVEL),
             all = code_str(FORCE_LINEAR_ALL_LEVEL),
             none = code_str(FORCE_LINEAR_NONE_LEVEL),
         );

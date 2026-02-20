@@ -168,7 +168,7 @@ ProcessTimeOpticalKeys: TypeAlias = Literal[
 
 TriFlag: TypeAlias = Literal["false", "true", "silent"]
 
-ForceLinearScale: TypeAlias = Literal["none", "time_only", "all"]
+ForceLinearScale: TypeAlias = Literal["none", "time_only", "all_non_int", "all"]
 
 ScaleDiagnostic: TypeAlias = (
     tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None

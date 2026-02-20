@@ -6,7 +6,7 @@ use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
-    WarningAndErrorResult,
+    WarningAndErrorsResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -675,6 +675,36 @@ impl Scale {
     pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
         (decades, offset).try_into().map(Self::Log)
     }
+
+    fn parse_fix_maybe(s: &str, conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+        let go = |x: TrimmedKeyword<_>| {
+            let d = x.trimmed.map(ScaleDiagnostic::Trimmed).unwrap_or_default();
+            DiagnosedKeyword::new(x.native, d)
+        };
+        let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
+        if conf.fix_log_scale_offsets.is_set() {
+            match res {
+                Ok(x) => Ok(go(x)),
+                Err(e) => {
+                    if let ScaleError::LogRange(le) = e {
+                        le.try_fix_offset()
+                            .map(Self::Log)
+                            .map(|x| {
+                                // TODO there is no way to tell if the
+                                // previous value was trimmed
+                                let d = ScaleDiagnostic::LogFixed(s.to_owned());
+                                DiagnosedKeyword::new(x, d)
+                            })
+                            .map_err(ScaleError::LogRange)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        } else {
+            res.map(go)
+        }
+    }
 }
 
 impl TryFrom<(f32, f32)> for LogScale {
@@ -694,42 +724,19 @@ impl TryFrom<(f32, f32)> for LogScale {
 
 impl FromStrWith for Scale {
     type Err = ScaleError;
-    type Payload<'a> = ();
+    type Payload<'a> = AlphaNumType;
     type Diagnostic = ScaleDiagnostic;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
-        let go = |x: TrimmedKeyword<_>| {
-            let d = x.trimmed.map(ScaleDiagnostic::Trimmed).unwrap_or_default();
-            DiagnosedKeyword::new(x.native, d)
-        };
-        if matches!(conf.force_linear_scale, ForceLinearScale::All) {
+    fn from_str_with(s: &str, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
+        if (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
+            && !matches!(dt, AlphaNumType::Integer))
+            || matches!(conf.force_linear_scale, ForceLinearScale::All)
+        {
             let d = ScaleDiagnostic::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self::Linear, d))
         } else {
-            let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-            if conf.fix_log_scale_offsets.is_set() {
-                match res {
-                    Ok(x) => Ok(go(x)),
-                    Err(e) => {
-                        if let ScaleError::LogRange(le) = e {
-                            le.try_fix_offset()
-                                .map(Self::Log)
-                                .map(|x| {
-                                    // TODO there is no way to tell if the
-                                    // previous value was trimmed
-                                    let d = ScaleDiagnostic::LogFixed(s.to_owned());
-                                    DiagnosedKeyword::new(x, d)
-                                })
-                                .map_err(ScaleError::LogRange)
-                        } else {
-                            Err(e)
-                        }
-                    }
-                }
-            } else {
-                res.map(go)
-            }
+            Self::parse_fix_maybe(s, conf)
         }
     }
 }
@@ -1298,20 +1305,27 @@ pub enum AlphaNumType {
 }
 
 macro_rules! check_ascii {
-    ($res:expr) => {
+    ($res:expr, $conf:expr) => {
         if let Ok(dt) = $res
             && dt == Self::Ascii
         {
-            let w = Some(DeprecatedDatatypeWarning);
-            $res.into_log().set_commutative_warnings(w)
+            let flag = $conf.disallow_deprecated;
+            $res.map_err(LookupDatatypeError::from)
+                .into_nowarn()
+                .nowarn_extend_warning_or_error3(
+                    DeprecatedDatatypeWarning,
+                    |_| (),
+                    LookupDatatypeError::from,
+                    flag,
+                )
         } else {
-            $res.into_log()
+            $res.map_err(LookupDatatypeError::from).into_log()
         }
     };
 }
 
-pub(crate) type LookupDatatypeResult<T> =
-    WarningAndErrorResult<T, (), DeprecatedDatatypeWarning, ReqKeyError<T>>;
+pub(crate) type LookupDatatypeResult =
+    WarningAndErrorsResult<AlphaNumType, (), DeprecatedDatatypeWarning, LookupDatatypeError>;
 
 impl AlphaNumType {
     pub(crate) fn matches_truncation(self, trunc: TruncateEventValues) -> bool {
@@ -1321,14 +1335,20 @@ impl AlphaNumType {
         )
     }
 
-    pub(crate) fn get_req_check_ascii(kws: &StdKeywords) -> LookupDatatypeResult<Self> {
+    pub(crate) fn get_req_check_ascii(
+        kws: &StdKeywords,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupDatatypeResult {
         let res = Self::get_metaroot_req(kws);
-        check_ascii!(res)
+        check_ascii!(res, conf)
     }
 
-    pub(crate) fn remove_req_check_ascii(kws: &mut StdKeywords) -> LookupDatatypeResult<Self> {
+    pub(crate) fn remove_req_check_ascii(
+        kws: &mut StdKeywords,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupDatatypeResult {
         let res = Self::remove_metaroot_req(kws);
-        check_ascii!(res)
+        check_ascii!(res, conf)
     }
 }
 
@@ -1344,6 +1364,14 @@ impl FromStr for AlphaNumType {
             _ => Err(AlphaNumTypeError),
         }
     }
+}
+
+/// Error when looking up [`AlphaNumType`] from keywords.
+#[derive(Debug, Error, Display, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupDatatypeError {
+    Parse(ReqKeyError<AlphaNumType>),
+    Deprecated(DeprecatedDatatypeWarning),
 }
 
 /// Error when [`AlphaNumType`] is ASCII which is deprecated in 3.1 and 3.2
@@ -2782,8 +2810,8 @@ impl FromStrWith for GateScale {
     type Diagnostic = ScaleDiagnostic;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, data: (), conf: &Self::Config) -> FromStrWithResult<Self> {
-        Scale::from_str_with(s, data, conf).map(|x| x.first_once(Self))
+    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+        Scale::parse_fix_maybe(s, conf).map(|x| x.first_once(Self))
     }
 }
 
@@ -4154,26 +4182,51 @@ mod tests {
     #[test]
     fn scale() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Scale>("0,0", (), &conf);
-        assert_from_to_str_with::<Scale>("4.5,0.01", (), &conf);
+        let dt = AlphaNumType::Integer;
+        assert_from_to_str_with::<Scale>("0,0", dt, &conf);
+        assert_from_to_str_with::<Scale>("4.5,0.01", dt, &conf);
     }
 
     #[test]
     fn scale_zero_log() {
         let v = "4.5,0";
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Scale::from_str_with(v, (), &conf).is_err());
+        let dt = AlphaNumType::Integer;
+        assert!(Scale::from_str_with(v, dt, &conf).is_err());
         conf.fix_log_scale_offsets = true.into();
-        assert_from_to_str_almost_with::<Scale>(v, "4.5,1", (), &conf);
+        assert_from_to_str_almost_with::<Scale>(v, "4.5,1", dt, &conf);
+    }
+
+    #[test]
+    fn scale_force_linear() {
+        let v = "1,1";
+        let mut conf = ReadStdKeywordsConfig::default();
+        let dt = AlphaNumType::Float;
+        assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
+        conf.force_linear_scale = ForceLinearScale::AllNonInt;
+        assert_from_to_str_almost_with::<Scale>(v, "0,0", dt, &conf);
+    }
+
+    #[test]
+    fn scale_force_linear_int() {
+        let v = "1,1";
+        let mut conf = ReadStdKeywordsConfig::default();
+        let dt = AlphaNumType::Integer;
+        assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
+        conf.force_linear_scale = ForceLinearScale::AllNonInt;
+        assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
+        conf.force_linear_scale = ForceLinearScale::All;
+        assert_from_to_str_almost_with::<Scale>(v, "0,0", dt, &conf);
     }
 
     #[test]
     fn scale_commas() {
         let v = "0, 0";
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Scale::from_str_with(v, (), &conf).is_err());
+        let dt = AlphaNumType::Integer;
+        assert!(Scale::from_str_with(v, dt, &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<Scale>(v, "0,0", (), &conf);
+        assert_from_to_str_almost_with::<Scale>(v, "0,0", dt, &conf);
     }
 
     #[test]

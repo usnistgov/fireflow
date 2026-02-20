@@ -51,18 +51,18 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, Analyte, AnyScaleDiagnostic, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
-    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
-    Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError,
-    HyperParError, Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
-    LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType, Originality, Par,
-    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
-    PseudostandardError, Range, Scale, ScaleDiagnostic, Smno, Src, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep, TimestepAdded,
-    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
-    Wavelengths, WavelengthsLossError, Wellid,
+    Abrt, AlphaNumType, Analyte, AnyScaleDiagnostic, CSMode, CSTot, CSVBits, CSVFlag,
+    Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com,
+    Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType,
+    DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain,
+    Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
+    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType,
+    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    PrefixedMeasIndex, Proj, PseudostandardError, Range, Scale, ScaleDiagnostic, Smno, Src, Sys,
+    Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep,
+    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
+    Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -1594,6 +1594,7 @@ pub trait LookupOptical: Sized + VersionedOptical {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -2031,6 +2032,7 @@ impl<O> Optical<O> {
         std: &mut StdKeywords,
         i: MeasIndex,
         mut nonstd: NonStdKeywords,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -2051,7 +2053,7 @@ impl<O> Optical<O> {
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
         let perc_emit = PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
         let det_volt = DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
-        let specific = O::lookup_specific(std, &mut nonstd, i, conf);
+        let specific = O::lookup_specific(std, &mut nonstd, i, dt, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         go!(power)
             .zip4_commutative(go!(perc_emit), go!(det_volt), specific)
@@ -4145,6 +4147,7 @@ where
         std: &mut StdKeywords,
         names: Vec<M::Name>,
         nonstd: Vec<NonStdKeywords>,
+        dts: &[AlphaNumType],
         conf: &C,
     ) -> LookupMeasurementResult<(NamedTemporalsAndOpticals<M>, MeasurementDiagnostics)>
     where
@@ -4180,11 +4183,17 @@ where
             res.into_log()
         };
 
+        debug_assert!(
+            names.len() == dts.len(),
+            "datatypes and names must be equal length"
+        );
+
         names
             .into_iter()
             .zip(nonstd)
+            .zip(dts)
             .enumerate()
-            .map(|(i, (wrapped, meas_nonstd))| {
+            .map(|(i, ((wrapped, meas_nonstd), dt))| {
                 let j = i.into();
                 // If $PnN is found, check that it matches the time pattern (if
                 // given). Also check that only zero or one $PnN match the time
@@ -4203,10 +4212,12 @@ where
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
                                 .map_ok_value(|x| Element::Center((name, x)))
                         }
-                        Element::NonCenter(k) => Optical::lookup_optical(std, j, meas_nonstd, conf)
-                            .map_errors(LookupMeasurementError::from)
-                            .map_commutative_warnings(LookupMeasurementWarning::from)
-                            .map_ok_value(|x| Element::NonCenter((k, x))),
+                        Element::NonCenter(k) => {
+                            Optical::lookup_optical(std, j, meas_nonstd, *dt, conf)
+                                .map_errors(LookupMeasurementError::from)
+                                .map_commutative_warnings(LookupMeasurementWarning::from)
+                                .map_ok_value(|x| Element::NonCenter((k, x)))
+                        }
                     })
             })
             .sequence_commutative()
@@ -4440,8 +4451,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         .map_ok_value(|n| (n, meas_nonstd));
                     go_err!(ret)
                 })
-                // Lookup root and measurement keywords (which depend on $PnN)
-                // and layout
+                // Lookup root (which depends on $PnN) and layout
                 .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
@@ -4450,13 +4460,20 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     let root_res =
                         Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf);
 
-                    let meas_res = Self::lookup_measurements(std, dedup_names, meas_nonstd, conf);
-
                     go_err!(root_res)
-                        .zip3_commutative(go_err!(meas_res), go_err!(layout_res))
-                        .map_ok_value(|x| (x, original_names))
+                        .zip_commutative(go_err!(layout_res))
+                        .map_ok_value(|x| (x, meas_nonstd, dedup_names, original_names))
                 })
-                .and_then_commutative(|((metaroot_out, meas_out, layout_out), original_names)| {
+                // Lookup measure which depends on global datatype
+                .and_then_commutative(
+                    |((metaroot_out, layout_out), meas_nonstd, dedup_names, original_names)| {
+                        let dts = &layout_out.layout.datatypes()[..];
+                        let ret =
+                            Self::lookup_measurements(std, dedup_names, meas_nonstd, dts, conf);
+                        go_err!(ret).map_ok_value(|x| (metaroot_out, layout_out, x, original_names))
+                    },
+                )
+                .and_then_commutative(|(metaroot_out, layout_out, meas_out, original_names)| {
                     let (meas, mut meas_diag) = meas_out;
                     meas_diag.trimmed.extend(metaroot_out.trimmed);
                     let ret = Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
@@ -4751,7 +4768,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
                     .and_then_commutative(|mut ret| {
                         let xfer_flag = rconf.process_optional_failure;
-                        let dep_flag = sconf.disallow_deprecated;
+                        let dep_flag = rconf.disallow_deprecated;
                         ret.deprecated(dep_flag, xfer_flag)
                             .map_switchable_errors(NewCoreWarning::from)
                             .switchable_into_commutative()
@@ -7049,6 +7066,7 @@ impl ScaleTransform {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<(Self, ScaleDiagnostic)>
     where
@@ -7059,7 +7077,7 @@ impl ScaleTransform {
             .switchable_into_commutative()
             .map_errors(LookupOpticalError::from)
             .into_semigroup();
-        let scale = Scale::remove_meas_req_with(std, i, (), conf.as_ref())
+        let scale = Scale::remove_meas_req_with(std, i, dt, conf.as_ref())
             .map_err(LookupOpticalError::from)
             .into_log();
         gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
@@ -7369,12 +7387,13 @@ impl LookupOptical for InnerOptical2_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
+        let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, dt, conf)
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -7399,6 +7418,7 @@ impl LookupOptical for InnerOptical3_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -7410,7 +7430,7 @@ impl LookupOptical for InnerOptical3_0 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
-        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
+        let scale = ScaleTransform::lookup(std, nonstd, i, dt, conf);
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
             .zip_commutative(scale)
@@ -7426,6 +7446,7 @@ impl LookupOptical for InnerOptical3_1 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -7443,7 +7464,7 @@ impl LookupOptical for InnerOptical3_1 {
         let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
-        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
+        let scale = ScaleTransform::lookup(std, nonstd, i, dt, conf);
         go!(wave)
             .zip4_commutative(go!(cal), go!(dpy), peak)
             .map_errors(LookupOpticalError::from)
@@ -7468,6 +7489,7 @@ impl LookupOptical for InnerOptical3_2 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         i: MeasIndex,
+        dt: AlphaNumType,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -7492,7 +7514,7 @@ impl LookupOptical for InnerOptical3_2 {
         let tag = Tag::remove_meas_opt_nofail(std, i);
         let anal = Analyte::remove_meas_opt_nofail(std, i);
 
-        let scale = ScaleTransform::lookup(std, nonstd, i, conf);
+        let scale = ScaleTransform::lookup(std, nonstd, i, dt, conf);
 
         go!(wave)
             .zip6_commutative(go!(cal), go!(dpy), go!(meas), go!(feat), scale)
@@ -8401,8 +8423,8 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 Mode::Uncorrelated => Some(DeprecatedModeWarning::ModeUncorrelated),
                 Mode::List => None,
             };
-            let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-            let flag = sconf.disallow_deprecated;
+            let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+            let flag = rconf.disallow_deprecated;
             SwitchableErrorsResult::new_switchable_iter3(mode, (), err, flag)
                 .map_switchable_errors(LookupMetarootWarning::from)
                 .switchable_into_commutative()

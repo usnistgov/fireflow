@@ -29,14 +29,14 @@ use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
     DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL,
-    FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL,
-    KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL,
-    KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
-    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
-    NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, READ_STRATEGY_SCALPAL_LEVEL,
-    READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL, ReadStrategy,
-    SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
+    FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
+    FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL,
+    KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL,
+    MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL,
+    NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL,
+    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL,
+    READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
+    ReadStrategy, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
     TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
     TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
@@ -568,9 +568,10 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(ForceLinearScale))
         .help(format!(
             "Force {pn_e} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
-             to only set the temporal measurement, '{FORCE_LINEAR_ALL_LEVEL}' to \
-             set all measurements, and '{FORCE_LINEAR_NONE_LEVEL}' for no \
-             measurements.",
+             to only set the temporal measurement, '{FORCE_LINEAR_NON_INT_LEVEL}' \
+             to set temporal measurements and non-integer measurements, \
+             '{FORCE_LINEAR_ALL_LEVEL}' to set all measurements, and \
+             '{FORCE_LINEAR_NONE_LEVEL}' for no measurements.",
         ));
 
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
@@ -1285,7 +1286,7 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     c
 }
 
-fn get_std_inner_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
+fn get_std_kws_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
     let strat = get_strategy(s);
     let mut c = config::ReadStdKeywordsConfig::new_with_strategy(strat);
 
@@ -1317,7 +1318,6 @@ fn get_std_inner_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
     get_opt(s, PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
     get_opt(s, PROCESS_OTHER_VERSION, |x| c.process_other_version = x);
     get_opt(s, PROCESS_EXTRA_TIMESTEP, |x| c.process_extra_timestep = x);
-    get_opt(s, DISALLOW_DEPRECATED, |x| c.disallow_deprecated = x);
     get_flag(s, FIX_LOG_SCALE_OFFSETS, |x| c.fix_log_scale_offsets = x);
     get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
@@ -1327,40 +1327,39 @@ fn get_std_inner_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
     c
 }
 
-fn get_layout_config(sargs: &ArgMatches) -> config::ReadDataKeywordsConfig {
-    let strat = get_strategy(sargs);
-    let mut conf = config::ReadDataKeywordsConfig::new_with_strategy(strat);
+fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
+    let strat = get_strategy(s);
+    let mut c = config::ReadDataKeywordsConfig::new_with_strategy(strat);
 
-    get_correction(sargs, TEXT_DATA_COR, |x| conf.text_data_correction = x);
-    get_correction(sargs, TEXT_ANALYSIS_COR, |x| {
-        conf.text_analysis_correction = x;
+    get_correction(s, TEXT_DATA_COR, |x| c.text_data_correction = x);
+    get_correction(s, TEXT_ANALYSIS_COR, |x| c.text_analysis_correction = x);
+    get_flag(s, IGNORE_TEXT_DATA_OFFSETS, |x| {
+        c.ignore_text_data_offsets = x;
     });
-    get_flag(sargs, IGNORE_TEXT_DATA_OFFSETS, |x| {
-        conf.ignore_text_data_offsets = x;
+    get_flag(s, IGNORE_TEXT_ANALYSIS_OFFSETS, |x| {
+        c.ignore_text_analysis_offsets = x;
     });
-    get_flag(sargs, IGNORE_TEXT_ANALYSIS_OFFSETS, |x| {
-        conf.ignore_text_analysis_offsets = x;
+    get_opt(s, ALLOW_HEADER_TEXT_OFFSET_MISMATCH, |x| {
+        c.allow_header_text_offset_mismatch = x;
     });
-    get_opt(sargs, ALLOW_HEADER_TEXT_OFFSET_MISMATCH, |x| {
-        conf.allow_header_text_offset_mismatch = x;
+    get_opt(s, ALLOW_MISSING_REQUIRED_OFFSETS, |x| {
+        c.allow_missing_required_offsets = x;
     });
-    get_opt(sargs, ALLOW_MISSING_REQUIRED_OFFSETS, |x| {
-        conf.allow_missing_required_offsets = x;
+    get_opt(s, PROCESS_OPTIONAL_FAILURE, |x| {
+        c.process_optional_failure = x;
     });
-    get_opt(sargs, PROCESS_OPTIONAL_FAILURE, |x| {
-        conf.process_optional_failure = x;
+    get_flag(s, INT_WIDTHS_FROM_BYTEORD, |x| {
+        c.integer_widths_from_byteord = x;
     });
-    get_flag(sargs, INT_WIDTHS_FROM_BYTEORD, |x| {
-        conf.integer_widths_from_byteord = x;
+    get_opt(s, INT_BYTEORD_OVERRIDE, |x| {
+        c.integer_byteord_override = x;
     });
-    get_opt(sargs, INT_BYTEORD_OVERRIDE, |x| {
-        conf.integer_byteord_override = x;
+    get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
+        c.disallow_range_truncation = x;
     });
-    get_opt(sargs, DISALLOW_RANGE_TRUNCATION, |x| {
-        conf.disallow_range_truncation = x;
-    });
+    get_opt(s, DISALLOW_DEPRECATED, |x| c.disallow_deprecated = x);
 
-    conf
+    c
 }
 
 fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
@@ -1399,8 +1398,8 @@ fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfi
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
-        standard: get_std_inner_config(sargs),
-        layout: get_layout_config(sargs),
+        standard: get_std_kws_config(sargs),
+        layout: get_data_kws_config(sargs),
         shared: get_shared_config(sargs),
     }
 }
@@ -1410,7 +1409,7 @@ fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFla
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
-        layout: get_layout_config(sargs),
+        layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
         shared: get_shared_config(sargs),
     }
@@ -1421,8 +1420,8 @@ fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdD
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
-        standard: get_std_inner_config(sargs),
-        layout: get_layout_config(sargs),
+        standard: get_std_kws_config(sargs),
+        layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
         shared: get_shared_config(sargs),
     }

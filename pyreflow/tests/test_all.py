@@ -2944,6 +2944,18 @@ class TestConfig:
         assert f("silent") == comp
 
     @staticmethod
+    def _test_inverted_tri_flag(
+        f: Callable[[TriFlag], X], comp: X, err: list[type]
+    ) -> None:
+        with pytest.warns(pf.PyreflowWarning):
+            assert f("false") == comp
+
+        with pytest.RaisesGroup(*err):
+            f("true")
+
+        assert f("silent") == comp
+
+    @staticmethod
     def _test_config_flag(f: Callable[[bool], X], comp: X, err: list[type]) -> None:
         with pytest.RaisesGroup(*err):
             f(False)
@@ -4673,6 +4685,116 @@ class TestConfig:
         with pytest.RaisesGroup(pf.RelationalError):
             assert go("true")
         assert go("silent")
+
+    @all_versions
+    @pytest.mark.parametrize("mode", ["L", "C", "U"])
+    def test_disallow_deprecated_mode(
+        self, version: pt.FCSVersion, mode: pt.Mode, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
+        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
+
+        def go(f: TriFlag) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p, disallow_deprecated=f, time_meas_pattern=None
+            )
+            return True
+
+        if version == "FCS3.2":
+            if mode in ["C", "U"]:
+                with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                    go("true")
+                with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                    go("false")
+                with pytest.RaisesGroup(pf.ParseKeywordValueError):
+                    go("silent")
+            else:
+                self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
+        elif version == "FCS3.1":
+            if mode in ["C", "U"]:
+                self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
+            else:
+                assert go("true")
+                assert go("false")
+                assert go("silent")
+        else:
+            assert go("true")
+            assert go("false")
+            assert go("silent")
+
+    @all_versions
+    def test_disallow_deprecated_ascii(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "10", "$P1R": "32"}
+        self.mock_header_std_text(p, version, kws=kws, par=1, datatype="A")
+
+        def go(f: TriFlag) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p, disallow_deprecated=f, time_meas_pattern=None
+            )
+            return True
+
+        if version in ["FCS3.2", "FCS3.1"]:
+            self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
+        else:
+            assert go("true")
+            assert go("false")
+            assert go("silent")
+
+    # TODO there should be a more general version of this that tests how
+    # keywords are classified.
+
+    @all_versions
+    @pytest.mark.parametrize(
+        "key, val, dep_versions, exc_versions",
+        [
+            ("$BTIM", "12:00:00", ["FCS3.2"], []),
+            ("$ETIM", "12:00:00", ["FCS3.2"], []),
+            ("$DATE", "31-Dec-1999", ["FCS3.2"], []),
+            ("$P1P", "42", ["FCS3.2"], []),
+            ("$PLATEID", "Phiber Optik", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
+            ("$PLATENAME", "Acid Phreak", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
+            ("$WELLID", "Corrupt", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
+            ("$PK1", "1", ["FCS3.1"], ["FCS3.2"]),
+            ("$PKN1", "2", ["FCS3.1"], ["FCS3.2"]),
+        ],
+    )
+    def test_disallow_deprecated_kws(
+        self,
+        version: pt.FCSVersion,
+        key: str,
+        val: str,
+        dep_versions: list[pt.FCSVersion],
+        exc_versions: list[pt.FCSVersion],
+        tmp_path: Path,
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", key: val}
+        mode: pt.Mode | None = None if version == "FCS3.2" else "L"
+        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
+
+        def go(f: TriFlag) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                p, disallow_deprecated=f, time_meas_pattern=None
+            )
+            return True
+
+        if version in dep_versions:
+            self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
+        elif version in exc_versions:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("true")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("false")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("silent")
+        else:
+            assert go("true")
+            assert go("false")
+            assert go("silent")
 
     @pytest.mark.parametrize(
         "version, data_seg",

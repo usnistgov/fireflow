@@ -2991,6 +2991,93 @@ class TestConfig:
         assert f("demote_silent") == comp_demote
         assert f("drop_silent") == comp_drop
 
+    @staticmethod
+    def _test_allow_header_text_offset_mismatch(
+        path: Path, version: pt.FCSVersion, is_analysis: bool
+    ) -> None:
+        if version == "FCS2.0":
+            header = (0, 0)
+            # this should trigger an error if it is read at all since it starts
+            # in the header
+            text = (0, 1)
+        else:
+            header = (222, 225)
+            text = (222, 224)
+        if is_analysis:
+            hd = (0, 0)
+            td = (0, 0)
+            ha = header
+            ta = text
+        else:
+            hd = header
+            td = text
+            ha = (0, 0)
+            ta = (0, 0)
+        TestConfig.mock_header_std_text(
+            path,
+            version,
+            header_data=hd,
+            text_data=td,
+            header_analysis=ha,
+            text_analysis=ta,
+            rest=b"\0\0\0\0",
+        )
+
+        def go(f: pt.AllowHeaderTextOffsetMismatch) -> Segment:
+            core, uncore = pf.api.fcs_read_std_text(
+                path,
+                allow_header_text_offset_mismatch=f,
+                time_meas_pattern=None,
+                disallow_deprecated="silent",
+            )
+            if is_analysis:
+                return uncore.dataset_segs.analysis_seg
+            else:
+                return uncore.dataset_segs.data_seg
+
+        if version == "FCS2.0":
+            assert go("error") == header
+            assert go("header_warn") == header
+            assert go("header_silent") == header
+            assert go("text_warn") == header
+            assert go("text_silent") == header
+        else:
+            with pytest.RaisesGroup(pf.FileLayoutError):
+                assert go("error") == header
+            with pytest.warns(pf.PyreflowWarning):
+                assert go("header_warn") == header
+            with pytest.warns(pf.PyreflowWarning):
+                assert go("text_warn") == text
+            assert go("header_silent") == header
+            assert go("text_silent") == text
+
+    @staticmethod
+    def _test_disallow_deprecated(
+        path: Path,
+        version: pt.FCSVersion,
+        dep_versions: list[pt.FCSVersion],
+        exc_versions: list[pt.FCSVersion],
+    ) -> None:
+        def go(f: TriFlag) -> bool:
+            core, uncore = pf.api.fcs_read_std_text(
+                path, disallow_deprecated=f, time_meas_pattern=None
+            )
+            return True
+
+        if version in dep_versions:
+            TestConfig._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
+        elif version in exc_versions:
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("true")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("false")
+            with pytest.RaisesGroup(pf.ExtraKeywordError):
+                assert go("silent")
+        else:
+            assert go("true")
+            assert go("false")
+            assert go("silent")
+
     @all_versions
     @pytest.mark.parametrize(
         "other_segs, other_corrections",
@@ -4449,66 +4536,6 @@ class TestConfig:
 
         self._test_allow_header_text_offset_mismatch(p, version, True)
 
-    @staticmethod
-    def _test_allow_header_text_offset_mismatch(
-        path: Path, version: pt.FCSVersion, is_analysis: bool
-    ) -> None:
-        if version == "FCS2.0":
-            header = (0, 0)
-            # this should trigger an error if it is read at all since it starts
-            # in the header
-            text = (0, 1)
-        else:
-            header = (222, 225)
-            text = (222, 224)
-        if is_analysis:
-            hd = (0, 0)
-            td = (0, 0)
-            ha = header
-            ta = text
-        else:
-            hd = header
-            td = text
-            ha = (0, 0)
-            ta = (0, 0)
-        TestConfig.mock_header_std_text(
-            path,
-            version,
-            header_data=hd,
-            text_data=td,
-            header_analysis=ha,
-            text_analysis=ta,
-            rest=b"\0\0\0\0",
-        )
-
-        def go(f: pt.AllowHeaderTextOffsetMismatch) -> Segment:
-            core, uncore = pf.api.fcs_read_std_text(
-                path,
-                allow_header_text_offset_mismatch=f,
-                time_meas_pattern=None,
-                disallow_deprecated="silent",
-            )
-            if is_analysis:
-                return uncore.dataset_segs.analysis_seg
-            else:
-                return uncore.dataset_segs.data_seg
-
-        if version == "FCS2.0":
-            assert go("error") == header
-            assert go("header_warn") == header
-            assert go("header_silent") == header
-            assert go("text_warn") == header
-            assert go("text_silent") == header
-        else:
-            with pytest.RaisesGroup(pf.FileLayoutError):
-                assert go("error") == header
-            with pytest.warns(pf.PyreflowWarning):
-                assert go("header_warn") == header
-            with pytest.warns(pf.PyreflowWarning):
-                assert go("text_warn") == text
-            assert go("header_silent") == header
-            assert go("text_silent") == text
-
     @all_versions
     def test_allow_missing_required_offsets_data(
         self, version: pt.FCSVersion, tmp_path: Path
@@ -4680,11 +4707,7 @@ class TestConfig:
             # TODO return diagnostics for ranges that were trimmed
             return True
 
-        with pytest.warns(pf.PyreflowWarning):
-            assert go("false")
-        with pytest.RaisesGroup(pf.RelationalError):
-            assert go("true")
-        assert go("silent")
+        self._test_inverted_tri_flag(go, True, [pf.RelationalError])
 
     @all_versions
     @pytest.mark.parametrize("mode", ["L", "C", "U"])
@@ -4747,6 +4770,8 @@ class TestConfig:
     # TODO there should be a more general version of this that tests how
     # keywords are classified.
 
+    # TODO this doesn't test $GATING and $Rn*
+
     @all_versions
     @pytest.mark.parametrize(
         "key, val, dep_versions, exc_versions",
@@ -4776,25 +4801,33 @@ class TestConfig:
         mode: pt.Mode | None = None if version == "FCS3.2" else "L"
         self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
 
-        def go(f: TriFlag) -> bool:
-            core, uncore = pf.api.fcs_read_std_text(
-                p, disallow_deprecated=f, time_meas_pattern=None
-            )
-            return True
+        self._test_disallow_deprecated(p, version, dep_versions, exc_versions)
 
-        if version in dep_versions:
-            self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
-        elif version in exc_versions:
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("true")
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("false")
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("silent")
-        else:
-            assert go("true")
-            assert go("false")
-            assert go("silent")
+    @all_versions
+    @pytest.mark.parametrize(
+        "key, val",
+        [
+            ("$G1E", "0,0"),
+            ("$G1F", "the great"),
+            ("$G1N", "Scorpion"),
+            ("$G1P", "50"),
+            ("$G1R", "9001"),
+            ("$G1S", "Erik Bloodaxe"),
+            ("$G1T", "light sail"),
+            ("$G1V", "3.1415926"),
+        ],
+    )
+    def test_disallow_deprecated_gnn_kws(
+        self, version: pt.FCSVersion, key: str, val: str, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", key: val}
+        if version != "FCS3.2":
+            kws["$GATE"] = "1"
+        mode: pt.Mode | None = None if version == "FCS3.2" else "L"
+        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
+
+        self._test_disallow_deprecated(p, version, ["FCS3.1"], ["FCS3.2"])
 
     @pytest.mark.parametrize(
         "version, data_seg",

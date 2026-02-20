@@ -699,7 +699,7 @@ where
 {
     let triflag = flag.as_triflag();
     match res {
-        Ok(ret) => LogResult::new_switchable_ok(ret, triflag),
+        Ok(x) => LogResult::new_switchable_ok(x, triflag),
         Err(e) => {
             if flag.is_demote() {
                 nonstd.insert_demoted(k.as_std(), e.value.0.clone());

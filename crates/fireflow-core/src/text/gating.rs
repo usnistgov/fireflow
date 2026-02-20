@@ -336,16 +336,14 @@ impl AppliedGates2_0 {
                     .map(|x| (x, scheme_diag, gated_ms_diag))
             })
             .map_err_value(|(ret, _, _)| {
-                // TODO this should not be deferred (ditto all others like
-                // this); consume the value and demote if required
                 if rconf.process_optional_failure.is_demote() {
-                    ret.opt_keywords_std()
-                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                    ret.scheme.demote_keywords(nonstd);
+                    ret.gated_measurements.demote_keywords(nonstd);
                 }
             })
     }
 
-    pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         let gate = self.gated_measurements.gate();
         self.gated_measurements
             .0
@@ -354,10 +352,7 @@ impl AppliedGates2_0 {
             .flat_map(|(i, m)| m.opt_keywords_std(i.into()))
             .chain(gate.map(|x| OptMetarootKey::root_pair_std(&x)))
             .chain(self.scheme.opt_keywords_std())
-    }
-
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.opt_keywords_std().map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = AppliedGates2_0To3_2LossError> {
@@ -486,13 +481,15 @@ impl AppliedGates3_0 {
             })
             .map_err_value(|(ret, _, _)| {
                 if rconf.process_optional_failure.is_demote() {
-                    ret.opt_keywords_std()
-                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                    ret.scheme.demote_keywords(nonstd);
+                    ret.gated_measurements.demote_keywords(nonstd);
                 }
             })
     }
 
-    pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {
+    // pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)> {}
+
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         let gate = self.gated_measurements.gate();
         self.gated_measurements
             .0
@@ -501,10 +498,7 @@ impl AppliedGates3_0 {
             .flat_map(|(i, m)| m.opt_keywords_std(i.into()))
             .chain(self.scheme.opt_keywords_std())
             .chain(gate.map(|x| OptMetarootKey::root_pair_std(&x)))
-    }
-
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.opt_keywords_std().map(|(k, v)| (k.to_string(), v))
+            .map(|(k, v)| (k.to_string(), v))
     }
 
     pub(crate) fn try_into_2_0(
@@ -607,8 +601,7 @@ impl AppliedGates3_2 {
             .map_ok_value(|(x, y)| (Self(x), y))
             .map_err_value(|(ret, _)| {
                 if rconf.process_optional_failure.is_demote() {
-                    ret.opt_keywords_std()
-                        .for_each(|(k, v)| nonstd.insert_demoted(k, v));
+                    ret.demote_keywords(nonstd);
                 }
             })
     }
@@ -691,6 +684,17 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7]
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
+    }
+
+    fn demote_keywords(self, i: GateIndex, nonstd: &mut NonStdKeywords) {
+        nonstd.insert_demoted_meas_opt(i.into(), self.scale);
+        nonstd.insert_demoted_meas_maybe(i.into(), self.filter);
+        nonstd.insert_demoted_meas_opt(i.into(), self.shortname);
+        nonstd.insert_demoted_meas_opt(i.into(), self.percent_emitted);
+        nonstd.insert_demoted_meas_opt(i.into(), self.range);
+        nonstd.insert_demoted_meas_maybe(i.into(), self.longname);
+        nonstd.insert_demoted_meas_maybe(i.into(), self.detector_type);
+        nonstd.insert_demoted_meas_opt(i.into(), self.detector_voltage);
     }
 
     fn loss_errors(&self, i: GateIndex) -> impl Iterator<Item = GatedMeasurementLossError> {
@@ -878,6 +882,16 @@ impl<I> GatingScheme<I> {
             })
     }
 
+    fn demote_keywords(self, nonstd: &mut NonStdKeywords)
+    where
+        I: fmt::Display + FromStr + Copy,
+    {
+        for (ri, r) in self.regions {
+            r.demote_keywords(ri, nonstd);
+        }
+        nonstd.insert_demoted_metaroot_opt(self.gating);
+    }
+
     pub(crate) fn opt_keywords_std(&self) -> impl Iterator<Item = (StdKey, String)>
     where
         I: fmt::Display + FromStr + Copy,
@@ -1038,11 +1052,20 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn opt_keywords_std(&self, i: RegionIndex) -> impl Iterator<Item = (StdKey, String)>
+    pub(crate) fn demote_keywords(self, i: RegionIndex, nonstd: &mut NonStdKeywords)
     where
         I: Copy + FromStr + fmt::Display,
     {
         let (ri, rw) = self.split();
+        nonstd.insert_demoted_meas(i.into(), ri);
+        nonstd.insert_demoted_meas(i.into(), rw);
+    }
+
+    pub(crate) fn opt_keywords_std(&self, i: RegionIndex) -> impl Iterator<Item = (StdKey, String)>
+    where
+        I: Copy + FromStr + fmt::Display,
+    {
+        let (ri, rw) = self.clone().split();
         [ri.meas_pair_std(i), rw.meas_pair_std(i)].into_iter()
     }
 
@@ -1059,18 +1082,18 @@ impl<I> Region<I> {
         .into_iter()
     }
 
-    pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
+    pub(crate) fn split(self) -> (RegionGateIndex<I>, RegionWindow)
     where
         I: Copy,
     {
         match self {
             Self::Univariate(r) => (
                 RegionGateIndex::Univariate(r.index),
-                RegionWindow::Univariate(r.gate.clone()),
+                RegionWindow::Univariate(r.gate),
             ),
             Self::Bivariate(r) => (
                 RegionGateIndex::Bivariate(r.index),
-                RegionWindow::Bivariate(r.vertices.clone().into()),
+                RegionWindow::Bivariate(r.vertices.into()),
             ),
         }
     }
@@ -1163,6 +1186,14 @@ impl GatedMeasurements {
             None
         } else {
             Some(Gate(self.0.len()))
+        }
+    }
+
+    fn demote_keywords(self, nonstd: &mut NonStdKeywords) {
+        let gate = self.gate();
+        nonstd.insert_demoted_metaroot_opt(gate);
+        for (i, g) in self.0.into_iter().enumerate() {
+            g.demote_keywords(i.into(), nonstd);
         }
     }
 

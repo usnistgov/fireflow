@@ -10,6 +10,7 @@ use crate::logging::{
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords as kws;
 use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
+use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
 use derive_more::{AsRef, Display, From};
@@ -532,14 +533,30 @@ pub(crate) trait NonStdKeywordsExt {
         self.insert_demoted_(SpecificKey::<T, _>::new_i1(i), value.to_string());
     }
 
-    // fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
-    //     let (k, v) = value.meas_pair_std(i);
-    //     self.insert_demoted(k, v);
-    // }
-
     fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: T) {
         let k = T::std(i);
         self.insert_demoted(k, value.to_string());
+    }
+
+    fn insert_demoted_meas_opt<T: OptIndexedKey + fmt::Display>(
+        &mut self,
+        i: IndexFromOne,
+        value: Option<T>,
+    ) {
+        if let Some(v) = value {
+            self.insert_demoted_meas(i, v);
+        }
+    }
+
+    fn insert_demoted_meas_maybe<T: OptIndexedKey + DisplayMaybe>(
+        &mut self,
+        i: IndexFromOne,
+        value: T,
+    ) {
+        if let Some(v) = value.display_maybe() {
+            let k = T::std(i);
+            self.insert_demoted(k, v);
+        }
     }
 
     fn transfer_demoted(&mut self, kws: &mut StdKeywords, key: StdKey) {

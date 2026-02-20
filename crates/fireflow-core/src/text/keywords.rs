@@ -373,6 +373,9 @@ impl KeywordOptimizer {
             AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
                 self.n_opt_eq3_0or3_1 += 1;
             }
+            AnyKeywordClass::MeasOptLE3_1(_) => {
+                self.n_opt_max3_1 += 1;
+            }
             AnyKeywordClass::Scale(_) => self.n_pne += 1,
             AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
             AnyKeywordClass::Wavelength(_) => {
@@ -412,6 +415,7 @@ enum AnyKeywordClass {
     MeasOptGE3_0(MeasIndex),
     MeasOptGE3_1(MeasIndex),
     MeasOptGE3_2(MeasIndex),
+    MeasOptLE3_1(MeasIndex),
     MeasOptEq3_0or3_1(MeasIndex),
     Shortname(MeasIndex),
     Scale(MeasIndex),
@@ -470,13 +474,13 @@ impl AnyKeywordClass {
                 && suffix.is_empty()
             {
                 // $PKNn
-                Self::MeasOptGE3_1(index.into())
+                Self::MeasOptLE3_1(index.into())
             } else if let Some((index, suffix)) =
                 starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
                 && suffix.is_empty()
             {
                 // $PKn
-                Self::MeasOptGE3_1(index.into())
+                Self::MeasOptLE3_1(index.into())
             } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
                 // $Pn*
                 let j = index.into();
@@ -3029,6 +3033,14 @@ impl ExtraStdKeywords {
             }
         };
 
+        let maximal_indexed_version = |v, i: MeasIndex| {
+            if usize::from(i) >= par.0 {
+                Some(ExtraKeywordClass::HyperPar)
+            } else {
+                maximal_version(v)
+            }
+        };
+
         match AnyKeywordClass::classify_keyword(key) {
             AnyKeywordClass::Root(r) => match r {
                 RootKeywordClass::Beginanalysis
@@ -3056,6 +3068,7 @@ impl ExtraStdKeywords {
             AnyKeywordClass::MeasOptGE3_0(i) => minimal_indexed_version(Version::FCS3_0, i),
             AnyKeywordClass::MeasOptGE3_1(i) => minimal_indexed_version(Version::FCS3_1, i),
             AnyKeywordClass::MeasOptGE3_2(i) => minimal_indexed_version(Version::FCS3_2, i),
+            AnyKeywordClass::MeasOptLE3_1(i) => maximal_indexed_version(Version::FCS3_1, i),
             AnyKeywordClass::MeasOptEq3_0or3_1(i) => {
                 if usize::from(i) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)

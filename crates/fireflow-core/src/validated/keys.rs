@@ -532,9 +532,14 @@ pub(crate) trait NonStdKeywordsExt {
         self.insert_demoted_(SpecificKey::<T, _>::new_i1(i), value.to_string());
     }
 
-    fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
-        let (k, v) = value.meas_pair_std(i);
-        self.insert_demoted(k, v);
+    // fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
+    //     let (k, v) = value.meas_pair_std(i);
+    //     self.insert_demoted(k, v);
+    // }
+
+    fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: T) {
+        let k = T::std(i);
+        self.insert_demoted(k, value.to_string());
     }
 
     fn transfer_demoted(&mut self, kws: &mut StdKeywords, key: StdKey) {

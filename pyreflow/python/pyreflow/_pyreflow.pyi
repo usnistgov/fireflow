@@ -56,7 +56,8 @@ from pyreflow.typing import (
     ProcessKeywordFailure,
     TriFlag,
     ForceLinearScale,
-    ScaleDiagnostic,
+    MeasScaleDiagnostic,
+    GateScaleDiagnostic,
     TrimValueWhitespace,
     SpilloverMeasurementMode,
     ProcessTimeOpticalKeys,
@@ -1852,7 +1853,8 @@ class StdTEXTDiagnostics:
         other_version: StdKeywords,
         timestep: str | None,
         original_names: list[Shortname | None],
-        scale: list[ScaleDiagnostic],
+        scale: list[MeasScaleDiagnostic],
+        gate_scale: list[GateScaleDiagnostic],
         trimmed: list[tuple[str, str]],
         temporal_optical_pairs: list[tuple[str, str]],
         timestep_added: bool,
@@ -1871,7 +1873,9 @@ class StdTEXTDiagnostics:
     @property
     def original_names(self) -> list[Shortname | None]: ...
     @property
-    def scale(self) -> list[ScaleDiagnostic]: ...
+    def scale(self) -> list[MeasScaleDiagnostic]: ...
+    @property
+    def gate_scale(self) -> list[GateScaleDiagnostic]: ...
     @property
     def trimmed(self) -> list[tuple[str, str]]: ...
     @property

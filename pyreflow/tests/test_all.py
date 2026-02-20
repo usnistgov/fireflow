@@ -3873,7 +3873,7 @@ class TestConfig:
         )
 
         Scales = list[tuple[float, float] | float]
-        Diags = list[pt.ScaleDiagnostic]
+        Diags = list[pt.MeasScaleDiagnostic]
 
         def go(f: pt.ForceLinearScale) -> tuple[Scales, Diags]:
             core, uncore = pf.api.fcs_read_std_text(

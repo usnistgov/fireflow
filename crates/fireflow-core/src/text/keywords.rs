@@ -46,7 +46,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use type_families::{BifunctorOnce as _, FunctorOnce as _, impl_functor, impl_kind1};
+use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
@@ -651,14 +651,28 @@ pub enum Scale {
 }
 
 /// Diagnostic data from parsing $PnE
-#[derive(Default, Clone, PartialEq)]
+#[derive(Clone, PartialEq, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum ScaleDiagnostic {
-    /// Nothing happend
-    #[default]
-    None,
+pub enum OpticalScaleFix {
     /// Was forced to be linear (which overrides everything else)
     Forced(String),
+    /// Fixes shared with $Gn* keywords
+    Inner(ScaleFix),
+}
+
+impl Default for OpticalScaleFix {
+    fn default() -> Self {
+        Self::Inner(ScaleFix::default())
+    }
+}
+
+/// Diagnostic data from parsing $PnE or $GmE
+#[derive(Default, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum ScaleFix {
+    /// Nothing happened
+    #[default]
+    None,
     /// Whitespace was trimmed
     Trimmed(String),
     /// Zero log offset was corrected
@@ -680,9 +694,12 @@ impl Scale {
         (decades, offset).try_into().map(Self::Log)
     }
 
-    fn parse_fix_maybe(s: &str, conf: &ReadStdKeywordsConfig) -> FromStrWithResult<Self> {
+    fn parse_fix_maybe(
+        s: &str,
+        conf: &ReadStdKeywordsConfig,
+    ) -> Result<DiagnosedKeyword<Self, ScaleFix>, ScaleError> {
         let go = |x: TrimmedKeyword<_>| {
-            let d = x.trimmed.map(ScaleDiagnostic::Trimmed).unwrap_or_default();
+            let d = x.trimmed.map(ScaleFix::Trimmed).unwrap_or_default();
             DiagnosedKeyword::new(x.native, d)
         };
         let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
@@ -696,7 +713,7 @@ impl Scale {
                             .map(|x| {
                                 // TODO there is no way to tell if the
                                 // previous value was trimmed
-                                let d = ScaleDiagnostic::LogFixed(s.to_owned());
+                                let d = ScaleFix::LogFixed(s.to_owned());
                                 DiagnosedKeyword::new(x, d)
                             })
                             .map_err(ScaleError::LogRange)
@@ -729,7 +746,7 @@ impl TryFrom<(f32, f32)> for LogScale {
 impl FromStrWith for Scale {
     type Err = ScaleError;
     type Payload<'a> = AlphaNumType;
-    type Diagnostic = ScaleDiagnostic;
+    type Diagnostic = OpticalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &str, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
@@ -737,10 +754,10 @@ impl FromStrWith for Scale {
             && !matches!(dt, AlphaNumType::Integer))
             || matches!(conf.force_linear_scale, ForceLinearScale::All)
         {
-            let d = ScaleDiagnostic::Forced(s.to_owned());
+            let d = OpticalScaleFix::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self::Linear, d))
         } else {
-            Self::parse_fix_maybe(s, conf)
+            Self::parse_fix_maybe(s, conf).map(BifunctorOnce::second_into_once)
         }
     }
 }
@@ -1423,7 +1440,7 @@ pub struct TemporalScaleInner;
 
 #[derive(Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum TemporalScaleDiagnostic {
+pub enum TemporalScaleFix {
     #[default]
     None,
     Forced(String),
@@ -1433,9 +1450,9 @@ pub enum TemporalScaleDiagnostic {
 #[derive(From, Clone, PartialEq)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyScaleDiagnostic {
-    Optical(ScaleDiagnostic),
-    Temporal(TemporalScaleDiagnostic),
+pub enum AnyMeasScaleFix {
+    Optical(OpticalScaleFix),
+    Temporal(TemporalScaleFix),
 }
 
 impl FromStrDelim for TemporalScaleInner {
@@ -1464,20 +1481,17 @@ pub struct TemporalScale3_0(pub TemporalScaleInner);
 impl FromStrWith for TemporalScale3_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
-    type Diagnostic = TemporalScaleDiagnostic;
+    type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if conf.force_linear_scale.time_selected() {
-            let d = TemporalScaleDiagnostic::Forced(s.to_owned());
+            let d = TemporalScaleFix::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
             TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let d = x
-                    .trimmed
-                    .map(TemporalScaleDiagnostic::Trimmed)
-                    .unwrap_or_default();
+                let d = x.trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
                 DiagnosedKeyword::new(Self(x.native), d)
             })
         }
@@ -2807,14 +2821,14 @@ impl_non_neg_float! {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct GateScale(pub Scale);
 
-// use the same fix we use for PnE here
 impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
-    type Diagnostic = ScaleDiagnostic;
+    type Diagnostic = ScaleFix;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+        // use the same fix we use for PnE here
         Scale::parse_fix_maybe(s, conf).map(|x| x.first_once(Self))
     }
 }
@@ -3617,21 +3631,18 @@ meas_opt_zst!(TemporalScale2_0, tk::SCALE_KW_SUFFIX, TemporalScaleInner); // opt
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
-    type Diagnostic = TemporalScaleDiagnostic;
+    type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
         if conf.force_linear_scale.time_selected() {
-            let d = TemporalScaleDiagnostic::Forced(s.to_owned());
+            let d = TemporalScaleFix::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
             TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let d = x
-                    .trimmed
-                    .map(TemporalScaleDiagnostic::Trimmed)
-                    .unwrap_or_default();
+                let d = x.trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
                 DiagnosedKeyword::new(go(x.native), d)
             })
         }
@@ -4303,12 +4314,13 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::text::keywords::ScaleFix;
     use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
-        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, Scale, ScaleDiagnostic,
-        TemporalScaleDiagnostic, Trigger, UniGate, Unicode, Vertex,
+        ByteOrd2_0, Calibration3_1, Calibration3_2, Display, IndexPair, OpticalScaleFix, Scale,
+        TemporalScaleFix, Trigger, UniGate, Unicode, Vertex,
     };
 
     use fireflow_types::keywords::{
@@ -4552,18 +4564,17 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for ScaleDiagnostic {
+    impl<'py> FromPyObject<'py> for ScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
                 match y.as_str() {
-                    SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(Self::TrimmedLogFixed(x)),
                     _ => Err(PyValueError::new_err(format!(
-                        "second string must be '{SCALE_DIAGNOSTIC_FORCED}', \
-                         '{SCALE_DIAGNOSTIC_LOG}', '{SCALE_DIAGNOSTIC_TRIMMED}', \
-                         or '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
+                        "second string must be '{SCALE_DIAGNOSTIC_LOG}', \
+                         '{SCALE_DIAGNOSTIC_TRIMMED}', or \
+                         '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
                     ))),
                 }
             } else {
@@ -4572,7 +4583,27 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for TemporalScaleDiagnostic {
+    impl<'py> FromPyObject<'py> for OpticalScaleFix {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
+                match y.as_str() {
+                    SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
+                    SCALE_DIAGNOSTIC_LOG => Ok(ScaleFix::LogFixed(x).into()),
+                    SCALE_DIAGNOSTIC_TRIMMED => Ok(ScaleFix::Trimmed(x).into()),
+                    SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(ScaleFix::TrimmedLogFixed(x).into()),
+                    _ => Err(PyValueError::new_err(format!(
+                        "second string must be '{SCALE_DIAGNOSTIC_FORCED}', \
+                         '{SCALE_DIAGNOSTIC_LOG}', '{SCALE_DIAGNOSTIC_TRIMMED}', \
+                         or '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
+                    ))),
+                }
+            } else {
+                Ok(ScaleFix::None.into())
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for TemporalScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
                 match y.as_str() {
@@ -4589,7 +4620,7 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for ScaleDiagnostic {
+    impl<'py> IntoPyObject<'py> for ScaleFix {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;
@@ -4597,7 +4628,6 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ret = match self {
                 Self::None => None,
-                Self::Forced(x) => Some((x, SCALE_DIAGNOSTIC_FORCED)),
                 Self::LogFixed(x) => Some((x, SCALE_DIAGNOSTIC_LOG)),
                 Self::Trimmed(x) => Some((x, SCALE_DIAGNOSTIC_TRIMMED)),
                 Self::TrimmedLogFixed(x) => Some((x, SCALE_DIAGNOSTIC_TRIMMED_LOG)),
@@ -4606,7 +4636,26 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for TemporalScaleDiagnostic {
+    impl<'py> IntoPyObject<'py> for OpticalScaleFix {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let ret = match self {
+                Self::Forced(x) => Some((x, SCALE_DIAGNOSTIC_FORCED)),
+                Self::Inner(ScaleFix::None) => None,
+                Self::Inner(ScaleFix::LogFixed(x)) => Some((x, SCALE_DIAGNOSTIC_LOG)),
+                Self::Inner(ScaleFix::Trimmed(x)) => Some((x, SCALE_DIAGNOSTIC_TRIMMED)),
+                Self::Inner(ScaleFix::TrimmedLogFixed(x)) => {
+                    Some((x, SCALE_DIAGNOSTIC_TRIMMED_LOG))
+                }
+            };
+            ret.into_bound_py_any(py)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TemporalScaleFix {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

@@ -159,7 +159,10 @@ impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
         (self.native, self.diagnostic.map(|t| (T::std(), t)))
     }
 
-    pub(crate) fn into_opt_indexed_pair(self, i: MeasIndex) -> (Option<T>, Option<(StdKey, String)>)
+    pub(crate) fn into_opt_indexed_pair(
+        self,
+        i: IndexFromOne,
+    ) -> (Option<T>, Option<(StdKey, String)>)
     where
         T: IndexedKey,
     {

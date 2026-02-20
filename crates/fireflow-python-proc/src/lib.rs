@@ -1135,9 +1135,16 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let scale = DocArgROIvar::new_ivar_ro(
         "scale",
-        PyList::new1(PyOpt::new_scale_diagnostic()),
+        PyList::new1(PyOpt::new_scale_fix()),
         format!("Diagnostic data from parsing {PNE} keywords."),
         |_, _| quote!(self.0.scale.clone()),
+    );
+
+    let gate_scale = DocArgROIvar::new_ivar_ro(
+        "gate_scale",
+        PyList::new1(PyOpt::new_gate_scale_fix()),
+        format!("Diagnostic data from parsing {GME} keywords."),
+        |_, _| quote!(self.0.gate_scale.clone()),
     );
 
     let trimmed = DocArgROIvar::new_ivar_ro(
@@ -1170,6 +1177,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             timestep,
             original_names,
             scale,
+            gate_scale,
             trimmed,
             tmp_opt_pairs,
             timestep_added,
@@ -6615,8 +6623,21 @@ impl PyLiteral {
         Self::new2([tk::BYTEORD_LITTLE, tk::BYTEORD_BIG], endian)
     }
 
-    fn new_scale_diagnostic() -> Self {
-        Self::new1(["trimmed", "log", "trimmed_log", "forced"])
+    fn new_scale_fix() -> Self {
+        Self::new1([
+            tk::SCALE_DIAGNOSTIC_TRIMMED,
+            tk::SCALE_DIAGNOSTIC_LOG,
+            tk::SCALE_DIAGNOSTIC_TRIMMED_LOG,
+            tk::SCALE_DIAGNOSTIC_FORCED,
+        ])
+    }
+
+    fn new_gate_scale_fix() -> Self {
+        Self::new1([
+            tk::SCALE_DIAGNOSTIC_TRIMMED,
+            tk::SCALE_DIAGNOSTIC_LOG,
+            tk::SCALE_DIAGNOSTIC_TRIMMED_LOG,
+        ])
     }
 
     fn new_tri_flag(name: &str) -> Self {
@@ -6655,9 +6676,15 @@ impl<E> PyOpt<E> {
 }
 
 impl<E: From<PyException>> PyOpt<E> {
-    fn new_scale_diagnostic() -> Self {
-        let path = keyword_path("AnyScaleDiagnostic");
-        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_diagnostic());
+    fn new_scale_fix() -> Self {
+        let path = keyword_path("AnyMeasScaleFix");
+        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_fix());
+        Self::new1(inner).rstype(path)
+    }
+
+    fn new_gate_scale_fix() -> Self {
+        let path = keyword_path("ScaleFix");
+        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_gate_scale_fix());
         Self::new1(inner).rstype(path)
     }
 }
@@ -10289,6 +10316,7 @@ const PNR: &str = fcs_kw!(tk::PNR);
 const PNB: &str = fcs_kw!(tk::PNB);
 const PNN: &str = fcs_kw!(tk::PNN);
 const PNE: &str = fcs_kw!(tk::PNE);
+const GME: &str = fcs_kw!(tk::GME);
 const PNG: &str = fcs_kw!(tk::PNG);
 const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
 const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);

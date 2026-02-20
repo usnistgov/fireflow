@@ -170,8 +170,12 @@ TriFlag: TypeAlias = Literal["false", "true", "silent"]
 
 ForceLinearScale: TypeAlias = Literal["none", "time_only", "all_non_int", "all"]
 
-ScaleDiagnostic: TypeAlias = (
+MeasScaleDiagnostic: TypeAlias = (
     tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
+)
+
+GateScaleDiagnostic: TypeAlias = (
+    tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
 )
 
 TrimValueWhitespace: TypeAlias = Literal[

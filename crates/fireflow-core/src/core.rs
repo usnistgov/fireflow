@@ -51,18 +51,18 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyScaleDiagnostic, CSMode, CSTot, CSVBits, CSVFlag,
-    Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com,
-    Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType,
-    DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain,
-    Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
-    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalType,
+    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
+    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
+    Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
+    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError,
+    HyperParError, Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
+    LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
+    ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalScaleFix, OpticalType,
     Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Proj, PseudostandardError, Range, Scale, ScaleDiagnostic, Smno, Src, Sys,
-    Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleDiagnostic, TemporalType, Timestep,
-    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
-    Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    PrefixedMeasIndex, Proj, PseudostandardError, Range, Scale, ScaleFix, Smno, Src, Sys, Tag,
+    TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded,
+    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
+    Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -1374,19 +1374,24 @@ pub struct StdTEXTDiagnostics {
     /// Original $PnN if they are renamed.
     pub original_names: Vec<Option<Shortname>>,
     /// Diagnostic outcomes from fixing $PnE keys.
-    pub scale: Vec<AnyScaleDiagnostic>,
+    pub scale: Vec<AnyMeasScaleFix>,
+    /// Diagnostic outcomes from fixing $GnE keys.
+    pub gate_scale: Vec<ScaleFix>,
     /// Original keyword values that were trimmed for whitespace between commas.
-    pub trimmed: Vec<(StdKey, String)>,
+    pub trimmed: TrimmedKeywords,
     /// Optical keys that were found in the temporal measurement.
     pub temporal_optical_pairs: Vec<(StdKey, String)>,
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
 }
 
+pub(crate) type TrimmedKeywords = Vec<(StdKey, String)>;
+
 impl StdTEXTDiagnostics {
     fn from_extra(
         extra: ExtraStdKeywords,
         original_names: Vec<Option<Shortname>>,
+        gate_scale: Vec<ScaleFix>,
         meas: MeasurementDiagnostics,
     ) -> Self {
         Self {
@@ -1397,6 +1402,7 @@ impl StdTEXTDiagnostics {
             timestep: extra.timestep,
             original_names,
             scale: meas.scale,
+            gate_scale,
             trimmed: meas.trimmed,
             temporal_optical_pairs: meas.tmp_opt_pairs,
             timestep_added: meas.timestep_added,
@@ -1406,8 +1412,8 @@ impl StdTEXTDiagnostics {
 
 #[derive(new)]
 pub struct MeasurementDiagnostics {
-    scale: Vec<AnyScaleDiagnostic>,
-    trimmed: Vec<(StdKey, String)>,
+    scale: Vec<AnyMeasScaleFix>,
+    trimmed: TrimmedKeywords,
     tmp_opt_pairs: Vec<(StdKey, String)>,
     timestep_added: TimestepAdded,
 }
@@ -1415,21 +1421,22 @@ pub struct MeasurementDiagnostics {
 #[derive(new)]
 pub struct DiagnosedMetaroot<M> {
     this: M,
-    trimmed: Vec<(StdKey, String)>,
+    trimmed: TrimmedKeywords,
+    fixed_gate_scales: Vec<ScaleFix>,
 }
 
 #[derive(new)]
 pub struct DiagnosedOptical<M> {
     this: M,
-    scale: ScaleDiagnostic,
-    trimmed: Vec<(StdKey, String)>,
+    scale: OpticalScaleFix,
+    trimmed: TrimmedKeywords,
 }
 
 #[derive(new)]
 pub struct DiagnosedTemporal<M> {
     this: M,
-    scale: TemporalScaleDiagnostic,
-    trimmed: Vec<(StdKey, String)>,
+    scale: TemporalScaleFix,
+    trimmed: TrimmedKeywords,
     tmp_opt_pairs: Vec<(StdKey, String)>,
     timestep_added: TimestepAdded,
 }
@@ -1584,7 +1591,7 @@ pub trait LookupMetaroot: Sized + VersionedMetaroot {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -2261,14 +2268,14 @@ where
 
         go!(abrt_res)
             .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
-            .map_ok_value(|(abrt, lost, tr_out, (specific, trimmed))| {
+            .map_ok_value(|(abrt, lost, tr_out, meta)| {
                 let (tr, tr_trimmed) = tr_out.into_opt_root_pair();
                 let ret = Self::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
-                    nonstd,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr,
+                    meta.this, nonstd,
                 );
-                let trimmed2 = trimmed.into_iter().chain(tr_trimmed).collect();
-                DiagnosedMetaroot::new(ret, trimmed2)
+                let trimmed2 = meta.trimmed.into_iter().chain(tr_trimmed).collect();
+                DiagnosedMetaroot::new(ret, trimmed2, meta.fixed_gate_scales)
             })
     }
 
@@ -4473,17 +4480,19 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         go_err!(ret).map_ok_value(|x| (metaroot_out, layout_out, x, original_names))
                     },
                 )
-                .and_then_commutative(|(metaroot_out, layout_out, meas_out, original_names)| {
-                    let (meas, mut meas_diag) = meas_out;
-                    meas_diag.trimmed.extend(metaroot_out.trimmed);
-                    let ret = Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
-                        .map_ok_value(|ret| (ret, original_names, meas_diag));
-                    go_err!(ret)
-                });
+                .and_then_commutative(
+                    |(metaroot_out, layout_out, (meas, mut meas_diag), original_names)| {
+                        meas_diag.trimmed.extend(metaroot_out.trimmed);
+                        let fixes = metaroot_out.fixed_gate_scales;
+                        let ret = Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
+                            .map_ok_value(|ret| (ret, original_names, fixes, meas_diag));
+                        go_err!(ret)
+                    },
+                );
 
             let gate = core_res
                 .as_ref()
-                .and_then(|(core, _, _)| core.metaroot.specific.gate())
+                .and_then(|(core, _, _, _)| core.metaroot.specific.gate())
                 .unwrap_or(Gate::from(0));
 
             // Push pseudostandard/unused warnings/errors
@@ -4541,8 +4550,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, original_names, diag)| {
-                let d = StdTEXTDiagnostics::from_extra(extra, original_names, diag);
+            core_res.map_ok_value(|(ret, original_names, fixes, diag)| {
+                let d = StdTEXTDiagnostics::from_extra(extra, original_names, fixes, diag);
                 (ret, d)
             })
         })
@@ -7068,7 +7077,7 @@ impl ScaleTransform {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalResult<(Self, ScaleDiagnostic)>
+    ) -> LookupOpticalResult<(Self, OpticalScaleFix)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -7471,8 +7480,8 @@ impl LookupOptical for InnerOptical3_1 {
             .zip_commutative(scale)
             .map_ok_value(|((w_out, c_out, d_out, p), (s, sd))| {
                 let (w, w_trimmed) = w_out.into_indexed_pair(i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i);
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i.into());
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let ret = Self::new(s, w, c, d, p);
                 let trimmed = w_trimmed
                     .into_iter()
@@ -7520,8 +7529,8 @@ impl LookupOptical for InnerOptical3_2 {
             .zip6_commutative(go!(cal), go!(dpy), go!(meas), go!(feat), scale)
             .map_ok_value(|(w_out, c_out, d_out, m, f, (s, sd))| {
                 let (w, w_trimmed) = w_out.into_indexed_pair(i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i);
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i.into());
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let ret = Self::new(s, w, c, d, anal, f.native, m, tag, det_name);
                 let trimmed = c_trimmed
                     .into_iter()
@@ -7636,7 +7645,7 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let trimmed = d_trimmed.into_iter().collect();
                 let ret = Self::new(t.native, d, p);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
@@ -7680,7 +7689,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, d_out, m, tmp_opt_pairs), (s, t))| {
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let trimmed = d_trimmed.into_iter().collect();
                 let ret = Self::new(t.native, d, m);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
@@ -8311,7 +8320,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8330,7 +8339,9 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         comp.zip3_commutative(ts, ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((c, t, g), m)| (Self::new(m, cyt, c, t, g), vec![]))
+            .map_ok_value(|((c, t, g), m)| {
+                DiagnosedMetaroot::new(Self::new(m, cyt, c, t, g.0), g.1, g.2)
+            })
     }
 }
 
@@ -8352,7 +8363,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         nonstd: &mut NonStdKeywords,
         _: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8388,9 +8399,9 @@ impl LookupMetaroot for InnerMetaroot3_0 {
             .map_ok_value(|((co_out, su, t, u_out, g), m)| {
                 let (co, c_trimmed) = co_out.into_opt_root_pair();
                 let (u, u_trimmed) = u_out.into_opt_root_pair();
-                let ret = Self::new(m, cyt, co, t, cytsn, u, su, g);
-                let trimmed = c_trimmed.into_iter().chain(u_trimmed).collect();
-                (ret, trimmed)
+                let ret = Self::new(m, cyt, co, t, cytsn, u, su, g.0);
+                let trimmed = c_trimmed.into_iter().chain(u_trimmed).chain(g.1).collect();
+                DiagnosedMetaroot::new(ret, trimmed, g.2)
             })
     }
 }
@@ -8413,7 +8424,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8467,9 +8478,9 @@ impl LookupMetaroot for InnerMetaroot3_1 {
             .zip_commutative(mode)
             .map_ok_value(|((sp_out, su, md, t, v, g), m)| {
                 let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
-                let ret = Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g);
-                let trimmed = sp_trimmed.into_iter().collect();
-                (ret, trimmed)
+                let ret = Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g.0);
+                let trimmed = sp_trimmed.into_iter().chain(g.1).collect();
+                DiagnosedMetaroot::new(ret, trimmed, g.2)
             })
     }
 }
@@ -8492,7 +8503,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         nonstd: &mut NonStdKeywords,
         ms: &[Self::Name],
         conf: &C,
-    ) -> LookupMetarootResult<(Self, Vec<(StdKey, String)>)>
+    ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -8541,10 +8552,14 @@ impl LookupMetaroot for InnerMetaroot3_2 {
             .map_ok_value(|(((d, md, mo, sp_out), t, u_out, v, ag), c)| {
                 let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
                 let ret = Self::new(
-                    mo, t, d, c, sp, cytsn, md, plate, v, carrier, u_out.this, flow, ag,
+                    mo, t, d, c, sp, cytsn, md, plate, v, carrier, u_out.this, flow, ag.0,
                 );
-                let trimmed = sp_trimmed.into_iter().chain(u_out.trimmed).collect();
-                (ret, trimmed)
+                let trimmed = sp_trimmed
+                    .into_iter()
+                    .chain(u_out.trimmed)
+                    .chain(ag.1)
+                    .collect();
+                DiagnosedMetaroot::new(ret, trimmed, vec![])
             })
     }
 }

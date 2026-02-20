@@ -1,9 +1,9 @@
 use crate::config::{AllowLoss, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::core::{IndexedKeyLossError, TrimmedKeywords, UnitaryKeyLossError};
 use crate::data::IndexedError;
 use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
-    ResultExt as _, SwitchableErrorsResult,
+    ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
 use crate::text::deprecated::{
@@ -49,7 +49,7 @@ use {
     fireflow_types::python as py,
 };
 
-use super::keywords::ScaleDiagnostic;
+use super::keywords::ScaleFix;
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 #[derive(Clone, PartialEq, Default, AsRef)]
@@ -310,7 +310,12 @@ impl AppliedGates2_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates2_0Error, LookupAppliedGates2_0Error>
+    ) -> WarningsAndErrorsResult<
+        (Self, TrimmedKeywords, Vec<ScaleFix>),
+        (),
+        LookupAppliedGates2_0Error,
+        LookupAppliedGates2_0Error,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -323,18 +328,20 @@ impl AppliedGates2_0 {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         ag.zip_f2_once(gm)
-            .and_then_deferred_switchable_result(flag, |(scheme, gated_measurements)| {
-                // TODO use diagnostic output
-                Self::try_new(gated_measurements.0.0, scheme).map_err(LookupAppliedGatesError::Link)
+            .and_then_deferred_switchable_result(flag, |(scheme_out, gated_ms_out)| {
+                let (scheme, scheme_diag) = scheme_out;
+                let (gated_ms, gated_ms_diag) = gated_ms_out;
+                Self::try_new(gated_ms.0, scheme)
+                    .map_err(LookupAppliedGatesError::Link)
+                    .map(|x| (x, scheme_diag, gated_ms_diag))
             })
-            .map_err_value(|ret| {
+            .map_err_value(|(ret, _, _)| {
                 // TODO this should not be deferred (ditto all others like
                 // this); consume the value and demote if required
                 if rconf.process_optional_failure.is_demote() {
                     ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
-                ret
             })
     }
 
@@ -451,7 +458,12 @@ impl AppliedGates3_0 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_0Error, LookupAppliedGates3_0Error>
+    ) -> WarningsAndErrorsResult<
+        (Self, TrimmedKeywords, Vec<ScaleFix>),
+        (),
+        LookupAppliedGates3_0Error,
+        LookupAppliedGates3_0Error,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -463,19 +475,20 @@ impl AppliedGates3_0 {
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         s.zip_f2_once(ms)
-            .and_then_deferred(|(scheme, gated_measurements)| {
-                // TODO use diagnostic output
-                let succ = Self::try_new(gated_measurements.0.0, scheme)
+            .and_then_deferred(|(scheme_out, gated_ms_out)| {
+                let (scheme, scheme_diag) = scheme_out;
+                let (gated_ms, gated_ms_diag) = gated_ms_out;
+                let succ = Self::try_new(gated_ms.0, scheme)
                     .map_err(LookupAppliedGatesError::Link)
+                    .map(|x| (x, scheme_diag, gated_ms_diag))
                     .into_succ();
                 LogResult::Succ(succ)
             })
-            .map_err_value(|ret| {
+            .map_err_value(|(ret, _, _)| {
                 if rconf.process_optional_failure.is_demote() {
                     ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
-                ret
             })
     }
 
@@ -580,20 +593,23 @@ impl AppliedGates3_2 {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<Self, LookupAppliedGates3_2Error, LookupAppliedGates3_2Error>
+    ) -> WarningsAndErrorsResult<
+        (Self, TrimmedKeywords),
+        (),
+        LookupAppliedGates3_2Error,
+        LookupAppliedGates3_2Error,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         GatingScheme::lookup(std, nonstd, conf)
-            .map_deferred_value(Self)
-            .map_err_value(|ret| {
+            .map_ok_value(|(x, y)| (Self(x), y))
+            .map_err_value(|(ret, _)| {
                 if rconf.process_optional_failure.is_demote() {
-                    ret.0
-                        .opt_keywords_std()
+                    ret.opt_keywords_std()
                         .for_each(|(k, v)| nonstd.insert_demoted(k, v));
                 }
-                ret
             })
     }
 
@@ -612,11 +628,7 @@ impl GatedMeasurement {
         nonstd: &mut NonStdKeywords,
         i: GateIndex,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<
-        (Self, ScaleDiagnostic),
-        LookupGatedMeasError,
-        LookupGatedMeasError,
-    >
+    ) -> DeferredWarningsAndErrors<(Self, ScaleFix), LookupGatedMeasError, LookupGatedMeasError>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -818,12 +830,13 @@ impl<I> GatingScheme<I> {
             .flat_map(|(ri, v)| v.meas_indices().map(|mi| (*ri, mi)))
     }
 
+    #[allow(clippy::type_complexity)]
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        Self,
+        (Self, TrimmedKeywords),
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
     >
@@ -845,15 +858,22 @@ impl<I> GatingScheme<I> {
                             .into_iter()
                             .map(|ri| {
                                 Region::lookup(std, nonstd, ri, conf)
-                                    .map_deferred_value(|x| x.map(|y| (ri, y)))
+                                    .map_deferred_value(|(r, r_diag)| (r.map(|x| (ri, x)), r_diag))
                                     .map_errors(LookupGatingSchemeError::Region)
                                     .map_commutative_warnings(LookupGatingSchemeError::Region)
                             })
                             .sequence_def()
                     })
                     .and_then_deferred_switchable_result(flag, |rs| {
-                        let regions = rs.into_iter().flatten().collect();
-                        Self::try_new(gating, regions).map_err(LookupGatingSchemeError::Link)
+                        let mut regions = HashMap::new();
+                        let mut trimmed = vec![];
+                        for (r, t) in rs {
+                            let _ = r.map(|(k, v)| regions.insert(k, v));
+                            trimmed.extend(t);
+                        }
+                        Self::try_new(gating, regions)
+                            .map_err(LookupGatingSchemeError::Link)
+                            .map(|x| (x, trimmed))
                     })
             })
     }
@@ -952,13 +972,14 @@ impl<I> Region<I> {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         ri: RegionIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        Option<Self>,
+        (Option<Self>, TrimmedKeywords),
         LookupRegionError<LookupRegionIndexError<I>>,
         LookupRegionError<LookupRegionIndexError<I>>,
     >
@@ -978,39 +999,42 @@ impl<I> Region<I> {
         let flag = rconf.process_optional_failure;
         index_res
             .zip_f2_once(window_res)
-            .and_then_deferred_switchable_result(flag, |(gi_opt, w_opt)| {
+            .and_then_deferred_switchable_result(flag, |(gi_out, w_out)| {
                 // Try to combine the gateindex and window together to make a
                 // region. This will only work if both are present and
                 // they are both the same type (uni/bi-variate). If anything
                 // fails, return none, log an error (or warning if we allow
                 // dropping), and demote the keywords if applicable.
-                let res = match (gi_opt.native, w_opt.native) {
-                    // TODO use diagnostics here somewhere
+                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(ri.into());
+                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(ri.into());
+                let trimmed = gi_trimmed.into_iter().chain(w_trimmed).collect();
+                let res = match (gi_val, w_val) {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
                         Ok(x) => Ok(Some(x.fmap_into())),
-                        Err((gi_, w_)) => {
+                        Err((old_gi, old_w)) => {
                             if flag.is_demote() {
-                                nonstd.insert_demoted_meas(ri.into(), &gi_);
-                                nonstd.insert_demoted_meas(ri.into(), &w_);
+                                nonstd.insert_demoted_meas(ri.into(), old_gi);
+                                nonstd.insert_demoted_meas(ri.into(), old_w);
                             }
                             Err(IndexWindowMismatchError::Both(ri))
                         }
                     },
                     (Some(gi), None) => {
                         if flag.is_demote() {
-                            nonstd.insert_demoted_meas(ri.into(), &gi);
+                            nonstd.insert_demoted_meas(ri.into(), gi);
                         }
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
                     (None, Some(w)) => {
                         if flag.is_demote() {
-                            nonstd.insert_demoted_meas(ri.into(), &w);
+                            nonstd.insert_demoted_meas(ri.into(), w);
                         }
                         Err(IndexWindowMismatchError::NoIndex(ri))
                     }
                     (None, None) => Ok(None),
                 };
                 res.map_err(LookupRegionError::Mismatch)
+                    .map(|x| (x, trimmed))
             })
     }
 
@@ -1147,7 +1171,7 @@ impl GatedMeasurements {
         nonstd: &mut NonStdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        (Self, Vec<ScaleDiagnostic>),
+        (Self, Vec<ScaleFix>),
         LookupGatedMeasurementsError,
         LookupGatedMeasurementsError,
     >

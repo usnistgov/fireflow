@@ -134,7 +134,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     ];
 
     macro_rules! write_kw {
-        ($k:ident, $v:ident) => {
+        ($k:expr, $v:expr) => {
             writeln!(file, "pub const PN{v}: &str = \"$Pn{v}\";", v = $v)?;
             writeln!(
                 file,
@@ -145,15 +145,21 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
         };
     }
 
+    macro_rules! go_inner {
+        ($k:expr, $v:expr, $also_gate:expr, $class:expr) => {{
+            write_kw!($k, $v);
+            meas_map.entry(Ascii::new($v), $class);
+            if $also_gate {
+                writeln!(file, "pub const GM{v}: &str = \"$Gm{v}\";", v = $v)?;
+                gate_set.entry(Ascii::new($v));
+            }
+        }};
+    }
+
     macro_rules! go {
         ($pairs:expr, $class:expr) => {
             for (k, v, also_gate) in $pairs {
-                write_kw!(k, v);
-                meas_map.entry(Ascii::new(v), $class);
-                if also_gate {
-                    writeln!(file, "pub const GM{v}: &str = \"$Gm{v}\";")?;
-                    gate_set.entry(Ascii::new(v));
-                }
+                go_inner!(k, v, also_gate, $class)
             }
         };
     }
@@ -164,11 +170,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     go!(min_3_2, "MeasKeywordClass::OptGE3_2");
 
     for (k, v, also_gate, var) in special {
-        write_kw!(k, v);
-        meas_map.entry(Ascii::new(v), var);
-        if also_gate {
-            gate_set.entry(Ascii::new(v));
-        }
+        go_inner!(k, v, also_gate, var);
     }
 
     let mb = meas_map.build();

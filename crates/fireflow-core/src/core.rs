@@ -1665,7 +1665,7 @@ pub trait VersionedMetaroot: Sized {
     /// If this is not the case, either drop invalid keywords or return error.
     fn remove_invalid_links(
         &mut self,
-        par: &Par,
+        par: Par,
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink>;
 
@@ -2376,7 +2376,7 @@ where
         let mut es = vec![];
         for x in self
             .specific
-            .remove_invalid_links(&par, names)
+            .remove_invalid_links(par, names)
             .chain(tr.map(RemovedLink::from))
         {
             if allow_dropping {
@@ -8595,10 +8595,10 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     fn remove_invalid_links(
         &mut self,
-        par: &Par,
+        par: Par,
         _: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink> {
-        Compensation2_0::remove_invalid_link(&mut self.comp, *par).into_iter()
+        Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
     }
 
     fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
@@ -8696,11 +8696,10 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn remove_invalid_links(
         &mut self,
-        par: &Par,
+        par: Par,
         _: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink> {
-        let comp =
-            Compensation3_0::remove_invalid_link(&mut self.comp, *par).map(RemovedLink::from);
+        let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
         let ag = self.applied_gates.remove_invalid_links(par);
         comp.into_iter().chain(ag)
     }
@@ -8805,12 +8804,13 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn remove_invalid_links(
         &mut self,
-        par: &Par,
+        par: Par,
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink> {
         let spill = Spillover::remove_invalid_link(&mut self.spillover, names);
         self.applied_gates
             .remove_invalid_links(par)
+            .into_iter()
             .chain(spill.map(RemovedLink::from))
     }
 
@@ -8923,7 +8923,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn remove_invalid_links(
         &mut self,
-        par: &Par,
+        par: Par,
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink> {
         let uc = self.unstained.unstainedcenters.remove_invalid_links(names);
@@ -8931,6 +8931,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.applied_gates
             .0
             .remove_invalid_links(par)
+            .into_iter()
             .chain(spill.map(RemovedLink::from))
             .chain(uc.map(RemovedLink::from))
     }

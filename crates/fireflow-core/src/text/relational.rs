@@ -1,31 +1,32 @@
-/// Enforce relational links between keywords.
-///
-/// This amounts to two basic operations:
-///
-/// 1) Checking if all links are valid: used when adding a new keyword which
-///    has links and ensuring this is valid.
-/// 2) Checking that a keyword has any links (presumed valid) at all: This is
-///    useful when attempting to removing a keyword which may break a link.
-///
-/// For (1), the basic idea is that some keywords ($SPILLOVER for example) refer
-/// to measurements by $PnN. If any of these $PnN don't exist, the key should be
-/// dropped since it is invalid and would produce a bad internal state.
-///
-/// Specifically, there are two types of links to be enforced:
-/// 1. key -> $PnN
-/// 2. key -> index (which could be measurement, gating, etc)
-///
-/// How this is actually done:
-/// 1. Check each relevant data structure for invalid links
-/// 2. If an invalid keyword is found, rip it out and store it in an enum
-/// 3. When all invalid keywords are collected, loop through them an emit errors
-///    and/or demote them to nonstandard keywords (all are optional so this is
-///    a valid "fix" to preserve information).
-///
-/// The reason these steps need to be broken apart like this is because we need
-/// to run this process when creating a new Core* struct and also when we read
-/// a file and parse keywords from a hash table. The former doesn't require
-/// demoting optional keywords.
+//! Enforce relational links between keywords.
+//!
+//! This amounts to two basic operations:
+//!
+//! 1) Checking if all links are valid: used when adding a new keyword which
+//!    has links and ensuring this is valid.
+//! 2) Checking that a keyword has any links (presumed valid) at all: This is
+//!    useful when attempting to removing a keyword which may break a link.
+//!
+//! For (1), the basic idea is that some keywords ($SPILLOVER for example) refer
+//! to measurements by $PnN. If any of these $PnN don't exist, the key should be
+//! dropped since it is invalid and would produce a bad internal state.
+//!
+//! Specifically, there are two types of links to be enforced:
+//! 1. key -> $PnN
+//! 2. key -> index (which could be measurement, gating, etc)
+//!
+//! How this is actually done:
+//! 1. Check each relevant data structure for invalid links
+//! 2. If an invalid keyword is found, rip it out and store it in an enum
+//! 3. When all invalid keywords are collected, loop through them an emit errors
+//!    and/or demote them to nonstandard keywords (all are optional so this is
+//!    a valid "fix" to preserve information).
+//!
+//! The reason these steps need to be broken apart like this is because we need
+//! to run this process when creating a new Core* struct and also when we read
+//! a file and parse keywords from a hash table. The former doesn't require
+//! demoting optional keywords.
+use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -48,8 +49,10 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use std::collections::HashSet;
 use thiserror::Error;
+
+use std::collections::HashSet;
+use std::mem::take;
 
 #[cfg(feature = "python")]
 use {
@@ -189,8 +192,7 @@ pub struct RemovedIndexLink<T> {
 pub struct RemovedGateLink<I> {
     pub(crate) region_index: RegionIndex,
     pub(crate) region: Region<I>,
-    // TODO this will always either be 1 or 2
-    pub(crate) meas_indices: NonEmpty<MeasIndex>,
+    pub(crate) meas_indices: OneOrTwo<MeasIndex>,
 }
 
 /// A $GATING keyword which references non-existent $RnI/$RnW keywords and was removed.
@@ -444,11 +446,44 @@ impl<T: Key> RemovedNamedLink<T> {
         };
         ret.into_iter().flatten()
     }
+
+    pub(crate) fn remove_invalid_link<F>(src: &mut Option<T>, f: F) -> Option<Self>
+    where
+        F: FnOnce(&T) -> Option<LinkName>,
+    {
+        let mut removed = None;
+        *src = take(src).and_then(|s| {
+            if let Some(ln) = f(&s) {
+                removed = Some(Self::new(s, ln));
+                None
+            } else {
+                Some(s)
+            }
+        });
+        removed
+    }
 }
 
 impl<T: Key> RemovedIndexLink<T> {
     fn into_error(self) -> KeyToIndexLinkError<T> {
         KeyToIndexLinkError::new_i0(self.indices)
+    }
+
+    pub(crate) fn remove_invalid_link<F, I>(src: &mut Option<T>, f: F) -> Option<Self>
+    where
+        F: FnOnce(&T) -> I,
+        I: IntoIterator<Item = MeasIndex>,
+    {
+        let mut removed = None;
+        *src = take(src).and_then(|s| {
+            if let Some(js) = NonEmpty::collect(f(&s)) {
+                removed = Some(Self::new(s, js));
+                None
+            } else {
+                Some(s)
+            }
+        });
+        removed
     }
 }
 
@@ -460,7 +495,7 @@ impl<I> RemovedGateLink<I> {
         let ri = self.region_index;
         let region_key = RegionGateIndex::<()>::std(ri);
         let k = SpecificKey::new_i1(ri.into());
-        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices, k);
+        let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentIndexedKeyError::new2(ri.into(), NonEmpty::new(region_key));
         [BrokenIndexedLinkError::from(e0).into(), e1.into()].into_iter()
     }

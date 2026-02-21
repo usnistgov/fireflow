@@ -19,7 +19,6 @@ use thiserror::Error;
 
 use std::fmt;
 use std::hash::Hash;
-use std::mem::take;
 use std::num::ParseIntError;
 
 #[cfg(feature = "serde")]
@@ -89,10 +88,8 @@ impl Spillover {
         src: &mut Option<Self>,
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
-        let s = src.as_ref()?;
-        // ASSUME this won't fail since we filter out None above with ?
-        let ln = names.error_link_name(&s.measurements);
-        ln.map(|x| RemovedNamedLink::new(take(src).unwrap(), x))
+        let go = |s: &Self| names.error_link_name(&s.measurements);
+        RemovedNamedLink::remove_invalid_link(src, go)
     }
 }
 

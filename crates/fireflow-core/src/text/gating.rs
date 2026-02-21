@@ -1,6 +1,7 @@
 use crate::config::{AllowLoss, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::{IndexedKeyLossError, TrimmedKeywords, UnitaryKeyLossError};
 use crate::data::IndexedError;
+use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
@@ -34,7 +35,7 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty::NonEmpty;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::mem::take;
 use std::str::FromStr;
@@ -271,7 +272,8 @@ impl AppliedGates2_0 {
                 .regions
                 .iter()
                 .flat_map(|(_, r)| r.indices())
-                .filter(|i| usize::from(*i) >= n),
+                .copied()
+                .filter(|&i| usize::from(i) >= n),
         ) {
             Err(GateMeasurementLinkError(xs))
         } else {
@@ -379,6 +381,7 @@ impl AppliedGates3_0 {
                 .regions
                 .iter()
                 .flat_map(|(_, r)| r.indices())
+                .copied()
                 .flat_map(GateIndex::try_from)
                 .filter(|&i| usize::from(i) >= n),
         ) {
@@ -423,14 +426,7 @@ impl AppliedGates3_0 {
         self.scheme.shift_meas_indices_after_insert(i);
     }
 
-    // pub(crate) fn indices_difference(
-    //     &self,
-    //     indices: &MeasIndicesNoTime,
-    // ) -> impl Iterator<Item = (RegionIndex, MeasIndex)> {
-    //     self.scheme.indices_difference(indices)
-    // }
-
-    pub(crate) fn remove_invalid_links(&mut self, par: &Par) -> impl Iterator<Item = RemovedLink> {
+    pub(crate) fn remove_invalid_links(&mut self, par: Par) -> Vec<RemovedLink> {
         self.scheme.remove_invalid_links(par)
     }
 
@@ -728,14 +724,12 @@ impl<I> GatingScheme<I> {
         gating: Option<Gating>,
         regions: HashMap<RegionIndex, Region<I>>,
     ) -> Result<Self, DependentKeyError<Gating>> {
-        // NOTE generic parameter in RegionGateIndex is a dummy, all should
-        // format to the same string
         if let Some(ris) = gating.as_ref().and_then(|g| {
             NonEmpty::collect(
                 g.region_indices()
                     .into_iter()
                     .filter(|ri| !regions.contains_key(ri))
-                    .map(RegionGateIndex::<GateIndex>::std),
+                    .map(RegionGateIndex::<()>::std),
             )
         }) {
             Err(DependentKeyError::new1(ris))
@@ -787,42 +781,46 @@ impl<I> GatingScheme<I> {
             })
     }
 
-    pub(crate) fn remove_invalid_links(&mut self, par: &Par) -> impl Iterator<Item = RemovedLink>
+    pub(crate) fn remove_invalid_links(&mut self, par: Par) -> Vec<RemovedLink>
     where
         I: LinkedMeasIndex,
         RemovedLink: From<RemovedGateLink<I>>,
     {
+        let mut bad_indices = HashSet::new();
+        let mut removed_links = vec![];
+        // Then remove any $RnI/$RnW keywords which reference measurements that
+        // don't exist.
+        self.regions = take(&mut self.regions)
+            .into_iter()
+            .filter_map(|(rni, rnw)| {
+                if let Some(xs) = rnw.indices().filter_map(|x| {
+                    let y = x.meas_index()?;
+                    (usize::from(y) >= par.0).then_some(y)
+                }) {
+                    let e = RemovedLink::from(RemovedGateLink::new(rni, rnw, xs));
+                    removed_links.push(e);
+                    bad_indices.insert(rni);
+                    None
+                } else {
+                    Some((rni, rnw))
+                }
+            })
+            .collect();
         // Check the $GATING keyword to see if it has any links to $RnI/$RnW
         // which in turn reference measurement indices that don't exist. If it
         // has any, rip it out and return it.
-        let gating = if let Some(g) = self.gating.as_ref() {
+        self.gating = take(&mut self.gating).and_then(|g| {
             let xs = g.region_indices();
-            let ys = xs.iter().copied().filter(|&rni| {
-                self.regions
-                    .get(&rni)
-                    .into_iter()
-                    .any(|rnw| rnw.meas_indices().any(|x| usize::from(x) >= par.0))
-            });
-            NonEmpty::collect(ys).map(|zs| {
-                // ASSUME this won't fail because we are inside an if let Some
-                // block
-                let ret = take(&mut self.gating).unwrap();
-                RemovedGating::new(zs, ret)
-            })
-        } else {
-            None
-        };
-        // Then remove any $RnI/$RnW keywords which reference measurements that
-        // don't exist.
-        self.regions
-            .extract_if(|_, rnw| rnw.meas_indices().any(|x| usize::from(x) >= par.0))
-            .map(|(rni, rnw)| {
-                let bad_indices = rnw.meas_indices().filter(|x| usize::from(*x) >= par.0);
-                // ASSUME this won't fail because we pre-filtered above
-                let js = NonEmpty::collect(bad_indices).unwrap();
-                RemovedLink::from(RemovedGateLink::new(rni, rnw, js))
-            })
-            .chain(gating.map(RemovedLink::Gating))
+            let ys = xs.iter().copied().filter(|rni| bad_indices.contains(rni));
+            if let Some(zs) = NonEmpty::collect(ys) {
+                let e = RemovedLink::Gating(RemovedGating::new(zs, g));
+                removed_links.push(e);
+                None
+            } else {
+                Some(g)
+            }
+        });
+        removed_links
     }
 
     fn meas_indices(&self) -> impl Iterator<Item = (RegionIndex, MeasIndex)>
@@ -1112,13 +1110,10 @@ impl<I> Region<I> {
         }
     }
 
-    pub(crate) fn indices(&self) -> NonEmpty<I>
-    where
-        I: Copy,
-    {
+    pub(crate) fn indices(&self) -> OneOrTwo<&I> {
         match self {
-            Self::Univariate(r) => NonEmpty::new(r.index),
-            Self::Bivariate(r) => (r.index.x, vec![r.index.x]).into(),
+            Self::Univariate(r) => OneOrTwo::One(&r.index),
+            Self::Bivariate(r) => OneOrTwo::Two(&r.index.x, &r.index.x),
         }
     }
 
@@ -1126,13 +1121,10 @@ impl<I> Region<I> {
     where
         I: LinkedMeasIndex,
     {
-        match self {
-            Self::Univariate(r) => r.index.meas_index().into_iter().chain(None),
-            Self::Bivariate(r) => {
-                let i = &r.index;
-                i.x.meas_index().into_iter().chain(i.y.meas_index())
-            }
-        }
+        self.indices()
+            .fmap(LinkedMeasIndex::meas_index)
+            .into_iter()
+            .flatten()
     }
 
     fn shift_after_insert(&mut self, i: MeasIndex)

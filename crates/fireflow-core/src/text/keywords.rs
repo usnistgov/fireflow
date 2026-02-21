@@ -963,15 +963,15 @@ impl Trigger {
         src: &mut Option<Self>,
         names: &NamedSet<'_>,
     ) -> Option<RemovedNamedLink<Self>> {
-        let tr = src.as_ref()?;
-        let m = &tr.measurement;
-        let ln = match names.membership(m) {
-            NamedSetMembership::None => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
-            NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
-            NamedSetMembership::NonCenter => None,
+        let go = |tr: &Self| {
+            let m = &tr.measurement;
+            match names.membership(m) {
+                NamedSetMembership::None => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
+                NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
+                NamedSetMembership::NonCenter => None,
+            }
         };
-        // ASSUME this won't fail since we filter out None above with ?
-        ln.map(|n| RemovedNamedLink::new(take(src).unwrap(), n))
+        RemovedNamedLink::remove_invalid_link(src, go)
     }
 }
 
@@ -1900,14 +1900,11 @@ impl Compensation3_0 {
         src: &mut Option<Self>,
         par: Par,
     ) -> Option<RemovedIndexLink<Self>> {
-        let c = src.as_ref()?;
-        let m: &DMatrix<_> = c.as_ref();
-        let js = (par.0..m.nrows()).map(MeasIndex::from);
-        NonEmpty::collect(js).map(|xs| {
-            // ASSUME this won't fail because we filter with ? above
-            let v = take(src).unwrap();
-            RemovedIndexLink::new(v, xs)
-        })
+        let go = |c: &Self| {
+            let m: &DMatrix<_> = c.as_ref();
+            (par.0..m.nrows()).map(MeasIndex::from)
+        };
+        RemovedIndexLink::remove_invalid_link(src, go)
     }
 }
 

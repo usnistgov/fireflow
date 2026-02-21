@@ -2370,7 +2370,7 @@ where
         &mut self,
         par: Par,
         names: &NamedSet<'_>,
-        allow_dropping: bool,
+        demote: bool,
     ) -> Vec<BrokenOrDependentLinkError> {
         let tr = Trigger::remove_invalid_links(&mut self.tr, names);
         let mut es = vec![];
@@ -2379,7 +2379,7 @@ where
             .remove_invalid_links(par, names)
             .chain(tr.map(RemovedLink::from))
         {
-            if allow_dropping {
+            if demote {
                 x.insert_keyvals(&mut self.nonstandard_keywords);
             }
             x.push_errors(&mut es);
@@ -4754,7 +4754,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
             None
         };
 
-        let drop_flag = rconf.process_optional_failure;
+        let opt_flag = rconf.process_optional_failure;
         let missing_flag = sconf.allow_missing_time;
         Measurements::try_new(measurements)
             .map_err(LookupCoreError::from)
@@ -4768,9 +4768,9 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .set_ok_value(ms)
             })
             .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, drop_flag.is_demote())
+                Self::check_relationships(&mut metaroot, &ms, opt_flag.is_demote())
                     .map_errors(NewCoreWarning::from)
-                    .nowarn_into_switchable(drop_flag)
+                    .nowarn_into_switchable(opt_flag)
                     .switchable_into_commutative()
                     .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
@@ -4825,14 +4825,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     fn check_relationships(
         metaroot: &mut Metaroot<M>,
         measurements: &Measurements<M::Name, M::Temporal, M::Optical>,
-        allow_drop: bool,
+        demote: bool,
     ) -> ErrorsResult<(), (), BrokenOrDependentLinkError>
     where
         M::Optical: AsScaleOrTransform,
     {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, allow_drop);
+        let link_errs = metaroot.remove_invalid_links(par, &ns, demote);
         LogResult::new_err_from_iter(link_errs, ())
     }
 

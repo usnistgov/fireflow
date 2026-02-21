@@ -126,8 +126,8 @@ impl Datetimes {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_begin);
-                            nonstd.insert_demoted_metaroot_opt(old_end);
+                            nonstd.insert_demoted_metaroot_opt(old_begin.as_ref());
+                            nonstd.insert_demoted_metaroot_opt(old_end.as_ref());
                         }
                     })
                     .into_semigroup()

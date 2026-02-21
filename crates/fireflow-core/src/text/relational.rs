@@ -30,7 +30,6 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::optional::DisplayMaybe as _;
 use crate::validated::keys::{
     BiIndex, BiIndexedKey as _, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
     SpecificKey, StdKey,
@@ -340,15 +339,15 @@ impl<T> DependentIndexedKeyError<T> {
 impl RemovedLink {
     pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
         macro_rules! go_gate {
-            ($kws:expr, $x:expr) => {{
+            ($x:expr) => {{
                 for (k, v) in $x.region.opt_keywords_std($x.region_index) {
-                    $kws.insert_demoted(k, v);
+                    kws.insert_demoted(k, v);
                 }
             }};
         }
         match self {
-            Self::GatingRegion3_0(x) => go_gate!(kws, x),
-            Self::GatingRegion3_2(x) => go_gate!(kws, x),
+            Self::GatingRegion3_0(x) => go_gate!(x),
+            Self::GatingRegion3_2(x) => go_gate!(x),
             Self::Gating(x) => kws.insert_demoted_metaroot(&x.gating),
             Self::Comp2_0(xs) => {
                 for x in xs {
@@ -359,9 +358,7 @@ impl RemovedLink {
             Self::Comp3_0(x) => kws.insert_demoted_metaroot(&x.key),
             Self::Spillover(x) => kws.insert_demoted_metaroot(&x.key),
             Self::UnstainedCenters(x) => {
-                if let Some(v) = x.key.display_maybe() {
-                    kws.insert_demoted_as::<UnstainedCenters>(v);
-                }
+                kws.insert_demoted_metaroot_maybe(&x.key);
             }
             Self::Trigger(x) => kws.insert_demoted_metaroot(&x.key),
         }

@@ -242,10 +242,8 @@ impl IsDeprecated for DeprecatedGatingSchemeRef<'_> {
             Self::Gating(x) => x.demote(nonstd, keep),
             Self::Region(x) => {
                 for (ri, r) in take(*x) {
-                    for (k, v) in r.opt_keywords_std(ri) {
-                        if keep {
-                            nonstd.insert_demoted(k, v);
-                        }
+                    if keep {
+                        r.demote_keywords(ri, nonstd);
                     }
                 }
             }
@@ -272,10 +270,9 @@ where
     T: Key + fmt::Display,
 {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool) {
-        if let Some(y) = take(*self)
-            && keep
-        {
-            nonstd.insert_demoted_metaroot_(&y);
+        let v = take(*self);
+        if keep {
+            nonstd.insert_demoted_metaroot_opt(v.as_ref());
         }
     }
 
@@ -292,10 +289,9 @@ where
     T: Key + DisplayMaybe + Default,
 {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool) {
-        if let Some(y) = take(self.0).display_maybe()
-            && keep
-        {
-            nonstd.insert_demoted_(Key0::<T>::default(), y);
+        let v = take(self.0);
+        if keep {
+            nonstd.insert_demoted_metaroot_maybe(&v);
         }
     }
 
@@ -312,10 +308,9 @@ where
     T: IndexedKey + fmt::Display,
 {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool) {
-        if let Some(y) = take(self.value)
-            && keep
-        {
-            nonstd.insert_demoted_indexed_(self.index, &y);
+        let v = take(self.value);
+        if keep {
+            nonstd.insert_demoted_meas_opt(self.index, v.as_ref());
         }
     }
 
@@ -334,10 +329,9 @@ where
     T: IndexedKey + DisplayMaybe + Default,
 {
     fn demote(&mut self, nonstd: &mut NonStdKeywords, keep: bool) {
-        if let Some(y) = take(self.value.0).display_maybe()
-            && keep
-        {
-            nonstd.insert_demoted_(Key1::<T>::new_i1(self.index), y);
+        let v = take(self.value.0);
+        if keep {
+            nonstd.insert_demoted_meas_maybe(self.index, &v);
         }
     }
 

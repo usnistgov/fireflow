@@ -9,7 +9,6 @@ use crate::logging::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords as kws;
-use crate::text::lookup::{OptIndexedKey, OptMetarootKey};
 use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
@@ -498,64 +497,43 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted(&mut self, key: StdKey, value: String);
 
-    fn insert_demoted_<T, I>(&mut self, key: SpecificKey<T, I>, value: String)
-    where
-        SpecificKey<T, I>: AnyStdKey,
-    {
-        self.insert_demoted(key.as_std(), value);
+    fn insert_demoted_metaroot<T: Key + fmt::Display>(&mut self, value: &T) {
+        self.insert_demoted(T::std(), value.to_string());
     }
 
-    fn insert_demoted_as<T: Key>(&mut self, value: String) {
-        let k = T::std();
-        self.insert_demoted(k, value);
-    }
-
-    fn insert_demoted_metaroot<T: OptMetarootKey + fmt::Display>(&mut self, value: &T) {
-        let (k, v) = value.root_pair_std();
-        self.insert_demoted(k, v);
-    }
-
-    fn insert_demoted_metaroot_opt<T: OptMetarootKey + fmt::Display>(&mut self, value: Option<T>) {
-        if let Some(val) = value {
-            let (k, v) = val.root_pair_std();
-            self.insert_demoted(k, v);
+    fn insert_demoted_metaroot_opt<T: Key + fmt::Display>(&mut self, value: Option<&T>) {
+        if let Some(v) = value {
+            self.insert_demoted(T::std(), v.to_string());
         }
     }
 
-    fn insert_demoted_metaroot_<T: Key + fmt::Display>(&mut self, value: &T) {
-        self.insert_demoted_(SpecificKey::<T, ()>::default(), value.to_string());
+    fn insert_demoted_metaroot_maybe<T: Key + DisplayMaybe>(&mut self, value: &T) {
+        if let Some(v) = value.display_maybe() {
+            self.insert_demoted(T::std(), v);
+        }
     }
 
-    fn insert_demoted_indexed_<T>(&mut self, i: IndexFromOne, value: &T)
-    where
-        T: IndexedKey + fmt::Display,
-    {
-        self.insert_demoted_(SpecificKey::<T, _>::new_i1(i), value.to_string());
+    fn insert_demoted_meas<T: IndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
+        self.insert_demoted(T::std(i), value.to_string());
     }
 
-    fn insert_demoted_meas<T: OptIndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: T) {
-        let k = T::std(i);
-        self.insert_demoted(k, value.to_string());
-    }
-
-    fn insert_demoted_meas_opt<T: OptIndexedKey + fmt::Display>(
+    fn insert_demoted_meas_opt<T: IndexedKey + fmt::Display>(
         &mut self,
         i: IndexFromOne,
-        value: Option<T>,
+        value: Option<&T>,
     ) {
         if let Some(v) = value {
             self.insert_demoted_meas(i, v);
         }
     }
 
-    fn insert_demoted_meas_maybe<T: OptIndexedKey + DisplayMaybe>(
+    fn insert_demoted_meas_maybe<T: IndexedKey + DisplayMaybe>(
         &mut self,
         i: IndexFromOne,
-        value: T,
+        value: &T,
     ) {
         if let Some(v) = value.display_maybe() {
-            let k = T::std(i);
-            self.insert_demoted(k, v);
+            self.insert_demoted(T::std(i), v);
         }
     }
 

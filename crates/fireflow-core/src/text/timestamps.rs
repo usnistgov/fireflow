@@ -216,9 +216,9 @@ impl<X> Timestamps<X> {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_btim);
-                            nonstd.insert_demoted_metaroot_opt(old_etim);
-                            nonstd.insert_demoted_metaroot_opt(old_date);
+                            nonstd.insert_demoted_metaroot_opt(old_btim.as_ref());
+                            nonstd.insert_demoted_metaroot_opt(old_etim.as_ref());
+                            nonstd.insert_demoted_metaroot_opt(old_date.as_ref());
                         }
                     })
                     .into_semigroup()

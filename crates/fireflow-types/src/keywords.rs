@@ -1,3 +1,4 @@
+use const_format::formatcp;
 use unicase::Ascii;
 
 // The string primitives for almost all keywords are compiled in a build script
@@ -71,3 +72,10 @@ pub const SCALE_DIAGNOSTIC_TRIMMED_LOG: &str = "trimmed_log";
 
 pub const TEMPORAL_SCALE_DIAGNOSTIC_FORCED: &str = "forced";
 pub const TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED: &str = "trimmed";
+
+// ISO datetime formats
+
+pub const ISO_DATETIME_NO_TZ: &str = "%Y-%m-%dT%H:%M:%S%.f";
+pub const ISO_DATETIME_TZ_HH_MAYBE_MM: &str = formatcp!("{ISO_DATETIME_NO_TZ}%#z");
+pub const ISO_DATETIME_TZ_HH_MM: &str = formatcp!("{ISO_DATETIME_NO_TZ}%:z");
+pub const ISO_DATETIME_TZ_HH: &str = formatcp!("{ISO_DATETIME_NO_TZ}%:::z");

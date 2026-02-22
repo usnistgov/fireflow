@@ -5,6 +5,9 @@ use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetar
 use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
+use fireflow_types::keywords::{
+    ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
+};
 use type_families::BifunctorOnce as _;
 
 use chrono::{
@@ -53,7 +56,7 @@ pub struct EndDateTime(pub FCSDateTime);
 #[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))]
+#[display("{}", _0.format(ISO_DATETIME_TZ_HH_MM))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl Datetimes {
@@ -189,7 +192,7 @@ impl FromStrWith for FCSDateTime {
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
                 .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
-        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, ISO_DATETIME_NO_TZ) {
             // next, try to parse without a timezone, defaulting to localtime and
             // converting to a fixed offset
             if conf.disallow_localtime.is_set() {
@@ -207,10 +210,10 @@ impl FromStrWith for FCSDateTime {
             // If zone information is present, try any number of formats which
             // are valid and mostly equivalent which contain the timezone
             let formats = [
-                "%Y-%m-%dT%H:%M:%S%.f",
-                "%Y-%m-%dT%H:%M:%S%.f%#z",
-                "%Y-%m-%dT%H:%M:%S%.f%:z",
-                "%Y-%m-%dT%H:%M:%S%.f%:::z",
+                ISO_DATETIME_NO_TZ,
+                ISO_DATETIME_TZ_HH_MAYBE_MM,
+                ISO_DATETIME_TZ_HH_MM,
+                ISO_DATETIME_TZ_HH,
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s, f) {

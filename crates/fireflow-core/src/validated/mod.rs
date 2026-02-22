@@ -9,7 +9,6 @@ pub mod datepattern;
 pub mod header_segments;
 pub mod keys;
 pub mod keystring_pairs;
-pub mod nonempty_string;
 pub mod nonstd_meas_pattern;
 pub mod shortname;
 pub mod sub_pattern;

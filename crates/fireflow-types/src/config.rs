@@ -1,3 +1,4 @@
+use crate::nonempty_string::NEStrConst;
 use const_format::formatcp;
 use derive_more::Display;
 use itertools::Itertools as _;
@@ -7,7 +8,11 @@ use thiserror::Error;
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 pub trait EnumStrIter: Sized {
-    fn into_str(self) -> &'static str;
+    fn into_ne_str(self) -> NEStrConst;
+
+    fn into_str(self) -> &'static str {
+        self.into_ne_str().as_str()
+    }
 
     fn iter() -> impl Iterator<Item = Self>;
 
@@ -27,7 +32,7 @@ pub trait EnumStrIter: Sized {
 macro_rules! impl_str_enum {
     ($(#[$flag_meta:meta])* $flag_name:ident,
      $(#[$error_meta:meta])* $error_name:ident,
-     $($(#[$var_meta:meta])* $var:ident => $strlit:tt)*
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
     ) => {
         $(#[$flag_meta])*
         #[derive(Clone, Copy)]
@@ -42,15 +47,17 @@ macro_rules! impl_str_enum {
             type Err = $error_name;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
-                    $($strlit => Ok(Self::$var),)*
-                    _ => Err($error_name),
-                }
+                $(
+                    if $strlit.as_str() == s {
+                        return Ok(Self::$var);
+                    }
+                )*
+                    Err($error_name)
             }
         }
 
         impl $crate::config::EnumStrIter for $flag_name {
-            fn into_str(self) -> &'static str {
+            fn into_ne_str(self) -> $crate::nonempty_string::NEStrConst {
                 match self {
                     $(Self::$var => $strlit,)*
                 }
@@ -86,8 +93,8 @@ macro_rules! impl_str_enum {
 macro_rules! impl_config_flag {
     ($(#[$flag_meta:meta])* $flag_name:ident,
      $(#[$error_meta:meta])* $error_name:ident,
-     $(#[$var_meta0:meta])* $var0:ident => $strlit0:tt
-     $($(#[$var_meta:meta])* $var:ident => $strlit:tt)*
+     $(#[$var_meta0:meta])* $var0:ident => $strlit0:expr,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),*
     ) => {
         impl_str_enum!(
             #[derive(Display, Default)]
@@ -100,65 +107,65 @@ macro_rules! impl_config_flag {
             $(#[$error_meta])* $error_name,
 
             #[default]
-            $(#[$var_meta0])* $var0 => $strlit0
+            $(#[$var_meta0])* $var0 => $strlit0,
 
-            $($(#[$var_meta])* $var => $strlit)*
+            $($(#[$var_meta])* $var => $strlit),*
         );
     }
 }
 
-pub const TRI_FALSE_LEVEL: &str = FALSE_LEVEL;
-pub const TRI_TRUE_LEVEL: &str = TRUE_LEVEL;
-pub const TRI_SILENT_LEVEL: &str = SILENT_LEVEL;
+pub const TRI_FALSE_LEVEL: NEStrConst = FALSE_LEVEL;
+pub const TRI_TRUE_LEVEL: NEStrConst = TRUE_LEVEL;
+pub const TRI_SILENT_LEVEL: NEStrConst = SILENT_LEVEL;
 
 impl_config_flag!(
     /// Tri-state flag to throw warning, throw error, or do nothing
     TriFlag,
     /// Error when parsing [`TriFlag`] from [`String`]
     TriFlagError,
-    False  => TRI_FALSE_LEVEL
-    True   => TRI_TRUE_LEVEL
+    False  => TRI_FALSE_LEVEL,
+    True   => TRI_TRUE_LEVEL,
     Silent => TRI_SILENT_LEVEL
 );
 
-pub const OTHER_WIDTH_NONE_LEVEL: &str = NONE_LEVEL;
-pub const OTHER_WIDTH_ERROR_LEVEL: &str = ERROR_LEVEL;
-pub const OTHER_WIDTH_WARN_LEVEL: &str = WARN_LEVEL;
-pub const OTHER_WIDTH_SILENT_LEVEL: &str = SILENT_LEVEL;
+pub const OTHER_WIDTH_NONE_LEVEL: NEStrConst = NONE_LEVEL;
+pub const OTHER_WIDTH_ERROR_LEVEL: NEStrConst = ERROR_LEVEL;
+pub const OTHER_WIDTH_WARN_LEVEL: NEStrConst = WARN_LEVEL;
+pub const OTHER_WIDTH_SILENT_LEVEL: NEStrConst = SILENT_LEVEL;
 
 impl_config_flag!(
     /// Choose how to guess the width for OTHER segments.
     GuessOtherWidth,
     /// Error when parsing [`GuessOtherWidth`] from [`String`]
     GuessOtherWidthError,
-    None   => OTHER_WIDTH_NONE_LEVEL
-    Error  => OTHER_WIDTH_ERROR_LEVEL
-    Warn   => OTHER_WIDTH_WARN_LEVEL
+    None   => OTHER_WIDTH_NONE_LEVEL,
+    Error  => OTHER_WIDTH_ERROR_LEVEL,
+    Warn   => OTHER_WIDTH_WARN_LEVEL,
     Silent => OTHER_WIDTH_SILENT_LEVEL
 );
 
-pub const KW_ERROR_LEVEL: &str = ERROR_LEVEL;
-pub const KW_DEMOTE_WARN_LEVEL: &str = DEMOTE_WARN_LEVEL;
-pub const KW_DEMOTE_SILENT_LEVEL: &str = DEMOTE_SILENT_LEVEL;
-pub const KW_DROP_WARN_LEVEL: &str = DROP_WARN_LEVEL;
-pub const KW_DROP_SILENT_LEVEL: &str = DROP_SILENT_LEVEL;
+pub const KW_ERROR_LEVEL: NEStrConst = ERROR_LEVEL;
+pub const KW_DEMOTE_WARN_LEVEL: NEStrConst = DEMOTE_WARN_LEVEL;
+pub const KW_DEMOTE_SILENT_LEVEL: NEStrConst = DEMOTE_SILENT_LEVEL;
+pub const KW_DROP_WARN_LEVEL: NEStrConst = DROP_WARN_LEVEL;
+pub const KW_DROP_SILENT_LEVEL: NEStrConst = DROP_SILENT_LEVEL;
 
 impl_config_flag!(
     /// Configuration to deal with optional standard keywords that cause errors.
     ProcessKeywordFailure,
     /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
     ProcessKeywordFailureError,
-    Error        => KW_ERROR_LEVEL
-    DemoteWarn   => KW_DEMOTE_WARN_LEVEL
-    DemoteSilent => KW_DEMOTE_SILENT_LEVEL
-    DropWarn     => KW_DROP_WARN_LEVEL
+    Error        => KW_ERROR_LEVEL,
+    DemoteWarn   => KW_DEMOTE_WARN_LEVEL,
+    DemoteSilent => KW_DEMOTE_SILENT_LEVEL,
+    DropWarn     => KW_DROP_WARN_LEVEL,
     DropSilent   => KW_DROP_SILENT_LEVEL
 );
 
-pub const DELIM_ESCAPED_LEVEL: &str = "escaped";
-pub const DELIM_UNESCAPED_LEVEL: &str = "unescaped";
-pub const DELIM_GUESS_ESCAPED_LEVEL: &str = "guess_escaped";
-pub const DELIM_GUESS_UNESCAPED_LEVEL: &str = "guess_unescaped";
+pub const DELIM_ESCAPED_LEVEL: NEStrConst = NEStrConst::new("escaped");
+pub const DELIM_UNESCAPED_LEVEL: NEStrConst = NEStrConst::new("unescaped");
+pub const DELIM_GUESS_ESCAPED_LEVEL: NEStrConst = NEStrConst::new("guess_escaped");
+pub const DELIM_GUESS_UNESCAPED_LEVEL: NEStrConst = NEStrConst::new("guess_unescaped");
 
 impl_config_flag!(
     /// Choose how to escape delims in TEXT segment.
@@ -166,19 +173,19 @@ impl_config_flag!(
     /// Error when parsing [`DelimEscapeMode`] from [`String`]
     DelimEscapeModeError,
     /// Use escaped delimiters.
-    Escaped        => DELIM_ESCAPED_LEVEL
+    Escaped        => DELIM_ESCAPED_LEVEL,
     /// Use unescaped delimiters.
-    Unescaped      => DELIM_UNESCAPED_LEVEL
+    Unescaped      => DELIM_UNESCAPED_LEVEL,
     /// Guess      => falling back to escaped mode.
-    GuessEscaped   => DELIM_GUESS_ESCAPED_LEVEL
+    GuessEscaped   => DELIM_GUESS_ESCAPED_LEVEL,
     /// Guess      => falling back to unescaped mode.
     GuessUnescaped => DELIM_GUESS_UNESCAPED_LEVEL
 );
 
-pub const TRIM_NONE_LEVEL: &str = "notrim";
-pub const TRIM_ERROR_LEVEL: &str = "trim";
-pub const TRIM_BLANK_WARN_LEVEL: &str = "trim_blank_warn";
-pub const TRIM_BLANK_SILENT_LEVEL: &str = "trim_blank_silent";
+pub const TRIM_NONE_LEVEL: NEStrConst = NEStrConst::new("notrim");
+pub const TRIM_ERROR_LEVEL: NEStrConst = NEStrConst::new("trim");
+pub const TRIM_BLANK_WARN_LEVEL: NEStrConst = NEStrConst::new("trim_blank_warn");
+pub const TRIM_BLANK_SILENT_LEVEL: NEStrConst = NEStrConst::new("trim_blank_silent");
 
 impl_config_flag!(
     /// Choose how to trim values and deal with blanks that may result.
@@ -186,19 +193,19 @@ impl_config_flag!(
     /// Error when parsing [`TrimValueWhitespace`] from [`String`]
     TrimValueWhitespaceError,
     /// Do not trim at all.
-    Notrim          => TRIM_NONE_LEVEL
+    Notrim          => TRIM_NONE_LEVEL,
     /// Trim whitespace and throw error if blank is created.
-    Trim            => TRIM_ERROR_LEVEL
+    Trim            => TRIM_ERROR_LEVEL,
     /// Trim whitespace and throw warning if blank is created.
-    TrimBlankWarn   => TRIM_BLANK_WARN_LEVEL
+    TrimBlankWarn   => TRIM_BLANK_WARN_LEVEL,
     /// Trim whitespace and do nothing if blank is created.
     TrimBlankSilent => TRIM_BLANK_SILENT_LEVEL
 );
 
-pub const FORCE_LINEAR_NONE_LEVEL: &str = NONE_LEVEL;
-pub const FORCE_LINEAR_TIME_LEVEL: &str = "time_only";
-pub const FORCE_LINEAR_NON_INT_LEVEL: &str = "all_non_int";
-pub const FORCE_LINEAR_ALL_LEVEL: &str = ALL_LEVEL;
+pub const FORCE_LINEAR_NONE_LEVEL: NEStrConst = NONE_LEVEL;
+pub const FORCE_LINEAR_TIME_LEVEL: NEStrConst = NEStrConst::new("time_only");
+pub const FORCE_LINEAR_NON_INT_LEVEL: NEStrConst = NEStrConst::new("all_non_int");
+pub const FORCE_LINEAR_ALL_LEVEL: NEStrConst = ALL_LEVEL;
 
 impl_config_flag!(
     /// Choose which $PnE to force as linear.
@@ -206,11 +213,11 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ForceLinearScaleError,
     /// Do not force.
-    None      => FORCE_LINEAR_NONE_LEVEL
+    None      => FORCE_LINEAR_NONE_LEVEL,
     /// Only force the temporal measurement.
-    TimeOnly  => FORCE_LINEAR_TIME_LEVEL
+    TimeOnly  => FORCE_LINEAR_TIME_LEVEL,
     /// Force all non-integer measurements and temporal measurement.
-    AllNonInt => FORCE_LINEAR_NON_INT_LEVEL
+    AllNonInt => FORCE_LINEAR_NON_INT_LEVEL,
     /// Force all measurements.
     All       => FORCE_LINEAR_ALL_LEVEL
 );
@@ -222,10 +229,10 @@ impl ForceLinearScale {
     }
 }
 
-pub const TMP_OPT_DEMOTE_WARN_LEVEL: &str = DEMOTE_WARN_LEVEL;
-pub const TMP_OPT_DEMOTE_SILENT_LEVEL: &str = DEMOTE_SILENT_LEVEL;
-pub const TMP_OPT_DROP_WARN_LEVEL: &str = DROP_WARN_LEVEL;
-pub const TMP_OPT_DROP_SILENT_LEVEL: &str = DROP_SILENT_LEVEL;
+pub const TMP_OPT_DEMOTE_WARN_LEVEL: NEStrConst = DEMOTE_WARN_LEVEL;
+pub const TMP_OPT_DEMOTE_SILENT_LEVEL: NEStrConst = DEMOTE_SILENT_LEVEL;
+pub const TMP_OPT_DROP_WARN_LEVEL: NEStrConst = DROP_WARN_LEVEL;
+pub const TMP_OPT_DROP_SILENT_LEVEL: NEStrConst = DROP_SILENT_LEVEL;
 
 impl_config_flag!(
     /// Choose what to do with optical keys in time measurement when found.
@@ -233,18 +240,18 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ProcessTemporalOpticalKeysError,
     /// Demote to nonstandard with warning
-    DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL
+    DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL,
     /// Demote to nonstandard with no warning
-    DemoteSilent => TMP_OPT_DEMOTE_SILENT_LEVEL
+    DemoteSilent => TMP_OPT_DEMOTE_SILENT_LEVEL,
     /// Drop with warning
-    DropWarn     => TMP_OPT_DROP_WARN_LEVEL
+    DropWarn     => TMP_OPT_DROP_WARN_LEVEL,
     /// Drop with no warning
     DropSilent   => TMP_OPT_DROP_SILENT_LEVEL
 );
 
-pub const SPILLOVER_NAMED_LEVEL: &str = "named";
-pub const SPILLOVER_INDEXED_LEVEL: &str = "indexed";
-pub const SPILLOVER_GUESS_LEVEL: &str = "guess";
+pub const SPILLOVER_NAMED_LEVEL: NEStrConst = NEStrConst::new("named");
+pub const SPILLOVER_INDEXED_LEVEL: NEStrConst = NEStrConst::new("indexed");
+pub const SPILLOVER_GUESS_LEVEL: NEStrConst = NEStrConst::new("guess");
 
 impl_config_flag!(
     /// Choose how to parse measurements for $SPILLOVER key
@@ -252,9 +259,9 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     SpilloverMeasurementModeError,
     /// Interpret measurements as names which match $PnN.
-    Named   => SPILLOVER_NAMED_LEVEL
+    Named   => SPILLOVER_NAMED_LEVEL,
     /// Interpret measurements as 1-indices (numbers) which point to measurements.
-    Indexed => SPILLOVER_INDEXED_LEVEL
+    Indexed => SPILLOVER_INDEXED_LEVEL,
     /// Guess how measurements should be interpreted.
     ///
     /// If they are all numbers and all do not point to $PnN, interpret as
@@ -262,9 +269,9 @@ impl_config_flag!(
     Guess   => SPILLOVER_GUESS_LEVEL
 );
 
-pub const TRUNCATE_NONE_LEVEL: &str = NONE_LEVEL;
-pub const TRUNCATE_INT_ONLY_LEVEL: &str = "int_only";
-pub const TRUNCATE_ALL_LEVEL: &str = ALL_LEVEL;
+pub const TRUNCATE_NONE_LEVEL: NEStrConst = NONE_LEVEL;
+pub const TRUNCATE_INT_ONLY_LEVEL: NEStrConst = NEStrConst::new("int_only");
+pub const TRUNCATE_ALL_LEVEL: NEStrConst = ALL_LEVEL;
 
 impl_config_flag!(
     /// Choose which event types are truncated.
@@ -274,18 +281,18 @@ impl_config_flag!(
     /// Error when parsing [`TruncateEventValues`] from [`String`]
     TruncateEventValuesError,
     /// Only truncate integer events.
-    IntOnly => TRUNCATE_INT_ONLY_LEVEL
+    IntOnly => TRUNCATE_INT_ONLY_LEVEL,
     /// Truncate all events.
-    All     => TRUNCATE_ALL_LEVEL
+    All     => TRUNCATE_ALL_LEVEL,
     /// Truncate no events.
     None    => TRUNCATE_NONE_LEVEL
 );
 
-pub const MISMATCH_ERROR_LEVEL: &str = ERROR_LEVEL;
-pub const MISMATCH_HEADER_WARN_LEVEL: &str = "header_warn";
-pub const MISMATCH_HEADER_SILENT_LEVEL: &str = "header_silent";
-pub const MISMATCH_TEXT_WARN_LEVEL: &str = "text_warn";
-pub const MISMATCH_TEXT_SILENT_LEVEL: &str = "text_silent";
+pub const MISMATCH_ERROR_LEVEL: NEStrConst = ERROR_LEVEL;
+pub const MISMATCH_HEADER_WARN_LEVEL: NEStrConst = NEStrConst::new("header_warn");
+pub const MISMATCH_HEADER_SILENT_LEVEL: NEStrConst = NEStrConst::new("header_silent");
+pub const MISMATCH_TEXT_WARN_LEVEL: NEStrConst = NEStrConst::new("text_warn");
+pub const MISMATCH_TEXT_SILENT_LEVEL: NEStrConst = NEStrConst::new("text_silent");
 
 impl_config_flag!(
     /// Choose which offsets to use between TEXT and HEADER if they mismatch.
@@ -295,13 +302,13 @@ impl_config_flag!(
     /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
     AllowHeaderTEXTOffsetMismatchError,
     /// Throw error on mismatch.
-    Error        => MISMATCH_ERROR_LEVEL
+    Error        => MISMATCH_ERROR_LEVEL,
     /// Choose HEADER on mismatch and throw warning.
-    HeaderWarn   => MISMATCH_HEADER_WARN_LEVEL
+    HeaderWarn   => MISMATCH_HEADER_WARN_LEVEL,
     /// Choose HEADER on mismatch and do nothing.
-    HeaderSilent => MISMATCH_HEADER_SILENT_LEVEL
+    HeaderSilent => MISMATCH_HEADER_SILENT_LEVEL,
     /// Choose TEXT on mismatch and throw warning.
-    TextWarn     => MISMATCH_TEXT_WARN_LEVEL
+    TextWarn     => MISMATCH_TEXT_WARN_LEVEL,
     /// Choose TEXT on mismatch and do nothing.
     TextSilent   => MISMATCH_TEXT_SILENT_LEVEL
 );
@@ -325,18 +332,18 @@ impl AllowHeaderTEXTOffsetMismatch {
     }
 }
 
-const GAIN_LEVEL: &str = "G";
-const FILTER_LEVEL: &str = "F";
-const WAVELENGTH_LEVEL: &str = "L";
-const POWER_LEVEL: &str = "O";
-const DET_TYPE_LEVEL: &str = "T";
-const DET_VOLTAGE_LEVEL: &str = "V";
-const PCNT_EMIT_LEVEL: &str = "P";
-const CALIBRATION_LEVEL: &str = "CALIBRATION";
-const DET_NAME_LEVEL: &str = "DET";
-const TAG_LEVEL: &str = "TAG";
-const FEATURE_LEVEL: &str = "FEATURE";
-const ANALYTE_LEVEL: &str = "ANALYTE";
+const GAIN_LEVEL: NEStrConst = NEStrConst::new("G");
+const FILTER_LEVEL: NEStrConst = NEStrConst::new("F");
+const WAVELENGTH_LEVEL: NEStrConst = NEStrConst::new("L");
+const POWER_LEVEL: NEStrConst = NEStrConst::new("O");
+const DET_TYPE_LEVEL: NEStrConst = NEStrConst::new("T");
+const DET_VOLTAGE_LEVEL: NEStrConst = NEStrConst::new("V");
+const PCNT_EMIT_LEVEL: NEStrConst = NEStrConst::new("P");
+const CALIBRATION_LEVEL: NEStrConst = NEStrConst::new("CALIBRATION");
+const DET_NAME_LEVEL: NEStrConst = NEStrConst::new("DET");
+const TAG_LEVEL: NEStrConst = NEStrConst::new("TAG");
+const FEATURE_LEVEL: NEStrConst = NEStrConst::new("FEATURE");
+const ANALYTE_LEVEL: NEStrConst = NEStrConst::new("ANALYTE");
 
 impl_str_enum!(
     /// Disallowed and ignorable optical keywords for temporal measurements.
@@ -349,27 +356,27 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     TemporalOpticalKeyError,
     /// Ignore $PnG
-    Gain            => GAIN_LEVEL
+    Gain            => GAIN_LEVEL,
     /// Ignore $PnF
-    Filter          => FILTER_LEVEL
+    Filter          => FILTER_LEVEL,
     /// Ignore $PnL
-    Wavelength      => WAVELENGTH_LEVEL
+    Wavelength      => WAVELENGTH_LEVEL,
     /// Ignore $PnO
-    Power           => POWER_LEVEL
+    Power           => POWER_LEVEL,
     /// Ignore $PnT
-    DetectorType    => DET_TYPE_LEVEL
+    DetectorType    => DET_TYPE_LEVEL,
     /// Ignore $PnV
-    DetectorVoltage => DET_VOLTAGE_LEVEL
+    DetectorVoltage => DET_VOLTAGE_LEVEL,
     /// Ignore $PnP
-    PercentEmitted  => PCNT_EMIT_LEVEL
+    PercentEmitted  => PCNT_EMIT_LEVEL,
     /// Ignore $PnCALIBRATION
-    Calibration     => CALIBRATION_LEVEL
+    Calibration     => CALIBRATION_LEVEL,
     /// Ignore $PnDET
-    DetectorName    => DET_NAME_LEVEL
+    DetectorName    => DET_NAME_LEVEL,
     /// Ignore $PnTAG
-    Tag             => TAG_LEVEL
+    Tag             => TAG_LEVEL,
     /// Ignore $PnFEATURE
-    Feature         => FEATURE_LEVEL
+    Feature         => FEATURE_LEVEL,
     /// Ignore $PnANALYTE
     Analyte         => ANALYTE_LEVEL
 );
@@ -436,9 +443,9 @@ pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 4] = [
     VERSION_LOOSE_LEVEL,
 ];
 
-pub const STD_KW_REQ_LEVEL: &str = "req_only";
-pub const STD_KW_OPT_LEVEL: &str = "opt_opt";
-pub const STD_KW_REQ_AND_OPT_LEVEL: &str = "both";
+pub const STD_KW_REQ_LEVEL: NEStrConst = NEStrConst::new("req_only");
+pub const STD_KW_OPT_LEVEL: NEStrConst = NEStrConst::new("opt_opt");
+pub const STD_KW_REQ_AND_OPT_LEVEL: NEStrConst = NEStrConst::new("both");
 
 impl_str_enum!(
     /// Choose what kind of keywords to return (required vs optional).
@@ -449,16 +456,16 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     IncludeReqOrOptError,
     /// Return required.
-    Req_ => STD_KW_REQ_LEVEL
+    Req_ => STD_KW_REQ_LEVEL,
     /// Return optional.
-    Opt_ => STD_KW_OPT_LEVEL
+    Opt_ => STD_KW_OPT_LEVEL,
     /// Return both.
     Both => STD_KW_REQ_AND_OPT_LEVEL
 );
 
-pub const STD_KW_ROOT_LEVEL: &str = "req_only";
-pub const STD_KW_MEAS_LEVEL: &str = "opt_opt";
-pub const STD_KW_ROOT_AND_MEAS_LEVEL: &str = "both";
+pub const STD_KW_ROOT_LEVEL: NEStrConst = NEStrConst::new("req_only");
+pub const STD_KW_MEAS_LEVEL: NEStrConst = NEStrConst::new("opt_opt");
+pub const STD_KW_ROOT_AND_MEAS_LEVEL: NEStrConst = NEStrConst::new("both");
 
 impl_str_enum!(
     /// Choose what kind of keywords to return (required vs optional).
@@ -469,16 +476,16 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     IncludeRootOrMeasError,
     /// Return root.
-    Root => STD_KW_ROOT_LEVEL
+    Root => STD_KW_ROOT_LEVEL,
     /// Return meas.
-    Meas => STD_KW_MEAS_LEVEL
+    Meas => STD_KW_MEAS_LEVEL,
     /// Return both.
     Both => STD_KW_ROOT_AND_MEAS_LEVEL
 );
 
-pub const READ_STRATEGY_STRICT_LEVEL: &str = "strict";
-pub const READ_STRATEGY_SCALPAL_LEVEL: &str = "scalpal";
-pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &str = "sledgehammer";
+pub const READ_STRATEGY_STRICT_LEVEL: NEStrConst = NEStrConst::new("strict");
+pub const READ_STRATEGY_SCALPAL_LEVEL: NEStrConst = NEStrConst::new("scalpal");
+pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: NEStrConst = NEStrConst::new("sledgehammer");
 
 // TODO the docstrings here are a bit awkward since we refer to things in child
 // crates implicitly
@@ -501,11 +508,11 @@ impl_str_enum!(
     ///
     /// Many files will fail this, but it is useful for validation.
     #[default]
-    Strict       => READ_STRATEGY_STRICT_LEVEL
+    Strict       => READ_STRATEGY_STRICT_LEVEL,
     /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
     ///
     /// This is likely a good option for many files.
-    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL
+    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL,
     /// Use "unsafe" non-compliant parsing.
     ///
     /// This is the best option when all one cares about is reading DATA.
@@ -515,17 +522,17 @@ impl_str_enum!(
 
 // internal constants, many are shared between enums to keep the API simpler
 
-const NONE_LEVEL: &str = "none";
-const FALSE_LEVEL: &str = "false";
-const TRUE_LEVEL: &str = "true";
-const SILENT_LEVEL: &str = "silent";
-const ERROR_LEVEL: &str = "error";
-const WARN_LEVEL: &str = "warn";
-const ALL_LEVEL: &str = "all";
-const DEMOTE_WARN_LEVEL: &str = "demote_warn";
-const DEMOTE_SILENT_LEVEL: &str = "demote_silent";
-const DROP_WARN_LEVEL: &str = "drop_warn";
-const DROP_SILENT_LEVEL: &str = "drop_silent";
+const NONE_LEVEL: NEStrConst = NEStrConst::new("none");
+const FALSE_LEVEL: NEStrConst = NEStrConst::new("false");
+const TRUE_LEVEL: NEStrConst = NEStrConst::new("true");
+const SILENT_LEVEL: NEStrConst = NEStrConst::new("silent");
+const ERROR_LEVEL: NEStrConst = NEStrConst::new("error");
+const WARN_LEVEL: NEStrConst = NEStrConst::new("warn");
+const ALL_LEVEL: NEStrConst = NEStrConst::new("all");
+const DEMOTE_WARN_LEVEL: NEStrConst = NEStrConst::new("demote_warn");
+const DEMOTE_SILENT_LEVEL: NEStrConst = NEStrConst::new("demote_silent");
+const DROP_WARN_LEVEL: NEStrConst = NEStrConst::new("drop_warn");
+const DROP_SILENT_LEVEL: NEStrConst = NEStrConst::new("drop_silent");
 
 // other config constants
 

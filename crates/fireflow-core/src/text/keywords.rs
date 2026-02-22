@@ -42,14 +42,16 @@ use crate::validated::keys::{
     SpecificKey, StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
-use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::impl_str_enum;
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
-use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
+use fireflow_types::config::{
+    EnumStrIter as _, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
+};
+use fireflow_types::impl_str_enum;
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
+use fireflow_types::nonempty_string::{NEStrConst, NEString};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
@@ -1014,6 +1016,7 @@ pub enum TriggerError {
 impl_str_enum!(
     /// The values used for the $MODE key (up to 3.1)
     #[derive(PartialEq, Eq, Default, Display, Debug)]
+    #[display("{}", self.into_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     Mode,
@@ -1022,9 +1025,9 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     ModeError,
     #[default]
-    List         => "L"
-    Uncorrelated => "U"
-    Correlated   => "C"
+    List         => NEStrConst::new("L"),
+    Uncorrelated => NEStrConst::new("U"),
+    Correlated   => NEStrConst::new("C")
 );
 
 /// Error when [`Mode`] has a deprecated value (FCS 3.1)
@@ -1153,6 +1156,7 @@ pub enum DisplayError {
 impl_str_enum!(
     /// The three values for the $PnDATATYPE keyword (3.2+)
     #[derive(PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
+    #[display("{}", self.into_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     NumType,
@@ -1160,9 +1164,9 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     NumTypeError,
-    Integer => "I"
-    Float => "F"
-    Double => "D"
+    Integer => NEStrConst::new("I"),
+    Float   => NEStrConst::new("F"),
+    Double  => NEStrConst::new("D")
 );
 
 /// The $BYTEORD field in FCS 2.0 and 3.0
@@ -1280,6 +1284,7 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
 impl_str_enum!(
     /// The four allowed values for the $DATATYPE keyword.
     #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
+    #[display("{}", self.into_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     AlphaNumType,
@@ -1287,10 +1292,10 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     AlphaNumTypeError,
-    Ascii => "A"
-    Integer => "I"
-    Float => "F"
-    Double => "D"
+    Ascii   => NEStrConst::new("A"),
+    Integer => NEStrConst::new("I"),
+    Float   => NEStrConst::new("F"),
+    Double  => NEStrConst::new("D")
 );
 
 macro_rules! check_ascii {
@@ -1760,6 +1765,7 @@ pub enum LastModifiedError {
 impl_str_enum!(
     /// The value for the $ORIGINALITY key (3.1+)
     #[derive(PartialEq, Debug, Display)]
+    #[display("{}", self.into_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     Originality,
@@ -1767,10 +1773,10 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     OriginalityError,
-    Original        => "Original"
-    NonDataModified => "NonDataModified"
-    Appended        => "Appended"
-    DataModified    => "DataModified"
+    Original        => NEStrConst::new("Original"),
+    NonDataModified => NEStrConst::new("NonDataModified"),
+    Appended        => NEStrConst::new("Appended"),
+    DataModified    => NEStrConst::new("DataModified")
 );
 
 /// The value of the $COMP keyword (3.0 only)
@@ -1954,7 +1960,7 @@ pub enum Feature {
     #[display("{_0}")]
     Optical(OpticalFeature),
     #[display("{_0}")]
-    Other(NonEmptyString),
+    Other(NEString),
 }
 
 #[cfg(feature = "python")]
@@ -2778,7 +2784,7 @@ impl FromStrWith for GateScale {
 #[derive(Clone, Display, FromStr, PartialEq, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-pub struct Cyt3_2(pub NonEmptyString);
+pub struct Cyt3_2(pub NEString);
 
 impl From<Cyt3_2> for Cyt {
     fn from(value: Cyt3_2) -> Self {

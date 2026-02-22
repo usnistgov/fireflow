@@ -30,7 +30,7 @@ numpy = { workspace = true, features = ["nalgebra"], optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 
 [features]
-serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde"]
+serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde", "fireflow-types/serde"]
 python = ["dep:pyo3", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
 
 [lints]

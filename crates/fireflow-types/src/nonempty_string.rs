@@ -1,29 +1,53 @@
 use derive_more::{AsRef, Display, Into};
-use std::str::FromStr;
 use thiserror::Error;
+
+use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
+    crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, FromPyString},
-    fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
-/// A string which can never be empty
-///
-/// This is useful for required keywords which are strings. For optional
-/// strings, empty string means the value is missing, so required keys simply
-/// forbid empty strings.
+/// A static string which can never be empty.
+pub type NEStrConst = NEStr<'static>;
+
+/// A string which can never be empty.
+#[derive(Clone, Copy, Display)]
+pub struct NEStr<'a>(&'a str);
+
+/// A string which can never be empty.
 #[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
-pub struct NonEmptyString(String);
+pub struct NEString(String);
 
-impl FromStr for NonEmptyString {
+impl<'a> NEStr<'a> {
+    #[must_use]
+    pub const fn as_str(&self) -> &'a str {
+        self.0
+    }
+
+    #[must_use]
+    pub fn to_owned(&self) -> NEString {
+        NEString(self.0.to_owned())
+    }
+}
+
+impl NEStrConst {
+    #[must_use]
+    pub const fn new(s: &'static str) -> Self {
+        assert!(!s.is_empty(), "string must be non-empty");
+        Self(s)
+    }
+}
+
+impl FromStr for NEString {
     type Err = NonEmptyStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

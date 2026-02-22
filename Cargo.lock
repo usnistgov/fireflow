@@ -829,6 +829,7 @@ dependencies = [
  "phf 0.13.1",
  "phf_codegen",
  "pyo3",
+ "serde",
  "thiserror 2.0.17",
  "unicase",
 ]

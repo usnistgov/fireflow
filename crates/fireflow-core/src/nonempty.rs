@@ -1,89 +1,13 @@
 //! A specialized version of `NonEmpty`
 
 use derive_more::{From, Into};
-use itertools::Itertools as _;
-use nonempty::NonEmpty;
-use std::hash::Hash;
+use nonempty_collections::NEVec;
 
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
 // deciding in favor.
-#[derive(Into, From, PartialEq, Clone, Default, Debug)]
-pub struct FCSNonEmpty<T>(pub NonEmpty<T>);
-
-impl<X> FCSNonEmpty<X> {
-    // pub(crate) fn new(head: X) -> Self {
-    //     Self(NonEmpty::new(head))
-    // }
-
-    // pub(crate) fn new1(head: X, tail: Vec<X>) -> Self {
-    //     Self(NonEmpty { head, tail })
-    // }
-
-    // fn enumerate(self) -> NonEmpty<(usize, Self::X)> {
-    //     NonEmpty::collect(self.into_iter().enumerate()).unwrap()
-    // }
-
-    // fn map_results<F, E, Y>(self, f: F) -> MultiResult<NonEmpty<Y>, E>
-    // where
-    //     F: Fn(Self::X) -> Result<Y, E>,
-    // {
-    //     self.map(f)
-    //         .into_iter()
-    //         .gather()
-    //         .map(|ys| NonEmpty::from_vec(ys).unwrap())
-    // }
-
-    pub(crate) fn unique(self) -> Self
-    where
-        X: Clone + Hash + Eq,
-    {
-        NonEmpty::collect(self.0.into_iter().unique())
-            .unwrap()
-            .into()
-    }
-
-    // fn remove(&mut self, index: IndexFromOne) -> Result<(), ClearOptionalOr<IndexError>> {
-    //     index.check_index(self.len()).map_or_else(
-    //         |e| Err(ClearOptionalOr::Error(e)),
-    //         |i| {
-    //             self.remove_nocheck(i.into())
-    //                 .map_err(|_| ClearOptionalOr::Clear)
-    //         },
-    //     )
-    // }
-
-    // fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional> {
-    //     let i: usize = index.into();
-    //     if i == 0 {
-    //         let tail = std::mem::take(&mut self.tail);
-    //         if let Some(xs) = NonEmpty::from_vec(tail) {
-    //             *self = xs
-    //         } else {
-    //             return Err(ClearOptionalOr::Clear);
-    //         }
-    //     } else {
-    //         self.tail.remove(i + 1);
-    //     }
-    //     Ok(())
-    // }
-
-    pub(crate) fn mode(&self) -> (&X, usize)
-    where
-        X: Eq,
-    {
-        let mut counts = NonEmpty::new((&self.0.head, 1));
-        for d in &self.0.tail {
-            if counts.last().0 == d {
-                counts.last_mut().1 += 1;
-            } else {
-                counts.push((d, 1));
-            }
-        }
-        let (mode, n) = counts.maximum_by_key(|x| x.1);
-        (mode, *n)
-    }
-}
+#[derive(Into, From, PartialEq, Clone, Debug)]
+pub struct FCSNonEmpty<T>(pub NEVec<T>);
 
 #[cfg(feature = "serde")]
 mod serialize {
@@ -95,8 +19,8 @@ mod serialize {
         where
             S: serde::Serializer,
         {
-            let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-            for e in self.0.iter() {
+            let mut seq = serializer.serialize_seq(Some(usize::from(self.0.len())))?;
+            for e in &self.0 {
                 seq.serialize_element(e)?;
             }
             seq.end()
@@ -110,7 +34,7 @@ mod python {
 
     use super::FCSNonEmpty;
 
-    use nonempty::NonEmpty;
+    use nonempty_collections::NEVec;
     use pyo3::prelude::*;
     use pyo3::types::PyList;
 
@@ -121,7 +45,7 @@ mod python {
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<T> = ob.extract()?;
-            if let Some(ys) = NonEmpty::from_vec(xs) {
+            if let Ok(ys) = NEVec::try_from(xs) {
                 Ok(ys.into())
             } else {
                 Err(InvalidKeywordValueError::new_err("list must not be empty"))

@@ -110,7 +110,7 @@ use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
+use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
 use num_traits::identities::{One as _, Zero};
 use regex::Regex;
 use thiserror::Error;
@@ -8721,8 +8721,11 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         // don't check specific indices for $COMP since this keyword links
         // all indices
         let comp = self.comp.as_ref().and_then(|_| {
-            NonEmpty::collect((0..par.0).map(IndexFromOne::from))
-                .map(|js| ExistingIndexedLinkError::new(Key0::default(), js))
+            // TODO there may be a cleaner way to do this with nonzerousize
+            (0..par.0)
+                .map(IndexFromOne::from)
+                .try_into_nonempty_iter()
+                .map(|js| ExistingIndexedLinkError::new(Key0::default(), js.collect()))
                 .map(AnyExistingIndexLinkError::from)
         });
         let ag = self

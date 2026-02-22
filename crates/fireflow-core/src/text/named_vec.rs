@@ -7,7 +7,7 @@ use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex
 use crate::text::optional::MightHave;
 use crate::validated::shortname::Shortname;
 
-use nonempty::NonEmpty;
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use type_families::{
     BifunctorOnce, Functor, Monoid, Pointed, impl_functor_once, impl_kind1, impl_kind2,
 };
@@ -165,7 +165,7 @@ impl NamedSet<'_> {
     pub(crate) fn error_names<'a>(
         &self,
         names: impl IntoIterator<Item = &'a Shortname>,
-    ) -> (Option<Shortname>, Option<NonEmpty<Shortname>>) {
+    ) -> (Option<Shortname>, Option<NEVec<Shortname>>) {
         let mut t = None;
         let ns = names
             .into_iter()
@@ -177,9 +177,10 @@ impl NamedSet<'_> {
                 }
                 NamedSetMembership::NonCenter => false,
             })
-            .cloned();
-        let o = NonEmpty::collect(ns);
-        (t, o)
+            .cloned()
+            .try_into_nonempty_iter()
+            .map(|n| n.collect());
+        (t, ns)
     }
 
     pub(crate) fn invalid_link_errors<'a, T>(
@@ -2058,7 +2059,7 @@ where
     // First get list of all duplicates by collecting all names and pairing with
     // their indices. Any key with more than one index is duplicated and should
     // be processed later.
-    let mut counts: HashMap<&Shortname, NonEmpty<usize>> = HashMap::new();
+    let mut counts: HashMap<&Shortname, NEVec<usize>> = HashMap::new();
     let mut original = vec![];
     original.resize_with(xs.len(), || None); // Avoid using Clone for Option<K>
     for (i, k) in xs.iter().enumerate() {
@@ -2068,7 +2069,7 @@ where
                     z.get_mut().push(i);
                 }
                 Entry::Vacant(z) => {
-                    z.insert_entry(NonEmpty::new(i));
+                    z.insert_entry(NEVec::new(i));
                 }
             }
         }
@@ -2085,7 +2086,7 @@ where
     // Ghost names will be like "P1", "P2", etc and deduped names (here) will be
     // like "P~1", "P~2", etc.
     let mut replacements: Vec<(usize, Shortname)> = vec![];
-    for (key, indices) in counts.iter().filter(|(_, v)| v.len() > 1) {
+    for (key, indices) in counts.iter().filter(|(_, v)| usize::from(v.len()) > 1) {
         let mut n = 0;
         for i in indices {
             let mut new = key.increment(n);

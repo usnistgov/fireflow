@@ -172,7 +172,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 
     pub(crate) fn try_from_many<E, X>(
-        xs: Vec<X>,
+        xs: impl IntoIterator<Item = X>,
         starting_index: usize,
     ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
     where

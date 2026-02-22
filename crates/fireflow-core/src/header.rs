@@ -27,7 +27,7 @@ use crate::validated::textdelim::TEXTDelim;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
@@ -174,9 +174,10 @@ impl Header {
         other_res
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|other| {
+                // TODO this can be cleaner with ne iter
                 let (os, os_raw) = if let Some((os, w)) = other {
                     let (parsed, raw) = os.into_iter().unzip();
-                    (Some((NonEmpty::from_vec(parsed).unwrap(), w)), raw)
+                    (Some((NEVec::try_from_vec(parsed).unwrap(), w)), raw)
                 } else {
                     (None, vec![])
                 };
@@ -319,19 +320,23 @@ impl Version {
                     }
                     let scores = vs.map(|v| (v, opt.get_score(v, par)));
                     let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
-                    if let Some(xs) =
-                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
+                    if let Some(xs) = scores
+                        .iter()
+                        .filter(|(_, s)| s.is_passing(false))
+                        .try_into_nonempty_iter()
                     {
                         // Found at least one version that doesn't require dropping,
                         // rank by strategy to select
-                        Ok((xs.maximum_by(|&x, &y| rank(x, y)).0, ret_scores()))
-                    } else if let Some(xs) =
-                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
+                        Ok((xs.max_by(|&x, &y| rank(x, y)).0, ret_scores()))
+                    } else if let Some(xs) = scores
+                        .iter()
+                        .filter(|(_, s)| s.is_passing(true))
+                        .try_into_nonempty_iter()
                     {
                         // No versions found that can be satisfied without dropping
                         // keywords, find versions with dropping and rank using
                         // strategy.
-                        let ret = xs.maximum_by(|&x, &y| {
+                        let ret = xs.max_by(|&x, &y| {
                             if x.1.drop == y.1.drop {
                                 rank(x, y)
                             } else {

@@ -32,7 +32,10 @@ use type_families::Functor as _;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    NEVec,
+    iter::{NonEmptyIterator as _, once},
+};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
@@ -1267,7 +1270,7 @@ impl OtherSegment20 {
         first_seg_begin: UintSpacePad8,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        Option<(NonEmpty<(Self, UncorrectedSegment)>, OtherWidth)>,
+        Option<(NEVec<(Self, UncorrectedSegment)>, OtherWidth)>,
         GuessOtherWidthError,
         HeaderSegmentError,
         (),
@@ -1401,7 +1404,7 @@ impl OtherSegment20 {
                     .into_iter()
                     .sequence_commutative()
                     .nowarn_into_warn()
-                    .map_ok_value(|xs| NonEmpty::from_vec(xs).map(|ys| (ys, width)))
+                    .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
             })
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -1563,7 +1566,7 @@ impl OtherSegment20 {
             }
             Some(w)
         };
-        let candidates = (MIN_WIDTH..=MAX_CHARS).filter_map(go);
+        let mut candidates = (MIN_WIDTH..=MAX_CHARS).filter_map(go).peekable();
 
         // TODO for now we are assuming that checking digit boundaries is good
         // enough to figure out what the offset width should be. We could also
@@ -1576,10 +1579,11 @@ impl OtherSegment20 {
         //
         // Example of a tie: '   11111   22222' could either be 1,1111 and
         // 2,2222 or 11111,22222 (width is 4 or 8 respectively)
-        if let Some(ws) = NonEmpty::collect(candidates) {
-            if ws.tail.is_empty() {
-                Ok(OtherWidth::try_from(ws.head).unwrap())
+        if let Some(w0) = candidates.next() {
+            if candidates.by_ref().peek().is_none() {
+                Ok(OtherWidth::try_from(w0).unwrap())
             } else {
+                let ws = once(w0).chain(candidates).collect();
                 Err(GuessOtherWidthError::MultiWidth(ws))
             }
         } else {
@@ -1998,7 +2002,7 @@ pub enum GuessOtherWidthError {
     #[error("No width for OTHER offsets could be found.")]
     NoWidth,
     #[error("Multiple possible widths for OTHER offsets: {}", _0.iter().join(","))]
-    MultiWidth(NonEmpty<u8>),
+    MultiWidth(NEVec<u8>),
 }
 
 #[cfg(test)]

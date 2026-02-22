@@ -23,7 +23,7 @@ fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }
-nonempty = { workspace = true, features = ["serialize"] }
+nonempty-collections = { workspace = true, features = ["serde"] }
 type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }

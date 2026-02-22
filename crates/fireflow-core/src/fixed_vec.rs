@@ -1,6 +1,6 @@
 use type_families::{impl_functor, impl_kind1};
 
-use nonempty::NonEmpty;
+use nonempty_collections::{NEVec, array::NonEmptyArrayExt as _};
 
 use std::iter::{self, once};
 
@@ -22,11 +22,11 @@ impl_functor!(
     }
 );
 
-impl<X> From<OneOrTwo<X>> for NonEmpty<X> {
+impl<X> From<OneOrTwo<X>> for NEVec<X> {
     fn from(value: OneOrTwo<X>) -> Self {
         match value {
             OneOrTwo::One(x) => Self::new(x),
-            OneOrTwo::Two(x, y) => Self::from((x, vec![y])),
+            OneOrTwo::Two(x, y) => [x, y].into_nonempty_vec(),
         }
     }
 }

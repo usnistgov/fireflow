@@ -57,7 +57,10 @@ use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec,
+    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
+};
 use num_derive::Zero;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
@@ -68,7 +71,7 @@ use unicase::Ascii;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
-use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
+use std::num::{NonZeroU8, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -942,7 +945,7 @@ impl Trigger {
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         let m = &self.measurement;
         (names.as_ref().contains(m))
-            .then(|| ExistingNamedLinkError::new(Key0::default(), NonEmpty::new(m.clone())))
+            .then(|| ExistingNamedLinkError::new(Key0::default(), NEVec::new(m.clone())))
     }
 
     pub(crate) fn invalid_link_error(
@@ -952,7 +955,7 @@ impl Trigger {
         let m = &self.measurement;
         match names.membership(m) {
             NamedSetMembership::None => {
-                Some(OpticalNamedLinkError::new_i0(NonEmpty::new(m.clone())).into())
+                Some(OpticalNamedLinkError::new_i0(NEVec::new(m.clone())).into())
             }
             NamedSetMembership::Center => Some(TemporalNamedLinkError::new_i0(m.clone()).into()),
             NamedSetMembership::NonCenter => None,
@@ -966,7 +969,7 @@ impl Trigger {
         let go = |tr: &Self| {
             let m = &tr.measurement;
             match names.membership(m) {
-                NamedSetMembership::None => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
+                NamedSetMembership::None => Some(LinkName::Both(NEVec::new(m.clone()), None)),
                 NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
                 NamedSetMembership::NonCenter => None,
             }
@@ -1700,9 +1703,14 @@ impl FromStrDelim for Wavelengths {
     const DELIM: char = ',';
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
-        let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
-        Ok(Self(ys.into()))
+        let xs = iter
+            .try_into_nonempty_iter()
+            .ok_or(WavelengthsError::Empty)?;
+        let ys = xs
+            .into_iter()
+            .map(|x| x.parse().map_err(WavelengthsError::Num))
+            .collect::<Result<_, _>>()?;
+        Ok(Self(ys))
     }
 }
 
@@ -1713,11 +1721,12 @@ impl Wavelengths {
         self,
         i: MeasIndex,
     ) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
+        NEVec::try_from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
             let k = Key1::new_i1(i.into());
             let e = WavelengthsLossError(k, n);
-            LogResult::new_deferred_if(n == 1, Some(Wavelength(ws.head)), e)
+            let wl = Some(Wavelength(ws.into_nonempty_iter().next().0));
+            LogResult::new_deferred_if(usize::from(n) == 1, wl, e)
         })
     }
 }
@@ -1733,7 +1742,7 @@ impl Wavelengths {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
+pub struct WavelengthsLossError(Key1<Wavelengths>, NonZeroUsize);
 
 /// Error when parsing [`Wavelengths`] from string
 #[derive(Debug, Error)]
@@ -1892,8 +1901,10 @@ impl FromStrDelim for Compensation3_0 {
 impl Compensation3_0 {
     pub(crate) fn invalid_link_errors(&self, par: Par) -> Option<KeyToIndexLinkError<Self>> {
         let m: &DMatrix<_> = self.as_ref();
-        let js = (par.0..m.nrows()).map(MeasIndex::from);
-        NonEmpty::collect(js).map(KeyToIndexLinkError::new_i0)
+        (par.0..m.nrows())
+            .map(MeasIndex::from)
+            .try_into_nonempty_iter()
+            .map(|js| KeyToIndexLinkError::new_i0(js.collect()))
     }
 
     pub(crate) fn remove_invalid_link(
@@ -2266,7 +2277,7 @@ pub enum RegionWindow {
     #[display("{_0}")]
     Univariate(UniGate),
     #[display("{}", _0.iter().join(";"))]
-    Bivariate(NonEmpty<Vertex>),
+    Bivariate(NEVec<Vertex>),
 }
 
 /// A vertex on a polygon gate
@@ -2333,19 +2344,23 @@ impl RegionWindow {
         ss: impl Iterator<Item = &'a str>,
         trim_whitespace: TrimIntraValueWhitespace,
     ) -> Result<TrimmedKeyword<Self>, RegionWindowError> {
-        if let Some(xs) = NonEmpty::collect(ss) {
-            if xs.tail.is_empty() {
-                UniGate::from_str_delim(xs.head, trim_whitespace)
+        let mut it = ss.peekable();
+        if let Some(head) = it.next() {
+            if it.by_ref().peek().is_none() {
+                UniGate::from_str_delim(head, trim_whitespace)
                     .map(|x| x.fmap_once(RegionWindow::Univariate))
             } else {
                 let mut was_trimmed = false;
-                let ys = xs.try_map(|x| Vertex::from_str_delim(x, trim_whitespace))?;
-                let zs = ys.map(|x| {
-                    was_trimmed = was_trimmed || x.trimmed.is_some();
-                    x.native
-                });
+                let ys = once(head)
+                    .chain(it)
+                    .map(|x| {
+                        let y = Vertex::from_str_delim(x, trim_whitespace)?;
+                        was_trimmed = was_trimmed || y.trimmed.is_some();
+                        Ok(y.native)
+                    })
+                    .collect::<Result<_, _>>()?;
                 let d = was_trimmed.then(|| original.to_owned());
-                Ok(TrimmedKeyword::new(Self::Bivariate(zs), d))
+                Ok(TrimmedKeyword::new(Self::Bivariate(ys), d))
             }
         } else {
             // this will happen if the input string is empty
@@ -2412,9 +2427,9 @@ pub enum Gating {
 }
 
 impl Gating {
-    pub(crate) fn region_indices(&self) -> NonEmpty<RegionIndex> {
-        let xs = match self {
-            Self::Region(x) => NonEmpty::new(*x),
+    pub(crate) fn region_indices(&self) -> NEVec<RegionIndex> {
+        let mut xs = match self {
+            Self::Region(x) => NEVec::new(*x),
             Self::Not(x) => Self::region_indices(x),
             Self::And(x, y) | Self::Or(x, y) => {
                 let mut acc = Self::region_indices(x);
@@ -2422,7 +2437,8 @@ impl Gating {
                 acc
             }
         };
-        FCSNonEmpty::from(xs).unique().0
+        xs.dedup();
+        xs
     }
 }
 
@@ -2901,12 +2917,12 @@ impl UnstainedCenters {
         &self,
         names: &OpticalNamesToRemove<'_>,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
-        let ns = self
-            .0
+        self.0
             .keys()
             .filter(|n| names.as_ref().contains(n))
-            .cloned();
-        NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+            .cloned()
+            .try_into_nonempty_iter()
+            .map(|js| ExistingNamedLinkError::new(Key0::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -3150,21 +3166,21 @@ impl ExtraStdKeywords {
                         hyper_gate.insert(k, v);
                     }
                     ExtraKeywordClass::VersionEQ(ver) => {
-                        let vs = NonEmpty::new(ver);
+                        let vs = NEVec::new(ver);
                         go_version!(vs);
                     }
                     ExtraKeywordClass::VersionLE(ver) => {
-                        let mut vs = NonEmpty::new(ver);
+                        let mut vs = NEVec::new(ver);
                         vs.extend(all_versions.iter().filter(|&&x| x < ver).copied());
                         go_version!(vs);
                     }
                     ExtraKeywordClass::VersionGE(ver) => {
-                        let mut vs = NonEmpty::new(ver);
+                        let mut vs = NEVec::new(ver);
                         vs.extend(all_versions.iter().filter(|&&x| x > ver).copied());
                         go_version!(vs);
                     }
                     ExtraKeywordClass::Version3_0or3_1 => {
-                        let vs = NonEmpty::from((Version::FCS3_0, vec![Version::FCS3_1]));
+                        let vs = NEVec::from((Version::FCS3_0, vec![Version::FCS3_1]));
                         go_version!(vs);
                     }
                     ExtraKeywordClass::Pseudostandard => {
@@ -3221,7 +3237,7 @@ pub struct HyperGateError {
 pub struct KeywordOtherVersionError {
     pub key: StdKey,
     pub current: Version,
-    pub others: NonEmpty<Version>,
+    pub others: NEVec<Version>,
 }
 
 /// Error denoting that $TIMESTEP was unused and possibly should have been

@@ -14,7 +14,7 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
 
 use std::fmt;
@@ -71,8 +71,9 @@ impl Spillover {
             .measurements
             .iter()
             .filter(|n| names.as_ref().contains(n))
-            .cloned();
-        NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+            .cloned()
+            .try_into_nonempty_iter();
+        ns.map(|js| ExistingNamedLinkError::new(Key0::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -110,7 +111,8 @@ impl GenericSpillover<MeasIndex> {
             }
         }
         if let Some(i) = missing {
-            let es = NonEmpty::from((i, it.collect::<Vec<_>>()));
+            let mut es = NEVec::new(i);
+            es.extend(it);
             return Err(KeyToIndexLinkError::new_i0(es));
         }
         Ok(Spillover::new(ms, self.matrix))

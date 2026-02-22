@@ -2,7 +2,7 @@ use crate::validated::keys::KeyString;
 
 use derive_more::AsRef;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::NEVec;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -29,7 +29,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
                 names.push(k.clone());
             }
         }
-        if let Some(ns) = NonEmpty::from_vec(names) {
+        if let Ok(ns) = NEVec::try_from(names) {
             Err(KeyStringPairsError(ns))
         } else {
             Ok(Self(value))
@@ -42,7 +42,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
-pub struct KeyStringPairsError(NonEmpty<KeyString>);
+pub struct KeyStringPairsError(NEVec<KeyString>);
 
 #[cfg(feature = "python")]
 mod python {

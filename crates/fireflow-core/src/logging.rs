@@ -36,7 +36,7 @@ use type_families::{
 };
 
 use derive_new::new;
-use nonempty::NonEmpty;
+use nonempty_collections::NEVec;
 use std::convert::Infallible;
 use std::fmt;
 use std::io::Error as IOError;
@@ -1109,7 +1109,7 @@ impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
     }
 }
 
-impl<E> From<GenNonEmpty<E, Vec<E>>> for NonEmpty<E> {
+impl<E> From<GenNonEmpty<E, Vec<E>>> for NEVec<E> {
     fn from(value: GenNonEmpty<E, Vec<E>>) -> Self {
         Self::from((value.head, value.tail))
     }

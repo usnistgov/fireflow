@@ -65,7 +65,6 @@ use crate::logging::{
     WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult,
 };
 use crate::macros::{def_summary, match_many_to_one};
-use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
@@ -105,7 +104,10 @@ use bigdecimal::BigDecimal;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec,
+    iter::{NonEmptyIterator as _, once},
+};
 use num_traits::PrimInt;
 use thiserror::Error;
 
@@ -2024,9 +2026,9 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
     pub(crate) fn uint_try_into_ordered<T>(
         self,
     ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), UintEndianToOrderedLayoutError> {
-        if let Some(cs) = NonEmpty::from_vec(self.columns) {
-            cs.head
-                .try_into_one_size(cs.tail, self.byte_layout, 1)
+        let mut it = self.columns.into_iter().peekable();
+        if let Some(head) = it.next() {
+            head.try_into_one_size(it, self.byte_layout, 1)
                 .map_errors(|(index, error)| IndexedError::new(index, error).into())
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
@@ -2041,8 +2043,7 @@ impl<D> EndianLayout<NullMixedType, D> {
     ) -> ErrorsResult<AnyOrderedLayout<T>, (), MixedToOrderedLayoutError> {
         macro_rules! from_columns {
             ($i:expr) => {
-                $i.into_iter()
-                    .enumerate()
+                $i.enumerate()
                     .map(|(i, c)| {
                         c.try_into()
                             .map_err(|e| IndexedError::new(i + 1, e))
@@ -2054,23 +2055,22 @@ impl<D> EndianLayout<NullMixedType, D> {
             };
         }
 
-        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
-            let c0 = ne_cols.head;
-            let cs = ne_cols.tail;
+        let mut it = self.columns.into_iter().peekable();
+        if let Some(head) = it.next() {
             let endian = self.byte_layout;
-            match c0 {
+            match head {
                 MixedType::Uint(x) => x
-                    .try_into_one_size(cs, endian, 1)
+                    .try_into_one_size(it, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
                     .map_errors(|(index, error)| error.into_col_error(index)),
-                MixedType::Ascii(x) => from_columns!(cs)
+                MixedType::Ascii(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
                     .map_ok_value(AnyOrderedLayout::from),
-                MixedType::F32(x) => from_columns!(cs)
+                MixedType::F32(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
                     .map_ok_value(AnyOrderedLayout::from),
-                MixedType::F64(x) => from_columns!(cs)
+                MixedType::F64(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
                     .map_ok_value(AnyOrderedLayout::from),
             }
@@ -2083,7 +2083,8 @@ impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_non_mixed(
         self,
     ) -> ErrorsResult<NonMixedEndianLayout<Nothing<NumType>>, (), MixedToNonMixedLayoutError> {
-        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
+        let mut it = self.columns.into_iter().peekable().enumerate();
+        if let Some((_, c0)) = it.next() {
             macro_rules! from_iter {
                 ($iter:expr, $head:expr, $byte_layout:expr) => {
                     $iter
@@ -2094,8 +2095,6 @@ impl<D> EndianLayout<NullMixedType, D> {
                 };
             }
 
-            let c0 = ne_cols.head;
-            let it = ne_cols.tail.into_iter().enumerate();
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
@@ -2343,7 +2342,7 @@ impl AnyNullBitmask {
 
     pub(crate) fn try_into_one_size<X, E, T>(
         self,
-        tail: Vec<X>,
+        tail: impl IntoIterator<Item = X>,
         endian: Endian,
         starting_index: usize,
     ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), (MeasIndex, E)>
@@ -3048,8 +3047,10 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         self.columns.iter().map(IsFixed::fixed_width).collect()
     }
 
-    fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {
-        Self::new(NonEmpty::from((head, tail)).into(), byte_layout)
+    fn new1(head: C, tail: impl IntoIterator<Item = C>, byte_layout: S) -> Self {
+        let mut cs = vec![head];
+        cs.extend(tail);
+        Self::new(cs, byte_layout)
     }
 
     fn try_new<F, P, W, E>(
@@ -3342,14 +3343,21 @@ impl HasDatatype for NullMixedType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
-        if let Some(xs) = NonEmpty::collect(cs.iter()) {
-            xs.as_ref()
-                .try_map(|c| NumType::try_from(c.datatype()))
-                .ok()
-                .map_or(AlphaNumType::Ascii, |mut ds| {
-                    ds.sort();
-                    (*FCSNonEmpty::from(ds).mode().0).into()
-                })
+        if let Some(xs) = cs.try_into_nonempty_iter() {
+            if let Ok(mut ds) = xs
+                .map(|c| NumType::try_from(c.datatype()))
+                .collect::<Result<NEVec<_>, _>>()
+            {
+                ds.sort();
+                let (dt, _) = ds
+                    .nonempty_iter()
+                    .group_by(|x| *x)
+                    .map(|x| (*x.first(), x.len()))
+                    .max_by_key(|(_, n)| *n);
+                (*dt).into()
+            } else {
+                AlphaNumType::Ascii
+            }
         } else {
             // NOTE this is a totally arbitrary default
             AlphaNumType::Integer
@@ -3680,8 +3688,8 @@ impl<T> AnyOrderedUintLayout<T> {
                 .sequence_commutative()
                 .and_then_commutative(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n).unique();
-                    if let Some(mismatches) = NonEmpty::collect(ws) {
-                        let e = WidthMismatchError::new(real_bo, mismatches);
+                    if let Some(mismatches) = ws.try_into_nonempty_iter() {
+                        let e = WidthMismatchError::new(real_bo, mismatches.collect());
                         LogResult::new_err(SingleFixedWidthError::from(e))
                     } else {
                         LogResult::new_ok(())
@@ -3765,8 +3773,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         }
     }
 
-    fn new_fixed(columns: Vec<AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns, NoByteOrd))
+    fn new_fixed(columns: impl IntoIterator<Item = AsciiRange>) -> Self {
+        Self::Fixed(FixedLayout::new(columns.into_iter().collect(), NoByteOrd))
     }
 
     fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
@@ -4195,25 +4203,28 @@ impl DataLayout3_2 {
     }
 
     #[must_use]
-    pub fn new_mixed(ranges: Vec<NullMixedType>, endian: Endian) -> Self {
+    pub fn new_mixed(rs: Vec<NullMixedType>, endian: Endian) -> Self {
         // Check if the mixed types are all the same, in which case we can use a
         // simpler layout. This clone thing is not ideal but it will only be
         // cloning big-decimals for floats and will use Copy for everything else
         // (not a huge deal).
-        if let Some(xs) = NonEmpty::from_vec(ranges) {
-            if let Ok(rs) = xs.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
-                NonMixedEndianLayout::new_ascii_fixed(rs.into()).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| AnyNullBitmask::try_from(x.clone())) {
-                NonMixedEndianLayout::new_uint(rs.into(), endian).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
-                NonMixedEndianLayout::new_f32(rs.into(), endian).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
-                NonMixedEndianLayout::new_f64(rs.into(), endian).into()
-            } else {
-                FixedLayout::new(xs.into(), endian).into()
-            }
+        macro_rules! go {
+            ($t:ident) => {
+                rs.iter()
+                    .map(|x| $t::try_from(x.clone()))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+        }
+        if let Ok(xs) = go!(AsciiRange) {
+            NonMixedEndianLayout::new_ascii_fixed(xs).into()
+        } else if let Ok(xs) = go!(AnyNullBitmask) {
+            NonMixedEndianLayout::new_uint(xs, endian).into()
+        } else if let Ok(xs) = go!(F32Range) {
+            NonMixedEndianLayout::new_f32(xs, endian).into()
+        } else if let Ok(xs) = go!(F64Range) {
+            NonMixedEndianLayout::new_f64(xs, endian).into()
         } else {
-            FixedLayout::new(vec![], endian).into()
+            FixedLayout::new(rs, endian).into()
         }
     }
 
@@ -4505,7 +4516,7 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     #[must_use]
-    pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: impl IntoIterator<Item = AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
@@ -4589,22 +4600,24 @@ pub enum SingleFixedWidthError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
-    found: NonEmpty<PrivBytes>,
+    found: NEVec<PrivBytes>,
 }
 
 impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if self.found.tail.is_empty() {
+        let (head, tail) = self.found.nonempty_iter().next();
+        let mut t = tail.peekable();
+        if t.peek().is_none() {
             write!(
                 f,
-                "measurement width ({}) does not match byte order ({})",
-                self.found.head, self.byteord,
+                "measurement width ({head}) does not match byte order ({})",
+                self.byteord,
             )
         } else {
             write!(
                 f,
                 "multiple measurement widths given ({}) for byte order [{}]",
-                self.found.iter().join(", "),
+                once(head).chain(t).into_iter().join(", "),
                 self.byteord,
             )
         }

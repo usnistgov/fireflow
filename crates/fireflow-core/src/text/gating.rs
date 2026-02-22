@@ -34,7 +34,7 @@ use type_families::{
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::mem::take;
@@ -267,15 +267,15 @@ impl AppliedGates2_0 {
         scheme: GatingScheme<GateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
         let n = gated_measurements.len();
-        if let Some(xs) = NonEmpty::collect(
-            scheme
-                .regions
-                .iter()
-                .flat_map(|(_, r)| r.indices())
-                .copied()
-                .filter(|&i| usize::from(i) >= n),
-        ) {
-            Err(GateMeasurementLinkError(xs))
+        if let Some(xs) = scheme
+            .regions
+            .iter()
+            .flat_map(|(_, r)| r.indices())
+            .copied()
+            .filter(|&i| usize::from(i) >= n)
+            .try_into_nonempty_iter()
+        {
+            Err(GateMeasurementLinkError(xs.collect()))
         } else {
             Ok(Self {
                 gated_measurements: gated_measurements.into(),
@@ -376,16 +376,16 @@ impl AppliedGates3_0 {
         scheme: GatingScheme<MeasOrGateIndex>,
     ) -> Result<Self, GateMeasurementLinkError> {
         let n = gated_measurements.len();
-        if let Some(xs) = NonEmpty::collect(
-            scheme
-                .regions
-                .iter()
-                .flat_map(|(_, r)| r.indices())
-                .copied()
-                .flat_map(GateIndex::try_from)
-                .filter(|&i| usize::from(i) >= n),
-        ) {
-            Err(GateMeasurementLinkError(xs))
+        if let Some(xs) = scheme
+            .regions
+            .iter()
+            .flat_map(|(_, r)| r.indices())
+            .copied()
+            .flat_map(GateIndex::try_from)
+            .filter(|&i| usize::from(i) >= n)
+            .try_into_nonempty_iter()
+        {
+            Err(GateMeasurementLinkError(xs.collect()))
         } else {
             Ok(Self {
                 gated_measurements: gated_measurements.into(),
@@ -725,14 +725,13 @@ impl<I> GatingScheme<I> {
         regions: HashMap<RegionIndex, Region<I>>,
     ) -> Result<Self, DependentKeyError<Gating>> {
         if let Some(ris) = gating.as_ref().and_then(|g| {
-            NonEmpty::collect(
-                g.region_indices()
-                    .into_iter()
-                    .filter(|ri| !regions.contains_key(ri))
-                    .map(RegionGateIndex::<()>::std),
-            )
+            g.region_indices()
+                .into_iter()
+                .filter(|ri| !regions.contains_key(ri))
+                .map(RegionGateIndex::<()>::std)
+                .try_into_nonempty_iter()
         }) {
-            Err(DependentKeyError::new1(ris))
+            Err(DependentKeyError::new1(ris.collect()))
         } else {
             Ok(Self { gating, regions })
         }
@@ -761,7 +760,7 @@ impl<I> GatingScheme<I> {
         self.meas_indices()
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
-                let js = NonEmpty::new(mi.into());
+                let js = NEVec::new(mi.into());
                 ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
             })
     }
@@ -776,7 +775,7 @@ impl<I> GatingScheme<I> {
         self.meas_indices()
             .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
-                let js = NonEmpty::new(mi);
+                let js = NEVec::new(mi);
                 IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
             })
     }
@@ -812,8 +811,8 @@ impl<I> GatingScheme<I> {
         self.gating = take(&mut self.gating).and_then(|g| {
             let xs = g.region_indices();
             let ys = xs.iter().copied().filter(|rni| bad_indices.contains(rni));
-            if let Some(zs) = NonEmpty::collect(ys) {
-                let e = RemovedLink::Gating(RemovedGating::new(zs, g));
+            if let Some(zs) = ys.try_into_nonempty_iter() {
+                let e = RemovedLink::Gating(RemovedGating::new(zs.collect(), g));
                 removed_links.push(e);
                 None
             } else {
@@ -1464,7 +1463,7 @@ pub enum LookupAppliedGatesError<E> {
 #[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
+pub struct GateMeasurementLinkError(NEVec<GateIndex>);
 
 /// Error when parsing $GATING/$RnI/$RnW keywords
 #[derive(Display, Debug, Error)]

@@ -27,7 +27,10 @@ use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    NEVec,
+    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
+};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
@@ -4923,7 +4926,7 @@ enum ExcNameMod {
     #[default]
     NoMod,
     /// For tuples, adds "field 1 in {}"
-    Field(NonEmpty<usize>, Box<Self>),
+    Field(NEVec<usize>, Box<Self>),
     /// For lists, adds "any in {}"
     List(Box<Self>),
     /// For dict keys, adds "dict key in {}"
@@ -4935,7 +4938,7 @@ enum ExcNameMod {
 /// A Python exception attached to at least one argmenent
 #[derive(new)]
 struct NamedPyException {
-    names: NonEmpty<String>,
+    names: NEVec<String>,
     inner: ArgPyException,
 }
 
@@ -5813,7 +5816,7 @@ impl From<PyException> for () {
 
 impl ExcNameMod {
     fn add_field(self, f: usize) -> Self {
-        Self::Field(NonEmpty::new(f), self.into())
+        Self::Field(NEVec::new(f), self.into())
     }
 
     fn add_list(self) -> Self {
@@ -5851,7 +5854,7 @@ impl ExcNameMod {
         let mut dict_val_trees = vec![];
         for x in xs {
             match x {
-                Self::Field(f, t) => field_trees.push((f.head, *t)),
+                Self::Field(f, t) => field_trees.push((f.into_nonempty_iter().next().0, *t)),
                 Self::List(t) => list_trees.push(*t),
                 Self::DictKey(t) => dict_key_trees.push(*t),
                 Self::DictVal(t) => dict_val_trees.push(*t),
@@ -5881,7 +5884,8 @@ impl ExcNameMod {
             .into_group_map()
             .into_iter()
             .map(|(tree, fs)| {
-                let fs_ = NonEmpty::collect(fs.into_iter().sorted()).unwrap();
+                // TODO this could probably be cleaned up
+                let fs_ = NEVec::try_from_vec(fs.into_iter().sorted().collect()).unwrap();
                 Self::Field(fs_, tree.into())
             });
 
@@ -5923,7 +5927,7 @@ impl ArgPyException {
     fn into_named(self, name: impl Into<String>) -> NamedPyException {
         NamedPyException {
             inner: self,
-            names: NonEmpty::new(name.into()),
+            names: NEVec::new(name.into()),
         }
     }
 }
@@ -6035,7 +6039,12 @@ impl NamedPyException {
     // TODO keep arg order when sorting names
     fn merge(xs: impl IntoIterator<Item = Self>) -> Vec<Self> {
         xs.into_iter()
-            .map(|x| ((x.names.head, x.inner.inner), x.inner.argmod))
+            .map(|x| {
+                (
+                    (x.names.into_nonempty_iter().next().0, x.inner.inner),
+                    x.inner.argmod,
+                )
+            })
             .into_group_map()
             .into_iter()
             .flat_map(|((name, exc), argmod)| {
@@ -6050,7 +6059,8 @@ impl NamedPyException {
             .sorted()
             .map(|((argmod, exc), names)| {
                 Self::new(
-                    NonEmpty::collect(names.into_iter().sorted()).unwrap(),
+                    // TODO this could probably be cleaned up
+                    NEVec::try_from_vec(names.into_iter().sorted().collect()).unwrap(),
                     ArgPyException::new(exc, argmod),
                 )
             })
@@ -6060,16 +6070,15 @@ impl NamedPyException {
 
 impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
     fn flatten_unions(self) -> Self {
-        fn go<Q: Clone + PartialEq + Eq + Hash>(x: PyAtom<Q>) -> NonEmpty<PyAtom<Q>> {
+        fn go<Q: Clone + PartialEq + Eq + Hash>(x: PyAtom<Q>) -> NEVec<PyAtom<Q>> {
             match x {
                 PyAtom::Union(x0, x1, xs) => {
-                    let ys = go(*x0)
-                        .into_iter()
-                        .chain(go(*x1))
-                        .chain(xs.into_iter().flat_map(go));
-                    NonEmpty::collect(ys).unwrap()
+                    let mut ys = go(*x0);
+                    ys.extend(go(*x1));
+                    ys.extend(xs.into_iter().flat_map(go));
+                    ys
                 }
-                y => NonEmpty::new(y.flatten_unions()),
+                y => NEVec::new(y.flatten_unions()),
             }
         }
         match self {

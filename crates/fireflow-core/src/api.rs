@@ -49,7 +49,7 @@ use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::NEVec;
 use thiserror::Error;
 
 use std::fs;
@@ -1442,7 +1442,7 @@ impl SplitTEXTOutputInner {
 
         // If the last token was not a blank, we did not end on a delimiter.
         let delim_flag = conf.allow_missing_final_delim;
-        let final_delim_err = NonEmpty::from_slice(prev_token)
+        let final_delim_err = NEVec::try_from_slice(prev_token)
             .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
@@ -1608,7 +1608,7 @@ impl SplitTEXTOutputInner {
         let delim_flag = conf.allow_missing_final_delim;
         let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
             .switchable_into_commutative();
-        let final_delim_err = NonEmpty::from_slice(lastbuf)
+        let final_delim_err = NEVec::try_from_slice(lastbuf)
             .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();

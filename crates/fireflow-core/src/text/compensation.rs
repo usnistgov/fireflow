@@ -11,7 +11,9 @@ use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdK
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NonEmptyArrayExt as _, iter::NonEmptyIterator as _,
+};
 use std::fmt;
 use thiserror::Error;
 
@@ -109,8 +111,11 @@ impl Compensation2_0 {
             let k = Key2::new_i2(col.into(), row.into());
             let r = (usize::from(row) >= cutoff).then_some(row);
             let c = (usize::from(col) >= cutoff).then_some(col);
-            NonEmpty::collect([r, c].into_iter().flatten())
-                .map(|js| BiIndexedKeyToIndexLinkError::new(js, k))
+            [r, c]
+                .into_iter()
+                .flatten()
+                .try_into_nonempty_iter()
+                .map(|js| BiIndexedKeyToIndexLinkError::new(js.collect(), k))
         })
     }
 
@@ -138,7 +143,9 @@ impl Compensation2_0 {
             };
             which.map(|b| RemovedComp2_0Cell::new(row, col, value, b))
         });
-        let ret = NonEmpty::collect(es).map(RemovedLink::Comp2_0);
+        let ret = es
+            .try_into_nonempty_iter()
+            .map(|js| RemovedLink::Comp2_0(js.collect()));
         // If resulting matrix is less than 2x2, replace with None. Otherwise
         // truncate the matrix down to $PAR by $PAR
         if bad_matrix {
@@ -153,7 +160,7 @@ impl Compensation2_0 {
         &self,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
         self.non_zero_indices().map(|(col, row, _)| {
-            let xs = NonEmpty::from((col.into(), vec![row.into()]));
+            let xs = [col.into(), row.into()].into_nonempty_vec();
             ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
         })
     }

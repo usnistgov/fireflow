@@ -9,7 +9,6 @@ use crate::logging::{
     WarningAndErrorsResult,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::nonempty::FCSNonEmpty;
 use crate::segment::{HasRegion, TEXTSegment};
 use crate::text::byteord::{
     BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,

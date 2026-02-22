@@ -16,6 +16,7 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use itertools::Itertools as _;
+use nonempty_collections::NESlice;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -563,10 +564,10 @@ impl KeyString {
         self.0.push('_');
     }
 
-    fn from_bytes_maybe(xs: &[u8], latin1: UseLatin1) -> Option<Self> {
+    fn from_bytes_maybe(xs: &NESlice<u8>, latin1: UseLatin1) -> Option<Self> {
         if latin1.is_set() {
             Some(Self::new(xs.iter().copied().map(char::from).collect()))
-        } else if is_printable_ascii(xs) {
+        } else if is_printable_ascii(xs.as_ref()) {
             // SAFETY: we just checked that the bytes are only ASCII chars
             Some(unsafe { Self::from_bytes(xs) })
         } else {
@@ -574,10 +575,9 @@ impl KeyString {
         }
     }
 
-    unsafe fn from_bytes(xs: &[u8]) -> Self {
-        debug_assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+    unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
         // SAFETY: this function is marked unsafe since the caller must check
-        Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
+        Self::new(unsafe { String::from_utf8_unchecked(xs.as_ref().to_vec()) })
     }
 }
 
@@ -648,14 +648,14 @@ impl FromStr for StdKey {
         // ASSUME this will not fail because we know the string is
         // non-empty
         let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
-        if ys.is_empty() {
-            Err(StdKeyError::Empty)
-        } else if *y != STD_PREFIX {
+        if *y != STD_PREFIX {
             Err(StdKeyError::Prefix(ks))
-        } else {
+        } else if let Some(zs) = NESlice::try_from_slice(ys) {
             // SAFETY: this will not fail because we know the string has only
             // ASCII bytes and we checked that the slice is non-empty
-            Ok(Self(unsafe { KeyString::from_bytes(ys) }))
+            Ok(Self(unsafe { KeyString::from_bytes(&zs) }))
+        } else {
+            Err(StdKeyError::Empty)
         }
     }
 }
@@ -737,8 +737,8 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
-        key: &[u8],
-        val: &[u8],
+        key: &NESlice<u8>,
+        val: &NESlice<u8>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         enum TrimResult {
@@ -755,32 +755,27 @@ impl ParsedKeywords {
             BothInvalid(TruncatedBytes, TruncatedBytes),
         }
 
-        debug_assert!(!key.is_empty(), "key should not be empty string");
-        debug_assert!(!val.is_empty(), "value should not be empty string");
-
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
         let ignore = conf.ignore_standard_keys.as_matcher();
         let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.as_ref();
 
-        let parse_key = |s: &[u8]| {
-            let (is_std, ss) = if let Some((&STD_PREFIX, sn)) = s.split_first()
-                && !sn.is_empty()
+        let parse_key = |s: &NESlice<u8>| {
+            if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first()
+                && let Some(sn) = NESlice::try_from_slice(rest)
             {
-                (true, sn)
+                Some((true, KeyString::from_bytes_maybe(&sn, conf.use_latin1)?))
             } else {
-                (false, s)
-            };
-            let ks = KeyString::from_bytes_maybe(ss, conf.use_latin1)?;
-            Some((is_std, ks))
+                Some((false, KeyString::from_bytes_maybe(s, conf.use_latin1)?))
+            }
         };
 
         let check_trim = |trimmed: &str, flag| {
             if trimmed.is_empty() {
                 TrimResult::Empty(flag)
             } else {
-                TrimResult::Trimmed(val.len() < trimmed.len())
+                TrimResult::Trimmed(val.len().get() < trimmed.len())
             }
         };
 
@@ -799,7 +794,7 @@ impl ParsedKeywords {
                 } else {
                     Some((Cow::Owned(it.collect()), TrimResult::Trimmed(false)))
                 }
-            } else if let Ok(vv) = str::from_utf8(val) {
+            } else if let Ok(vv) = str::from_utf8(val.as_ref()) {
                 if let Some(tf) = triflag {
                     let trimmed = vv.trim();
                     let tres = check_trim(trimmed, tf);
@@ -816,7 +811,7 @@ impl ParsedKeywords {
             if is_std {
                 // Standard key: starts with '$' and is ASCII
                 if ignore.is_match(&kstr) {
-                    KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.to_vec()))
+                    KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.as_ref().to_vec()))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
                     if let Some((value, trim_res)) = parse_value() {
@@ -827,7 +822,7 @@ impl ParsedKeywords {
                             }
                         }
                     } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
+                        KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.as_ref().to_vec()))
                     }
                 }
             } else {
@@ -841,12 +836,12 @@ impl ParsedKeywords {
                         }
                     }
                 } else {
-                    KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
+                    KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.as_ref().to_vec()))
                 }
             }
         } else {
             // Non-ascii key with possibly non-Utf-8 value
-            let kbytes = TruncatedBytes(key.to_vec());
+            let kbytes = TruncatedBytes(key.as_ref().to_vec());
             if let Some((value, trim_res)) = parse_value() {
                 match trim_res {
                     TrimResult::Empty(flag) => {
@@ -858,7 +853,7 @@ impl ParsedKeywords {
                     }
                 }
             } else {
-                KeyValueResult::BothInvalid(kbytes, val.to_vec().into())
+                KeyValueResult::BothInvalid(kbytes, val.as_ref().to_vec().into())
             }
         };
 
@@ -1329,6 +1324,7 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nonempty_collections::NESlice;
 
     #[test]
     fn fromstr_std_key() {
@@ -1341,8 +1337,8 @@ mod tests {
         // the hash table
         let mut p = ParsedKeywords::default();
         let res = p.insert(
-            s.as_bytes(),
-            b"of_the_night_sky",
+            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+            &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(LogResult::new_ok(()), res);
@@ -1394,8 +1390,8 @@ mod tests {
         // the hash table
         let mut p = ParsedKeywords::default();
         let res = p.insert(
-            s.as_bytes(),
-            b"the cake is a lie",
+            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+            &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(LogResult::new_ok(()), res);

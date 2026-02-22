@@ -49,7 +49,7 @@ use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::NEVec;
+use nonempty_collections::{NESlice, NEVec};
 use thiserror::Error;
 
 use std::fs;
@@ -1391,38 +1391,38 @@ impl SplitTEXTOutputInner {
         while let Some(key) = it.next() {
             prev_was_key = true;
             prev_token = key;
-            if key.is_empty() {
+            if let Some(ne_key) = NESlice::try_from_slice(key) {
                 if let Some(value) = it.next() {
                     prev_was_key = false;
                     prev_token = value;
-                    values_with_blank_keys.push(StringOrBytes::from(value.to_vec()));
+                    if let Some(ne_value) = NESlice::try_from_slice(value) {
+                        let e = kws
+                            .insert(&ne_key, &ne_value, conf)
+                            .non_commutative_into_commutative()
+                            .map_commutative_warnings(ParseKeywordsIssue::from)
+                            .map_errors(ParseKeywordsIssue::from);
+                        insert_results.push(e);
+                    } else {
+                        // If there is nothing after a blank value this actually means
+                        // that TEXT has an odd number of tokens and ends with a
+                        // delimiter, and the "value" is the blank after the last
+                        // delimiter
+                        if it.peek().is_some() {
+                            keys_with_blank_values.push(StringOrBytes::from(key.to_vec()));
+                        }
+                    }
                 } else {
-                    // if everything is correct, we should exit here since the
-                    // last token will be the blank slice after the final delim
+                    // exiting here means we found a key without a value and also didn't
+                    // end with a delim
                     break;
                 }
             } else if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                if value.is_empty() {
-                    // If there is nothing after a blank value this actually means
-                    // that TEXT has an odd number of tokens and ends with a
-                    // delimiter, and the "value" is the blank after the last
-                    // delimiter
-                    if it.peek().is_some() {
-                        keys_with_blank_values.push(StringOrBytes::from(key.to_vec()));
-                    }
-                } else {
-                    let e = kws
-                        .insert(key, value, conf)
-                        .non_commutative_into_commutative()
-                        .map_commutative_warnings(ParseKeywordsIssue::from)
-                        .map_errors(ParseKeywordsIssue::from);
-                    insert_results.push(e);
-                }
+                values_with_blank_keys.push(StringOrBytes::from(value.to_vec()));
             } else {
-                // exiting here means we found a key without a value and also didn't
-                // end with a delim
+                // if everything is correct, we should exit here since the
+                // last token will be the blank slice after the final delim
                 break;
             }
         }
@@ -1495,7 +1495,7 @@ impl SplitTEXTOutputInner {
         let mut insert_results = vec![];
         let mut tokens_with_boundary_delims = vec![];
 
-        let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>| {
+        let mut push_pair = |kb: &NESlice<u8>, vb: &NESlice<u8>| {
             let e = kws
                 .insert(kb, vb, conf)
                 .non_commutative_into_commutative()
@@ -1528,8 +1528,10 @@ impl SplitTEXTOutputInner {
                     }
                     // Previous number of delimiters is odd, treat this as a token
                     // boundary
-                    if !valuebuf.is_empty() {
-                        push_pair(&keybuf, &valuebuf);
+                    if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
+                        let ne_key = NESlice::try_from_slice(&keybuf[..])
+                            .expect("key buffer should not be empty");
+                        push_pair(&ne_key, &ne_val);
                         keybuf.clear();
                         valuebuf.clear();
                         keybuf.extend_from_slice(segment);
@@ -1589,15 +1591,18 @@ impl SplitTEXTOutputInner {
             }
         }
 
-        let (uneven_err, last_odd_token) = if valuebuf.is_empty() {
-            (
-                Some(UnevenTokensError(tk).into()),
-                Some(keybuf.clone().into()),
-            )
-        } else {
-            push_pair(&keybuf, &valuebuf);
-            (None, None)
-        };
+        let (uneven_err, last_odd_token) =
+            if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
+                let ne_key =
+                    NESlice::try_from_slice(&keybuf[..]).expect("key buffer should not be empty");
+                push_pair(&ne_key, &ne_val);
+                (None, None)
+            } else {
+                (
+                    Some(UnevenTokensError(tk).into()),
+                    Some(keybuf.clone().into()),
+                )
+            };
 
         let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
             .switchable_into_commutative();

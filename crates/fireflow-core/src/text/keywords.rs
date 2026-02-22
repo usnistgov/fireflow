@@ -45,6 +45,7 @@ use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::nonempty_string::NonEmptyString;
 use crate::validated::shortname::Shortname;
 
+use fireflow_types::impl_str_enum;
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
@@ -1010,19 +1011,21 @@ pub enum TriggerError {
     IntFormat(ParseIntError),
 }
 
-/// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Default, Display, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum Mode {
+impl_str_enum!(
+    /// The values used for the $MODE key (up to 3.1)
+    #[derive(PartialEq, Eq, Default, Display, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    Mode,
+    /// Error when parsing [`Mode`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    ModeError,
     #[default]
-    #[display("L")]
-    List,
-    #[display("U")]
-    Uncorrelated,
-    #[display("C")]
-    Correlated,
-}
+    List         => "L"
+    Uncorrelated => "U"
+    Correlated   => "C"
+);
 
 /// Error when [`Mode`] has a deprecated value (FCS 3.1)
 #[derive(Debug, Error)]
@@ -1033,26 +1036,6 @@ pub enum DeprecatedModeWarning {
     ModeCorrelated,
     #[error("$MODE=U is deprecated")]
     ModeUncorrelated,
-}
-
-/// Error when parsing [`Mode`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'C', 'L', or 'U'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct ModeError;
-
-impl FromStr for Mode {
-    type Err = ModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "C" => Ok(Self::Correlated),
-            "L" => Ok(Self::List),
-            "U" => Ok(Self::Uncorrelated),
-            _ => Err(ModeError),
-        }
-    }
 }
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
@@ -1167,38 +1150,20 @@ pub enum DisplayError {
     Log(f32, f32),
 }
 
-/// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum NumType {
-    #[display("I")]
-    Integer,
-    #[display("F")]
-    Float,
-    #[display("D")]
-    Double,
-}
-
-impl FromStr for NumType {
-    type Err = NumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(Self::Integer),
-            "F" => Ok(Self::Float),
-            "D" => Ok(Self::Double),
-            _ => Err(NumTypeError),
-        }
-    }
-}
-
-/// Error when parsing [`NumType`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct NumTypeError;
+impl_str_enum!(
+    /// The three values for the $PnDATATYPE keyword (3.2+)
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    NumType,
+    /// Error when parsing [`NumType`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    NumTypeError,
+    Integer => "I"
+    Float => "F"
+    Double => "D"
+);
 
 /// The $BYTEORD field in FCS 2.0 and 3.0
 ///
@@ -1312,20 +1277,21 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
     }
 }
 
-/// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum AlphaNumType {
-    #[display("A")]
-    Ascii,
-    #[display("I")]
-    Integer,
-    #[display("F")]
-    Float,
-    #[display("D")]
-    Double,
-}
+impl_str_enum!(
+    /// The four allowed values for the $DATATYPE keyword.
+    #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    AlphaNumType,
+    /// Error when parsing [`AlphaNumType`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    AlphaNumTypeError,
+    Ascii => "A"
+    Integer => "I"
+    Float => "F"
+    Double => "D"
+);
 
 macro_rules! check_ascii {
     ($res:expr, $conf:expr) => {
@@ -1375,20 +1341,6 @@ impl AlphaNumType {
     }
 }
 
-impl FromStr for AlphaNumType {
-    type Err = AlphaNumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(Self::Integer),
-            "F" => Ok(Self::Float),
-            "D" => Ok(Self::Double),
-            "A" => Ok(Self::Ascii),
-            _ => Err(AlphaNumTypeError),
-        }
-    }
-}
-
 /// Error when looking up [`AlphaNumType`] from keywords.
 #[derive(Debug, Error, Display, From)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1403,13 +1355,6 @@ pub enum LookupDatatypeError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
 pub struct DeprecatedDatatypeWarning;
-
-/// Error when parsing [`AlphaNumType`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'I', 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct AlphaNumTypeError;
 
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
@@ -1812,41 +1757,21 @@ pub enum LastModifiedError {
     Format,
 }
 
-/// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum Originality {
-    #[display("Original")]
-    Original,
-    #[display("NonDataModified")]
-    NonDataModified,
-    #[display("Appended")]
-    Appended,
-    #[display("DataModified")]
-    DataModified,
-}
-
-impl FromStr for Originality {
-    type Err = OriginalityError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Original" => Ok(Self::Original),
-            "NonDataModified" => Ok(Self::NonDataModified),
-            "Appended" => Ok(Self::Appended),
-            "DataModified" => Ok(Self::DataModified),
-            _ => Err(OriginalityError),
-        }
-    }
-}
-
-/// Error when parsing [`Originality`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct OriginalityError;
+impl_str_enum!(
+    /// The value for the $ORIGINALITY key (3.1+)
+    #[derive(PartialEq, Debug, Display)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    Originality,
+    /// Error when parsing [`Originality`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    OriginalityError,
+    Original        => "Original"
+    NonDataModified => "NonDataModified"
+    Appended        => "Appended"
+    DataModified    => "DataModified"
+);
 
 /// The value of the $COMP keyword (3.0 only)
 #[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
@@ -2110,6 +2035,7 @@ pub struct OpticalFeatureError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum FeatureError {
+    // TODO this is misleading
     #[error("{0}")]
     Optical(OpticalFeatureError),
     #[error("non-area/width/height feature must not be empty")]

@@ -23,10 +23,11 @@ pub trait EnumStrIter: Sized {
 /// 2. a FromStr impl that maps each variant to a string literal
 /// 3. an error for FromStr that lists each string variant
 /// 4. an array that contains all string literals in the order given
+#[macro_export]
 macro_rules! impl_str_enum {
     ($(#[$flag_meta:meta])* $flag_name:ident,
      $(#[$error_meta:meta])* $error_name:ident,
-     $($(#[$var_meta:meta])* $var:ident, $strlit:ident;)*
+     $($(#[$var_meta:meta])* $var:ident => $strlit:tt)*
     ) => {
         $(#[$flag_meta])*
         #[derive(Clone, Copy)]
@@ -66,7 +67,7 @@ macro_rules! impl_str_enum {
 
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                let all: Vec<_> = $flag_name::iter_str().collect();
+                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter>::iter_str().collect();
                 let (last, rest) = all.split_last().expect("should have at least 2 levels");
                 let ys = rest.iter().map(|x| format!("'{x}'")).join(", ");
                 write!(f, "must be one of {ys}, or '{last}'")
@@ -81,11 +82,12 @@ macro_rules! impl_str_enum {
 /// * Default trait for first variant
 /// * Display trait for enum
 /// * Python to/from traits for both enum and parse error
+#[macro_export]
 macro_rules! impl_config_flag {
     ($(#[$flag_meta:meta])* $flag_name:ident,
      $(#[$error_meta:meta])* $error_name:ident,
-     $(#[$var_meta0:meta])* $var0:ident, $strlit0:ident;
-     $($(#[$var_meta:meta])* $var:ident, $strlit:ident;)*
+     $(#[$var_meta0:meta])* $var0:ident => $strlit0:tt
+     $($(#[$var_meta:meta])* $var:ident => $strlit:tt)*
     ) => {
         impl_str_enum!(
             #[derive(Display, Default)]
@@ -94,13 +96,13 @@ macro_rules! impl_config_flag {
             $(#[$flag_meta])* $flag_name,
 
             #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-            #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+            #[cfg_attr(feature = "python", pyerr($crate::python::ConfigError))]
             $(#[$error_meta])* $error_name,
 
             #[default]
-            $(#[$var_meta0])* $var0, $strlit0;
+            $(#[$var_meta0])* $var0 => $strlit0
 
-            $($(#[$var_meta])* $var, $strlit;)*
+            $($(#[$var_meta])* $var => $strlit)*
         );
     }
 }
@@ -114,9 +116,9 @@ impl_config_flag!(
     TriFlag,
     /// Error when parsing [`TriFlag`] from [`String`]
     TriFlagError,
-    False,  TRI_FALSE_LEVEL;
-    True,   TRI_TRUE_LEVEL;
-    Silent, TRI_SILENT_LEVEL;
+    False  => TRI_FALSE_LEVEL
+    True   => TRI_TRUE_LEVEL
+    Silent => TRI_SILENT_LEVEL
 );
 
 pub const OTHER_WIDTH_NONE_LEVEL: &str = NONE_LEVEL;
@@ -129,10 +131,10 @@ impl_config_flag!(
     GuessOtherWidth,
     /// Error when parsing [`GuessOtherWidth`] from [`String`]
     GuessOtherWidthError,
-    None,   OTHER_WIDTH_NONE_LEVEL;
-    Error,  OTHER_WIDTH_ERROR_LEVEL;
-    Warn,   OTHER_WIDTH_WARN_LEVEL;
-    Silent, OTHER_WIDTH_SILENT_LEVEL;
+    None   => OTHER_WIDTH_NONE_LEVEL
+    Error  => OTHER_WIDTH_ERROR_LEVEL
+    Warn   => OTHER_WIDTH_WARN_LEVEL
+    Silent => OTHER_WIDTH_SILENT_LEVEL
 );
 
 pub const KW_ERROR_LEVEL: &str = ERROR_LEVEL;
@@ -146,11 +148,11 @@ impl_config_flag!(
     ProcessKeywordFailure,
     /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
     ProcessKeywordFailureError,
-    Error,        KW_ERROR_LEVEL;
-    DemoteWarn,   KW_DEMOTE_WARN_LEVEL;
-    DemoteSilent, KW_DEMOTE_SILENT_LEVEL;
-    DropWarn,     KW_DROP_WARN_LEVEL;
-    DropSilent,   KW_DROP_SILENT_LEVEL;
+    Error        => KW_ERROR_LEVEL
+    DemoteWarn   => KW_DEMOTE_WARN_LEVEL
+    DemoteSilent => KW_DEMOTE_SILENT_LEVEL
+    DropWarn     => KW_DROP_WARN_LEVEL
+    DropSilent   => KW_DROP_SILENT_LEVEL
 );
 
 pub const DELIM_ESCAPED_LEVEL: &str = "escaped";
@@ -164,13 +166,13 @@ impl_config_flag!(
     /// Error when parsing [`DelimEscapeMode`] from [`String`]
     DelimEscapeModeError,
     /// Use escaped delimiters.
-    Escaped,        DELIM_ESCAPED_LEVEL;
+    Escaped        => DELIM_ESCAPED_LEVEL
     /// Use unescaped delimiters.
-    Unescaped,      DELIM_UNESCAPED_LEVEL;
-    /// Guess, falling back to escaped mode.
-    GuessEscaped,   DELIM_GUESS_ESCAPED_LEVEL;
-    /// Guess, falling back to unescaped mode.
-    GuessUnescaped, DELIM_GUESS_UNESCAPED_LEVEL;
+    Unescaped      => DELIM_UNESCAPED_LEVEL
+    /// Guess      => falling back to escaped mode.
+    GuessEscaped   => DELIM_GUESS_ESCAPED_LEVEL
+    /// Guess      => falling back to unescaped mode.
+    GuessUnescaped => DELIM_GUESS_UNESCAPED_LEVEL
 );
 
 pub const TRIM_NONE_LEVEL: &str = "notrim";
@@ -184,13 +186,13 @@ impl_config_flag!(
     /// Error when parsing [`TrimValueWhitespace`] from [`String`]
     TrimValueWhitespaceError,
     /// Do not trim at all.
-    Notrim,          TRIM_NONE_LEVEL;
+    Notrim          => TRIM_NONE_LEVEL
     /// Trim whitespace and throw error if blank is created.
-    Trim,            TRIM_ERROR_LEVEL;
+    Trim            => TRIM_ERROR_LEVEL
     /// Trim whitespace and throw warning if blank is created.
-    TrimBlankWarn,   TRIM_BLANK_WARN_LEVEL;
+    TrimBlankWarn   => TRIM_BLANK_WARN_LEVEL
     /// Trim whitespace and do nothing if blank is created.
-    TrimBlankSilent, TRIM_BLANK_SILENT_LEVEL;
+    TrimBlankSilent => TRIM_BLANK_SILENT_LEVEL
 );
 
 pub const FORCE_LINEAR_NONE_LEVEL: &str = NONE_LEVEL;
@@ -204,13 +206,13 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ForceLinearScaleError,
     /// Do not force.
-    None,      FORCE_LINEAR_NONE_LEVEL;
+    None      => FORCE_LINEAR_NONE_LEVEL
     /// Only force the temporal measurement.
-    TimeOnly,  FORCE_LINEAR_TIME_LEVEL;
+    TimeOnly  => FORCE_LINEAR_TIME_LEVEL
     /// Force all non-integer measurements and temporal measurement.
-    AllNonInt, FORCE_LINEAR_NON_INT_LEVEL;
+    AllNonInt => FORCE_LINEAR_NON_INT_LEVEL
     /// Force all measurements.
-    All,       FORCE_LINEAR_ALL_LEVEL;
+    All       => FORCE_LINEAR_ALL_LEVEL
 );
 
 impl ForceLinearScale {
@@ -231,13 +233,13 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     ProcessTemporalOpticalKeysError,
     /// Demote to nonstandard with warning
-    DemoteWarn,   TMP_OPT_DEMOTE_WARN_LEVEL;
+    DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL
     /// Demote to nonstandard with no warning
-    DemoteSilent, TMP_OPT_DEMOTE_SILENT_LEVEL;
+    DemoteSilent => TMP_OPT_DEMOTE_SILENT_LEVEL
     /// Drop with warning
-    DropWarn,     TMP_OPT_DROP_WARN_LEVEL;
+    DropWarn     => TMP_OPT_DROP_WARN_LEVEL
     /// Drop with no warning
-    DropSilent,   TMP_OPT_DROP_SILENT_LEVEL;
+    DropSilent   => TMP_OPT_DROP_SILENT_LEVEL
 );
 
 pub const SPILLOVER_NAMED_LEVEL: &str = "named";
@@ -250,14 +252,14 @@ impl_config_flag!(
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     SpilloverMeasurementModeError,
     /// Interpret measurements as names which match $PnN.
-    Named,   SPILLOVER_NAMED_LEVEL;
+    Named   => SPILLOVER_NAMED_LEVEL
     /// Interpret measurements as 1-indices (numbers) which point to measurements.
-    Indexed, SPILLOVER_INDEXED_LEVEL;
+    Indexed => SPILLOVER_INDEXED_LEVEL
     /// Guess how measurements should be interpreted.
     ///
     /// If they are all numbers and all do not point to $PnN, interpret as
     /// indices, otherwise names.
-    Guess,   SPILLOVER_GUESS_LEVEL;
+    Guess   => SPILLOVER_GUESS_LEVEL
 );
 
 pub const TRUNCATE_NONE_LEVEL: &str = NONE_LEVEL;
@@ -272,11 +274,11 @@ impl_config_flag!(
     /// Error when parsing [`TruncateEventValues`] from [`String`]
     TruncateEventValuesError,
     /// Only truncate integer events.
-    IntOnly, TRUNCATE_INT_ONLY_LEVEL;
+    IntOnly => TRUNCATE_INT_ONLY_LEVEL
     /// Truncate all events.
-    All,     TRUNCATE_ALL_LEVEL;
+    All     => TRUNCATE_ALL_LEVEL
     /// Truncate no events.
-    None,    TRUNCATE_NONE_LEVEL;
+    None    => TRUNCATE_NONE_LEVEL
 );
 
 pub const MISMATCH_ERROR_LEVEL: &str = ERROR_LEVEL;
@@ -293,15 +295,15 @@ impl_config_flag!(
     /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
     AllowHeaderTEXTOffsetMismatchError,
     /// Throw error on mismatch.
-    Error,        MISMATCH_ERROR_LEVEL;
+    Error        => MISMATCH_ERROR_LEVEL
     /// Choose HEADER on mismatch and throw warning.
-    HeaderWarn,   MISMATCH_HEADER_WARN_LEVEL;
+    HeaderWarn   => MISMATCH_HEADER_WARN_LEVEL
     /// Choose HEADER on mismatch and do nothing.
-    HeaderSilent, MISMATCH_HEADER_SILENT_LEVEL;
+    HeaderSilent => MISMATCH_HEADER_SILENT_LEVEL
     /// Choose TEXT on mismatch and throw warning.
-    TextWarn,     MISMATCH_TEXT_WARN_LEVEL;
+    TextWarn     => MISMATCH_TEXT_WARN_LEVEL
     /// Choose TEXT on mismatch and do nothing.
-    TextSilent,   MISMATCH_TEXT_SILENT_LEVEL;
+    TextSilent   => MISMATCH_TEXT_SILENT_LEVEL
 );
 
 impl AllowHeaderTEXTOffsetMismatch {
@@ -347,29 +349,29 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     TemporalOpticalKeyError,
     /// Ignore $PnG
-    Gain, GAIN_LEVEL;
+    Gain            => GAIN_LEVEL
     /// Ignore $PnF
-    Filter, FILTER_LEVEL;
+    Filter          => FILTER_LEVEL
     /// Ignore $PnL
-    Wavelength, WAVELENGTH_LEVEL;
+    Wavelength      => WAVELENGTH_LEVEL
     /// Ignore $PnO
-    Power, POWER_LEVEL;
+    Power           => POWER_LEVEL
     /// Ignore $PnT
-    DetectorType, DET_TYPE_LEVEL;
+    DetectorType    => DET_TYPE_LEVEL
     /// Ignore $PnV
-    DetectorVoltage, DET_VOLTAGE_LEVEL;
+    DetectorVoltage => DET_VOLTAGE_LEVEL
     /// Ignore $PnP
-    PercentEmitted, PCNT_EMIT_LEVEL;
+    PercentEmitted  => PCNT_EMIT_LEVEL
     /// Ignore $PnCALIBRATION
-    Calibration, CALIBRATION_LEVEL;
+    Calibration     => CALIBRATION_LEVEL
     /// Ignore $PnDET
-    DetectorName, DET_NAME_LEVEL;
+    DetectorName    => DET_NAME_LEVEL
     /// Ignore $PnTAG
-    Tag, TAG_LEVEL;
+    Tag             => TAG_LEVEL
     /// Ignore $PnFEATURE
-    Feature, FEATURE_LEVEL;
+    Feature         => FEATURE_LEVEL
     /// Ignore $PnANALYTE
-    Analyte, ANALYTE_LEVEL;
+    Analyte         => ANALYTE_LEVEL
 );
 
 impl TemporalOpticalKey {
@@ -447,11 +449,11 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     IncludeReqOrOptError,
     /// Return required.
-    Req_, STD_KW_REQ_LEVEL;
+    Req_ => STD_KW_REQ_LEVEL
     /// Return optional.
-    Opt_, STD_KW_OPT_LEVEL;
+    Opt_ => STD_KW_OPT_LEVEL
     /// Return both.
-    Both, STD_KW_REQ_AND_OPT_LEVEL;
+    Both => STD_KW_REQ_AND_OPT_LEVEL
 );
 
 pub const STD_KW_ROOT_LEVEL: &str = "req_only";
@@ -467,11 +469,11 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     IncludeRootOrMeasError,
     /// Return root.
-    Root, STD_KW_ROOT_LEVEL;
+    Root => STD_KW_ROOT_LEVEL
     /// Return meas.
-    Meas, STD_KW_MEAS_LEVEL;
+    Meas => STD_KW_MEAS_LEVEL
     /// Return both.
-    Both, STD_KW_ROOT_AND_MEAS_LEVEL;
+    Both => STD_KW_ROOT_AND_MEAS_LEVEL
 );
 
 pub const READ_STRATEGY_STRICT_LEVEL: &str = "strict";
@@ -499,16 +501,16 @@ impl_str_enum!(
     ///
     /// Many files will fail this, but it is useful for validation.
     #[default]
-    Strict,       READ_STRATEGY_STRICT_LEVEL;
+    Strict       => READ_STRATEGY_STRICT_LEVEL
     /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
     ///
     /// This is likely a good option for many files.
-    Scalpal,      READ_STRATEGY_SCALPAL_LEVEL;
+    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL
     /// Use "unsafe" non-compliant parsing.
     ///
     /// This is the best option when all one cares about is reading DATA.
     /// Non-compliant metadata in TEXT will be skipped.
-    Sledgehammer, READ_STRATEGY_SLEDGEHAMMER_LEVEL;
+    Sledgehammer => READ_STRATEGY_SLEDGEHAMMER_LEVEL
 );
 
 // internal constants, many are shared between enums to keep the API simpler

@@ -1248,6 +1248,16 @@ impl_tri_error_flag!(true_is_error DisallowOverRange);
 // flag for controlling imperfect downgrades and upgrades
 impl_tri_error_flag!(false_is_error AllowLoss);
 
+/// Fake 2-way flag to use for non-public switchable errors
+#[derive(From, Into, Clone, Copy)]
+pub(crate) struct DummyFlag(pub(crate) bool);
+
+impl ErrorFlag for DummyFlag {
+    fn is_error(&self) -> bool {
+        self.0
+    }
+}
+
 /// Fake 3-way flag to use for non-public switchable errors
 #[derive(From, Into, Clone, Copy)]
 pub(crate) struct DummyTriFlag(pub(crate) TriFlag);
@@ -1492,7 +1502,7 @@ impl TemporalOpticalKeys {
                 }
             }
         }
-        let mut res = LogResult::new_err_from_iter(es, pairs);
+        let mut res = LogResult::new_from_err_iter(es, pairs, ());
         res.extend_commutative_warnings(ws);
         res
     }

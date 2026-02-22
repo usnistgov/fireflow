@@ -1190,7 +1190,7 @@ impl FlatTEXTOutput {
                         } else {
                             vec![]
                         };
-                        let nd_res = WarningsAndErrorsResult::new_err_from_iter(es, ())
+                        let nd_res = WarningsAndErrorsResult::new_from_err_iter(es, (), ())
                             .map_errors(ParseFlatTEXTError::from);
 
                         // Build diagnostics output, throw errors for bad keywords
@@ -2075,10 +2075,7 @@ where
                     .validate_supp_text(&mut seg_stxt, limit)
                     .map(STextSegmentError::from);
                 // TODO throw warnings sometimes for these?
-                ErrorsResult::new_err_from_iter(es, ())
-                    .set_ok_value(present)
-                    .set_err_value(ignored)
-                    .nowarn_into_warn()
+                ErrorsResult::new_from_err_iter(es, present, ignored).nowarn_into_warn()
             }
         } else {
             // No offsets found

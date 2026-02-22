@@ -1295,8 +1295,22 @@ impl<V, X, WC> Success<V, X, WC> {
         Failure::new(ws, other.errors, f(self.value, other.value))
     }
 
-    pub(crate) fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, WC, E, EC> {
-        Failure::new(self.warnings, errors, self.value)
+    // pub(crate) fn fail<E, EC>(self, errors: GenNonEmpty<E, EC>) -> Failure<V, WC, E, EC> {
+    //     Failure::new(self.warnings, errors, self.value)
+    // }
+
+    pub(crate) fn with_errors<E, EC>(
+        self,
+        errors: impl IntoIterator<Item = E>,
+    ) -> LogResult<V, V, WC, WC, X, E, EC>
+    where
+        EC: Default + Extend<E>,
+    {
+        if let Some(es) = GenNonEmpty::collect(errors) {
+            Fail(Failure::new(self.warnings, es, self.value))
+        } else {
+            Succ(self)
+        }
     }
 
     /// Remove warnings while maintaining the warning type.
@@ -1489,12 +1503,12 @@ impl<P, E, WC, EC> Failure<P, WC, E, EC> {
         self.warnings.extend(ws);
     }
 
-    fn push_error(&mut self, e: E)
-    where
-        EC: Extend<E>,
-    {
-        self.errors.extend(iter::once(e));
-    }
+    // fn push_error(&mut self, e: E)
+    // where
+    //     EC: Extend<E>,
+    // {
+    //     self.errors.extend(iter::once(e));
+    // }
 
     fn extend_errors(&mut self, es: impl IntoIterator<Item = E>)
     where
@@ -1636,10 +1650,10 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         EC: Extend<E> + Default,
     {
         match self {
-            Succ(x) => match fe(&x.value) {
-                Some(e) => Fail(x.fail(GenNonEmpty::new1(e)).fmap_once(fv)),
-                None => Succ(x),
-            },
+            Succ(x) => {
+                let e = fe(&x.value);
+                x.with_errors(e).map_err_value(fv)
+            }
             Fail(x) => Fail(x.fmap_once(fp)),
         }
     }
@@ -1697,31 +1711,16 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn extend_errors<Fv, Fp>(
-        self,
-        errors: impl IntoIterator<Item = E>,
-        fv: Fv,
-        fp: Fp,
-    ) -> Self
+    pub(crate) fn extend_errors<F>(self, errors: impl IntoIterator<Item = E>, f: F) -> Self
     where
-        Fv: FnOnce(V) -> P,
-        Fp: FnOnce(P) -> P,
+        F: FnOnce(V) -> P,
         EC: Extend<E> + Default,
     {
-        let mut it = errors.into_iter();
         match self {
-            Succ(succ) => {
-                if let Some(e0) = it.by_ref().next() {
-                    let mut es_ = GenNonEmpty::new1(e0);
-                    es_.extend(it);
-                    Fail(succ.fail(es_).fmap_once(fv))
-                } else {
-                    Succ(succ)
-                }
-            }
+            Succ(succ) => succ.with_errors(errors).map_err_value(f),
             Fail(mut err) => {
-                err.extend_errors(it);
-                Fail(err.fmap_once(fp))
+                err.extend_errors(errors);
+                Fail(err)
             }
         }
     }
@@ -1754,18 +1753,16 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
     // }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub(crate) fn extend_warnings_or_errors3<X, M, W, Fv, Fp, Fw, Fe>(
+    pub(crate) fn extend_warnings_or_errors3<X, M, W, Fv, Fw, Fe>(
         mut self,
         errors: impl IntoIterator<Item = M>,
         fv: Fv,
-        fp: Fp,
         fw: Fw,
         fe: Fe,
         flag: X,
     ) -> Self
     where
         Fv: FnOnce(V) -> P,
-        Fp: FnOnce(P) -> P,
         Fe: Fn(M) -> E,
         Fw: Fn(M) -> W,
         WC: Extend<W>,
@@ -1773,11 +1770,11 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         X: TriErrorFlag,
     {
         match flag.is_error() {
-            None => self.map_err_value(fp),
-            Some(true) => self.extend_errors(errors.into_iter().map(fe), fv, fp),
+            None => self,
+            Some(true) => self.extend_errors(errors.into_iter().map(fe), fv),
             Some(false) => {
                 self.extend_commutative_warnings(errors.into_iter().map(fw));
-                self.map_err_value(fp)
+                self
             }
         }
     }
@@ -2009,6 +2006,18 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         }
     }
 
+    // pub(crate) fn new_deferred_from_err_iter<I>(errors: I, default: V) -> Self
+    // where
+    //     I: IntoIterator<Item = E>,
+    //     EC: Extend<E> + Default,
+    //     WC: Default,
+    // {
+    //     match GenNonEmpty::collect(errors) {
+    //         None => Self::new_ok(default),
+    //         Some(e) => Fail(Failure::new_from_many(e, default)),
+    //     }
+    // }
+
     pub(crate) fn new_deferred_if(is_ok: bool, value: V, error: E) -> Self
     where
         WC: Default,
@@ -2049,14 +2058,12 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         EC: Extend<E> + Default,
     {
         match self {
-            Succ(succ) => match f(&succ.value) {
-                Some(e) => Fail(succ.fail(GenNonEmpty::new1(e))),
-                None => Succ(succ),
-            },
+            Succ(succ) => {
+                let e = f(&succ.value);
+                succ.with_errors(e)
+            }
             Fail(mut err) => {
-                if let Some(e) = f(&err.value) {
-                    err.push_error(e);
-                }
+                err.extend_errors(f(&err.value));
                 Fail(err)
             }
         }
@@ -2073,13 +2080,7 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
         EC: Extend<E> + Default,
     {
         match self {
-            Succ(succ) => {
-                if let Some(es) = GenNonEmpty::collect(errors) {
-                    Fail(succ.fail(es))
-                } else {
-                    Succ(succ)
-                }
-            }
+            Succ(succ) => succ.with_errors(errors),
             Fail(mut err) => {
                 err.extend_errors(errors);
                 Fail(err)
@@ -2345,11 +2346,11 @@ impl<V, E> DeferredError<V, E> {
         match self {
             Succ(x) => f(x.value),
             Fail(x) => {
-                let ret = match f(x.value) {
-                    Succ(y) => Failure::new(Nothing::default(), x.errors, y.value),
-                    Fail(y) => Failure::new(Nothing::default(), y.errors, y.value),
+                let (es, v) = match f(x.value) {
+                    Succ(y) => (x.errors, y.value),
+                    Fail(y) => (y.errors, y.value),
                 };
-                Fail(ret)
+                Fail(Failure::new(Nothing::default(), es, v))
             }
         }
     }
@@ -2547,13 +2548,16 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
         EC::Warn: Default,
         X: TriErrorFlag,
     {
-        match GenNonEmpty::collect(errors) {
-            Some(es) => match flag.is_error() {
-                None => Self::new_switchable_ok(value, flag),
-                Some(true) => Fail(Failure::new_from_many(es, default)),
-                Some(false) => Succ(Success::new(value, flag, EC::errors_to_warnings(es))),
-            },
+        match flag.is_error() {
             None => Self::new_switchable_ok(value, flag),
+            Some(true) => match GenNonEmpty::collect(errors) {
+                Some(es) => Fail(Failure::new_from_many(es, default)),
+                None => Self::new_switchable_ok(value, flag),
+            },
+            Some(false) => match GenNonEmpty::collect(errors) {
+                Some(es) => Succ(Success::new(value, flag, EC::errors_to_warnings(es))),
+                None => Self::new_switchable_ok(value, flag),
+            },
         }
     }
 
@@ -2660,24 +2664,24 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    // pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
-    // where
-    //     I: IntoIterator<Item = E>,
-    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
-    //     EC::Warn: Default,
-    //     X: ErrorFlag,
-    // {
-    //     match GenNonEmpty::collect(errors) {
-    //         Some(es) => {
-    //             if flag.is_error() {
-    //                 Fail(Failure::new_from_many(es, value))
-    //             } else {
-    //                 Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
-    //             }
-    //         }
-    //         None => Self::new_switchable_ok(value, flag),
-    //     }
-    // }
+    pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
+        EC::Warn: Default,
+        X: ErrorFlag,
+    {
+        match GenNonEmpty::collect(errors) {
+            Some(es) => {
+                if flag.is_error() {
+                    Fail(Failure::new_from_many(es, value))
+                } else {
+                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+                }
+            }
+            None => Self::new_switchable_ok(value, flag),
+        }
+    }
 
     pub(crate) fn new_deferred_switchable_iter3<I>(value: T, errors: I, flag: X) -> Self
     where
@@ -2686,13 +2690,19 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         EC::Warn: Default,
         X: TriErrorFlag,
     {
-        match GenNonEmpty::collect(errors) {
-            Some(es) => match flag.is_error() {
-                None => Self::new_switchable_ok(value, flag),
-                Some(true) => Fail(Failure::new_from_many(es, value)),
-                Some(false) => Succ(Success::new(value, flag, EC::errors_to_warnings(es))),
-            },
+        match flag.is_error() {
             None => Self::new_switchable_ok(value, flag),
+            Some(true) => match GenNonEmpty::collect(errors) {
+                Some(es) => Fail(Failure::new_from_many(es, value)),
+                None => Self::new_switchable_ok(value, flag),
+            },
+            Some(false) => {
+                let ret = match GenNonEmpty::collect(errors) {
+                    Some(es) => Success::new(value, flag, EC::errors_to_warnings(es)),
+                    None => Success::new_flagged(value, flag),
+                };
+                Succ(ret)
+            }
         }
     }
 
@@ -2712,18 +2722,9 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         X: ErrorFlag,
     {
         match self {
-            Succ(mut succ) => {
-                if succ.flag.is_error() {
-                    let ws = succ.warnings.into_iter().chain(errors);
-                    if let Some(es) = GenNonEmpty::collect(ws) {
-                        Fail(Failure::new_from_many(es, succ.value))
-                    } else {
-                        Succ(Success::new_flagged(succ.value, succ.flag))
-                    }
-                } else {
-                    succ.extend_warnings(errors);
-                    Succ(succ)
-                }
+            Succ(succ) => {
+                let ws = succ.warnings.into_iter().chain(errors);
+                Self::new_deferred_switchable_iter(succ.value, ws, succ.flag)
             }
             Fail(mut fail) => {
                 fail.extend_errors(errors);
@@ -2747,23 +2748,11 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
         X: TriErrorFlag,
     {
-        // TODO not DRY
         match self {
-            Succ(mut succ) => match succ.flag.is_error() {
-                None => Succ(succ),
-                Some(true) => {
-                    let ws = succ.warnings.into_iter().chain(errors);
-                    if let Some(es) = GenNonEmpty::collect(ws) {
-                        Fail(Failure::new_from_many(es, succ.value))
-                    } else {
-                        Succ(Success::new_flagged(succ.value, succ.flag))
-                    }
-                }
-                Some(false) => {
-                    succ.extend_warnings(errors);
-                    Succ(succ)
-                }
-            },
+            Succ(succ) => {
+                let ws = succ.warnings.into_iter().chain(errors);
+                Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
+            }
             Fail(mut fail) => {
                 fail.extend_errors(errors);
                 Fail(fail)
@@ -2771,57 +2760,20 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    // pub(crate) fn eval_deferred_switchable_error<F>(self, f: F) -> Self
-    // where
-    //     F: FnOnce(&T) -> Option<E>,
-    //     EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
-    //     EC::Warn: Extend<E>,
-    //     X: ErrorFlag,
-    // {
-    //     // TODO where is the flag used?
-    //     match self {
-    //         Succ(succ) => {
-    //             if let Some(e) = f(&succ.value) {
-    //                 Fail(Failure::new_from_one(e, succ.value))
-    //             } else {
-    //                 Succ(succ)
-    //             }
-    //         }
-    //         Fail(mut fail) => {
-    //             if let Some(e) = f(&fail.value) {
-    //                 fail.push_error(e);
-    //             }
-    //             Fail(fail)
-    //         }
-    //     }
-    // }
-
     pub(crate) fn eval_deferred_switchable_error3<F>(self, f: F) -> Self
     where
         F: FnOnce(&T) -> Option<E>,
-        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC>,
-        EC::Warn: Extend<E>,
+        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
+        EC::Warn: Default + IntoIterator<Item = E>,
         X: TriErrorFlag,
     {
         match self {
-            Succ(mut succ) => {
-                if let Some(e) = f(&succ.value) {
-                    match succ.flag.is_error() {
-                        None => Succ(succ),
-                        Some(true) => Fail(Failure::new_from_one(e, succ.value)),
-                        Some(false) => {
-                            succ.extend_warnings([e]);
-                            Succ(succ)
-                        }
-                    }
-                } else {
-                    Succ(succ)
-                }
+            Succ(succ) => {
+                let ws = succ.warnings.into_iter().chain(f(&succ.value));
+                Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
             }
             Fail(mut fail) => {
-                if let Some(e) = f(&fail.value) {
-                    fail.push_error(e);
-                }
+                fail.extend_errors(f(&fail.value));
                 Fail(fail)
             }
         }
@@ -2866,24 +2818,6 @@ impl<V, LWC, RWC, X, E, EC> LogResult<V, (), LWC, RWC, X, E, EC> {
 }
 
 //
-// Non-switchable LogResult with no passthru
-//
-impl<V, LWC, RWC, E, EC> LogResult<V, (), LWC, RWC, (), E, EC> {
-    pub(crate) fn new_err_from_iter<I>(errors: I, default: V) -> Self
-    where
-        I: IntoIterator<Item = E>,
-        EC: Extend<E> + Default,
-        RWC: Default,
-        LWC: Default,
-    {
-        match GenNonEmpty::collect(errors) {
-            None => Self::new_ok(default),
-            Some(e) => Fail(Failure::new_from_many(e, ())),
-        }
-    }
-}
-
-//
 // Non-switchable LogResult
 //
 impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
@@ -2912,6 +2846,19 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
             Succ(Success::new_non_switchable(value))
         } else {
             Fail(Failure::new_from_one(error, default))
+        }
+    }
+
+    pub(crate) fn new_from_err_iter<I>(errors: I, default: V, passthru: P) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        EC: Extend<E> + Default,
+        RWC: Default,
+        LWC: Default,
+    {
+        match GenNonEmpty::collect(errors) {
+            None => Self::new_ok(default),
+            Some(e) => Fail(Failure::new_from_many(e, passthru)),
         }
     }
 
@@ -3302,7 +3249,6 @@ mod python {
         E: Into<Self>,
         S: Display,
     {
-        // TODO check if we are on python <3.11 and do something different if so
         fn from(value: ErrorGroup<E, S>) -> Self {
             let s = value.summary.to_string();
             let es: Vec<_> = value.errors.into_iter().map(Into::into).collect();
@@ -3355,9 +3301,6 @@ mod python {
         }
     }
 
-    // TODO make this work with different exception types that can be caught,
-    // right now anything that has a given error type will simply become a
-    // 'PyreflowWarning'
     fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
     where
         W: Display,

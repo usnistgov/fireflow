@@ -75,7 +75,7 @@ impl ParsedHeaderSegments {
     ) -> ErrorsResult<Self, (), SegmentValidationError> {
         let mut ret = Self::new(text, data, analysis, os);
         let es = ret.validate(limit);
-        ErrorsResult::new_err_from_iter(es, ()).set_ok_value(ret)
+        ErrorsResult::new_from_err_iter(es, (), ()).set_ok_value(ret)
     }
 
     /// Return DATA and ANALYSIS segments in struct.

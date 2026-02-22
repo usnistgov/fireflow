@@ -4505,7 +4505,6 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     // of this slot below to demote it
                     extra.timestep.is_some().then_some(TimestepFoundError),
                     |_v| (),
-                    |_p| (),
                     StdTEXTFromFlatTEXTWarning::from,
                     StdTEXTFromFlatTEXTErrorInner::from,
                     flag.as_triflag(),
@@ -4537,7 +4536,6 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                         .extend_warnings_or_errors3(
                             errors.$errors,
                             |_v| (),
-                            |_p| (),
                             StdTEXTFromFlatTEXTWarning::from,
                             StdTEXTFromFlatTEXTErrorInner::from,
                             flag.as_triflag(),
@@ -4833,7 +4831,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
         let link_errs = metaroot.remove_invalid_links(par, &ns, demote);
-        LogResult::new_err_from_iter(link_errs, ())
+        LogResult::new_from_err_iter(link_errs, (), ())
     }
 
     fn new_unchecked(

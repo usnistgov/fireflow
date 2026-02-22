@@ -42,6 +42,7 @@ pub struct GenericSpillover<T> {
     ///
     /// Assumed to be a subset of the values in the $PnN keys and unique.
     #[as_ref([T])]
+    // TODO just use shortname for this because shortname will also match with numbers
     measurements: Vec<T>,
 
     /// Numeric values in the spillover matrix in row-major order.
@@ -303,8 +304,8 @@ mod tests {
     fn spillover() {
         let conf = ReadStdKeywordsConfig::default();
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
         assert_from_to_str_with::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf);
@@ -318,8 +319,8 @@ mod tests {
             ..Default::default()
         };
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
         let spill = res.unwrap().native.to_string();
@@ -333,8 +334,8 @@ mod tests {
             ..Default::default()
         };
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
         let spill = res.unwrap().native.to_string();
@@ -348,8 +349,8 @@ mod tests {
             ..Default::default()
         };
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
     }
@@ -361,8 +362,8 @@ mod tests {
             ..Default::default()
         };
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2, X,  Y , 0, 0,    0, 0", &ns, &conf);
         let spill = res.unwrap().native.to_string();
@@ -373,8 +374,8 @@ mod tests {
     fn spillover_nonunique() {
         let conf = ReadStdKeywordsConfig::default();
         let ns = [
-            &Shortname::new_unchecked("X"),
-            &Shortname::new_unchecked("Y"),
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
         ];
         assert!(Spillover::from_str_with("3,Y,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf).is_err());
     }
@@ -382,7 +383,7 @@ mod tests {
     #[test]
     fn spillover_toosmall() {
         let conf = ReadStdKeywordsConfig::default();
-        let ns = [&Shortname::new_unchecked("potato")];
+        let ns = [&"potato".parse::<Shortname>().unwrap()];
         assert!(Spillover::from_str_with("1,potato,0", &ns, &conf).is_err());
     }
 
@@ -390,9 +391,9 @@ mod tests {
     fn spillover_name_wrong_length() {
         let conf = ReadStdKeywordsConfig::default();
         let ns = [
-            &Shortname::new_unchecked("moody"),
-            &Shortname::new_unchecked("padfoot"),
-            &Shortname::new_unchecked("prongs"),
+            &"moody".parse::<Shortname>().unwrap(),
+            &"padfoot".parse::<Shortname>().unwrap(),
+            &"prongs".parse::<Shortname>().unwrap(),
         ];
         assert!(Spillover::from_str_with("2,moody,padfoot,prongs,0,0,0,0", &ns, &conf).is_err());
     }

@@ -2314,17 +2314,17 @@ mod tests {
     #[test]
     fn uniquify_good() {
         let mut xs = vec![
-            Some(Shortname::new_unchecked("a")),
+            Some("a".parse::<Shortname>().unwrap()),
             None,
-            Some(Shortname::new_unchecked("b")),
+            Some("b".parse::<Shortname>().unwrap()),
         ];
         uniquify_names(&mut xs[..]);
         assert_eq!(
             xs,
             vec![
-                Some(Shortname::new_unchecked("a")),
+                Some("a".parse::<Shortname>().unwrap()),
                 None,
-                Some(Shortname::new_unchecked("b")),
+                Some("b".parse::<Shortname>().unwrap()),
             ]
         );
     }
@@ -2332,17 +2332,17 @@ mod tests {
     #[test]
     fn uniquify_bad() {
         let mut xs = vec![
-            Some(Shortname::new_unchecked("a")),
+            Some("a".parse::<Shortname>().unwrap()),
             None,
-            Some(Shortname::new_unchecked("a")),
+            Some("a".parse::<Shortname>().unwrap()),
         ];
         uniquify_names(&mut xs[..]);
         assert_eq!(
             xs,
             vec![
-                Some(Shortname::new_unchecked("a~0")),
+                Some("a~0".parse::<Shortname>().unwrap()),
                 None,
-                Some(Shortname::new_unchecked("a~1")),
+                Some("a~1".parse::<Shortname>().unwrap()),
             ]
         );
     }

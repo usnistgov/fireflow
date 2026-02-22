@@ -49,9 +49,9 @@ use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 use fireflow_types::config::{
     EnumStrIter as _, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
 };
-use fireflow_types::impl_str_enum;
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
-use fireflow_types::nonempty_string::{NEStrConst, NEString};
+use fireflow_types::nonempty_string::NEString;
+use fireflow_types::{impl_str_enum, ne_str};
 
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
@@ -1025,9 +1025,9 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     ModeError,
     #[default]
-    List         => NEStrConst::new("L"),
-    Uncorrelated => NEStrConst::new("U"),
-    Correlated   => NEStrConst::new("C")
+    List         => ne_str!("L"),
+    Uncorrelated => ne_str!("U"),
+    Correlated   => ne_str!("C")
 );
 
 /// Error when [`Mode`] has a deprecated value (FCS 3.1)
@@ -1164,9 +1164,9 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     NumTypeError,
-    Integer => NEStrConst::new("I"),
-    Float   => NEStrConst::new("F"),
-    Double  => NEStrConst::new("D")
+    Integer => ne_str!("I"),
+    Float   => ne_str!("F"),
+    Double  => ne_str!("D")
 );
 
 /// The $BYTEORD field in FCS 2.0 and 3.0
@@ -1292,10 +1292,10 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     AlphaNumTypeError,
-    Ascii   => NEStrConst::new("A"),
-    Integer => NEStrConst::new("I"),
-    Float   => NEStrConst::new("F"),
-    Double  => NEStrConst::new("D")
+    Ascii   => ne_str!("A"),
+    Integer => ne_str!("I"),
+    Float   => ne_str!("F"),
+    Double  => ne_str!("D")
 );
 
 macro_rules! check_ascii {
@@ -1773,10 +1773,10 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
     OriginalityError,
-    Original        => NEStrConst::new("Original"),
-    NonDataModified => NEStrConst::new("NonDataModified"),
-    Appended        => NEStrConst::new("Appended"),
-    DataModified    => NEStrConst::new("DataModified")
+    Original        => ne_str!("Original"),
+    NonDataModified => ne_str!("NonDataModified"),
+    Appended        => ne_str!("Appended"),
+    DataModified    => ne_str!("DataModified")
 );
 
 /// The value of the $COMP keyword (3.0 only)

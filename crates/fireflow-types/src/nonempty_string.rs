@@ -1,6 +1,7 @@
 use derive_more::{AsRef, Display, Into};
 use thiserror::Error;
 
+use std::hash::Hash;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -21,7 +22,7 @@ pub type NEStrConst = NEStr<'static>;
 pub struct NEStr<'a>(&'a str);
 
 /// A string which can never be empty.
-#[derive(Clone, PartialEq, Eq, Default, Display, Into, Debug, AsRef)]
+#[derive(Clone, PartialEq, Eq, Hash, Default, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
@@ -39,11 +40,30 @@ impl<'a> NEStr<'a> {
     }
 }
 
+#[macro_export]
+macro_rules! ne_str {
+    ($s:expr) => {{
+        const _: () = assert!(!$s.is_empty(), "String cannot be empty");
+        // SAFETY: we just checked
+        unsafe { $crate::nonempty_string::NEStr::new_unchecked($s) }
+    }};
+}
+
 impl NEStrConst {
     #[must_use]
-    pub const fn new(s: &'static str) -> Self {
-        assert!(!s.is_empty(), "string must be non-empty");
+    #[allow(clippy::missing_safety_doc)]
+    pub const unsafe fn new_unchecked(s: &'static str) -> Self {
         Self(s)
+    }
+}
+
+impl NEString {
+    pub fn push(&mut self, c: char) {
+        self.0.push(c);
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        self.0.push_str(s);
     }
 }
 

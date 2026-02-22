@@ -1,8 +1,10 @@
 use crate::text::index::MeasIndex;
 
-use fireflow_types::config::DEDUP_PNN_SEP;
+use fireflow_types::ne_str;
+use fireflow_types::nonempty_string::NEString;
+use fireflow_types::{config::DEDUP_PNN_SEP, nonempty_string::NonEmptyStringError};
 
-use derive_more::{AsRef, Display, Into};
+use derive_more::{AsRef, Display, From, Into};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -22,17 +24,21 @@ use {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
-pub struct Shortname(String);
+pub struct Shortname(NEString);
 
 impl Shortname {
     pub(crate) fn new_unchecked<T: AsRef<str>>(s: T) -> Self {
         let ss: &str = s.as_ref();
         debug_assert!(!ss.contains(','), "shortname has at least one comma");
-        Self(ss.to_owned())
+        let ne = ss.parse().unwrap();
+        Self(ne)
     }
 
     pub(crate) fn increment(&self, i: usize) -> Self {
-        Self(format!("{}{DEDUP_PNN_SEP}{i}", self.0))
+        let mut n = self.clone();
+        n.0.push(DEDUP_PNN_SEP);
+        n.0.push_str(&i.to_string());
+        n
     }
 }
 
@@ -42,22 +48,22 @@ impl FromStr for Shortname {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains(',') {
             Err(ShortnameError::Commas(s.into()))
-        } else if s.is_empty() {
-            Err(ShortnameError::Empty)
         } else {
-            Ok(Self(s.into()))
+            Ok(Self(s.parse::<NEString>()?))
         }
     }
 }
 
 impl From<MeasIndex> for Shortname {
     fn from(value: MeasIndex) -> Self {
-        Self(format!("P{value}"))
+        let mut ret = ne_str!("P").to_owned();
+        ret.push_str(&value.to_string());
+        Self(ret)
     }
 }
 
 /// Error when parsing [`Shortname`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, From)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(
     feature = "python",
@@ -66,8 +72,8 @@ impl From<MeasIndex> for Shortname {
 pub enum ShortnameError {
     #[error("commas are not allowed in name '{0}'")]
     Commas(String),
-    #[error("name cannot be empty")]
-    Empty,
+    #[error("{0}")]
+    Empty(NonEmptyStringError),
 }
 
 #[cfg(test)]

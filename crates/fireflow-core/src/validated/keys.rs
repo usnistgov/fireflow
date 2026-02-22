@@ -771,6 +771,7 @@ impl ParsedKeywords {
             }
         };
 
+        // TODO return nonempty string here after checking that it isn't empty
         let check_trim = |trimmed: &str, flag| {
             if trimmed.is_empty() {
                 TrimResult::Empty(flag)
@@ -1208,6 +1209,7 @@ pub struct NonUtf8ValueError {
     value: TruncatedBytes,
 }
 
+// TODO use NEVec for this
 /// A [`Vec<u8>`] optimized for displaying in errors.
 #[derive(Clone, From, PartialEq, Debug)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
@@ -1254,6 +1256,7 @@ impl fmt::Display for TruncatedBytes {
     }
 }
 
+// TODO make this a nonempty string
 /// A normal [`String`] that will be shortened when displaying if too long.
 #[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]

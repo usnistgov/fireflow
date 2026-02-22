@@ -573,6 +573,8 @@ class TestCore:
         assert core.all_shortnames == new_names
         with pytest.raises(pf.ParseKeywordValueError):
             core.all_shortnames = ["I,can,haz,IP", "=,=,=,=Coffee"]
+        with pytest.raises(pf.ParseKeywordValueError):
+            core.all_shortnames = ["____", ""]
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1"], ["text2", "dataset2"])
     @pytest.mark.parametrize("attr", ["all_peak_bins", "all_peak_sizes"])

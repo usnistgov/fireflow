@@ -482,24 +482,39 @@ impl<K: Eq + Hash, A, S: Default + BuildHasher> Functor<A> for HashMap<K, A, S> 
     }
 }
 
-impl<A> ApplyOnce<A> for Option<A> {
-    fn lift_f2_once<F: FnOnce(A, B) -> C, B, C>(
-        self,
-        other: Sibling1<Self, B>,
-        f: F,
-    ) -> Sibling1<Self, C> {
-        self.zip(other).map(|(x, y)| f(x, y))
-    }
+#[macro_export]
+macro_rules! impl_apply_once {
+    ($t:ident, $self:ident, $other:ident, $f:ident, $body:expr) => {
+        impl<A> $crate::ApplyOnce<A> for $t<A> {
+            fn lift_f2_once<F: FnOnce(A, B) -> C, B, C>(
+                $self,
+                $other: Sibling1<Self, B>,
+                $f: F,
+            ) -> Sibling1<Self, C> {
+                $body
+            }
+        }
+    };
 }
 
-impl<A> Pointed<A> for Option<A> {
-    fn wrap(a: A) -> Self {
-        Some(a)
-    }
+impl_apply_once!(
+    Option,
+    self,
+    other,
+    f,
+    self.zip(other).map(|(x, y)| f(x, y))
+);
+
+#[macro_export]
+macro_rules! impl_pointed {
+    ($t:ident, $self:ident, $body:expr) => {
+        impl<X> $crate::Pointed<X> for $t<X> {
+            fn wrap($self: X) -> Self {
+                $body
+            }
+        }
+    };
 }
 
-impl<X> Pointed<X> for Vec<X> {
-    fn wrap(a: X) -> Self {
-        vec![a]
-    }
-}
+impl_pointed!(Option, a, Some(a));
+impl_pointed!(Vec, a, vec![a]);

@@ -1884,7 +1884,7 @@ pub enum ParseCompError {
 #[display("{page},{}", kws.iter().join(","))]
 pub struct Unicode {
     pub page: u32,
-    pub kws: Vec<String>,
+    pub kws: Vec<NEString>,
 }
 
 impl FromStrDelim for Unicode {
@@ -1893,7 +1893,10 @@ impl FromStrDelim for Unicode {
 
     fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
-            let kws: Vec<String> = iter.map(String::from).collect();
+            let kws = iter
+                .map(str::parse)
+                .collect::<Result<Vec<NEString>, _>>()
+                .map_err(|_| UnicodeError::EmptyKws)?;
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
             } else {
@@ -1914,6 +1917,8 @@ pub enum UnicodeError {
     Empty,
     #[error("Must be like 'n,string,[[string],...]'")]
     BadFormat,
+    #[error("At least one keyword is an empty string")]
+    EmptyKws,
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
@@ -4357,7 +4362,7 @@ mod python {
 
     impl<'py> IntoPyObject<'py> for Calibration3_1 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, String) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(PositiveFloat, NEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4379,7 +4384,7 @@ mod python {
 
     impl<'py> IntoPyObject<'py> for Calibration3_2 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(PositiveFloat, f32, NEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4390,14 +4395,14 @@ mod python {
     // $UNICODE (3.0) as a tuple like (f32, [String]) in python
     impl<'py> FromPyObject<'py> for Unicode {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (page, kws): (u32, Vec<String>) = ob.extract()?;
+            let (page, kws): (u32, Vec<NEString>) = ob.extract()?;
             Ok(Self { page, kws })
         }
     }
 
     impl<'py> IntoPyObject<'py> for Unicode {
         type Target = PyTuple;
-        type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(u32, Vec<NEString>) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {

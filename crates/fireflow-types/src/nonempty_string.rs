@@ -16,7 +16,7 @@ use {
     pyo3::prelude::*,
 };
 
-/// A borrowed string which can never be empty.
+/// A string slice which can never be empty.
 #[derive(AsRef, Display)]
 #[repr(transparent)]
 pub struct NEStr(str);
@@ -52,7 +52,7 @@ macro_rules! ne_str {
         // This move is ripped off from ByteStr::from_bytes, except that we use
         // a macro here to ensure that such str's can only be made at compile
         // time so that the non-empty property can be checked. After checking,
-        // double case to the wrapper type and return a reference to it.
+        // double cast to the wrapper type and return a reference to it.
         const _: () = assert!(!$s.is_empty(), "String cannot be empty");
         let p = std::ptr::from_ref($s);
         // SAFETY: `NEStr` is a transparent wrapper around `str`, so we can turn

@@ -1,7 +1,9 @@
 use derive_more::{AsRef, Display, Into};
 use thiserror::Error;
 
+use std::borrow::Borrow;
 use std::hash::Hash;
+use std::ptr::from_ref;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -14,12 +16,10 @@ use {
     pyo3::prelude::*,
 };
 
-/// A static string which can never be empty.
-pub type NEStrConst = NEStr<'static>;
-
-/// A string which can never be empty.
-#[derive(Clone, Copy, Display)]
-pub struct NEStr<'a>(&'a str);
+/// A borrowed string which can never be empty.
+#[derive(AsRef, Display)]
+#[repr(transparent)]
+pub struct NEStr(str);
 
 /// A string which can never be empty.
 #[derive(Clone, PartialEq, Eq, Hash, Default, Display, Into, Debug, AsRef)]
@@ -28,33 +28,40 @@ pub struct NEStr<'a>(&'a str);
 #[as_ref(str)]
 pub struct NEString(String);
 
-impl<'a> NEStr<'a> {
-    #[must_use]
-    pub const fn as_str(&self) -> &'a str {
-        self.0
+impl Borrow<NEStr> for NEString {
+    fn borrow(&self) -> &NEStr {
+        let p: *const str = from_ref(self.0.as_str());
+        // SAFETY: NEStr and str have same layout
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const NEStr)
+        }
     }
+}
 
-    #[must_use]
-    pub fn to_owned(&self) -> NEString {
-        NEString(self.0.to_owned())
+impl ToOwned for NEStr {
+    type Owned = NEString;
+    fn to_owned(&self) -> Self::Owned {
+        NEString(self.0.to_string())
     }
 }
 
 #[macro_export]
 macro_rules! ne_str {
     ($s:expr) => {{
+        // This move is ripped off from ByteStr::from_bytes, except that we use
+        // a macro here to ensure that such str's can only be made at compile
+        // time so that the non-empty property can be checked. After checking,
+        // double case to the wrapper type and return a reference to it.
         const _: () = assert!(!$s.is_empty(), "String cannot be empty");
-        // SAFETY: we just checked
-        unsafe { $crate::nonempty_string::NEStr::new_unchecked($s) }
+        let p = std::ptr::from_ref($s);
+        // SAFETY: `NEStr` is a transparent wrapper around `str`, so we can turn
+        // a reference to the wrapped type into a reference to the wrapper type.
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const $crate::nonempty_string::NEStr)
+        }
     }};
-}
-
-impl NEStrConst {
-    #[must_use]
-    #[allow(clippy::missing_safety_doc)]
-    pub const unsafe fn new_unchecked(s: &'static str) -> Self {
-        Self(s)
-    }
 }
 
 impl NEString {

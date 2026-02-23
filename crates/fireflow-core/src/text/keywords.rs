@@ -1489,7 +1489,7 @@ pub struct TemporalScaleError;
 #[display("{slope},{unit}")]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
-    pub unit: String,
+    pub unit: NEString,
 }
 
 impl FromStrDelim for Calibration3_1 {
@@ -1503,7 +1503,11 @@ impl FromStrDelim for Calibration3_1 {
         match (x0, x1, x2) {
             (Some(value), Some(unit), None) => {
                 let slope = value.parse().map_err(CalibrationError::Range)?;
-                Ok(Self::new(slope, String::from(unit)))
+                if let Ok(u) = unit.parse() {
+                    Ok(Self::new(slope, u))
+                } else {
+                    Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+                }
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
@@ -1514,13 +1518,19 @@ impl_from_str_with_delim!(Calibration3_1, CalibrationError<CalibrationFormat3_1>
 
 /// Error when parsing [`Calibration3_1`] from string
 #[derive(Debug, Error)]
-#[error("must be like 'f,string'")]
+#[error("must be like 'slope,unit'")]
 pub struct CalibrationFormat3_1;
+
+/// Error when calibration type has an empty unit string.
+#[derive(Debug, Error)]
+#[error("unit cannot be an empty string")]
+pub struct EmptyCalibrationUnitError;
 
 #[derive(Debug, Display, Error)]
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range(RangedFloatError),
+    EmptyUnit(EmptyCalibrationUnitError),
     Format(C),
 }
 
@@ -1540,7 +1550,7 @@ impl From<Calibration3_1> for Calibration3_2 {
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
-    pub unit: String,
+    pub unit: NEString,
 }
 
 impl FromStrDelim for Calibration3_2 {
@@ -1552,7 +1562,7 @@ impl FromStrDelim for Calibration3_2 {
         let x1 = iter.next();
         let x2 = iter.next();
         let x3 = iter.next();
-        let (slope, offset, unit) = match (x0, x1, x2, x3) {
+        let (slope_str, offset, unit_str) = match (x0, x1, x2, x3) {
             (Some(slope), Some(unit), None, None) => Ok((slope, 0.0, unit)),
             (Some(slope), Some(soffset), Some(unit), None) => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
@@ -1560,11 +1570,12 @@ impl FromStrDelim for Calibration3_2 {
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        Ok(Self::new(
-            slope.parse().map_err(CalibrationError::Range)?,
-            offset,
-            unit.into(),
-        ))
+        let slope = slope_str.parse().map_err(CalibrationError::Range)?;
+        if let Ok(u) = unit_str.parse() {
+            Ok(Self::new(slope, offset, u))
+        } else {
+            Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+        }
     }
 }
 
@@ -1572,7 +1583,7 @@ impl_from_str_with_delim!(Calibration3_2, CalibrationError<CalibrationFormat3_2>
 
 /// Error when parsing [`Calibration3_2`] from string
 #[derive(Debug, Error)]
-#[error("must be like 'f1,[f2],string'")]
+#[error("must be like 'slope,[offset],unit'")]
 pub struct CalibrationFormat3_2;
 
 impl Calibration3_2 {
@@ -4272,6 +4283,7 @@ mod python {
         SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
         TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
     };
+    use fireflow_types::nonempty_string::NEString;
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -4338,7 +4350,7 @@ mod python {
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, unit): (PositiveFloat, String) = ob.extract()?;
+            let (slope, unit): (PositiveFloat, NEString) = ob.extract()?;
             Ok(Self { slope, unit })
         }
     }
@@ -4356,7 +4368,7 @@ mod python {
     // $PnCALIBRATION (3.2) as (f32, f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_2 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, offset, unit): (PositiveFloat, f32, String) = ob.extract()?;
+            let (slope, offset, unit): (PositiveFloat, f32, NEString) = ob.extract()?;
             Ok(Self {
                 slope,
                 offset,

@@ -4,8 +4,8 @@ use crate::config::{
 };
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    AnyStdKey, IndexedKey, Key, MeasHeader, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKey, StdKeywords, TruncatedString,
+    AnyStdKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey, StdKey,
+    StdKeywords, TruncatedString,
 };
 
 use super::index::{IndexFromOne, MeasIndex};
@@ -337,7 +337,7 @@ pub(crate) trait Required: Sized {
 
 /// Any optional key
 pub(crate) trait Optional: Sized {
-    type Outer: Default + From<Self>;
+    type Outer: Default + From<Self> + Into<Option<Self>>;
 
     fn get_opt<I>(
         kws: &StdKeywords,
@@ -537,25 +537,6 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
     {
         Self::remove_req_with(kws, SpecificKey::new_i1(i.into()), data, conf)
     }
-
-    fn triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, String)
-    where
-        Self: fmt::Display,
-    {
-        (
-            Self::std_blank(),
-            Self::std(i).to_string(),
-            self.to_string(),
-        )
-    }
-
-    fn meas_pair(&self, i: impl Into<IndexFromOne>) -> (String, String)
-    where
-        Self: fmt::Display,
-    {
-        let (_, k, v) = self.triple(i);
-        (k, v)
-    }
 }
 
 /// An optional metaroot key
@@ -601,20 +582,6 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
-    }
-
-    fn root_pair_std(&self) -> (StdKey, String)
-    where
-        Self: fmt::Display,
-    {
-        (Self::std(), self.to_string())
-    }
-
-    fn root_pair(&self) -> (String, String)
-    where
-        Self: fmt::Display,
-    {
-        (Self::std().to_string(), self.to_string())
     }
 }
 
@@ -677,13 +644,6 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
-    }
-
-    fn meas_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, String)
-    where
-        Self: fmt::Display,
-    {
-        (Self::std(i), self.to_string())
     }
 }
 

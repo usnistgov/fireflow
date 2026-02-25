@@ -155,7 +155,7 @@ pub struct ParsedKeywordsDiagnostic {
 }
 
 /// Either a standard or non-standard key.
-#[derive(Clone, Display, PartialEq, Debug)]
+#[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyKey {
@@ -241,6 +241,10 @@ pub trait Key {
         StdKey::new(Self::C.into())
     }
 
+    fn self_std(&self) -> StdKey {
+        Self::std()
+    }
+
     #[must_use]
     fn len() -> u64 {
         u64::try_from(Self::C.len() + 1).unwrap()
@@ -282,8 +286,12 @@ pub trait IndexedKey {
         StdKey::new(s)
     }
 
+    fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
+        Self::std(i)
+    }
+
     #[must_use]
-    fn std_blank() -> MeasHeader {
+    fn std_blank() -> String {
         // reserve enough space for '$', prefix, suffix, and 'n'
         let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
         let mut s = String::new();
@@ -292,7 +300,12 @@ pub trait IndexedKey {
         s.push_str(Self::PREFIX);
         s.push('n');
         s.push_str(Self::SUFFIX);
-        MeasHeader(s)
+        s
+    }
+
+    #[must_use]
+    fn self_std_blank(&self) -> String {
+        Self::std_blank()
     }
 
     /// Build regexp matching `"<PREFIX>n<SUFFIX>"`

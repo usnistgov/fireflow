@@ -73,16 +73,16 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, LookupDatatypeError,
-    LookupDatatypeResult, NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, Scale, Tot,
-    Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, IndexedOptMeasKeyword,
+    IndexedReqMeasKeyword, LookupDatatypeError, LookupDatatypeResult, NumType, OptMeasKeyword, Par,
+    Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword, Scale, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
     ReqMetarootKey as _,
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
-use crate::text::optional::{Identity, KeywordPairMaybe as _, MightHave, Nothing};
+use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
     AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
 };
@@ -94,7 +94,7 @@ use crate::validated::dataframe::{
     AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
     LossError,
 };
-use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 
 use fireflow_types::config::TruncateEventValues;
 use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
@@ -623,13 +623,14 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    fn byteord_keyword(&self) -> (String, String);
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        [self.datatype().pair(), self.byteord_keyword()]
+    fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
+        let d = ReqRootKeyword::from(self.datatype());
+        [d, self.byteord_keyword()]
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]>;
+    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
@@ -708,9 +709,9 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>>;
+    // TODO why double vector? I don't think I ever need the inner vector...my
+    // poor cache :'(
+    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -2383,7 +2384,7 @@ impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
 where
     T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
-    <NoByteOrd<ORD> as HasByteOrd>::ByteOrd: fmt::Display,
+    for<'a> ReqRootKeyword<'a>: From<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>,
 {
     fn ncols(&self) -> usize {
         self.ranges.len()
@@ -2405,19 +2406,19 @@ where
         self.ranges.iter().map(|_| self.datatype()).collect()
     }
 
-    fn byteord_keyword(&self) -> (String, String) {
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
+        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).into()
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
+    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]> {
         self.ranges
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = Width::Variable.meas_pair(i);
-                let y = Range(r.0.into()).meas_pair(i);
-                [x, y]
+                let x = ReqMeasKeyword::from(Width::Variable);
+                let y = ReqMeasKeyword::from(Range(r.0.into()));
+                [x, y].map(|k| IndexedReqMeasKeyword::new(i.into(), k))
             })
             .collect()
     }
@@ -2611,11 +2612,7 @@ where
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
         self.ranges.iter().map(|_| vec![]).collect()
     }
 
@@ -2785,7 +2782,7 @@ where
     T: IsTot,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
-    S::ByteOrd: fmt::Display,
+    for<'c> ReqRootKeyword<'c>: From<S::ByteOrd>,
     for<'c> Range: From<&'c C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
@@ -2812,19 +2809,18 @@ where
         self.columns.iter().map(HasDatatype::datatype).collect()
     }
 
-    fn byteord_keyword(&self) -> (String, String) {
-        S::ByteOrd::from(self.byte_layout).pair()
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
+        S::ByteOrd::from(self.byte_layout).into()
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
+    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]> {
         self.columns
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                [
-                    Width::Fixed(c.fixed_width()).meas_pair(i),
-                    Range::from(c).meas_pair(i),
-                ]
+                let w = ReqMeasKeyword::from(Width::Fixed(c.fixed_width()));
+                let r = ReqMeasKeyword::from(Range::from(c));
+                [w, r].map(|k| IndexedReqMeasKeyword::new(i.into(), k))
             })
             .collect()
     }
@@ -2985,11 +2981,7 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
         self.columns.iter().map(|_| vec![]).collect()
     }
 
@@ -4103,16 +4095,14 @@ impl CheckedScaleTransform for ScaleTransform {
 }
 
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
         let dt = self.datatype();
+        let blank = |i: usize| {
+            let n = OptMeasKeyword::NumType(None);
+            vec![IndexedOptMeasKeyword::new(i.into(), n)]
+        };
         match self {
-            Self::NonMixed(x) => (0..x.ncols())
-                .map(|i| vec![(NumType::std(i).to_string(), None)])
-                .collect(),
+            Self::NonMixed(x) => (0..x.ncols()).map(blank).collect(),
             Self::Mixed(x) => x
                 .columns
                 .iter()
@@ -4121,7 +4111,7 @@ impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
                     let y: Option<NumType> = NumType::try_from(c.datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    vec![y.meas_opt_pair(i)]
+                    vec![IndexedOptMeasKeyword::new(i.into(), y.into())]
                 })
                 .collect(),
         }
@@ -5293,11 +5283,6 @@ impl fmt::Display for ScaleTransformMismatchError {
              column is '{dt}' where {ekey} is '{eval}' and {gkey} is {gval}"
         )
     }
-}
-
-#[cfg(feature = "serde")]
-pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
-    [Width::std_blank(), Range::std_blank()]
 }
 
 /// Inner helper type to add index data to an error message.

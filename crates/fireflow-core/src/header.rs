@@ -16,7 +16,7 @@ use crate::segment::{
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
-    KeywordVersionScore, Nextdata, Par,
+    KeywordVersionScore, Nextdata, OptKeyword, Par, ReqKeyword,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
@@ -455,9 +455,9 @@ pub(crate) struct HeaderKeywordsToWrite<T> {
 
 impl<T> HeaderKeywordsToWrite<T> {
     /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-    pub(crate) fn new_2_0(
-        req: Vec<(String, String)>,
-        opt: Vec<(String, String)>,
+    pub(crate) fn new_2_0<'a>(
+        req: impl IntoIterator<Item = ReqKeyword<'a>>,
+        opt: impl IntoIterator<Item = OptKeyword<'a>>,
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
@@ -469,9 +469,23 @@ impl<T> HeaderKeywordsToWrite<T> {
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
         let dso = DatasetOffset(0);
 
+        let req_pairs: Vec<_> = req
+            .into_iter()
+            .map(|x| x.as_pair())
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+
+        let opt_pairs: Vec<_> = opt
+            .into_iter()
+            .map(|x| x.as_pair())
+            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
+            .collect();
+
         // +1 at end accounts for first delimiter
-        let text_len: u64 =
-            flat_keywords_length(&req[..]) + flat_keywords_length(&opt[..]) + nextdata_len() + 1;
+        let text_len: u64 = flat_keywords_length(&req_pairs[..])
+            + flat_keywords_length(&opt_pairs[..])
+            + nextdata_len()
+            + 1;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
@@ -494,7 +508,12 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let header = WriteHeaderSegments::new(text_seg, data_seg, analysis_seg, other_segs);
 
-        let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
+        let primary = KeywordsWriter(
+            once(nextdata.pair())
+                .chain(req_pairs)
+                .chain(opt_pairs)
+                .collect(),
+        );
 
         Ok(Self::new(
             header,
@@ -508,9 +527,9 @@ impl<T> HeaderKeywordsToWrite<T> {
     ///
     /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
     /// STEXT, DATA, ANALYSIS.
-    pub(crate) fn new_3_0(
-        req: Vec<(String, String)>,
-        opt: Vec<(String, String)>,
+    pub(crate) fn new_3_0<'a>(
+        req: impl IntoIterator<Item = ReqKeyword<'a>>,
+        opt: impl IntoIterator<Item = OptKeyword<'a>>,
         data_len: u64,
         analysis_len: u64,
         other_lens: &[u64],
@@ -522,8 +541,21 @@ impl<T> HeaderKeywordsToWrite<T> {
         let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        let nooffset_req_text_len = flat_keywords_length(&req[..]);
-        let opt_text_len = flat_keywords_length(&opt[..]);
+        // TODO this is wrong (it doesn't take escaping into account) and slow
+        let req_pairs: Vec<_> = req
+            .into_iter()
+            .map(|x| x.as_pair())
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+
+        let opt_pairs: Vec<_> = opt
+            .into_iter()
+            .map(|x| x.as_pair())
+            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
+            .collect();
+
+        let nooffset_req_text_len = flat_keywords_length(&req_pairs[..]);
+        let opt_text_len = flat_keywords_length(&opt_pairs[..]);
         // +1 accounts for first delimiter
         let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
         let supp_text_len = opt_text_len + 1;
@@ -585,12 +617,12 @@ impl<T> HeaderKeywordsToWrite<T> {
             .chain(data_seg.keywords())
             .chain(analysis_seg.keywords())
             .chain([nextdata.pair()])
-            .chain(req);
+            .chain(req_pairs);
 
         let (primary, supplemental) = if supp_text_seg.is_empty() {
-            (all_req.chain(opt).collect(), vec![])
+            (all_req.chain(opt_pairs).collect(), vec![])
         } else {
-            (all_req.collect(), opt)
+            (all_req.collect(), opt_pairs)
         };
 
         let header =

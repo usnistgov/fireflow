@@ -1,7 +1,10 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::deprecated::DeprecatedTimestampsRef;
-use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
+use crate::text::keywords::OptRootKeyword;
+use crate::text::lookup::{
+    DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
+};
 use crate::text::optional::KeywordPairMaybe;
 use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
@@ -27,8 +30,6 @@ use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
 };
-
-use super::lookup::DiagnosedKeyword;
 
 /// The $DATE/$BTIM/$ETIM keywords
 ///
@@ -226,18 +227,19 @@ impl<X> Timestamps<X> {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
+    pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         Btim<X>: Key,
         Etim<X>: Key,
         Option<Btim<X>>: KeywordPairMaybe<Inner = Btim<X>>,
         Option<Etim<X>>: KeywordPairMaybe<Inner = Etim<X>>,
         X: Copy + fmt::Display,
+        OptRootKeyword<'a>: From<Option<Btim<X>>> + From<Option<Etim<X>>>,
     {
-        let a = self.btim.metaroot_opt_pair();
-        let b = self.etim.metaroot_opt_pair();
-        let c = self.date.metaroot_opt_pair();
-        [a, b, c].into_iter().filter_map(|(k, v)| v.map(|x| (k, x)))
+        let a = OptRootKeyword::from(self.btim);
+        let b = OptRootKeyword::from(self.etim);
+        let c = OptRootKeyword::from(self.date);
+        [a, b, c].into_iter()
     }
 }
 

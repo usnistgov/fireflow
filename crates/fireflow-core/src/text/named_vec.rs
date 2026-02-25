@@ -372,6 +372,15 @@ impl<K, U, V> NamedVec<K, U, V> {
     // }
 
     /// Return all existing names in the vector with their indices
+    pub(crate) fn indexed_opt_names(&self) -> impl Iterator<Item = Option<&Shortname>>
+    where
+        K: MightHave<Shortname>,
+    {
+        self.iter()
+            .map(|r| r.both(|x| Some(&x.key), |x| x.key.as_opt()))
+    }
+
+    /// Return all existing names in the vector with their indices
     pub(crate) fn indexed_names(&self) -> impl Iterator<Item = (MeasIndex, &Shortname)> + '_
     where
         K: MightHave<Shortname>,

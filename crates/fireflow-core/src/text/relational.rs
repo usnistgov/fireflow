@@ -342,11 +342,9 @@ impl<T> DependentIndexedKeyError<T> {
 impl RemovedLink {
     pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
         macro_rules! go_gate {
-            ($x:expr) => {{
-                for (k, v) in $x.region.opt_keywords_std($x.region_index) {
-                    kws.insert_demoted(k, v);
-                }
-            }};
+            ($x:expr) => {
+                $x.region.demote_keywords($x.region_index, kws)
+            };
         }
         match self {
             Self::GatingRegion3_0(x) => go_gate!(x),

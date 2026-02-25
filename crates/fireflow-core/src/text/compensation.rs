@@ -6,7 +6,7 @@ use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, Key2, SpecificKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
@@ -44,6 +44,13 @@ pub struct Compensation {
     matrix: DMatrix<f32>,
 }
 
+/// The value of one $DFCmTOn keyword.
+pub struct DfcKeyword {
+    pub(crate) row: MeasIndex,
+    pub(crate) col: MeasIndex,
+    pub(crate) value: f32,
+}
+
 impl Compensation2_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
@@ -78,23 +85,22 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
-    pub fn non_zero_indices(&self) -> impl Iterator<Item = (MeasIndex, MeasIndex, f32)> {
+    pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
         let m = &self.0.matrix;
-        m.iter().enumerate().filter_map(|(i, &x)| {
+        m.iter().enumerate().filter_map(|(i, &value)| {
             let n = m.ncols();
-            if x == 0.0 {
+            if value == 0.0 {
                 None
             } else {
                 let row = i / n;
                 let col = i % n;
-                Some((col.into(), row.into(), x))
+                Some(DfcKeyword {
+                    col: col.into(),
+                    row: row.into(),
+                    value,
+                })
             }
         })
-    }
-
-    pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.non_zero_indices()
-            .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
     }
 
     pub(crate) fn invalid_link_errors(
@@ -103,14 +109,14 @@ impl Compensation2_0 {
     ) -> impl Iterator<Item = BiIndexedKeyToIndexLinkError<Dfc>> {
         // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
         // since the entire matrix must be removed.
-        self.non_zero_indices().filter_map(|(col, row, _)| {
+        self.non_zero_indices().filter_map(|kw| {
             // TODO throw error if temporal measurement is anything other than ID
             let n = self.0.matrix.nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
             let cutoff = if bad_matrix { 0 } else { par.0 };
-            let k = Key2::new_i2(col.into(), row.into());
-            let r = (usize::from(row) >= cutoff).then_some(row);
-            let c = (usize::from(col) >= cutoff).then_some(col);
+            let k = Key2::new_i2(kw.col.into(), kw.row.into());
+            let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
+            let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
             [r, c]
                 .into_iter()
                 .flatten()
@@ -134,14 +140,14 @@ impl Compensation2_0 {
         // Scan through matrix and pull out all cells in rows/columns greater
         // or equal to cutoff and whose value is not zero. These are the keywords
         // to return.
-        let es = c.non_zero_indices().filter_map(|(col, row, value)| {
-            let which = match (usize::from(row) >= cutoff, usize::from(col) >= cutoff) {
+        let es = c.non_zero_indices().filter_map(|kw| {
+            let which = match (usize::from(kw.row) >= cutoff, usize::from(kw.col) >= cutoff) {
                 (true, true) => Some(Comp2_0Missing::Both),
                 (true, false) => Some(Comp2_0Missing::Row),
                 (false, true) => Some(Comp2_0Missing::Col),
                 (false, false) => None,
             };
-            which.map(|b| RemovedComp2_0Cell::new(row, col, value, b))
+            which.map(|b| RemovedComp2_0Cell::new(kw.row, kw.col, kw.value, b))
         });
         let ret = es
             .try_into_nonempty_iter()
@@ -159,15 +165,15 @@ impl Compensation2_0 {
     pub(crate) fn existing_links(
         &self,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
-        self.non_zero_indices().map(|(col, row, _)| {
-            let xs = [col.into(), row.into()].into_nonempty_vec();
-            ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
+        self.non_zero_indices().map(|kw| {
+            let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
+            ExistingIndexedLinkError::new(Key2::new_i2(kw.col.into(), kw.row.into()), xs)
         })
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
         self.non_zero_indices()
-            .map(|(col, row, _)| BiIndexedKeyLossError(Key2::new_i2(col.into(), row.into())))
+            .map(|kw| BiIndexedKeyLossError(Key2::new_i2(kw.col.into(), kw.row.into())))
     }
 }
 

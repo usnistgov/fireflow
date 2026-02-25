@@ -371,6 +371,7 @@ impl ReqMeasKeyword<'_> {
         go!(Shortname, Scale, TemporalScale3_0, Width, Range)
     }
 
+    #[cfg(feature = "serde")]
     pub(crate) fn meas_header(&self) -> String {
         macro_rules! go {
             ($($t:ident),*) => {
@@ -451,6 +452,7 @@ impl OptMeasKeyword<'_> {
         )
     }
 
+    #[cfg(feature = "serde")]
     pub(crate) fn meas_header(&self) -> String {
         macro_rules! go {
             ($($t:ident),*) => {

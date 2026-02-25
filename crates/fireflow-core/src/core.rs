@@ -2127,9 +2127,7 @@ impl<O> Optical<O> {
             .iter()
             .map(|(k, v)| NonStdKeyword::new(k, v))
             .map(StdOrNonStdOptMeasKeyword::from);
-        self.opt_keywords()
-            .zip(repeat(i))
-            .map(|(v, j)| IndexedKeyword::new(j, v))
+        self.opt_indexed_keywords(i)
             .map(StdOrNonStdOptMeasKeyword::from)
             .chain(cs)
     }
@@ -4022,12 +4020,6 @@ where
             .chain(lv)
     }
 
-    // fn shortname_keywords(&self) -> impl Iterator<Item = (String, String)> {
-    //     self.measurements
-    //         .indexed_names()
-    //         .map(|(i, n)| (Shortname::std(i).to_string(), n.to_string()))
-    // }
-
     #[cfg(feature = "serde")]
     fn meas_table<'a>(&'a self, delim: &str) -> Vec<String>
     where
@@ -4106,8 +4098,8 @@ where
             // Order is: Index, Shortname, Required Keyword, Optional Keywords
             cols.push(MeasKeyword::from(j));
             cols.push(shortname(*n, j));
-            cols.extend(m.req_indexed_keywords(j).map(MeasKeyword::from));
             cols.extend(req_l.map(MeasKeyword::from));
+            cols.extend(m.req_indexed_keywords(j).map(MeasKeyword::from));
             cols.extend(m.opt_indexed_keywords(j).map(MeasKeyword::from));
             cols.extend(opt_l.fmap(MeasKeyword::from));
             rows.push(cols);

@@ -709,9 +709,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    // TODO why double vector? I don't think I ever need the inner vector...my
-    // poor cache :'(
-    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>>;
+    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -2612,8 +2610,8 @@ where
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
-        self.ranges.iter().map(|_| vec![]).collect()
+    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
+        self.ranges.iter().map(|_| None).collect()
     }
 
     fn insert_nocheck(
@@ -2981,8 +2979,8 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
-        self.columns.iter().map(|_| vec![]).collect()
+    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
+        self.columns.iter().map(|_| None).collect()
     }
 
     fn insert_nocheck(
@@ -4095,11 +4093,11 @@ impl CheckedScaleTransform for ScaleTransform {
 }
 
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
-    fn opt_meas_keywords(&self) -> Vec<Vec<IndexedOptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
         let dt = self.datatype();
         let blank = |i: usize| {
             let n = OptMeasKeyword::NumType(None);
-            vec![IndexedOptMeasKeyword::new(i.into(), n)]
+            Some(IndexedOptMeasKeyword::new(i.into(), n))
         };
         match self {
             Self::NonMixed(x) => (0..x.ncols()).map(blank).collect(),
@@ -4111,7 +4109,7 @@ impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
                     let y: Option<NumType> = NumType::try_from(c.datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    vec![IndexedOptMeasKeyword::new(i.into(), y.into())]
+                    Some(IndexedOptMeasKeyword::new(i.into(), y.into()))
                 })
                 .collect(),
         }

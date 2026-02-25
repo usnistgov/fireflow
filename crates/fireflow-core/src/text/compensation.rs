@@ -6,7 +6,7 @@ use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKey, StdKeywords};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
@@ -49,6 +49,12 @@ pub struct DfcKeyword {
     pub(crate) row: MeasIndex,
     pub(crate) col: MeasIndex,
     pub(crate) value: f32,
+}
+
+impl DfcKeyword {
+    pub(crate) fn std(&self) -> StdKey {
+        Dfc::std(self.col, self.row)
+    }
 }
 
 impl Compensation2_0 {

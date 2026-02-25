@@ -1769,9 +1769,9 @@ pub trait DeprecatedMetaroot: Sized {}
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
 
-    fn req_suffixes_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
+    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
 
-    fn opt_suffixes_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>;
+    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>;
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError>;
 
@@ -1788,9 +1788,9 @@ pub trait VersionedTemporal: Sized {
     type Warning;
     type Error;
 
-    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>>;
+    fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>>;
 
-    fn req_meas_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
+    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>>;
 
     fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>;
 
@@ -1957,21 +1957,20 @@ impl<T> Temporal<T> {
             .map_deferred_value(|specific| Temporal::new(self.common, specific))
     }
 
-    fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedReqMeasKeyword<'_>>
+    fn opt_root_keywords(&self) -> Option<OptRootKeyword<'_>>
+    where
+        T: VersionedTemporal,
+    {
+        self.specific.opt_root_keywords_inner()
+    }
+
+    fn req_meas_keywords(&self, i: MeasIndex) -> Option<IndexedReqMeasKeyword<'_>>
     where
         T: VersionedTemporal,
     {
         self.specific
             .req_meas_keywords_inner()
-            .zip(repeat(i))
-            .map(|(k, j)| IndexedReqMeasKeyword::new(j, k))
-    }
-
-    fn req_meta_keywords(&self) -> impl Iterator<Item = ReqRootKeyword<'_>>
-    where
-        T: VersionedTemporal,
-    {
-        self.specific.req_meta_keywords_inner()
+            .map(|k| IndexedReqMeasKeyword::new(i, k))
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>
@@ -2073,12 +2072,11 @@ impl<O> Optical<O> {
             })
     }
 
-    // TODO why?
     fn req_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>
     where
         O: VersionedOptical,
     {
-        self.specific.req_suffixes_inner()
+        self.specific.req_keywords_inner()
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>
@@ -2093,16 +2091,7 @@ impl<O> Optical<O> {
         let x5 = OptMeasKeyword::from(self.detector_voltage);
         [x0, x1, x2, x3, x4, x5]
             .into_iter()
-            .chain(self.specific.opt_suffixes_inner())
-    }
-
-    fn opt_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedOptMeasKeyword<'_>>
-    where
-        O: VersionedOptical,
-    {
-        self.opt_keywords()
-            .zip(repeat(i))
-            .map(|(k, j)| IndexedOptMeasKeyword::new(j, k))
+            .chain(self.specific.opt_keywords_inner())
     }
 
     fn req_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedReqMeasKeyword<'_>>
@@ -2112,6 +2101,15 @@ impl<O> Optical<O> {
         self.req_keywords()
             .zip(repeat(i))
             .map(|(k, j)| IndexedReqMeasKeyword::new(j, k))
+    }
+
+    fn opt_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedOptMeasKeyword<'_>>
+    where
+        O: VersionedOptical,
+    {
+        self.opt_keywords()
+            .zip(repeat(i))
+            .map(|(k, j)| IndexedOptMeasKeyword::new(j, k))
     }
 
     fn opt_and_nonstd_keywords(
@@ -2549,24 +2547,10 @@ where
                 (IncludeReqOrOpt::Opt_, IncludeRootOrMeas::Meas) => (false, false, false, true),
             };
 
-        // TODO clean up
-        let req_root = self
-            .req_root_keywords()
-            .map(|x| x.as_pair())
-            .map(|(k, v)| (k.to_string(), v));
-        let opt_root = self
-            .metaroot
-            .opt_and_nonstd_keywords()
-            .map(|x| x.as_pair())
-            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)));
-        let req_meas = self
-            .req_meas_keywords()
-            .map(|x| x.as_pair())
-            .map(|(k, v)| (k.to_string(), v));
-        let opt_meas = self
-            .opt_meas_keywords()
-            .map(|x| x.as_pair())
-            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)));
+        let req_root = self.req_root_keywords().map(|x| x.as_str_pair());
+        let opt_root = self.opt_root_keywords().filter_map(|k| k.as_str_pair());
+        let req_meas = self.req_meas_keywords().map(|x| x.as_str_pair());
+        let opt_meas = self.opt_meas_keywords().filter_map(|k| k.as_str_pair());
         go(req_root, include_req_root)
             .chain(go(opt_root, include_opt_root))
             .chain(go(req_meas, include_req_meas))
@@ -3931,8 +3915,7 @@ where
             .map(ReqKeyword::from)
             .chain(self.req_meas_keywords().map(ReqKeyword::from));
         let opt = self
-            .metaroot
-            .opt_and_nonstd_keywords()
+            .opt_root_keywords()
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
         let other_lens = &conf.other_lens()[..];
@@ -4000,8 +3983,12 @@ where
         let lv = self.layout.req_meas_keywords().into_iter().flatten();
         self.measurements
             .iter_with(
-                &|i, x| Temporal::req_meas_keywords(&x.value, i).collect::<Vec<_>>(),
-                &|i, x| Optical::req_indexed_keywords(&x.value, i).collect(),
+                &|i, x| {
+                    Temporal::req_meas_keywords(&x.value, i)
+                        .into_iter()
+                        .collect()
+                },
+                &|i, x| Optical::req_indexed_keywords(&x.value, i).collect::<Vec<_>>(),
             )
             .flatten()
             .chain(ns)
@@ -4009,15 +3996,17 @@ where
     }
 
     fn req_root_keywords(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        // TODO wut?
-        let time_meta = self
+        let lv = self.layout.req_keywords();
+        Metaroot::req_keywords(&self.metaroot, self.par()).chain(lv)
+    }
+
+    fn opt_root_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
+        let timestep = self
             .measurements
             .as_center()
-            .map(|tc| Temporal::req_meta_keywords(tc.value));
-        let lv = self.layout.req_keywords();
-        Metaroot::req_keywords(&self.metaroot, self.par())
-            .chain(time_meta.into_iter().flatten())
-            .chain(lv)
+            .and_then(|tc| Temporal::opt_root_keywords(tc.value))
+            .map(StdOrNonStdOptRootKeyword::from);
+        self.metaroot.opt_and_nonstd_keywords().chain(timestep)
     }
 
     #[cfg(feature = "serde")]
@@ -7729,11 +7718,11 @@ impl LookupTemporal for InnerTemporal3_2 {
 
 impl VersionedOptical for InnerOptical2_0 {
     type Ver = Version2_0;
-    fn req_suffixes_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         empty()
     }
 
-    fn opt_suffixes_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
         let x0 = OptMeasKeyword::from(self.scale);
         let x1 = OptMeasKeyword::from(self.wavelength);
         [x0, x1].into_iter().chain(self.peak.opt_keywords())
@@ -7761,11 +7750,11 @@ impl VersionedOptical for InnerOptical2_0 {
 
 impl VersionedOptical for InnerOptical3_0 {
     type Ver = Version3_0;
-    fn req_suffixes_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         self.scale.req_suffixes()
     }
 
-    fn opt_suffixes_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
         once(OptMeasKeyword::from(self.wavelength))
             .chain(self.peak.opt_keywords())
             .chain(self.scale.opt_suffixes())
@@ -7790,11 +7779,11 @@ impl VersionedOptical for InnerOptical3_0 {
 
 impl VersionedOptical for InnerOptical3_1 {
     type Ver = Version3_1;
-    fn req_suffixes_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         self.scale.req_suffixes()
     }
 
-    fn opt_suffixes_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
         let x0 = OptMeasKeyword::from(&self.wavelengths);
         let x1 = OptMeasKeyword::from(&self.calibration);
         let x2 = OptMeasKeyword::from(self.display);
@@ -7825,11 +7814,11 @@ impl VersionedOptical for InnerOptical3_1 {
 
 impl VersionedOptical for InnerOptical3_2 {
     type Ver = Version3_2;
-    fn req_suffixes_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         self.scale.req_suffixes()
     }
 
-    fn opt_suffixes_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
         let x0 = OptMeasKeyword::from(&self.wavelengths);
         let x1 = OptMeasKeyword::from(&self.calibration);
         let x2 = OptMeasKeyword::from(self.display);
@@ -7874,12 +7863,12 @@ impl VersionedTemporal for InnerTemporal2_0 {
     type Warning = Nothing<()>;
     type Error = Infallible;
 
-    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        empty()
+    fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
+        None
     }
 
-    fn req_meas_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        empty()
+    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
+        None
     }
 
     fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
@@ -7905,12 +7894,12 @@ impl VersionedTemporal for InnerTemporal3_0 {
     type Warning = Nothing<()>;
     type Error = Infallible;
 
-    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(self.timestep))
+    fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
+        Some(OptRootKeyword::from(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        once(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
     }
 
     fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
@@ -7935,12 +7924,12 @@ impl VersionedTemporal for InnerTemporal3_1 {
     type Warning = Nothing<()>;
     type Error = Infallible;
 
-    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(self.timestep))
+    fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
+        Some(OptRootKeyword::from(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        once(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
     }
 
     fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
@@ -7966,13 +7955,12 @@ impl VersionedTemporal for InnerTemporal3_2 {
     type Warning = Option<AnyTemporalToOpticalKeyLossError>;
     type Error = AnyTemporalToOpticalKeyLossError;
 
-    // TODO timestep actually is 'optional'
-    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(self.timestep))
+    fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
+        Some(OptRootKeyword::from(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        once(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
     }
 
     fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {

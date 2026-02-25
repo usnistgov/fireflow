@@ -125,7 +125,6 @@ pub enum ReqRootKeyword<'a> {
     ByteOrd3_1(ByteOrd3_1),
     Par(Par),
     Tot(Tot),
-    Timestep(Timestep),
     Datatype(AlphaNumType),
     Mode(Mode),
     Cyt(&'a Cyt3_2),
@@ -189,75 +188,7 @@ pub enum OptRootKeyword<'a> {
     CSVFlag(IndexFromOne, Option<CSVFlag>),
     CSVBits(CSVBits),
     CSTot(CSTot),
-}
-
-impl OptRootKeyword<'_> {
-    fn as_pair(&self) -> (StdKey, Option<String>) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    Self::GateRegion(x) => {
-                        let (k, v) = x.as_pair();
-                        (k, Some(v))
-                    },
-                    Self::GateMeas(x) => x.as_pair(),
-                    Self::Dfc(x) => (Dfc::std(x.row, x.col), Some(x.value.to_string())),
-                    Self::CSVFlag(i, x) => x.meas_opt_pair_std(*i),
-                    $(
-                        Self::$t(x) => x.metaroot_opt_pair_std(),
-                    )*
-                }
-            };
-        }
-        go!(
-            Btim2_0,
-            Btim3_0,
-            Btim3_1,
-            Etim2_0,
-            Etim3_0,
-            Etim3_1,
-            Date,
-            Begindatetime,
-            Enddatetime,
-            Gate,
-            Gating,
-            Cyt,
-            Cytsn,
-            Comp,
-            Unicode,
-            Abrt,
-            Com,
-            Cells,
-            Exp,
-            Fil,
-            Inst,
-            Lost,
-            Op,
-            Proj,
-            Smno,
-            Src,
-            Sys,
-            Tr,
-            Vol,
-            Flowrate,
-            LastModifier,
-            LastModified,
-            Originality,
-            UnstainedInfo,
-            UnstainedCenters,
-            Mode3_2,
-            Spillover,
-            Carrierid,
-            Carriertype,
-            Locationid,
-            Plateid,
-            Platename,
-            Wellid,
-            CSMode,
-            CSVBits,
-            CSTot
-        )
-    }
+    Timestep(Timestep),
 }
 
 #[derive(new)]
@@ -346,6 +277,11 @@ impl StdOrNonStdOptRootKeyword<'_> {
             (AnyKey::from(k), v)
         })
     }
+
+    pub(crate) fn as_str_pair(&self) -> Option<(String, String)> {
+        let (k, v) = self.as_pair();
+        v.map(|y| (k.to_string(), y))
+    }
 }
 
 impl StdOrNonStdOptMeasKeyword<'_> {
@@ -354,6 +290,11 @@ impl StdOrNonStdOptMeasKeyword<'_> {
             let (k, v) = x.as_pair();
             (AnyKey::from(k), v)
         })
+    }
+
+    pub(crate) fn as_str_pair(&self) -> Option<(String, String)> {
+        let (k, v) = self.as_pair();
+        v.map(|y| (k.to_string(), y))
     }
 }
 
@@ -364,6 +305,11 @@ impl NonStdKeyword<'_> {
 }
 
 impl ReqRootKeyword<'_> {
+    pub(crate) fn as_str_pair(&self) -> (String, String) {
+        let (k, v) = self.as_pair();
+        (k.to_string(), v)
+    }
+
     pub(crate) fn as_pair(&self) -> (StdKey, String) {
         macro_rules! go {
             ($($t:ident),*) => {
@@ -374,15 +320,18 @@ impl ReqRootKeyword<'_> {
                 }
             };
         }
-        go!(
-            ByteOrd2_0, ByteOrd3_1, Par, Tot, Timestep, Datatype, Mode, Cyt
-        )
+        go!(ByteOrd2_0, ByteOrd3_1, Par, Tot, Datatype, Mode, Cyt)
     }
 }
 
 impl IndexedReqMeasKeyword<'_> {
     pub(crate) fn as_pair(&self) -> (StdKey, String) {
         self.keyword.as_pair(self.index)
+    }
+
+    pub(crate) fn as_str_pair(&self) -> (String, String) {
+        let (k, v) = self.as_pair();
+        (k.to_string(), v)
     }
 }
 
@@ -507,6 +456,76 @@ impl OptMeasKeyword<'_> {
             Calibration3_2,
             PeakBin,
             PeakIndex
+        )
+    }
+}
+
+impl OptRootKeyword<'_> {
+    fn as_pair(&self) -> (StdKey, Option<String>) {
+        macro_rules! go {
+            ($($t:ident),*) => {
+                match self {
+                    Self::GateRegion(x) => {
+                        let (k, v) = x.as_pair();
+                        (k, Some(v))
+                    },
+                    Self::GateMeas(x) => x.as_pair(),
+                    Self::Dfc(x) => (x.std(), Some(x.value.to_string())),
+                    Self::CSVFlag(i, x) => x.meas_opt_pair_std(*i),
+                    Self::Timestep(x) => (Timestep::std(), Some(x.to_string())),
+                    $(
+                        Self::$t(x) => x.metaroot_opt_pair_std(),
+                    )*
+                }
+            };
+        }
+        go!(
+            Btim2_0,
+            Btim3_0,
+            Btim3_1,
+            Etim2_0,
+            Etim3_0,
+            Etim3_1,
+            Date,
+            Begindatetime,
+            Enddatetime,
+            Gate,
+            Gating,
+            Cyt,
+            Cytsn,
+            Comp,
+            Unicode,
+            Abrt,
+            Com,
+            Cells,
+            Exp,
+            Fil,
+            Inst,
+            Lost,
+            Op,
+            Proj,
+            Smno,
+            Src,
+            Sys,
+            Tr,
+            Vol,
+            Flowrate,
+            LastModifier,
+            LastModified,
+            Originality,
+            UnstainedInfo,
+            UnstainedCenters,
+            Mode3_2,
+            Spillover,
+            Carrierid,
+            Carriertype,
+            Locationid,
+            Plateid,
+            Platename,
+            Wellid,
+            CSMode,
+            CSVBits,
+            CSTot
         )
     }
 }

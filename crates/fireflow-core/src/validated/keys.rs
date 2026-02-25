@@ -527,25 +527,26 @@ pub(crate) trait NonStdKeywordsExt {
         }
     }
 
-    fn insert_demoted_meas<T: IndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
+    fn insert_demoted_meas<T>(&mut self, i: IndexFromOne, value: &T)
+    where
+        T: IndexedKey + fmt::Display,
+    {
         self.insert_demoted(T::std(i), value.to_string());
     }
 
-    fn insert_demoted_meas_opt<T: IndexedKey + fmt::Display>(
-        &mut self,
-        i: IndexFromOne,
-        value: Option<&T>,
-    ) {
+    fn insert_demoted_meas_opt<T>(&mut self, i: IndexFromOne, value: Option<&T>)
+    where
+        T: IndexedKey + fmt::Display,
+    {
         if let Some(v) = value {
             self.insert_demoted_meas(i, v);
         }
     }
 
-    fn insert_demoted_meas_maybe<T: IndexedKey + DisplayMaybe>(
-        &mut self,
-        i: IndexFromOne,
-        value: &T,
-    ) {
+    fn insert_demoted_meas_maybe<T>(&mut self, i: IndexFromOne, value: &T)
+    where
+        T: IndexedKey + DisplayMaybe,
+    {
         if let Some(v) = value.display_maybe() {
             self.insert_demoted(T::std(i), v);
         }
@@ -564,7 +565,8 @@ impl NonStdKeywordsExt for HashMap<NonStdKey, String> {
         while self.contains_key(&k) {
             k.0.disambiguate();
         }
-        let _ = self.insert(k, value);
+        let ret = self.insert(k, value);
+        debug_assert!(ret.is_none(), "key not disambiguated");
     }
 }
 

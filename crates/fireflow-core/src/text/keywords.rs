@@ -131,59 +131,6 @@ pub enum ReqRootKeyword<'a> {
     Cyt(&'a Cyt3_2),
 }
 
-impl ReqKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (StdKey, String) {
-        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
-    }
-}
-
-impl OptKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
-    }
-}
-
-impl StdOrNonStdOptRootKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Std, NonStd], x, {
-            let (k, v) = x.as_pair();
-            (AnyKey::from(k), v)
-        })
-    }
-}
-
-impl StdOrNonStdOptMeasKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Std, NonStd], x, {
-            let (k, v) = x.as_pair();
-            (AnyKey::from(k), v)
-        })
-    }
-}
-
-impl NonStdKeyword<'_> {
-    fn as_pair(&self) -> (NonStdKey, Option<String>) {
-        (self.key.to_owned(), Some(self.value.to_owned()))
-    }
-}
-
-impl ReqRootKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (StdKey, String) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => (x.self_std(), x.to_string()),
-                    )*
-                }
-            };
-        }
-        go!(
-            ByteOrd2_0, ByteOrd3_1, Par, Tot, Timestep, Datatype, Mode, Cyt
-        )
-    }
-}
-
 #[derive(new)]
 pub(crate) struct NonStdKeyword<'a> {
     key: &'a NonStdKey,
@@ -319,6 +266,120 @@ pub struct IndexedKeyword<I, K> {
     pub(crate) keyword: K,
 }
 
+pub type IndexedReqMeasKeyword<'a> = IndexedKeyword<MeasIndex, ReqMeasKeyword<'a>>;
+pub type IndexedOptMeasKeyword<'a> = IndexedKeyword<MeasIndex, OptMeasKeyword<'a>>;
+pub type IndexedGateMeasKeyword<'a> = IndexedKeyword<GateIndex, GateMeasKeyword<'a>>;
+pub type IndexedRegionKeyword = IndexedKeyword<RegionIndex, RegionKeyword>;
+
+#[derive(From)]
+pub enum ReqMeasKeyword<'a> {
+    Shortname(&'a Shortname),
+    Scale(Scale),
+    TemporalScale3_0(TemporalScale3_0),
+    Width(Width),
+    Range(Range),
+}
+
+#[derive(From)]
+pub enum OptMeasKeyword<'a> {
+    Shortname(Option<&'a Shortname>),
+    NumType(Option<NumType>),
+    Scale(Option<Scale>),
+    TemporalScale2_0(TemporalScale2_0),
+    Longname(&'a Longname),
+    Filter(&'a Filter),
+    Power(Option<Power>),
+    DetectorType(&'a DetectorType),
+    PercentEmitted(Option<PercentEmitted>),
+    DetectorVoltage(Option<DetectorVoltage>),
+    Gain(Option<Gain>),
+    Wavelength(Option<Wavelength>),
+    Wavelengths(&'a Wavelengths),
+    Display(Option<Display>),
+    DetectorName(&'a DetectorName),
+    Tag(&'a Tag),
+    Feature(&'a Option<Feature>),
+    Analyte(&'a Analyte),
+    OpticalType(&'a OpticalType),
+    Calibration3_1(&'a Option<Calibration3_1>),
+    Calibration3_2(&'a Option<Calibration3_2>),
+    PeakBin(Option<PeakBin>),
+    PeakIndex(Option<PeakIndex>),
+}
+
+#[derive(From)]
+pub enum GateMeasKeyword<'a> {
+    Scale(Option<GateScale>),
+    Filter(&'a GateFilter),
+    Shortname(&'a Option<GateShortname>),
+    PercentEmitted(Option<GatePercentEmitted>),
+    Range(&'a Option<GateRange>),
+    Longname(&'a GateLongname),
+    DetectorType(&'a GateDetectorType),
+    DetectorVoltage(Option<GateDetectorVoltage>),
+}
+
+#[derive(From)]
+pub enum RegionKeyword {
+    GateIndex2_0(RegionGateIndex<GateIndex>),
+    GateIndex3_0(RegionGateIndex<MeasOrGateIndex>),
+    GateIndex3_2(RegionGateIndex<PrefixedMeasIndex>),
+    Window(RegionWindow),
+}
+
+impl ReqKeyword<'_> {
+    pub(crate) fn as_pair(&self) -> (StdKey, String) {
+        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
+    }
+}
+
+impl OptKeyword<'_> {
+    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
+        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
+    }
+}
+
+impl StdOrNonStdOptRootKeyword<'_> {
+    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
+        match_many_to_one!(self, Self, [Std, NonStd], x, {
+            let (k, v) = x.as_pair();
+            (AnyKey::from(k), v)
+        })
+    }
+}
+
+impl StdOrNonStdOptMeasKeyword<'_> {
+    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
+        match_many_to_one!(self, Self, [Std, NonStd], x, {
+            let (k, v) = x.as_pair();
+            (AnyKey::from(k), v)
+        })
+    }
+}
+
+impl NonStdKeyword<'_> {
+    fn as_pair(&self) -> (NonStdKey, Option<String>) {
+        (self.key.to_owned(), Some(self.value.to_owned()))
+    }
+}
+
+impl ReqRootKeyword<'_> {
+    pub(crate) fn as_pair(&self) -> (StdKey, String) {
+        macro_rules! go {
+            ($($t:ident),*) => {
+                match self {
+                    $(
+                        Self::$t(x) => (x.self_std(), x.to_string()),
+                    )*
+                }
+            };
+        }
+        go!(
+            ByteOrd2_0, ByteOrd3_1, Par, Tot, Timestep, Datatype, Mode, Cyt
+        )
+    }
+}
+
 impl IndexedReqMeasKeyword<'_> {
     pub(crate) fn as_pair(&self) -> (StdKey, String) {
         self.keyword.as_pair(self.index)
@@ -341,20 +402,6 @@ impl IndexedRegionKeyword {
     fn as_pair(&self) -> (StdKey, String) {
         self.keyword.as_pair(self.index)
     }
-}
-
-pub type IndexedReqMeasKeyword<'a> = IndexedKeyword<MeasIndex, ReqMeasKeyword<'a>>;
-pub type IndexedOptMeasKeyword<'a> = IndexedKeyword<MeasIndex, OptMeasKeyword<'a>>;
-pub type IndexedGateMeasKeyword<'a> = IndexedKeyword<GateIndex, GateMeasKeyword<'a>>;
-pub type IndexedRegionKeyword = IndexedKeyword<RegionIndex, RegionKeyword>;
-
-#[derive(From)]
-pub enum ReqMeasKeyword<'a> {
-    Shortname(&'a Shortname),
-    Scale(Scale),
-    TemporalScale3_0(TemporalScale3_0),
-    Width(Width),
-    Range(Range),
 }
 
 impl ReqMeasKeyword<'_> {
@@ -385,33 +432,6 @@ impl ReqMeasKeyword<'_> {
         // TODO shortname is never actually used
         go!(Shortname, Scale, TemporalScale3_0, Width, Range)
     }
-}
-
-#[derive(From)]
-pub enum OptMeasKeyword<'a> {
-    Shortname(Option<&'a Shortname>),
-    NumType(Option<NumType>),
-    Scale(Option<Scale>),
-    TemporalScale2_0(TemporalScale2_0),
-    Longname(&'a Longname),
-    Filter(&'a Filter),
-    Power(Option<Power>),
-    DetectorType(&'a DetectorType),
-    PercentEmitted(Option<PercentEmitted>),
-    DetectorVoltage(Option<DetectorVoltage>),
-    Gain(Option<Gain>),
-    Wavelength(Option<Wavelength>),
-    Wavelengths(&'a Wavelengths),
-    Display(Option<Display>),
-    DetectorName(&'a DetectorName),
-    Tag(&'a Tag),
-    Feature(&'a Option<Feature>),
-    Analyte(&'a Analyte),
-    OpticalType(&'a OpticalType),
-    Calibration3_1(&'a Option<Calibration3_1>),
-    Calibration3_2(&'a Option<Calibration3_2>),
-    PeakBin(Option<PeakBin>),
-    PeakIndex(Option<PeakIndex>),
 }
 
 impl OptMeasKeyword<'_> {
@@ -491,18 +511,6 @@ impl OptMeasKeyword<'_> {
     }
 }
 
-#[derive(From)]
-pub enum GateMeasKeyword<'a> {
-    Scale(Option<GateScale>),
-    Filter(&'a GateFilter),
-    Shortname(&'a Option<GateShortname>),
-    PercentEmitted(Option<GatePercentEmitted>),
-    Range(&'a Option<GateRange>),
-    Longname(&'a GateLongname),
-    DetectorType(&'a GateDetectorType),
-    DetectorVoltage(Option<GateDetectorVoltage>),
-}
-
 impl GateMeasKeyword<'_> {
     fn as_pair(&self, i: GateIndex) -> (StdKey, Option<String>) {
         macro_rules! go {
@@ -525,14 +533,6 @@ impl GateMeasKeyword<'_> {
             DetectorVoltage
         )
     }
-}
-
-#[derive(From)]
-pub enum RegionKeyword {
-    GateIndex2_0(RegionGateIndex<GateIndex>),
-    GateIndex3_0(RegionGateIndex<MeasOrGateIndex>),
-    GateIndex3_2(RegionGateIndex<PrefixedMeasIndex>),
-    Window(RegionWindow),
 }
 
 impl RegionKeyword {

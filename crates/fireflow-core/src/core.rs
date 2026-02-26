@@ -18,7 +18,7 @@ use crate::data::{
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
-    Version3_0, Version3_1, Version3_2,
+    Version3_0, Version3_1, Version3_2, WriteTEXTHeaderError,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -1349,13 +1349,13 @@ pub struct DatasetSegments {
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
-struct WriteHeaderAndTextConfig<'a> {
-    delim: TEXTDelim,
-    tot: Tot,
-    data_len: u64,
-    analysis_len: u64,
-    other_segs: &'a [Other],
-    has_nextdata: AppendableFlag,
+pub(crate) struct WriteHeaderAndTextConfig<'a> {
+    pub(crate) delim: TEXTDelim,
+    pub(crate) tot: Tot,
+    pub(crate) data_len: u64,
+    pub(crate) analysis_len: u64,
+    pub(crate) other_segs: &'a [Other],
+    pub(crate) has_nextdata: AppendableFlag,
 }
 
 /// Diagnostic output from standardizing TEXT
@@ -1461,7 +1461,7 @@ impl WriteHeaderAndTextConfig<'_> {
         }
     }
 
-    fn other_lens(&self) -> Vec<u64> {
+    pub(crate) fn other_lens(&self) -> Vec<u64> {
         self.other_segs
             .iter()
             .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
@@ -2440,7 +2440,7 @@ where
         path: &PathBuf,
         cores: &[Self],
         conf: &WriteTEXTInnerConfig,
-    ) -> Result<Option<Nextdata>, ImpureError<Uint8DigitOverflowError>>
+    ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
     {
@@ -2461,7 +2461,7 @@ where
         &self,
         path: &PathBuf,
         conf: &WriteMultiTEXTConfig,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
+    ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
     {
@@ -2477,7 +2477,7 @@ where
         h: &mut BufWriter<W>,
         conf: &WriteTEXTInnerConfig,
         has_nextdata: AppendableFlag,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
+    ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
     {
@@ -2493,7 +2493,7 @@ where
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
         has_nextdata: AppendableFlag,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
+    ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
@@ -2506,7 +2506,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteHeaderAndTextConfig<'_>,
-    ) -> Result<Nextdata, ImpureError<Uint8DigitOverflowError>>
+    ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
@@ -3904,7 +3904,7 @@ where
     fn header_and_flat_keywords<T>(
         &self,
         conf: &WriteHeaderAndTextConfig<'_>,
-    ) -> Result<HeaderKeywordsToWrite<T>, Uint8DigitOverflowError>
+    ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
         Version: From<M::Ver>,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
@@ -3918,25 +3918,10 @@ where
             .opt_root_keywords()
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
-        let other_lens = &conf.other_lens()[..];
         if M::Ver::fcs_version() == Version::FCS2_0 {
-            HeaderKeywordsToWrite::new_2_0(
-                req,
-                opt,
-                conf.data_len,
-                conf.analysis_len,
-                other_lens,
-                conf.has_nextdata,
-            )
+            HeaderKeywordsToWrite::new_2_0(req, opt, conf)
         } else {
-            HeaderKeywordsToWrite::new_3_0(
-                req,
-                opt,
-                conf.data_len,
-                conf.analysis_len,
-                other_lens,
-                conf.has_nextdata,
-            )
+            HeaderKeywordsToWrite::new_3_0(req, opt, conf)
         }
     }
 
@@ -9355,7 +9340,7 @@ pub struct NameConversionError(Key1<Shortname>);
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
     Check(IndexedLossError),
-    Overflow(Uint8DigitOverflowError),
+    HeaderText(WriteTEXTHeaderError),
 }
 
 /// Error when setting measurements vector

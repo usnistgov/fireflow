@@ -43,6 +43,9 @@ use crate::validated::keys::{
 };
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
+use crate::validated::textdelim::{
+    DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
+};
 
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
@@ -53,6 +56,7 @@ use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 use fireflow_types::nonempty_string::NEString;
 use fireflow_types::{impl_str_enum, ne_str};
 
+use ambassador::Delegate;
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
@@ -94,32 +98,36 @@ use {
     pyo3::prelude::*,
 };
 
-#[derive(From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
 pub(crate) enum ReqKeyword<'a> {
     Root(ReqRootKeyword<'a>),
     Meas(IndexedReqMeasKeyword<'a>),
 }
 
-#[derive(From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
 pub(crate) enum OptKeyword<'a> {
     Root(StdOrNonStdOptRootKeyword<'a>),
     Meas(StdOrNonStdOptMeasKeyword<'a>),
 }
 
-#[derive(From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
 pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     Std(OptRootKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
 }
 
-#[derive(From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
 pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
     Std(IndexedOptMeasKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
 }
 
 // TODO this shouldn't need to be pub
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum ReqRootKeyword<'a> {
     ByteOrd2_0(ByteOrd2_0),
     ByteOrd3_1(ByteOrd3_1),
@@ -130,13 +138,13 @@ pub enum ReqRootKeyword<'a> {
     Cyt(&'a Cyt3_2),
 }
 
-#[derive(new)]
+#[derive(Clone, new)]
 pub(crate) struct NonStdKeyword<'a> {
     key: &'a NonStdKey,
     value: &'a String,
 }
 
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum OptRootKeyword<'a> {
     Btim2_0(Option<Btim2_0>),
     Btim3_0(Option<Btim3_0>),
@@ -191,7 +199,7 @@ pub enum OptRootKeyword<'a> {
     Timestep(Timestep),
 }
 
-#[derive(new)]
+#[derive(Clone, new)]
 pub struct IndexedKeyword<I, K> {
     pub(crate) index: I,
     pub(crate) keyword: K,
@@ -202,7 +210,7 @@ pub type IndexedOptMeasKeyword<'a> = IndexedKeyword<MeasIndex, OptMeasKeyword<'a
 pub type IndexedGateMeasKeyword<'a> = IndexedKeyword<GateIndex, GateMeasKeyword<'a>>;
 pub type IndexedRegionKeyword = IndexedKeyword<RegionIndex, RegionKeyword>;
 
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum ReqMeasKeyword<'a> {
     Shortname(&'a Shortname),
     Scale(Scale),
@@ -211,7 +219,7 @@ pub enum ReqMeasKeyword<'a> {
     Range(Range),
 }
 
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum OptMeasKeyword<'a> {
     Shortname(Option<&'a Shortname>),
     NumType(Option<NumType>),
@@ -238,7 +246,7 @@ pub enum OptMeasKeyword<'a> {
     PeakIndex(Option<PeakIndex>),
 }
 
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum GateMeasKeyword<'a> {
     Scale(Option<GateScale>),
     Filter(&'a GateFilter),
@@ -250,11 +258,12 @@ pub enum GateMeasKeyword<'a> {
     DetectorVoltage(Option<GateDetectorVoltage>),
 }
 
-#[derive(From)]
+#[derive(Clone, From)]
 pub enum RegionKeyword {
     GateIndex2_0(RegionGateIndex<GateIndex>),
     GateIndex3_0(RegionGateIndex<MeasOrGateIndex>),
     GateIndex3_2(RegionGateIndex<PrefixedMeasIndex>),
+    // TODO borrow this? has several vecs that need to be cloned
     Window(RegionWindow),
 }
 
@@ -566,6 +575,111 @@ impl RegionKeyword {
             };
         }
         go!(GateIndex2_0, GateIndex3_0, GateIndex3_2, Window)
+    }
+}
+
+impl<I, K: HasDelim> HasDelim for IndexedKeyword<I, K> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.keyword.has_delim(d)
+    }
+}
+
+impl HasDelim for ReqRootKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Cyt(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for ReqMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Shortname(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for NonStdKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.key.has_delim(d).or(self.value.has_delim(d))
+    }
+}
+
+impl HasDelim for OptRootKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map(|y| y.has_delim(d)).unwrap_or_default()
+            };
+        }
+        match self {
+            Self::GateMeas(x) => x.has_delim(d),
+            Self::Cyt(x) => x.has_delim(d),
+            Self::Cytsn(x) => x.has_delim(d),
+            Self::Unicode(x) => go!(x.as_ref()),
+            Self::Com(x) => x.has_delim(d),
+            Self::Cells(x) => x.has_delim(d),
+            Self::Exp(x) => x.has_delim(d),
+            Self::Fil(x) => x.has_delim(d),
+            Self::Inst(x) => x.has_delim(d),
+            Self::Op(x) => x.has_delim(d),
+            Self::Proj(x) => x.has_delim(d),
+            Self::Smno(x) => x.has_delim(d),
+            Self::Src(x) => x.has_delim(d),
+            Self::Sys(x) => x.has_delim(d),
+            Self::Tr(x) => go!(x.as_ref()),
+            Self::Flowrate(x) => x.has_delim(d),
+            Self::LastModifier(x) => x.has_delim(d),
+            Self::UnstainedInfo(x) => x.has_delim(d),
+            Self::Spillover(x) => go!(x.as_ref()),
+            Self::Carrierid(x) => x.has_delim(d),
+            Self::Carriertype(x) => x.has_delim(d),
+            Self::Locationid(x) => x.has_delim(d),
+            Self::Plateid(x) => x.has_delim(d),
+            Self::Platename(x) => x.has_delim(d),
+            Self::Wellid(x) => x.has_delim(d),
+            _ => None,
+        }
+    }
+}
+
+impl HasDelim for OptMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        macro_rules! go {
+            ($x:expr) => {
+                $x.map(|y| y.has_delim(d)).unwrap_or_default()
+            };
+        }
+        match self {
+            Self::Longname(x) => x.has_delim(d),
+            Self::Filter(x) => x.has_delim(d),
+            Self::DetectorName(x) => x.has_delim(d),
+            Self::DetectorType(x) => x.has_delim(d),
+            Self::Tag(x) => x.has_delim(d),
+            Self::Analyte(x) => x.has_delim(d),
+            Self::Shortname(x) => go!(x),
+            Self::Feature(x) => go!(x.as_ref()),
+            Self::Calibration3_1(x) => go!(x.as_ref()),
+            Self::Calibration3_2(x) => go!(x.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+impl HasDelim for GateMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Filter(x) => x.has_delim(d),
+            Self::Shortname(x) => x.as_ref().map(|y| y.0.has_delim(d)).unwrap_or_default(),
+            Self::Longname(x) => x.has_delim(d),
+            Self::DetectorType(x) => x.has_delim(d),
+            _ => None,
+        }
     }
 }
 
@@ -952,6 +1066,12 @@ pub struct Trigger {
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+impl HasDelim for Trigger {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.measurement.has_delim(d)
+    }
 }
 
 impl Trigger {
@@ -1512,6 +1632,12 @@ pub struct Calibration3_1 {
     pub unit: NEString,
 }
 
+impl HasDelim for Calibration3_1 {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.unit.has_delim(d)
+    }
+}
+
 impl FromStrDelim for Calibration3_1 {
     type Err = CalibrationError<CalibrationFormat3_1>;
     const DELIM: char = ',';
@@ -1571,6 +1697,12 @@ pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
     pub unit: NEString,
+}
+
+impl HasDelim for Calibration3_2 {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.unit.has_delim(d)
+    }
 }
 
 impl FromStrDelim for Calibration3_2 {
@@ -1905,6 +2037,12 @@ pub struct Unicode {
     pub kws: Vec<NEString>,
 }
 
+impl HasDelim for Unicode {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.kws.iter().find_map(|x| x.has_delim(d))
+    }
+}
+
 impl FromStrDelim for Unicode {
     type Err = UnicodeError;
     const DELIM: char = ',';
@@ -1993,6 +2131,16 @@ pub enum Feature {
     Optical(OpticalFeature),
     #[display("{_0}")]
     Other(NEString),
+}
+
+impl HasDelim for Feature {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Other(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(feature = "python")]
@@ -2231,7 +2379,7 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-#[derive(Display, Debug, PartialEq)]
+#[derive(Clone, Display, Debug, PartialEq)]
 pub enum RegionWindow {
     #[display("{_0}")]
     Univariate(UniGate),
@@ -2809,9 +2957,10 @@ impl FromStrWith for GateScale {
 ///
 /// This is not a normal string because it is required in 3.2 and thus cannot
 /// be empty.
-#[derive(Clone, Display, FromStr, PartialEq, Into, Debug)]
+#[derive(Clone, Display, FromStr, PartialEq, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[as_ref(str)]
 pub struct Cyt3_2(pub NEString);
 
 impl From<Cyt3_2> for Cyt {

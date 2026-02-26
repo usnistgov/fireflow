@@ -1,10 +1,10 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig,
-    ReadState, SelectVersionStrategy, VersionOverride,
+    ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
+    SelectVersionStrategy, VersionOverride,
 };
-use crate::core::Other;
+use crate::core::{Other, WriteHeaderAndTextConfig};
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_io,
@@ -22,7 +22,7 @@ use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, SegmentValidationError};
 use crate::validated::keys::{Key as _, StdKeywords};
-use crate::validated::textdelim::TEXTDelim;
+use crate::validated::textdelim::{DelimCollisionError, HasDelim as _, TEXTDelim};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -445,6 +445,14 @@ pub enum GuessVersionError {
     NoPar,
 }
 
+/// Error when writing HEADER or TEXT.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum WriteTEXTHeaderError {
+    Overflow(Uint8DigitOverflowError),
+    DelimError(DelimCollisionError),
+}
+
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: WriteHeaderSegments<T>,
@@ -458,25 +466,35 @@ impl<T> HeaderKeywordsToWrite<T> {
     pub(crate) fn new_2_0<'a>(
         req: impl IntoIterator<Item = ReqKeyword<'a>>,
         opt: impl IntoIterator<Item = OptKeyword<'a>>,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflowError>
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Self, WriteTEXTHeaderError>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
+        let delim = conf.delim;
+        let data_len = conf.data_len;
+        let anal_len = conf.analysis_len;
+        let other_lens = &conf.other_lens()[..];
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
         let dso = DatasetOffset(0);
 
-        let req_pairs: Vec<_> = req
-            .into_iter()
+        let (mut req0, req1) = req.into_iter().tee();
+        let (mut opt0, opt1) = opt.into_iter().tee();
+
+        if let Some(e) = req0.find_map(|x| x.has_delim(delim)) {
+            return Err(e.into());
+        }
+
+        if let Some(e) = opt0.find_map(|x| x.has_delim(delim)) {
+            return Err(e.into());
+        }
+
+        let req_pairs: Vec<_> = req1
             .map(|x| x.as_pair())
             .map(|(k, v)| (k.to_string(), v))
             .collect();
 
-        let opt_pairs: Vec<_> = opt
-            .into_iter()
+        let opt_pairs: Vec<_> = opt1
             .map(|x| x.as_pair())
             .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
             .collect();
@@ -493,20 +511,17 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
 
-        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg =
-            HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len, dso)?;
+        let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
+        let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len, dso)?;
 
-        let nextdata = Nextdata(if has_nextdata.is_set() {
-            let n = analysis_seg
-                .try_next_byte()
-                .map_or(analysis_begin, u64::from);
+        let nextdata = Nextdata(if conf.has_nextdata.is_set() {
+            let n = anal_seg.try_next_byte().map_or(anal_begin, u64::from);
             UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
         });
 
-        let header = WriteHeaderSegments::new(text_seg, data_seg, analysis_seg, other_segs);
+        let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
 
         let primary = KeywordsWriter(
             once(nextdata.pair())
@@ -530,25 +545,37 @@ impl<T> HeaderKeywordsToWrite<T> {
     pub(crate) fn new_3_0<'a>(
         req: impl IntoIterator<Item = ReqKeyword<'a>>,
         opt: impl IntoIterator<Item = OptKeyword<'a>>,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflowError>
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Self, WriteTEXTHeaderError>
     where
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
+        let delim = conf.delim;
+        let data_len = conf.data_len;
+        let anal_len = conf.analysis_len;
+        let other_lens = &conf.other_lens()[..];
         let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
+        let (mut req0, req1) = req.into_iter().tee();
+        let (mut opt0, opt1) = opt.into_iter().tee();
+
+        if let Some(e) = req0.find_map(|x| x.has_delim(delim)) {
+            return Err(e.into());
+        }
+
+        if let Some(e) = opt0.find_map(|x| x.has_delim(delim)) {
+            return Err(e.into());
+        }
+
         // TODO this is wrong (it doesn't take escaping into account) and slow
-        let req_pairs: Vec<_> = req
+        let req_pairs: Vec<_> = req1
             .into_iter()
             .map(|x| x.as_pair())
             .map(|(k, v)| (k.to_string(), v))
             .collect();
 
-        let opt_pairs: Vec<_> = opt
+        let opt_pairs: Vec<_> = opt1
             .into_iter()
             .map(|x| x.as_pair())
             .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
@@ -595,12 +622,12 @@ impl<T> HeaderKeywordsToWrite<T> {
         let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len, dso);
 
         let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len, dso);
+        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, anal_len, dso);
 
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if has_nextdata.is_set() {
+        let nextdata = Nextdata(if conf.has_nextdata.is_set() {
             let n = analysis_seg
                 .try_next_byte()
                 .map_or(analysis_begin, u64::from);

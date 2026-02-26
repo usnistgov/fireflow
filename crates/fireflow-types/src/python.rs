@@ -162,6 +162,13 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
+    WriteFCSError,
+    PyreflowError,
+    "Raised when an FCS file cannot be written."
+);
+
+create_exception!(
+    _pyreflow,
     PyreflowWarning,
     PyWarning,
     "Generic warning created by ``pyreflow``."

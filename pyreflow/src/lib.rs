@@ -24,6 +24,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     exc!("EventDataError", EventDataError);
     exc!("DataLossError", DataLossError);
     exc!("ConfigError", ConfigError);
+    exc!("WriteFCSError", WriteFCSError);
     exc!("PyreflowWarning", PyreflowWarning);
 
     m.add_class::<ff::PyCoreTEXT2_0>()?;

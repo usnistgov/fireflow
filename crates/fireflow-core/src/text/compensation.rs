@@ -45,6 +45,7 @@ pub struct Compensation {
 }
 
 /// The value of one $DFCmTOn keyword.
+#[derive(Clone)]
 pub struct DfcKeyword {
     pub(crate) row: MeasIndex,
     pub(crate) col: MeasIndex,

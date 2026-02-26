@@ -2,6 +2,7 @@ use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhites
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::Key0;
 use crate::validated::shortname::Shortname;
+use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 
 use super::index::MeasIndex;
 use super::lookup::{DiagnosedKeyword, FromStrWith, FromStrWithResult, Trimmed};
@@ -192,6 +193,12 @@ impl<'a> GenericSpillover<&'a str> {
         } else {
             Self::try_from_iter(it).map(|x| (x, false))
         }
+    }
+}
+
+impl HasDelim for Spillover {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.measurements.iter().find_map(|m| m.has_delim(d))
     }
 }
 

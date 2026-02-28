@@ -12,7 +12,10 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::keywords::{
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Keyword0FromValue as _,
+    OffsetKeyword, SplitKeyword0,
+};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
@@ -1593,19 +1596,12 @@ impl OtherSegment20 {
 }
 
 impl<I> TEXTSegment<I> {
-    pub(crate) fn keywords(&self) -> [(String, String); 2]
+    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
     where
-        I: KeyedReqSegment,
-        I::B: Into<UintZeroPad20>
-            + From<UintZeroPad20>
-            + ReqMetarootKey
-            + FromStr<Err = ParseIntError>
-            + fmt::Display,
-        I::E: Into<UintZeroPad20>
-            + From<UintZeroPad20>
-            + ReqMetarootKey
-            + FromStr<Err = ParseIntError>
-            + fmt::Display,
+        I: KeyedSegment,
+        I::B: From<UintZeroPad20>,
+        I::E: From<UintZeroPad20>,
+        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
     {
         let i = self.inner;
         let (b, e) = match i {
@@ -1613,8 +1609,8 @@ impl<I> TEXTSegment<I> {
             InnerSegment::NonEmpty(x) => (x.begin, x.end),
         };
         [
-            ReqMetarootKey::pair(&I::B::from(b)),
-            ReqMetarootKey::pair(&I::E::from(e)),
+            OffsetKeyword::from_value(I::B::from(b)),
+            OffsetKeyword::from_value(I::E::from(e)),
         ]
     }
 }

@@ -36,8 +36,8 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AnyKey, AnyStdKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKey,
-    NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
+    AnyKey, AnyStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key,
+    Key0, Key1, Key2, NonStdKey, NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
@@ -74,7 +74,7 @@ use thiserror::Error;
 use unicase::Ascii;
 
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::mem::take;
 use std::num::{NonZeroU8, NonZeroU32, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
@@ -96,9 +96,84 @@ use {
     pyo3::prelude::*,
 };
 
+#[derive(new)]
+pub(crate) struct Escaped<T> {
+    delim: char,
+    inner: T,
+}
+
+impl<T: DisplayEscaped> fmt::Display for Escaped<&T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt_escaped(self.delim, f)
+    }
+}
+
+#[delegatable_trait]
+trait DisplayEscaped {
+    fn fmt_escaped(&self, delim: char, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+
+impl<K: fmt::Display, V: fmt::Display> DisplayEscaped for SplitKeyword<K, V> {
+    fn fmt_escaped(&self, delim: char, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        struct InnerFmt<'a, 'b> {
+            delim: char,
+            inner: &'a mut fmt::Formatter<'b>,
+        }
+
+        impl fmt::Write for InnerFmt<'_, '_> {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
+                let d = self.delim;
+                for c in s.chars() {
+                    if c == d {
+                        // if delimiter found, write it twice
+                        write!(self.inner, "{c}{c}")?;
+                    } else {
+                        // otherwise write non-delim once
+                        self.inner.write_char(c)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let k = &self.key;
+        let v = &self.value;
+
+        let mut xf0 = InnerFmt { delim, inner: f };
+        write!(xf0, "{k}")?;
+        write!(f, "{delim}")?;
+
+        let mut xf1 = InnerFmt { delim, inner: f };
+        write!(xf1, "{v}")?;
+        write!(f, "{delim}")?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum OffsetKeyword {
+    Nextdata(SplitKeyword0<Nextdata>),
+    Begindata(SplitKeyword0<Begindata>),
+    Enddata(SplitKeyword0<Enddata>),
+    Beginanalysis(SplitKeyword0<Beginanalysis>),
+    Endanalysis(SplitKeyword0<Endanalysis>),
+    Beginstext(SplitKeyword0<Beginstext>),
+    Endstext(SplitKeyword0<Endstext>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum AnyKeyword<'a> {
+    Req(ReqKeyword<'a>),
+    Opt(OptKeyword<'a>),
+}
+
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub(crate) enum ReqKeyword<'a> {
     Root(ReqRootKeyword<'a>),
     Meas(ReqMeasKeyword<'a>),
@@ -107,6 +182,7 @@ pub(crate) enum ReqKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub(crate) enum OptKeyword<'a> {
     Root(StdOrNonStdOptRootKeyword<'a>),
     Meas(StdOrNonStdOptMeasKeyword<'a>),
@@ -115,6 +191,7 @@ pub(crate) enum OptKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     Std(OptRootKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
@@ -123,6 +200,7 @@ pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
     Std(OptMeasKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
@@ -131,6 +209,7 @@ pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
 // TODO this shouldn't need to be pub
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum ReqRootKeyword<'a> {
     ByteOrd2_0(SplitKeyword0<ByteOrd2_0>),
     ByteOrd3_1(SplitKeyword0<ByteOrd3_1>),
@@ -141,19 +220,16 @@ pub enum ReqRootKeyword<'a> {
     Cyt(RefKeyword0<'a, Cyt3_2>),
 }
 
-#[derive(Clone, new)]
-pub(crate) struct NonStdKeyword<'a> {
-    key: &'a NonStdKey,
-    value: &'a String,
-}
+pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a String>;
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword),
-    Dfc(SplitKeyword<Key2<Dfc>, f32>),
-    UnstainedCenters(SplitKeyword<Key0<UnstainedCenters>, NEUnstainedCenters<'a>>),
+    Dfc(SplitKeyword<DKey2<Dfc>, f32>),
+    UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters<'a>>),
     Timestep(SplitKeyword0<Timestep>),
     CSMode(SplitKeyword0<CSMode>),
     CSVFlag(SplitKeyword1<CSVFlag>),
@@ -205,6 +281,7 @@ pub enum OptRootKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum ReqMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
     Scale(SplitKeyword1<Scale>),
@@ -215,6 +292,7 @@ pub enum ReqMeasKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum OptMeasKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     Filter(NEStringKeyword1<'a, Filter>),
@@ -224,7 +302,7 @@ pub enum OptMeasKeyword<'a> {
     Analyte(NEStringKeyword1<'a, Analyte>),
     OpticalType(NEStringKeyword1<'a, OpticalType>),
     TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
-    Wavelengths(SplitKeyword<Key1<Wavelengths>, NEWavelengths<'a>>),
+    Wavelengths(SplitKeyword<DKey1<Wavelengths>, NEWavelengths<'a>>),
     Shortname(RefKeyword1<'a, Shortname>),
     NumType(SplitKeyword1<NumType>),
     Scale(SplitKeyword1<Scale>),
@@ -243,6 +321,7 @@ pub enum OptMeasKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum GateMeasKeyword<'a> {
     Scale(SplitKeyword1<GateScale>),
     Shortname(RefKeyword1<'a, GateShortname>),
@@ -256,6 +335,7 @@ pub enum GateMeasKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
 pub enum RegionKeyword {
     GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
     GateIndex3_0(SplitKeyword1<RegionGateIndex<MeasOrGateIndex>>),
@@ -272,44 +352,44 @@ pub struct SplitKeyword<K, V> {
     value: V,
 }
 
-pub type SplitKeyword0<T> = SplitKeyword<Key0<T>, T>;
-pub type SplitKeyword1<T> = SplitKeyword<Key1<T>, T>;
-pub type SplitKeyword2<T> = SplitKeyword<Key2<T>, T>;
+pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
+pub type SplitKeyword1<T> = SplitKeyword<DKey1<T>, T>;
+pub type SplitKeyword2<T> = SplitKeyword<DKey2<T>, T>;
 
-pub type RefKeyword0<'a, T> = SplitKeyword<Key0<T>, &'a T>;
-pub type RefKeyword1<'a, T> = SplitKeyword<Key1<T>, &'a T>;
+pub type RefKeyword0<'a, T> = SplitKeyword<DKey0<T>, &'a T>;
+pub type RefKeyword1<'a, T> = SplitKeyword<DKey1<T>, &'a T>;
 
-pub type OptZSTKeyword1<K, T> = SplitKeyword<Key1<K>, T>;
+pub type OptZSTKeyword1<K, T> = SplitKeyword<DKey1<K>, T>;
 
-pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, Key0<T>>;
-pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, Key1<T>>;
+pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, DKey0<T>>;
+pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, DKey1<T>>;
 
-pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<Key0<T>>;
+pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
 
 pub type NEStringKeyword<'a, K> = SplitKeyword<K, &'a NEStr>;
 pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
 
 impl<T> SplitKeyword0<T> {
     pub(crate) fn from_value0(value: T) -> Self {
-        Self::new(Key0::<T>::default(), value)
+        Self::new(DKey0::<T>::default(), value)
     }
 }
 
 impl<T> SplitKeyword1<T> {
     pub(crate) fn from_value1(value: T, i: impl Into<IndexFromOne>) -> Self {
-        Self::new(Key1::<T>::new_i1(i.into()), value)
+        Self::new(DKey1::<T>::new_i1(i.into()), value)
     }
 }
 
 impl<'a, T> RefKeyword0<'a, T> {
     pub(crate) fn from_ref0(value: &'a T) -> Self {
-        Self::new(Key0::<T>::default(), value)
+        Self::new(DKey0::<T>::default(), value)
     }
 }
 
 impl<'a, T> RefKeyword1<'a, T> {
     pub(crate) fn from_ref1(value: &'a T, i: impl Into<IndexFromOne>) -> Self {
-        Self::new(Key1::<T>::new_i1(i.into()), value)
+        Self::new(DKey1::<T>::new_i1(i.into()), value)
     }
 }
 
@@ -319,7 +399,7 @@ impl<'a, T> NEStringKeyword0<'a, T> {
         T: AsRef<str>,
     {
         let value = NEStr::try_new(kw.as_ref())?;
-        Some(Self::new(Key0::<T>::default(), value))
+        Some(Self::new(DKey0::<T>::default(), value))
     }
 }
 
@@ -329,7 +409,7 @@ impl<'a, T> NEStringKeyword1<'a, T> {
         T: AsRef<str>,
     {
         let value = NEStr::try_new(kw.as_ref())?;
-        Some(Self::new(Key1::<T>::new_i1(i.into()), value))
+        Some(Self::new(DKey1::<T>::new_i1(i.into()), value))
     }
 }
 
@@ -339,7 +419,7 @@ impl<T> NonZeroU32Keyword0<T> {
         T: AsRef<u32>,
     {
         let value = NonZeroU32::new(*kw.as_ref())?;
-        Some(Self::new(Key0::<T>::default(), value))
+        Some(Self::new(DKey0::<T>::default(), value))
     }
 }
 
@@ -353,13 +433,13 @@ impl<'a> OptRootKeyword<'a> {
     }
 
     pub(crate) fn from_unstainedcenters(x: &'a UnstainedCenters) -> Option<Self> {
-        Some(Self::from(SplitKeyword::new(Key0::default(), x.try_ne()?)))
+        Some(Self::from(SplitKeyword::new(DKey0::default(), x.try_ne()?)))
     }
 }
 
 impl<'a> OptMeasKeyword<'a> {
     pub(crate) fn from_wavelengths(x: &'a Wavelengths, i: MeasIndex) -> Option<Self> {
-        let ret = SplitKeyword::new(Key1::new_i1(i.into()), x.try_ne()?);
+        let ret = SplitKeyword::new(DKey1::new_i1(i.into()), x.try_ne()?);
         Some(Self::from(ret))
     }
 
@@ -371,7 +451,7 @@ impl<'a> OptMeasKeyword<'a> {
     {
         let y: &Option<Z> = x.as_ref();
         let z = y.as_ref().copied()?;
-        let ret = SplitKeyword::new(Key1::<T>::new_i1(i.into()), z);
+        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i.into()), z);
         Some(Self::from(ret))
     }
 }
@@ -424,6 +504,7 @@ pub(crate) trait Keyword1FromValue<'a> {
     }
 }
 
+impl Keyword0FromValue<'_> for OffsetKeyword {}
 impl<'a> Keyword0FromValue<'a> for ReqRootKeyword<'a> {}
 impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 
@@ -458,13 +539,13 @@ impl AsKeywordPair for NonStdKeyword<'_> {
     }
 }
 
-impl<I, V: HasDelim> HasDelim for SplitKeyword<SpecificKey<V, I>, V> {
+impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, V> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.value.has_delim(d)
     }
 }
 
-impl<I, V: HasDelim> HasDelim for SplitKeyword<SpecificKey<V, I>, &V> {
+impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, &V> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.value.has_delim(d)
     }

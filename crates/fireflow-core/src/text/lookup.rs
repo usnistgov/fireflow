@@ -16,7 +16,6 @@ use thiserror::Error;
 use type_families::{BifunctorOnce, Sibling2, impl_functor_once, impl_kind1, impl_kind2};
 
 use std::convert::Infallible;
-use std::fmt;
 use std::str::FromStr;
 
 #[cfg(feature = "python")]
@@ -496,13 +495,6 @@ pub(crate) trait ReqMetarootKey: Sized + Required + Key {
         Self: FromStr,
     {
         Self::remove_req(kws, SpecificKey::default())
-    }
-
-    fn pair(&self) -> (String, String)
-    where
-        Self: fmt::Display,
-    {
-        (Self::std().to_string(), self.to_string())
     }
 }
 

@@ -12,6 +12,7 @@ use crate::text::keywords as kws;
 use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
+use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
@@ -245,11 +246,6 @@ pub trait Key: Sized {
     fn self_std(&self) -> StdKey {
         Self::std()
     }
-
-    #[must_use]
-    fn len() -> u64 {
-        u64::try_from(Self::C.len() + 1).unwrap()
-    }
 }
 
 /// A [`StdKey`] with one index
@@ -445,7 +441,7 @@ impl<T: BiIndexedKey> AnyStdKey for Key2<T> {
 /// is very fast and memory-efficient. If we stored the value itself, it would
 /// be a [`String`] internally and allocated on the heap. We can get away with
 /// this because the value of each [`StdKey`] is entirely encoded by the
-/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with in index in the
+/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
 /// latter two cases).
 #[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
@@ -453,17 +449,34 @@ pub struct SpecificKey<T, I> {
     _key: PhantomData<T>,
 }
 
+/// A [`SpecificKey`] which is prefixed with '$' when displayed.
+#[derive(Display, From, Delegate)]
+#[display("${_0}")]
+#[delegate(AsStdKey)]
+pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
+
 impl<T, I: Clone> Clone for SpecificKey<T, I> {
     fn clone(&self) -> Self {
         Self::new(self.index.clone())
     }
 }
 
+impl<T, I: Clone> Clone for DollarKey<T, I> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<T, I: Copy> Copy for SpecificKey<T, I> {}
+impl<T, I: Copy> Copy for DollarKey<T, I> {}
 
 pub type Key0<T> = SpecificKey<T, ()>;
 pub type Key1<T> = SpecificKey<T, IndexFromOne>;
 pub type Key2<T> = SpecificKey<T, BiIndex>;
+
+pub type DKey0<T> = DollarKey<T, ()>;
+pub type DKey1<T> = DollarKey<T, IndexFromOne>;
+pub type DKey2<T> = DollarKey<T, BiIndex>;
 
 impl<T> Default for Key0<T> {
     fn default() -> Self {
@@ -483,6 +496,24 @@ impl<T> Key2<T> {
     }
 }
 
+impl<T> Default for DKey0<T> {
+    fn default() -> Self {
+        Self(Key0::default())
+    }
+}
+
+impl<T> DKey1<T> {
+    pub(crate) fn new_i1(i: IndexFromOne) -> Self {
+        Self(Key1::new_i1(i))
+    }
+}
+
+impl<T> DKey2<T> {
+    pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
+        Self(Key2::new_i2(i, j))
+    }
+}
+
 /// Composite index for [`StdKey`] with two index values
 #[derive(Debug, Clone, new)]
 pub struct BiIndex {
@@ -490,6 +521,7 @@ pub struct BiIndex {
     pub i1: IndexFromOne,
 }
 
+#[delegatable_trait]
 pub(crate) trait AsStdKey {
     fn as_std_key(&self) -> StdKey;
 }

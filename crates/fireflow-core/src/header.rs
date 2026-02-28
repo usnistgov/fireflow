@@ -15,14 +15,15 @@ use crate::segment::{
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
-    AsKeywordPair as _, Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext,
-    KeywordOptimizer, KeywordVersionScore, Nextdata, OptKeyword, Par, ReqKeyword,
+    AnyKeyword, Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Escaped,
+    Keyword0FromValue as _, KeywordOptimizer, KeywordVersionScore, Nextdata, OffsetKeyword,
+    OptKeyword, Par, ReqKeyword,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, SegmentValidationError};
 use crate::validated::keys::{Key as _, StdKeywords};
-use crate::validated::textdelim::{DelimCollisionError, HasDelim as _, TEXTDelim};
+use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -31,6 +32,7 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator a
 use num_traits::identities::Zero;
 use thiserror::Error;
 
+use std::fmt::Write as _;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
 use std::str::FromStr;
@@ -456,16 +458,15 @@ pub enum WriteTEXTHeaderError {
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: WriteHeaderSegments<T>,
-    pub(crate) primary: KeywordsWriter,
-    pub(crate) supplemental: KeywordsWriter,
+    pub(crate) primary: String,
+    pub(crate) supplemental: String,
     pub(crate) nextdata: Nextdata,
 }
 
 impl<T> HeaderKeywordsToWrite<T> {
     /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-    pub(crate) fn new_2_0<'a>(
-        req: impl IntoIterator<Item = ReqKeyword<'a>>,
-        opt: impl IntoIterator<Item = OptKeyword<'a>>,
+    pub(crate) fn new_2_0(
+        kws: &[AnyKeyword<'_>],
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
@@ -478,25 +479,23 @@ impl<T> HeaderKeywordsToWrite<T> {
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
         let dso = DatasetOffset(0);
 
-        let (mut req0, req1) = req.into_iter().tee();
-        let (mut opt0, opt1) = opt.into_iter().tee();
-
-        if let Some(e) = req0.find_map(|x| x.has_delim(delim)) {
-            return Err(e.into());
+        // Check all keywords for illegally placed delimiters
+        for k in kws {
+            if let Some(e) = k.has_delim(delim) {
+                return Err(e.into());
+            }
         }
 
-        if let Some(e) = opt0.find_map(|x| x.has_delim(delim)) {
-            return Err(e.into());
+        // Make new buffer for TEXT with first delimiter
+        let mut text = String::from(char::from(delim));
+
+        // write non-offset keywords to buffer
+        for x in kws {
+            let esc = Escaped::new(char::from(delim), x);
+            write!(text, "{esc}").unwrap();
         }
 
-        let req_pairs: Vec<_> = req1.map(|x| x.as_str_pair()).collect();
-        let opt_pairs: Vec<_> = opt1.map(|x| x.as_str_pair()).collect();
-
-        // +1 at end accounts for first delimiter
-        let text_len: u64 = flat_keywords_length(&req_pairs[..])
-            + flat_keywords_length(&opt_pairs[..])
-            + nextdata_len()
-            + 1;
+        let text_len: u64 = u64::try_from(text.len()).expect("overflow") + NEXTDATA_LEN;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
@@ -507,28 +506,21 @@ impl<T> HeaderKeywordsToWrite<T> {
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len, dso)?;
 
-        let nextdata = Nextdata(if conf.has_nextdata.is_set() {
+        let nextdata = if conf.has_nextdata.is_set() {
             let n = anal_seg.try_next_byte().map_or(anal_begin, u64::from);
             UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
-        });
+        };
+        let nextdata_value = Nextdata(nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata_value);
+
+        let esc = Escaped::new(char::from(delim), &nextdata_kw);
+        write!(text, "{esc}").unwrap();
 
         let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
 
-        let primary = KeywordsWriter(
-            once(nextdata.pair())
-                .chain(req_pairs)
-                .chain(opt_pairs)
-                .collect(),
-        );
-
-        Ok(Self::new(
-            header,
-            primary,
-            KeywordsWriter::default(),
-            nextdata,
-        ))
+        Ok(Self::new(header, text, String::default(), nextdata_value))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
@@ -536,8 +528,8 @@ impl<T> HeaderKeywordsToWrite<T> {
     /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
     /// STEXT, DATA, ANALYSIS.
     pub(crate) fn new_3_0<'a>(
-        req: impl IntoIterator<Item = ReqKeyword<'a>>,
-        opt: impl IntoIterator<Item = OptKeyword<'a>>,
+        req: &[ReqKeyword<'a>],
+        opt: &[OptKeyword<'a>],
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
@@ -550,27 +542,47 @@ impl<T> HeaderKeywordsToWrite<T> {
         let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        let (mut req0, req1) = req.into_iter().tee();
-        let (mut opt0, opt1) = opt.into_iter().tee();
-
-        if let Some(e) = req0.find_map(|x| x.has_delim(delim)) {
-            return Err(e.into());
+        // check all keywords to ensure we have no illegally placed delimiters
+        for x in req {
+            if let Some(e) = x.has_delim(delim) {
+                return Err(e.into());
+            }
         }
 
-        if let Some(e) = opt0.find_map(|x| x.has_delim(delim)) {
-            return Err(e.into());
+        for x in opt {
+            if let Some(e) = x.has_delim(delim) {
+                return Err(e.into());
+            }
         }
 
-        // TODO this is wrong (it doesn't take escaping into account) and slow
-        let req_pairs: Vec<_> = req1.into_iter().map(|x| x.as_str_pair()).collect();
-        let opt_pairs: Vec<_> = opt1.into_iter().map(|x| x.as_str_pair()).collect();
+        // init string buffers for primary and supp with first delim
+        let mut req_text = String::from(char::from(delim));
+        let mut opt_text = String::from(char::from(delim));
 
-        let nooffset_req_text_len = flat_keywords_length(&req_pairs[..]);
-        let opt_text_len = flat_keywords_length(&opt_pairs[..]);
-        // +1 accounts for first delimiter
-        let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
-        let supp_text_len = opt_text_len + 1;
-        let all_text_len = opt_text_len + nosupp_text_len;
+        // Write non-offset keywords to buffers.
+        for x in req {
+            let esc = Escaped::new(char::from(delim), x);
+            write!(req_text, "{esc}").unwrap();
+        }
+
+        for x in opt {
+            let esc = Escaped::new(char::from(delim), x);
+            write!(opt_text, "{esc}").unwrap();
+        }
+
+        // Compute lengths of primary and supplemental TEXT given the length of
+        // the required and optional keywords plus the offset keywords which
+        // still need to be added.
+        //
+        // All required keywords need to go in primary TEXT. Supplemental TEXT
+        // is the length of the optional keywords (plus the first delimiter)
+        // since these can all be moved out of primary TEXT if it is too long.
+        // Primary TEXT with optional and required keywords is the sum of both
+        // these buffers MINUS ONE because the optional keyword buffer includes
+        // an initial delimiter.
+        let req_text_len = u64::try_from(req_text.len()).expect("overflow") + OFFSETS_LEN_3_0;
+        let supp_text_len = u64::try_from(opt_text.len()).expect("overflow");
+        let all_text_len = req_text_len + supp_text_len - 1;
 
         let make_text_seg = |len| {
             PrimaryTextSegment::try_new_with_len(prim_text_begin, len, dso).map(|seg| {
@@ -579,8 +591,8 @@ impl<T> HeaderKeywordsToWrite<T> {
             })
         };
 
-        // include STEXT only if the optional keywords don't fit within the first
-        // 99,999,999 bytes
+        // Include STEXT only if the optional keywords don't fit within the
+        // first 99,999,999 bytes
         let prim_text_res = make_text_seg(all_text_len);
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
@@ -592,9 +604,11 @@ impl<T> HeaderKeywordsToWrite<T> {
                     next_begin,
                 )
             } else {
-                let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
+                let (prim_text_seg, other_begin) = make_text_seg(req_text_len)?;
                 let (other_segs, supp_text_begin) =
                     Self::other_segments(other_begin, other_lens, dso)?;
+                // TODO what happens if supp_text_len is 1 because there are no
+                // optional keyword?
                 let supp_text_seg =
                     SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len, dso);
                 let data_begin = supp_text_seg
@@ -611,47 +625,55 @@ impl<T> HeaderKeywordsToWrite<T> {
         let h_analysis_seg = analysis_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if conf.has_nextdata.is_set() {
+        let nextdata = if conf.has_nextdata.is_set() {
             let n = analysis_seg
                 .try_next_byte()
                 .map_or(analysis_begin, u64::from);
             UintZeroPad20(n)
         } else {
             UintZeroPad20(0)
-        });
+        };
+        let nextdata_value = Nextdata(nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata_value);
 
+        // Add offset keywords to the end of required TEXT buffer.
+        //
         // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
         // easier just to include them in the "required" stuff regardless.
-        let all_req = supp_text_seg
+        let offset_kws = supp_text_seg
             .keywords()
             .into_iter()
             .chain(data_seg.keywords())
             .chain(analysis_seg.keywords())
-            .chain([nextdata.pair()])
-            .chain(req_pairs);
+            .chain(once(nextdata_kw));
 
+        for x in offset_kws {
+            let esc = Escaped::new(char::from(delim), &x);
+            write!(req_text, "{esc}").unwrap();
+        }
+
+        // Combine optional and required buffers if supp text is empty. Since
+        // there is a delim at the front of the buffer, copy everything after
+        // the first byte if needed.
         let (primary, supplemental) = if supp_text_seg.is_empty() {
-            (all_req.chain(opt_pairs).collect(), vec![])
+            if let Some((_, opt_no_first_delim)) = opt_text.as_str().split_at_checked(1) {
+                req_text.push_str(opt_no_first_delim);
+            }
+            (req_text, String::default())
         } else {
-            (all_req.collect(), opt_pairs)
+            (req_text, opt_text)
         };
 
         let header =
             WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
 
-        Ok(Self::new(
-            header,
-            KeywordsWriter(primary),
-            KeywordsWriter(supplemental),
-            nextdata,
-        ))
+        Ok(Self::new(header, primary, supplemental, nextdata_value))
     }
 
     pub(crate) fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         version: Version,
-        delim: TEXTDelim,
         other_segs: &[Other],
     ) -> io::Result<()>
     where
@@ -661,7 +683,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         self.header.h_write(h, version)?;
 
         // write primary TEXT
-        self.primary.h_write(h, delim.into())?;
+        h.write_all(self.primary.as_bytes())?;
 
         // write OTHER
         for o in other_segs {
@@ -669,9 +691,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         // write supplemental TEXT
-        if !self.supplemental.0.is_empty() {
-            self.supplemental.h_write(h, delim.into())?;
-        }
+        h.write_all(self.supplemental.as_bytes())?;
         Ok(())
     }
 
@@ -710,25 +730,6 @@ impl<T> HeaderKeywordsToWrite<T> {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct KeywordsWriter(pub Vec<(String, String)>);
-
-impl KeywordsWriter {
-    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, delim: u8) -> io::Result<()> {
-        h.write_all(&[delim])?; // write first delim
-        for s in self.0.iter().flat_map(|(k, v)| [k, v]) {
-            h.write_all(s.as_bytes())?;
-            h.write_all(&[delim])?;
-        }
-        Ok(())
-    }
-}
-
-fn flat_keywords_length(ks: &[(String, String)]) -> u64 {
-    let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
-    u64::try_from(n).expect("length of TEXT exceeds 2^64")
-}
-
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.
 ///
 /// This was chosen on the basis that the maximum file size is 2^64, and thus
@@ -741,29 +742,31 @@ pub(crate) const OFFSET_VAL_LEN: u64 = 20;
 pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
-fn nextdata_len() -> u64 {
-    Nextdata::len() + OFFSET_VAL_LEN + 2
-}
+const NEXTDATA_LEN: u64 = std_key_len(Nextdata::C) + OFFSET_VAL_LEN + 2;
 
 /// The number of bytes each offset is expected to take.
 ///
 /// These are the length of each keyword + 2 since there should be two
 /// delimiters counting toward its byte real estate.
-fn data_len() -> u64 {
-    Begindata::len() + Enddata::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const DATA_LEN: u64 = std_key_len(Begindata::C) + std_key_len(Enddata::C) + OFFSET_VAL_LEN * 2 + 4;
 
-fn analysis_len() -> u64 {
-    Beginanalysis::len() + Endanalysis::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const ANALYSIS_LEN: u64 =
+    std_key_len(Beginanalysis::C) + std_key_len(Endanalysis::C) + OFFSET_VAL_LEN * 2 + 4;
 
-fn supp_text_len() -> u64 {
-    Beginstext::len() + Endstext::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const STEXT_LEN: u64 =
+    std_key_len(Beginstext::C) + std_key_len(Endstext::C) + OFFSET_VAL_LEN * 2 + 4;
 
 /// The total number of bytes offset keywords are expected to take.
 ///
 /// This only applies to 3.0+ since 2.0 only has NEXTDATA.
-fn offsets_len() -> u64 {
-    data_len() + analysis_len() + supp_text_len() + nextdata_len()
+// NOTE we cheat a bit and include supp text here, even though it is optional in
+// 3.2. It probably will never make a difference.
+const OFFSETS_LEN_3_0: u64 = DATA_LEN + ANALYSIS_LEN + STEXT_LEN + NEXTDATA_LEN;
+
+/// Compute the length of a standard key.
+///
+/// Assume key does not have '$' on the front, so add 1.
+#[allow(clippy::as_conversions)]
+const fn std_key_len(s: &str) -> u64 {
+    (s.len() + 1) as u64
 }

@@ -51,21 +51,21 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot, CSVBits,
-    CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells,
-    Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType,
-    DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain,
-    Gate, HyperGateError, HyperParError, Inst, Keyword0FromValue as _, Keyword1FromValue as _,
-    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
-    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, NonStdKeyword, Op, OptKeyword, OptMeasKeyword, OptRootKeyword, OpticalFeature,
-    OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
-    Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range, ReqKeyword,
-    ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1, Src,
-    StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
-    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot,
+    CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
+    Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName,
+    DetectorType, DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter,
+    Flowrate, Gain, Gate, HyperGateError, HyperParError, Inst, Keyword0FromValue as _,
+    Keyword1FromValue as _, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
+    LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
+    ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword, OptMeasKeyword,
+    OptRootKeyword, OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin,
+    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
+    PseudostandardError, Range, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno,
+    SplitKeyword, SplitKeyword1, Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys,
+    Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep,
+    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
+    Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -98,7 +98,7 @@ use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
-    BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKey, NonStdKeywords,
+    BiIndexedKey, DKey2, IndexedKey, Key, Key0, Key1, Key2, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
@@ -2517,7 +2517,7 @@ where
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_flat_keywords(conf)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, M::Ver::fcs_version(), conf.delim, conf.other_segs)?;
+        hdr_kws.h_write(h, M::Ver::fcs_version(), conf.other_segs)?;
         Ok(hdr_kws.nextdata)
     }
 
@@ -3922,9 +3922,15 @@ where
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
         if M::Ver::fcs_version() == Version::FCS2_0 {
-            HeaderKeywordsToWrite::new_2_0(req, opt, conf)
+            let ks: Vec<_> = req
+                .map(AnyKeyword::from)
+                .chain(opt.map(AnyKeyword::from))
+                .collect();
+            HeaderKeywordsToWrite::new_2_0(&ks[..], conf)
         } else {
-            HeaderKeywordsToWrite::new_3_0(req, opt, conf)
+            let rs: Vec<_> = req.collect();
+            let os: Vec<_> = opt.collect();
+            HeaderKeywordsToWrite::new_3_0(&rs[..], &os[..], conf)
         }
     }
 
@@ -8643,7 +8649,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
             .map(Compensation2_0::non_zero_indices)
             .into_iter()
             .flatten()
-            .map(|x| SplitKeyword::new(Key2::new_i2(x.col.into(), x.row.into()), x.value))
+            .map(|x| SplitKeyword::new(DKey2::new_i2(x.col.into(), x.row.into()), x.value))
             .map(OptRootKeyword::from)
             .chain(cyt)
             .chain(self.applied_gates.opt_keywords())

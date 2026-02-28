@@ -227,7 +227,7 @@ impl From<Vec<u8>> for StringOrBytes {
 ///
 /// The constant traits is validated to only contain ASCII characters.
 // TODO const_trait_impl will be able to clean this up once stable
-pub trait Key {
+pub trait Key: Sized {
     const C: &'static str;
 
     const _CHECK: () = {
@@ -238,7 +238,8 @@ pub trait Key {
     #[allow(path_statements)]
     fn std() -> StdKey {
         Self::_CHECK;
-        StdKey::new(Self::C.into())
+        let key = Key0::<Self>::default();
+        StdKey::new(key.to_string())
     }
 
     fn self_std(&self) -> StdKey {
@@ -254,7 +255,7 @@ pub trait Key {
 /// A [`StdKey`] with one index
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait IndexedKey {
+pub trait IndexedKey: Sized {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
@@ -274,16 +275,17 @@ pub trait IndexedKey {
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
-        // reserve enough space for prefix, suffix, and a number with 3 digits
-        let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
-        let mut s = String::with_capacity(n);
-        s.push_str(Self::PREFIX);
-        s.push_str(i.into().to_string().as_str());
-        s.push_str(Self::SUFFIX);
+        // // reserve enough space for prefix, suffix, and a number with 3 digits
+        // let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
+        // let mut s = String::with_capacity(n);
+        // s.push_str(Self::PREFIX);
+        // s.push_str(i.into().to_string().as_str());
+        // s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/suffix are anything but letters/underscore
         Self::_CHECK_PREFIX;
         Self::_CHECK_SUFFIX;
-        StdKey::new(s)
+        let key = Key1::<Self>::new_i1(i.into());
+        StdKey::new(key.to_string())
     }
 
     fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
@@ -330,7 +332,7 @@ pub trait IndexedKey {
 /// A [`StdKey`] with two indices
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait BiIndexedKey {
+pub trait BiIndexedKey: Sized {
     const PREFIX: &'static str;
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
@@ -358,20 +360,21 @@ pub trait BiIndexedKey {
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
-        // reserve enough space for prefix, middle, suffix, and two numbers with
-        // 2 digits
-        let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
-        let mut s = String::with_capacity(n);
-        s.push_str(Self::PREFIX);
-        s.push_str(i.into().to_string().as_str());
-        s.push_str(Self::MIDDLE);
-        s.push_str(j.into().to_string().as_str());
-        s.push_str(Self::SUFFIX);
+        // // reserve enough space for prefix, middle, suffix, and two numbers with
+        // // 2 digits
+        // let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
+        // let mut s = String::with_capacity(n);
+        // s.push_str(Self::PREFIX);
+        // s.push_str(i.into().to_string().as_str());
+        // s.push_str(Self::MIDDLE);
+        // s.push_str(j.into().to_string().as_str());
+        // s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/mid/suffix are anything but letters/underscore
         Self::_CHECK_PREFIX;
         Self::_CHECK_MIDDLE;
         Self::_CHECK_SUFFIX;
-        StdKey::new(s)
+        let key = Key2::<Self>::new_i2(i.into(), j.into());
+        StdKey::new(key.to_string())
     }
 
     /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
@@ -444,9 +447,7 @@ impl<T: BiIndexedKey> AnyStdKey for Key2<T> {
 /// this because the value of each [`StdKey`] is entirely encoded by the
 /// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with in index in the
 /// latter two cases).
-#[derive(Debug, Display, new)]
-#[display("{}", self.as_std_key())]
-#[display(bound(Self: AsStdKey))]
+#[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
     index: I,
     _key: PhantomData<T>,
@@ -509,6 +510,25 @@ impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
     fn as_std_key(&self) -> StdKey {
         let i = &self.index;
         T::std(i.i0, i.i1)
+    }
+}
+
+impl<T: Key> fmt::Display for Key0<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", T::C)
+    }
+}
+
+impl<T: IndexedKey> fmt::Display for Key1<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}{}{}", T::PREFIX, self.index, T::SUFFIX)
+    }
+}
+
+impl<T: BiIndexedKey> fmt::Display for Key2<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = &self.index;
+        write!(f, "{}{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1, T::SUFFIX)
     }
 }
 

@@ -98,7 +98,7 @@ use {
 
 #[derive(new)]
 pub(crate) struct Escaped<T> {
-    delim: char,
+    delim: TEXTDelim,
     inner: T,
 }
 
@@ -110,27 +110,35 @@ impl<T: DisplayEscaped> fmt::Display for Escaped<&T> {
 
 #[delegatable_trait]
 trait DisplayEscaped {
-    fn fmt_escaped(&self, delim: char, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
 impl<K: fmt::Display, V: fmt::Display> DisplayEscaped for SplitKeyword<K, V> {
-    fn fmt_escaped(&self, delim: char, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct InnerFmt<'a, 'b> {
-            delim: char,
+            delim: TEXTDelim,
             inner: &'a mut fmt::Formatter<'b>,
         }
 
         impl fmt::Write for InnerFmt<'_, '_> {
             fn write_str(&mut self, s: &str) -> fmt::Result {
                 let d = self.delim;
-                for c in s.chars() {
-                    if c == d {
-                        // if delimiter found, write it twice
-                        write!(self.inner, "{c}{c}")?;
-                    } else {
-                        // otherwise write non-delim once
-                        self.inner.write_char(c)?;
+                // Check if delim is in str before trying to escape it. This is
+                // a massive optimization since encoding and decoding to chars
+                // on the fly is extremely expensive as opposed to checking if
+                // any single byte in the string is equal to some value.
+                if s.contains(char::from(d)) {
+                    for c in s.bytes() {
+                        if c == u8::from(d) {
+                            // if delimiter found, write it twice
+                            write!(self.inner, "{x}{x}", x = self.delim)?;
+                        } else {
+                            // otherwise write non-delim once
+                            self.inner.write_char(char::from(c))?;
+                        }
                     }
+                } else {
+                    self.inner.write_str(s)?;
                 }
                 Ok(())
             }

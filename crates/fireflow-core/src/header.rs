@@ -491,7 +491,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // write non-offset keywords to buffer
         for x in kws {
-            let esc = Escaped::new(char::from(delim), x);
+            let esc = Escaped::new(delim, x);
             write!(text, "{esc}").unwrap();
         }
 
@@ -515,7 +515,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let nextdata_value = Nextdata(nextdata);
         let nextdata_kw = OffsetKeyword::from_value(nextdata_value);
 
-        let esc = Escaped::new(char::from(delim), &nextdata_kw);
+        let esc = Escaped::new(delim, &nextdata_kw);
         write!(text, "{esc}").unwrap();
 
         let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
@@ -561,12 +561,12 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // Write non-offset keywords to buffers.
         for x in req {
-            let esc = Escaped::new(char::from(delim), x);
+            let esc = Escaped::new(delim, x);
             write!(req_text, "{esc}").unwrap();
         }
 
         for x in opt {
-            let esc = Escaped::new(char::from(delim), x);
+            let esc = Escaped::new(delim, x);
             write!(opt_text, "{esc}").unwrap();
         }
 
@@ -648,7 +648,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             .chain(once(nextdata_kw));
 
         for x in offset_kws {
-            let esc = Escaped::new(char::from(delim), &x);
+            let esc = Escaped::new(delim, &x);
             write!(req_text, "{esc}").unwrap();
         }
 

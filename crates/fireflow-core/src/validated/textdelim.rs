@@ -1,5 +1,5 @@
 use ambassador::delegatable_trait;
-use derive_more::Into;
+use derive_more::{Display, Into};
 use derive_new::new;
 use thiserror::Error;
 
@@ -18,9 +18,10 @@ use {
 /// For instance, setting the delimiter to '0' would break any keywords (many of
 /// which are required) that store only '0', since this would need to be
 /// escaped, but this is not allowed at the start or end of a keyword.
-#[derive(Clone, Copy, Into)]
+#[derive(Clone, Copy, Display, Into)]
 #[cfg_attr(feature = "python", derive(TryFromPyObject))]
 #[into(u8, char)]
+#[display("{}", char::from(self.0))]
 pub struct TEXTDelim(u8);
 
 #[delegatable_trait]

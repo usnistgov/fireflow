@@ -271,12 +271,6 @@ pub trait IndexedKey: Sized {
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
-        // // reserve enough space for prefix, suffix, and a number with 3 digits
-        // let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
-        // let mut s = String::with_capacity(n);
-        // s.push_str(Self::PREFIX);
-        // s.push_str(i.into().to_string().as_str());
-        // s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/suffix are anything but letters/underscore
         Self::_CHECK_PREFIX;
         Self::_CHECK_SUFFIX;
@@ -356,15 +350,6 @@ pub trait BiIndexedKey: Sized {
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
-        // // reserve enough space for prefix, middle, suffix, and two numbers with
-        // // 2 digits
-        // let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
-        // let mut s = String::with_capacity(n);
-        // s.push_str(Self::PREFIX);
-        // s.push_str(i.into().to_string().as_str());
-        // s.push_str(Self::MIDDLE);
-        // s.push_str(j.into().to_string().as_str());
-        // s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/mid/suffix are anything but letters/underscore
         Self::_CHECK_PREFIX;
         Self::_CHECK_MIDDLE;
@@ -410,29 +395,6 @@ pub trait BiIndexedKey: Sized {
     //     s.push_str(Self::SUFFIX);
     //     s
     // }
-}
-
-pub(crate) trait AnyStdKey {
-    fn as_std(&self) -> StdKey;
-}
-
-impl<T: Key> AnyStdKey for Key0<T> {
-    fn as_std(&self) -> StdKey {
-        T::std()
-    }
-}
-
-impl<T: IndexedKey> AnyStdKey for Key1<T> {
-    fn as_std(&self) -> StdKey {
-        T::std(self.index)
-    }
-}
-
-impl<T: BiIndexedKey> AnyStdKey for Key2<T> {
-    fn as_std(&self) -> StdKey {
-        let i = &self.index;
-        T::std(i.i0, i.i1)
-    }
 }
 
 /// A type representing a [`StdKey`].

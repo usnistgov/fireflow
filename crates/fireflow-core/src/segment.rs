@@ -25,7 +25,7 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{
-    AnyStdKey as _, Key, SpecificKey, StdKeywords, StringOrBytes, TruncatedString,
+    AsStdKey as _, Key, SpecificKey, StdKeywords, StringOrBytes, TruncatedString,
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
@@ -375,7 +375,7 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
 macro_rules! lookup_req {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        match $kws.$fun(&k.as_std()) {
+        match $kws.$fun(&k.as_std_key()) {
             Some(v) => v
                 .parse::<i128>()
                 .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
@@ -617,7 +617,7 @@ where
 macro_rules! lookup_opt {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        $kws.$fun(&k.as_std())
+        $kws.$fun(&k.as_std_key())
             .map(|v| {
                 v.parse::<i128>()
                     .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))

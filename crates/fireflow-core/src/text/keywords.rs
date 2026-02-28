@@ -36,8 +36,8 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AnyKey, AnyStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key,
-    Key0, Key1, Key2, NonStdKey, NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
+    AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key, Key0, Key1,
+    Key2, NonStdKey, NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
@@ -703,7 +703,7 @@ impl Nextdata {
             }
         } else {
             let ret = kws
-                .get(&k.as_std())
+                .get(&k.as_std_key())
                 .and_then(|v| Self::from_str_with(v, (), conf).ok())
                 .map(|x| x.native);
             LogResult::new_ok(ret)
@@ -3814,7 +3814,7 @@ impl Dfc {
         kws: &mut StdKeywords,
         k: Key2<Self>,
     ) -> Result<Option<f32>, LookupDfcError> {
-        kws.remove(&k.as_std()).map_or(Ok(None), |v| {
+        kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
             v.parse::<f32>()
                 .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.clone())))
                 .map(Some)

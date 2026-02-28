@@ -113,47 +113,67 @@ trait DisplayEscaped {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<K: fmt::Display, V: fmt::Display> DisplayEscaped for SplitKeyword<K, V> {
-    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        struct InnerFmt<'a, 'b> {
-            delim: TEXTDelim,
-            inner: &'a mut fmt::Formatter<'b>,
-        }
+struct EscapedFormatter<'a, 'b> {
+    delim: TEXTDelim,
+    inner: &'a mut fmt::Formatter<'b>,
+}
 
-        impl fmt::Write for InnerFmt<'_, '_> {
-            fn write_str(&mut self, s: &str) -> fmt::Result {
-                let d = self.delim;
-                // Check if delim is in str before trying to escape it. This is
-                // a massive optimization since encoding and decoding to chars
-                // on the fly is extremely expensive as opposed to checking if
-                // any single byte in the string is equal to some value.
-                if s.contains(char::from(d)) {
-                    for c in s.bytes() {
-                        if c == u8::from(d) {
-                            // if delimiter found, write it twice
-                            write!(self.inner, "{x}{x}", x = self.delim)?;
-                        } else {
-                            // otherwise write non-delim once
-                            self.inner.write_char(char::from(c))?;
-                        }
-                    }
+impl EscapedFormatter<'_, '_> {
+    fn write_with_delim<V: fmt::Display>(&mut self, v: V, escape: bool) -> fmt::Result {
+        let delim = self.delim;
+        if escape {
+            write!(self, "{v}")?;
+            write!(self.inner, "{delim}")
+        } else {
+            write!(self.inner, "{v}{delim}")
+        }
+    }
+}
+
+impl fmt::Write for EscapedFormatter<'_, '_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let d = self.delim;
+        // Check if delim is in str before trying to escape it. This is
+        // a massive optimization since encoding and decoding to chars
+        // on the fly is extremely expensive as opposed to checking if
+        // any single byte in the string is equal to some value.
+        if s.contains(char::from(d)) {
+            for c in s.bytes() {
+                if c == u8::from(d) {
+                    // if delimiter found, write it twice
+                    write!(self.inner, "{x}{x}", x = self.delim)?;
                 } else {
-                    self.inner.write_str(s)?;
+                    // otherwise write non-delim once
+                    self.inner.write_char(char::from(c))?;
                 }
-                Ok(())
             }
+        } else {
+            self.inner.write_str(s)?;
         }
+        Ok(())
+    }
+}
 
-        let k = &self.key;
-        let v = &self.value;
+impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
+where
+    DollarKey<K, I>: fmt::Display,
+    V: fmt::Display,
+{
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        // ASSUME standard keys don't need to be escaped because the delim
+        // character is 0-31 which never appears in the standard keys
+        xf.write_with_delim(&self.key, false)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
+    }
+}
 
-        let mut xf0 = InnerFmt { delim, inner: f };
-        write!(xf0, "{k}")?;
-        write!(f, "{delim}")?;
-
-        let mut xf1 = InnerFmt { delim, inner: f };
-        write!(xf1, "{v}")?;
-        write!(f, "{delim}")?;
+impl DisplayEscaped for NonStdKeyword<'_> {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        xf.write_with_delim(self.key, true)?;
+        xf.write_with_delim(self.value, true)?;
         Ok(())
     }
 }

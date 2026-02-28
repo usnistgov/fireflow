@@ -478,10 +478,8 @@ impl<T> HeaderKeywordsToWrite<T> {
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
         // Check all keywords for illegally placed delimiters
-        for k in kws {
-            if let Some(e) = k.has_delim(delim) {
-                return Err(e.into());
-            }
+        for x in kws {
+            x.has_delim(delim).map_or(Ok(()), Err)?;
         }
 
         // Make new buffer for TEXT with first delimiter
@@ -503,7 +501,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len)?;
 
-        let nextdata = get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
         let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
         Escaped::new(delim, &nextdata_kw).write_str(&mut text);
@@ -533,15 +531,11 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // check all keywords to ensure we have no illegally placed delimiters
         for x in req {
-            if let Some(e) = x.has_delim(delim) {
-                return Err(e.into());
-            }
+            x.has_delim(delim).map_or(Ok(()), Err)?;
         }
 
         for x in opt {
-            if let Some(e) = x.has_delim(delim) {
-                return Err(e.into());
-            }
+            x.has_delim(delim).map_or(Ok(()), Err)?;
         }
 
         // TODO this might be optimized by pre-allocating (which would require
@@ -612,7 +606,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let h_anal_seg = anal_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
         let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
         // Add offset keywords to the end of required TEXT buffer.
@@ -704,19 +698,23 @@ impl<T> HeaderKeywordsToWrite<T> {
             .map_or(begin, Into::into);
         Ok((ret, next))
     }
-}
 
-fn get_nextdata<I, S, T>(seg_begin: u64, seg: &Segment<I, S, T>, flag: AppendableFlag) -> Nextdata
-where
-    T: Copy + Into<u64>,
-{
-    let ret = if flag.is_set() {
-        let n = seg.try_next_byte().map_or(seg_begin, u64::from);
-        UintZeroPad20(n)
-    } else {
-        UintZeroPad20(0)
-    };
-    Nextdata(ret)
+    fn get_nextdata<I, S, T0>(
+        seg_begin: u64,
+        seg: &Segment<I, S, T0>,
+        flag: AppendableFlag,
+    ) -> Nextdata
+    where
+        T0: Copy + Into<u64>,
+    {
+        let ret = if flag.is_set() {
+            let n = seg.try_next_byte().map_or(seg_begin, u64::from);
+            UintZeroPad20(n)
+        } else {
+            UintZeroPad20(0)
+        };
+        Nextdata(ret)
+    }
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.

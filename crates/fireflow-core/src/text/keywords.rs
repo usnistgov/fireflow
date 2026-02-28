@@ -8,7 +8,7 @@ use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
     WarningAndErrorsResult,
 };
-use crate::macros::{impl_newtype_try_from, match_many_to_one};
+use crate::macros::impl_newtype_try_from;
 use crate::segment::{HasRegion, TEXTSegment};
 use crate::text::byteord::{
     BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
@@ -22,9 +22,7 @@ use crate::text::lookup::{
     ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
-use crate::text::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
-};
+use crate::text::optional::{CheckMaybe, DisplayMaybe, OptionalInt, OptionalString, OptionalZST};
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
     ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
@@ -41,22 +39,23 @@ use crate::validated::keys::{
     AnyKey, AnyStdKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKey,
     NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
 };
-use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
+use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
 
+use nonempty_collections::NESlice;
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{
     EnumStrIter as _, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
 };
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
-use fireflow_types::nonempty_string::NEString;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 use fireflow_types::{impl_str_enum, ne_str};
 
-use ambassador::Delegate;
+use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
@@ -77,13 +76,12 @@ use unicase::Ascii;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem::take;
-use std::num::{NonZeroU8, NonZeroUsize, ParseFloatError, ParseIntError};
+use std::num::{NonZeroU8, NonZeroU32, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::compensation::DfcKeyword;
 use super::index::IndexFromOne;
 use super::lookup::{
     DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
@@ -100,13 +98,15 @@ use {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
 pub(crate) enum ReqKeyword<'a> {
     Root(ReqRootKeyword<'a>),
-    Meas(IndexedReqMeasKeyword<'a>),
+    Meas(ReqMeasKeyword<'a>),
 }
 
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
 pub(crate) enum OptKeyword<'a> {
     Root(StdOrNonStdOptRootKeyword<'a>),
     Meas(StdOrNonStdOptMeasKeyword<'a>),
@@ -114,6 +114,7 @@ pub(crate) enum OptKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
 pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     Std(OptRootKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
@@ -121,21 +122,23 @@ pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
 pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
-    Std(IndexedOptMeasKeyword<'a>),
+    Std(OptMeasKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
 }
 
 // TODO this shouldn't need to be pub
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum ReqRootKeyword<'a> {
-    ByteOrd2_0(ByteOrd2_0),
-    ByteOrd3_1(ByteOrd3_1),
-    Par(Par),
-    Tot(Tot),
-    Datatype(AlphaNumType),
-    Mode(Mode),
-    Cyt(&'a Cyt3_2),
+    ByteOrd2_0(SplitKeyword0<ByteOrd2_0>),
+    ByteOrd3_1(SplitKeyword0<ByteOrd3_1>),
+    Par(SplitKeyword0<Par>),
+    Tot(SplitKeyword0<Tot>),
+    Datatype(SplitKeyword0<AlphaNumType>),
+    Mode(SplitKeyword0<Mode>),
+    Cyt(RefKeyword0<'a, Cyt3_2>),
 }
 
 #[derive(Clone, new)]
@@ -144,443 +147,326 @@ pub(crate) struct NonStdKeyword<'a> {
     value: &'a String,
 }
 
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum OptRootKeyword<'a> {
-    Btim2_0(Option<Btim2_0>),
-    Btim3_0(Option<Btim3_0>),
-    Btim3_1(Option<Btim3_1>),
-    Etim2_0(Option<Etim2_0>),
-    Etim3_0(Option<Etim3_0>),
-    Etim3_1(Option<Etim3_1>),
-    Date(Option<FCSDate>),
-    Begindatetime(Option<BeginDateTime>),
-    Enddatetime(Option<EndDateTime>),
-    Gate(Option<Gate>),
-    GateMeas(IndexedGateMeasKeyword<'a>),
-    GateRegion(IndexedRegionKeyword),
-    Gating(&'a Option<Gating>),
-    Cyt(&'a Cyt),
-    Cytsn(&'a Cytsn),
-    Dfc(DfcKeyword),
-    Comp(&'a Option<Compensation3_0>),
-    Unicode(&'a Option<Unicode>),
-    Abrt(Option<Abrt>),
-    Com(&'a Com),
-    Cells(&'a Cells),
-    Exp(&'a Exp),
-    Fil(&'a Fil),
-    Inst(&'a Inst),
-    Lost(Option<Lost>),
-    Op(&'a Op),
-    Proj(&'a Proj),
-    Smno(&'a Smno),
-    Src(&'a Src),
-    Sys(&'a Sys),
-    Tr(&'a Option<Trigger>),
-    Vol(Option<Vol>),
-    Flowrate(&'a Flowrate),
-    LastModifier(&'a LastModifier),
-    LastModified(&'a Option<LastModified>),
-    Originality(Option<Originality>),
-    UnstainedInfo(&'a UnstainedInfo),
-    UnstainedCenters(&'a UnstainedCenters),
-    Mode3_2(Option<Mode3_2>),
-    Spillover(&'a Option<Spillover>),
-    Carrierid(&'a Carrierid),
-    Carriertype(&'a Carriertype),
-    Locationid(&'a Locationid),
-    Plateid(&'a Plateid),
-    Platename(&'a Platename),
-    Wellid(&'a Wellid),
-    CSMode(Option<CSMode>),
-    CSVFlag(IndexFromOne, Option<CSVFlag>),
-    CSVBits(CSVBits),
-    CSTot(CSTot),
-    Timestep(Timestep),
+    GateMeas(GateMeasKeyword<'a>),
+    GateRegion(RegionKeyword),
+    Dfc(SplitKeyword<Key2<Dfc>, f32>),
+    UnstainedCenters(SplitKeyword<Key0<UnstainedCenters>, NEUnstainedCenters<'a>>),
+    Timestep(SplitKeyword0<Timestep>),
+    CSMode(SplitKeyword0<CSMode>),
+    CSVFlag(SplitKeyword1<CSVFlag>),
+    CSVBits(NonZeroU32Keyword0<CSVBits>),
+    CSTot(NonZeroU32Keyword0<CSTot>),
+    Btim2_0(SplitKeyword0<Btim2_0>),
+    Btim3_0(SplitKeyword0<Btim3_0>),
+    Btim3_1(SplitKeyword0<Btim3_1>),
+    Etim2_0(SplitKeyword0<Etim2_0>),
+    Etim3_0(SplitKeyword0<Etim3_0>),
+    Etim3_1(SplitKeyword0<Etim3_1>),
+    Date(SplitKeyword0<FCSDate>),
+    Begindatetime(SplitKeyword0<BeginDateTime>),
+    Enddatetime(SplitKeyword0<EndDateTime>),
+    Gate(SplitKeyword0<Gate>),
+    Gating(RefKeyword0<'a, Gating>),
+    Comp(RefKeyword0<'a, Compensation3_0>),
+    Unicode(RefKeyword0<'a, Unicode>),
+    Abrt(SplitKeyword0<Abrt>),
+    Lost(SplitKeyword0<Lost>),
+    Tr(RefKeyword0<'a, Trigger>),
+    Vol(SplitKeyword0<Vol>),
+    LastModified(SplitKeyword0<LastModified>),
+    Originality(SplitKeyword0<Originality>),
+    Mode3_2(SplitKeyword0<Mode3_2>),
+    Spillover(RefKeyword0<'a, Spillover>),
+    Cyt(NEStringKeyword0<'a, Cyt>),
+    Cytsn(NEStringKeyword0<'a, Cytsn>),
+    Com(NEStringKeyword0<'a, Com>),
+    Cells(NEStringKeyword0<'a, Cells>),
+    Exp(NEStringKeyword0<'a, Exp>),
+    Fil(NEStringKeyword0<'a, Fil>),
+    Inst(NEStringKeyword0<'a, Inst>),
+    Op(NEStringKeyword0<'a, Op>),
+    Proj(NEStringKeyword0<'a, Proj>),
+    Smno(NEStringKeyword0<'a, Smno>),
+    Src(NEStringKeyword0<'a, Src>),
+    Sys(NEStringKeyword0<'a, Sys>),
+    Flowrate(NEStringKeyword0<'a, Flowrate>),
+    LastModifier(NEStringKeyword0<'a, LastModifier>),
+    UnstainedInfo(NEStringKeyword0<'a, UnstainedInfo>),
+    Carrierid(NEStringKeyword0<'a, Carrierid>),
+    Carriertype(NEStringKeyword0<'a, Carriertype>),
+    Locationid(NEStringKeyword0<'a, Locationid>),
+    Plateid(NEStringKeyword0<'a, Plateid>),
+    Platename(NEStringKeyword0<'a, Platename>),
+    Wellid(NEStringKeyword0<'a, Wellid>),
 }
 
-#[derive(Clone, new)]
-pub struct IndexedKeyword<I, K> {
-    pub(crate) index: I,
-    pub(crate) keyword: K,
-}
-
-pub type IndexedReqMeasKeyword<'a> = IndexedKeyword<MeasIndex, ReqMeasKeyword<'a>>;
-pub type IndexedOptMeasKeyword<'a> = IndexedKeyword<MeasIndex, OptMeasKeyword<'a>>;
-pub type IndexedGateMeasKeyword<'a> = IndexedKeyword<GateIndex, GateMeasKeyword<'a>>;
-pub type IndexedRegionKeyword = IndexedKeyword<RegionIndex, RegionKeyword>;
-
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum ReqMeasKeyword<'a> {
-    Shortname(&'a Shortname),
-    Scale(Scale),
-    TemporalScale3_0(TemporalScale3_0),
-    Width(Width),
-    Range(Range),
+    Shortname(RefKeyword1<'a, Shortname>),
+    Scale(SplitKeyword1<Scale>),
+    TemporalScale3_0(SplitKeyword1<TemporalScale3_0>),
+    Width(SplitKeyword1<Width>),
+    Range(SplitKeyword1<Range>),
 }
 
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum OptMeasKeyword<'a> {
-    Shortname(Option<&'a Shortname>),
-    NumType(Option<NumType>),
-    Scale(Option<Scale>),
-    TemporalScale2_0(TemporalScale2_0),
-    Longname(&'a Longname),
-    Filter(&'a Filter),
-    Power(Option<Power>),
-    DetectorType(&'a DetectorType),
-    PercentEmitted(Option<PercentEmitted>),
-    DetectorVoltage(Option<DetectorVoltage>),
-    Gain(Option<Gain>),
-    Wavelength(Option<Wavelength>),
-    Wavelengths(&'a Wavelengths),
-    Display(Option<Display>),
-    DetectorName(&'a DetectorName),
-    Tag(&'a Tag),
-    Feature(&'a Option<Feature>),
-    Analyte(&'a Analyte),
-    OpticalType(&'a OpticalType),
-    Calibration3_1(&'a Option<Calibration3_1>),
-    Calibration3_2(&'a Option<Calibration3_2>),
-    PeakBin(Option<PeakBin>),
-    PeakIndex(Option<PeakIndex>),
+    Longname(NEStringKeyword1<'a, Longname>),
+    Filter(NEStringKeyword1<'a, Filter>),
+    DetectorType(NEStringKeyword1<'a, DetectorType>),
+    DetectorName(NEStringKeyword1<'a, DetectorName>),
+    Tag(NEStringKeyword1<'a, Tag>),
+    Analyte(NEStringKeyword1<'a, Analyte>),
+    OpticalType(NEStringKeyword1<'a, OpticalType>),
+    TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
+    Wavelengths(SplitKeyword<Key1<Wavelengths>, NEWavelengths<'a>>),
+    Shortname(RefKeyword1<'a, Shortname>),
+    NumType(SplitKeyword1<NumType>),
+    Scale(SplitKeyword1<Scale>),
+    Power(SplitKeyword1<Power>),
+    PercentEmitted(SplitKeyword1<PercentEmitted>),
+    DetectorVoltage(SplitKeyword1<DetectorVoltage>),
+    Gain(SplitKeyword1<Gain>),
+    Wavelength(SplitKeyword1<Wavelength>),
+    Display(SplitKeyword1<Display>),
+    Feature(RefKeyword1<'a, Feature>),
+    Calibration3_1(RefKeyword1<'a, Calibration3_1>),
+    Calibration3_2(RefKeyword1<'a, Calibration3_2>),
+    PeakBin(SplitKeyword1<PeakBin>),
+    PeakIndex(SplitKeyword1<PeakIndex>),
 }
 
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum GateMeasKeyword<'a> {
-    Scale(Option<GateScale>),
-    Filter(&'a GateFilter),
-    Shortname(&'a Option<GateShortname>),
-    PercentEmitted(Option<GatePercentEmitted>),
-    Range(&'a Option<GateRange>),
-    Longname(&'a GateLongname),
-    DetectorType(&'a GateDetectorType),
-    DetectorVoltage(Option<GateDetectorVoltage>),
+    Scale(SplitKeyword1<GateScale>),
+    Shortname(RefKeyword1<'a, GateShortname>),
+    PercentEmitted(SplitKeyword1<GatePercentEmitted>),
+    Range(RefKeyword1<'a, GateRange>),
+    DetectorVoltage(SplitKeyword1<GateDetectorVoltage>),
+    Filter(NEStringKeyword1<'a, GateFilter>),
+    Longname(NEStringKeyword1<'a, GateLongname>),
+    DetectorType(NEStringKeyword1<'a, GateDetectorType>),
 }
 
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(AsKeywordPair)]
 pub enum RegionKeyword {
-    GateIndex2_0(RegionGateIndex<GateIndex>),
-    GateIndex3_0(RegionGateIndex<MeasOrGateIndex>),
-    GateIndex3_2(RegionGateIndex<PrefixedMeasIndex>),
+    GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
+    GateIndex3_0(SplitKeyword1<RegionGateIndex<MeasOrGateIndex>>),
+    GateIndex3_2(SplitKeyword1<RegionGateIndex<PrefixedMeasIndex>>),
     // TODO borrow this? has several vecs that need to be cloned
-    Window(RegionWindow),
+    Window(SplitKeyword1<RegionWindow>),
 }
 
-impl ReqKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (StdKey, String) {
-        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
-    }
+#[derive(Clone, Display, new)]
+#[display("{value}")]
+#[display(bound(V: fmt::Display))]
+pub struct SplitKeyword<K, V> {
+    key: K,
+    value: V,
 }
 
-impl OptKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Root, Meas], x, { x.as_pair() })
-    }
-}
+pub type SplitKeyword0<T> = SplitKeyword<Key0<T>, T>;
+pub type SplitKeyword1<T> = SplitKeyword<Key1<T>, T>;
+pub type SplitKeyword2<T> = SplitKeyword<Key2<T>, T>;
 
-impl StdOrNonStdOptRootKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Std, NonStd], x, {
-            let (k, v) = x.as_pair();
-            (AnyKey::from(k), v)
-        })
-    }
+pub type RefKeyword0<'a, T> = SplitKeyword<Key0<T>, &'a T>;
+pub type RefKeyword1<'a, T> = SplitKeyword<Key1<T>, &'a T>;
 
-    pub(crate) fn as_str_pair(&self) -> Option<(String, String)> {
-        let (k, v) = self.as_pair();
-        v.map(|y| (k.to_string(), y))
-    }
-}
+pub type OptZSTKeyword1<K, T> = SplitKeyword<Key1<K>, T>;
 
-impl StdOrNonStdOptMeasKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (AnyKey, Option<String>) {
-        match_many_to_one!(self, Self, [Std, NonStd], x, {
-            let (k, v) = x.as_pair();
-            (AnyKey::from(k), v)
-        })
-    }
+pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, Key0<T>>;
+pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, Key1<T>>;
 
-    pub(crate) fn as_str_pair(&self) -> Option<(String, String)> {
-        let (k, v) = self.as_pair();
-        v.map(|y| (k.to_string(), y))
+pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<Key0<T>>;
+
+pub type NEStringKeyword<'a, K> = SplitKeyword<K, &'a NEStr>;
+pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
+
+impl<T> SplitKeyword0<T> {
+    pub(crate) fn from_value0(value: T) -> Self {
+        Self::new(Key0::<T>::default(), value)
     }
 }
 
-impl NonStdKeyword<'_> {
-    fn as_pair(&self) -> (NonStdKey, Option<String>) {
-        (self.key.to_owned(), Some(self.value.to_owned()))
+impl<T> SplitKeyword1<T> {
+    pub(crate) fn from_value1(value: T, i: impl Into<IndexFromOne>) -> Self {
+        Self::new(Key1::<T>::new_i1(i.into()), value)
     }
 }
 
-impl ReqRootKeyword<'_> {
-    pub(crate) fn as_str_pair(&self) -> (String, String) {
-        let (k, v) = self.as_pair();
+impl<'a, T> RefKeyword0<'a, T> {
+    pub(crate) fn from_ref0(value: &'a T) -> Self {
+        Self::new(Key0::<T>::default(), value)
+    }
+}
+
+impl<'a, T> RefKeyword1<'a, T> {
+    pub(crate) fn from_ref1(value: &'a T, i: impl Into<IndexFromOne>) -> Self {
+        Self::new(Key1::<T>::new_i1(i.into()), value)
+    }
+}
+
+impl<'a, T> NEStringKeyword0<'a, T> {
+    pub(crate) fn try_new_ne_str0(kw: &'a T) -> Option<Self>
+    where
+        T: AsRef<str>,
+    {
+        let value = NEStr::try_new(kw.as_ref())?;
+        Some(Self::new(Key0::<T>::default(), value))
+    }
+}
+
+impl<'a, T> NEStringKeyword1<'a, T> {
+    pub(crate) fn try_new_ne_str1(kw: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    where
+        T: AsRef<str>,
+    {
+        let value = NEStr::try_new(kw.as_ref())?;
+        Some(Self::new(Key1::<T>::new_i1(i.into()), value))
+    }
+}
+
+impl<T> NonZeroU32Keyword0<T> {
+    pub(crate) fn try_new_nz_u32(kw: &T) -> Option<Self>
+    where
+        T: AsRef<u32>,
+    {
+        let value = NonZeroU32::new(*kw.as_ref())?;
+        Some(Self::new(Key0::<T>::default(), value))
+    }
+}
+
+impl<'a> OptRootKeyword<'a> {
+    pub(crate) fn from_u32<T>(x: &T) -> Option<Self>
+    where
+        T: AsRef<u32>,
+        Self: From<NonZeroU32Keyword0<T>>,
+    {
+        NonZeroU32Keyword0::try_new_nz_u32(x).map(Self::from)
+    }
+
+    pub(crate) fn from_unstainedcenters(x: &'a UnstainedCenters) -> Option<Self> {
+        Some(Self::from(SplitKeyword::new(Key0::default(), x.try_ne()?)))
+    }
+}
+
+impl<'a> OptMeasKeyword<'a> {
+    pub(crate) fn from_wavelengths(x: &'a Wavelengths, i: MeasIndex) -> Option<Self> {
+        let ret = SplitKeyword::new(Key1::new_i1(i.into()), x.try_ne()?);
+        Some(Self::from(ret))
+    }
+
+    pub(crate) fn from_opt_zst<T, Z>(x: T, i: MeasIndex) -> Option<Self>
+    where
+        Z: Copy,
+        T: AsRef<Option<Z>>,
+        Self: From<OptZSTKeyword1<T, Z>>,
+    {
+        let y: &Option<Z> = x.as_ref();
+        let z = y.as_ref().copied()?;
+        let ret = SplitKeyword::new(Key1::<T>::new_i1(i.into()), z);
+        Some(Self::from(ret))
+    }
+}
+
+pub(crate) trait Keyword0FromValue<'a> {
+    fn from_value<T>(x: T) -> Self
+    where
+        Self: From<SplitKeyword0<T>>,
+    {
+        Self::from(SplitKeyword0::from_value0(x))
+    }
+
+    fn from_ref<T>(x: &'a T) -> Self
+    where
+        Self: From<RefKeyword0<'a, T>>,
+    {
+        Self::from(RefKeyword0::from_ref0(x))
+    }
+
+    fn from_str<T>(x: &'a T) -> Option<Self>
+    where
+        T: AsRef<str>,
+        Self: From<NEStringKeyword0<'a, T>>,
+    {
+        NEStringKeyword0::try_new_ne_str0(x).map(Self::from)
+    }
+}
+
+pub(crate) trait Keyword1FromValue<'a> {
+    fn from_value<T>(x: T, i: impl Into<IndexFromOne>) -> Self
+    where
+        Self: From<SplitKeyword1<T>>,
+    {
+        Self::from(SplitKeyword1::from_value1(x, i))
+    }
+
+    fn from_ref<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Self
+    where
+        Self: From<RefKeyword1<'a, T>>,
+    {
+        Self::from(RefKeyword1::from_ref1(x, i))
+    }
+
+    fn from_str<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    where
+        T: AsRef<str>,
+        Self: From<NEStringKeyword1<'a, T>>,
+    {
+        NEStringKeyword1::try_new_ne_str1(x, i).map(Self::from)
+    }
+}
+
+impl<'a> Keyword0FromValue<'a> for ReqRootKeyword<'a> {}
+impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
+
+impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
+impl Keyword1FromValue<'_> for RegionKeyword {}
+
+#[delegatable_trait]
+pub(crate) trait AsKeywordPair {
+    fn as_key_pair(&self) -> (AnyKey, String);
+
+    fn as_str_pair(&self) -> (String, String) {
+        let (k, v) = self.as_key_pair();
         (k.to_string(), v)
     }
+}
 
-    pub(crate) fn as_pair(&self) -> (StdKey, String) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => (x.self_std(), x.to_string()),
-                    )*
-                }
-            };
-        }
-        go!(ByteOrd2_0, ByteOrd3_1, Par, Tot, Datatype, Mode, Cyt)
+impl<K, V> AsKeywordPair for SplitKeyword<K, V>
+where
+    K: AsStdKey,
+    V: fmt::Display,
+{
+    fn as_key_pair(&self) -> (AnyKey, String) {
+        (self.key.as_std_key().into(), self.value.to_string())
     }
 }
 
-impl IndexedReqMeasKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (StdKey, String) {
-        self.keyword.as_pair(self.index)
-    }
-
-    pub(crate) fn as_str_pair(&self) -> (String, String) {
-        let (k, v) = self.as_pair();
-        (k.to_string(), v)
+impl AsKeywordPair for NonStdKeyword<'_> {
+    fn as_key_pair(&self) -> (AnyKey, String) {
+        (self.key.clone().into(), self.value.clone())
     }
 }
 
-impl IndexedOptMeasKeyword<'_> {
-    pub(crate) fn as_pair(&self) -> (StdKey, Option<String>) {
-        self.keyword.as_pair(self.index)
-    }
-}
-
-impl IndexedGateMeasKeyword<'_> {
-    fn as_pair(&self) -> (StdKey, Option<String>) {
-        self.keyword.as_pair(self.index)
-    }
-}
-
-impl IndexedRegionKeyword {
-    fn as_pair(&self) -> (StdKey, String) {
-        self.keyword.as_pair(self.index)
-    }
-}
-
-impl ReqMeasKeyword<'_> {
-    fn as_pair(&self, i: MeasIndex) -> (StdKey, String) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => (x.self_std(i), x.to_string()),
-                    )*
-                }
-            };
-        }
-        go!(Shortname, Scale, TemporalScale3_0, Width, Range)
-    }
-
-    #[cfg(feature = "serde")]
-    pub(crate) fn meas_header(&self) -> String {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => x.self_std_blank(),
-                    )*
-                }
-            };
-        }
-        // TODO shortname is never actually used
-        go!(Shortname, Scale, TemporalScale3_0, Width, Range)
-    }
-}
-
-impl OptMeasKeyword<'_> {
-    fn as_pair(&self, i: MeasIndex) -> (StdKey, Option<String>) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    Self::Shortname(x) => (Shortname::std(i), x.map(ToString::to_string)),
-                    $(
-                        Self::$t(x) => x.meas_opt_pair_std(i),
-                    )*
-                }
-            };
-        }
-        go!(
-            NumType,
-            Scale,
-            TemporalScale2_0,
-            Longname,
-            Filter,
-            Power,
-            DetectorType,
-            PercentEmitted,
-            DetectorVoltage,
-            Gain,
-            Wavelength,
-            Wavelengths,
-            Display,
-            DetectorName,
-            Tag,
-            Feature,
-            Analyte,
-            OpticalType,
-            Calibration3_1,
-            Calibration3_2,
-            PeakBin,
-            PeakIndex
-        )
-    }
-
-    #[cfg(feature = "serde")]
-    pub(crate) fn meas_header(&self) -> String {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(_) => $t::std_blank(),
-                    )*
-                }
-            };
-        }
-        go!(
-            Shortname,
-            NumType,
-            Scale,
-            TemporalScale2_0,
-            Longname,
-            Filter,
-            Power,
-            DetectorType,
-            PercentEmitted,
-            DetectorVoltage,
-            Gain,
-            Wavelength,
-            Wavelengths,
-            Display,
-            DetectorName,
-            Tag,
-            Feature,
-            Analyte,
-            OpticalType,
-            Calibration3_1,
-            Calibration3_2,
-            PeakBin,
-            PeakIndex
-        )
-    }
-}
-
-impl OptRootKeyword<'_> {
-    fn as_pair(&self) -> (StdKey, Option<String>) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    Self::GateRegion(x) => {
-                        let (k, v) = x.as_pair();
-                        (k, Some(v))
-                    },
-                    Self::GateMeas(x) => x.as_pair(),
-                    Self::Dfc(x) => (x.std(), Some(x.value.to_string())),
-                    Self::CSVFlag(i, x) => x.meas_opt_pair_std(*i),
-                    Self::Timestep(x) => (Timestep::std(), Some(x.to_string())),
-                    $(
-                        Self::$t(x) => x.metaroot_opt_pair_std(),
-                    )*
-                }
-            };
-        }
-        go!(
-            Btim2_0,
-            Btim3_0,
-            Btim3_1,
-            Etim2_0,
-            Etim3_0,
-            Etim3_1,
-            Date,
-            Begindatetime,
-            Enddatetime,
-            Gate,
-            Gating,
-            Cyt,
-            Cytsn,
-            Comp,
-            Unicode,
-            Abrt,
-            Com,
-            Cells,
-            Exp,
-            Fil,
-            Inst,
-            Lost,
-            Op,
-            Proj,
-            Smno,
-            Src,
-            Sys,
-            Tr,
-            Vol,
-            Flowrate,
-            LastModifier,
-            LastModified,
-            Originality,
-            UnstainedInfo,
-            UnstainedCenters,
-            Mode3_2,
-            Spillover,
-            Carrierid,
-            Carriertype,
-            Locationid,
-            Plateid,
-            Platename,
-            Wellid,
-            CSMode,
-            CSVBits,
-            CSTot
-        )
-    }
-}
-
-impl GateMeasKeyword<'_> {
-    fn as_pair(&self, i: GateIndex) -> (StdKey, Option<String>) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => x.meas_opt_pair_std(i),
-                    )*
-                }
-            };
-        }
-        go!(
-            Scale,
-            Filter,
-            Shortname,
-            PercentEmitted,
-            Range,
-            Longname,
-            DetectorType,
-            DetectorVoltage
-        )
-    }
-}
-
-impl RegionKeyword {
-    fn as_pair(&self, i: RegionIndex) -> (StdKey, String) {
-        macro_rules! go {
-            ($($t:ident),*) => {
-                match self {
-                    $(
-                        Self::$t(x) => (x.self_std(i), x.to_string()),
-                    )*
-                }
-            };
-        }
-        go!(GateIndex2_0, GateIndex3_0, GateIndex3_2, Window)
-    }
-}
-
-impl<I, K: HasDelim> HasDelim for IndexedKeyword<I, K> {
+impl<I, V: HasDelim> HasDelim for SplitKeyword<SpecificKey<V, I>, V> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
-        self.keyword.has_delim(d)
+        self.value.has_delim(d)
+    }
+}
+
+impl<I, V: HasDelim> HasDelim for SplitKeyword<SpecificKey<V, I>, &V> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.value.has_delim(d)
     }
 }
 
@@ -612,37 +498,32 @@ impl HasDelim for NonStdKeyword<'_> {
 
 impl HasDelim for OptRootKeyword<'_> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map(|y| y.has_delim(d)).unwrap_or_default()
-            };
-        }
         match self {
             Self::GateMeas(x) => x.has_delim(d),
-            Self::Cyt(x) => x.has_delim(d),
-            Self::Cytsn(x) => x.has_delim(d),
-            Self::Unicode(x) => go!(x.as_ref()),
-            Self::Com(x) => x.has_delim(d),
-            Self::Cells(x) => x.has_delim(d),
-            Self::Exp(x) => x.has_delim(d),
-            Self::Fil(x) => x.has_delim(d),
-            Self::Inst(x) => x.has_delim(d),
-            Self::Op(x) => x.has_delim(d),
-            Self::Proj(x) => x.has_delim(d),
-            Self::Smno(x) => x.has_delim(d),
-            Self::Src(x) => x.has_delim(d),
-            Self::Sys(x) => x.has_delim(d),
-            Self::Tr(x) => go!(x.as_ref()),
-            Self::Flowrate(x) => x.has_delim(d),
-            Self::LastModifier(x) => x.has_delim(d),
-            Self::UnstainedInfo(x) => x.has_delim(d),
-            Self::Spillover(x) => go!(x.as_ref()),
-            Self::Carrierid(x) => x.has_delim(d),
-            Self::Carriertype(x) => x.has_delim(d),
-            Self::Locationid(x) => x.has_delim(d),
-            Self::Plateid(x) => x.has_delim(d),
-            Self::Platename(x) => x.has_delim(d),
-            Self::Wellid(x) => x.has_delim(d),
+            Self::Unicode(x) => x.has_delim(d),
+            Self::Tr(x) => x.has_delim(d),
+            Self::Spillover(x) => x.has_delim(d),
+            Self::Cyt(x) => x.value.has_delim(d),
+            Self::Cytsn(x) => x.value.has_delim(d),
+            Self::Com(x) => x.value.has_delim(d),
+            Self::Cells(x) => x.value.has_delim(d),
+            Self::Exp(x) => x.value.has_delim(d),
+            Self::Fil(x) => x.value.has_delim(d),
+            Self::Inst(x) => x.value.has_delim(d),
+            Self::Op(x) => x.value.has_delim(d),
+            Self::Proj(x) => x.value.has_delim(d),
+            Self::Smno(x) => x.value.has_delim(d),
+            Self::Src(x) => x.value.has_delim(d),
+            Self::Sys(x) => x.value.has_delim(d),
+            Self::Flowrate(x) => x.value.has_delim(d),
+            Self::LastModifier(x) => x.value.has_delim(d),
+            Self::UnstainedInfo(x) => x.value.has_delim(d),
+            Self::Carrierid(x) => x.value.has_delim(d),
+            Self::Carriertype(x) => x.value.has_delim(d),
+            Self::Locationid(x) => x.value.has_delim(d),
+            Self::Plateid(x) => x.value.has_delim(d),
+            Self::Platename(x) => x.value.has_delim(d),
+            Self::Wellid(x) => x.value.has_delim(d),
             _ => None,
         }
     }
@@ -650,22 +531,18 @@ impl HasDelim for OptRootKeyword<'_> {
 
 impl HasDelim for OptMeasKeyword<'_> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
-        macro_rules! go {
-            ($x:expr) => {
-                $x.map(|y| y.has_delim(d)).unwrap_or_default()
-            };
-        }
         match self {
-            Self::Longname(x) => x.has_delim(d),
-            Self::Filter(x) => x.has_delim(d),
-            Self::DetectorName(x) => x.has_delim(d),
-            Self::DetectorType(x) => x.has_delim(d),
-            Self::Tag(x) => x.has_delim(d),
-            Self::Analyte(x) => x.has_delim(d),
-            Self::Shortname(x) => go!(x),
-            Self::Feature(x) => go!(x.as_ref()),
-            Self::Calibration3_1(x) => go!(x.as_ref()),
-            Self::Calibration3_2(x) => go!(x.as_ref()),
+            Self::Shortname(x) => x.has_delim(d),
+            Self::Feature(x) => x.has_delim(d),
+            Self::Calibration3_1(x) => x.has_delim(d),
+            Self::Calibration3_2(x) => x.has_delim(d),
+            Self::Longname(x) => x.value.has_delim(d),
+            Self::Filter(x) => x.value.has_delim(d),
+            Self::DetectorType(x) => x.value.has_delim(d),
+            Self::DetectorName(x) => x.value.has_delim(d),
+            Self::Tag(x) => x.value.has_delim(d),
+            Self::Analyte(x) => x.value.has_delim(d),
+            Self::OpticalType(x) => x.value.has_delim(d),
             _ => None,
         }
     }
@@ -674,10 +551,10 @@ impl HasDelim for OptMeasKeyword<'_> {
 impl HasDelim for GateMeasKeyword<'_> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         match self {
-            Self::Filter(x) => x.has_delim(d),
-            Self::Shortname(x) => x.as_ref().map(|y| y.0.has_delim(d)).unwrap_or_default(),
-            Self::Longname(x) => x.has_delim(d),
-            Self::DetectorType(x) => x.has_delim(d),
+            Self::Filter(x) => x.value.has_delim(d),
+            Self::Longname(x) => x.value.has_delim(d),
+            Self::DetectorType(x) => x.value.has_delim(d),
+            Self::Shortname(x) => x.value.has_delim(d),
             _ => None,
         }
     }
@@ -1612,9 +1489,9 @@ impl DisplayMaybe for TemporalScale3_0 {
     }
 }
 
-impl KeywordPairMaybe for TemporalScale3_0 {
-    type Inner = Self;
-}
+// impl KeywordPairMaybe for TemporalScale3_0 {
+//     type Inner = Self;
+// }
 
 /// Error when parsing [`TemporalScaleInner`] from string
 #[derive(Debug, Error)]
@@ -1786,6 +1663,10 @@ impl From<Wavelength> for Wavelengths {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
+#[derive(Clone, Display)]
+#[display("{}", self.0.iter().join(","))]
+pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
+
 impl DisplayMaybe for Wavelengths {
     fn display_maybe(&self) -> Option<String> {
         if self.0.is_empty() {
@@ -1796,9 +1677,9 @@ impl DisplayMaybe for Wavelengths {
     }
 }
 
-impl KeywordPairMaybe for Wavelengths {
-    type Inner = Self;
-}
+// impl KeywordPairMaybe for Wavelengths {
+//     type Inner = Self;
+// }
 
 impl CheckMaybe for Wavelengths {
     type Inner = Self;
@@ -1829,6 +1710,10 @@ impl FromStrDelim for Wavelengths {
 impl_from_str_with_delim!(Wavelengths, WavelengthsError);
 
 impl Wavelengths {
+    pub(crate) fn try_ne(&self) -> Option<NEWavelengths<'_>> {
+        NESlice::try_from_slice(&self.0[..]).map(NEWavelengths)
+    }
+
     pub(crate) fn into_wavelength(
         self,
         i: MeasIndex,
@@ -2078,9 +1963,10 @@ pub enum UnicodeError {
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
+#[as_ref(str)]
 pub struct OpticalType(OptionalString);
 
 /// Error when parsing [`OpticalType`] from string
@@ -2885,9 +2771,10 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmN key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, From, Display, FromStr, PartialEq, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[as_ref(str)]
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
@@ -2990,6 +2877,16 @@ pub struct NoCytError;
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
+// TODO seal in separate module
+#[derive(Clone, Display)]
+#[display(
+    "{n},{k},{v}",
+    n = self.0.len(),
+    k = self.0.keys().join(","),
+    v = self.0.values().join(",")
+)]
+pub struct NEUnstainedCenters<'a>(pub(crate) &'a HashMap<Shortname, f32>);
+
 /// Error when parsing [`UnstainedCenters`] from string
 #[derive(Debug, Error)]
 pub enum ParseUnstainedCenterError {
@@ -3004,6 +2901,10 @@ pub enum ParseUnstainedCenterError {
 }
 
 impl UnstainedCenters {
+    pub(crate) fn try_ne(&self) -> Option<NEUnstainedCenters<'_>> {
+        (!self.0.is_empty()).then_some(NEUnstainedCenters(&self.0))
+    }
+
     pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
         // keys can't be mutated in place so need to rebuild the hashmap with
         // new keys from the mapping
@@ -3105,9 +3006,9 @@ impl DisplayMaybe for UnstainedCenters {
     }
 }
 
-impl KeywordPairMaybe for UnstainedCenters {
-    type Inner = Self;
-}
+// impl KeywordPairMaybe for UnstainedCenters {
+//     type Inner = Self;
+// }
 
 impl CheckMaybe for UnstainedCenters {
     type Inner = Self;
@@ -3369,9 +3270,9 @@ macro_rules! newtype_string {
             }
         }
 
-        impl KeywordPairMaybe for $t {
-            type Inner = Self;
-        }
+        // impl KeywordPairMaybe for $t {
+        //     type Inner = Self;
+        // }
 
         impl CheckMaybe for $t {
             type Inner = Self;
@@ -3402,15 +3303,16 @@ macro_rules! impl_display_maybe_self {
             type Inner = Self;
         }
 
-        impl KeywordPairMaybe for $t {
-            type Inner = Self;
-        }
+        // impl KeywordPairMaybe for $t {
+        //     type Inner = Self;
+        // }
     };
 }
 
 macro_rules! newtype_opt_int {
     ($t:ident, $inner:ident) => {
-        #[derive(Clone, Copy, Default, PartialEq, Eq, FromStr, Debug)]
+        #[derive(Clone, Copy, Default, PartialEq, Eq, FromStr, Debug, AsRef)]
+        #[as_ref($inner)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub OptionalInt<$inner>);
@@ -3421,11 +3323,12 @@ macro_rules! newtype_opt_int {
 
 macro_rules! newtype_opt_bool {
     ($t:ident, $inner:ident) => {
-        #[derive(Clone, Copy, PartialEq, Debug, Default, From, Into)]
+        #[derive(Clone, Copy, PartialEq, Debug, Default, From, Into, AsRef)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
+        #[as_ref(Option<$inner>)]
         pub struct $t(pub OptionalZST<$inner>);
 
         impl_display_maybe_self!($t);

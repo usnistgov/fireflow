@@ -73,9 +73,10 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, IndexedOptMeasKeyword,
-    IndexedReqMeasKeyword, LookupDatatypeError, LookupDatatypeResult, NumType, OptMeasKeyword, Par,
-    Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword, Scale, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, Keyword0FromValue as _,
+    Keyword1FromValue as _, LookupDatatypeError, LookupDatatypeResult, NumType, OptMeasKeyword,
+    Par, Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword, Scale,
+    SplitKeyword0, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -114,6 +115,7 @@ use thiserror::Error;
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
@@ -626,11 +628,11 @@ pub trait LayoutOps<'a, T>: Sized {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
 
     fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
-        let d = ReqRootKeyword::from(self.datatype());
+        let d = ReqRootKeyword::from_value(self.datatype());
         [d, self.byteord_keyword()]
     }
 
-    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]>;
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
@@ -709,7 +711,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>>;
+    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -2382,7 +2384,7 @@ impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
 where
     T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
-    for<'a> ReqRootKeyword<'a>: From<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>,
+    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
 {
     fn ncols(&self) -> usize {
         self.ranges.len()
@@ -2406,17 +2408,18 @@ where
 
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).into()
+        let b = <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd);
+        ReqRootKeyword::from_value(b)
     }
 
-    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]> {
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
         self.ranges
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = ReqMeasKeyword::from(Width::Variable);
-                let y = ReqMeasKeyword::from(Range(r.0.into()));
-                [x, y].map(|k| IndexedReqMeasKeyword::new(i.into(), k))
+                let x = ReqMeasKeyword::from_value(Width::Variable, i);
+                let y = ReqMeasKeyword::from_value(Range(r.0.into()), i);
+                [x, y]
             })
             .collect()
     }
@@ -2610,7 +2613,7 @@ where
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
         self.ranges.iter().map(|_| None).collect()
     }
 
@@ -2780,7 +2783,7 @@ where
     T: IsTot,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
-    for<'c> ReqRootKeyword<'c>: From<S::ByteOrd>,
+    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
@@ -2808,17 +2811,17 @@ where
     }
 
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        S::ByteOrd::from(self.byte_layout).into()
+        ReqRootKeyword::from_value(S::ByteOrd::from(self.byte_layout))
     }
 
-    fn req_meas_keywords(&self) -> Vec<[IndexedReqMeasKeyword<'_>; 2]> {
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
         self.columns
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let w = ReqMeasKeyword::from(Width::Fixed(c.fixed_width()));
-                let r = ReqMeasKeyword::from(Range::from(c));
-                [w, r].map(|k| IndexedReqMeasKeyword::new(i.into(), k))
+                let w = ReqMeasKeyword::from_value(Width::Fixed(c.fixed_width()), i);
+                let r = ReqMeasKeyword::from_value(Range::from(c), i);
+                [w, r]
             })
             .collect()
     }
@@ -2979,7 +2982,7 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
         self.columns.iter().map(|_| None).collect()
     }
 
@@ -4093,23 +4096,19 @@ impl CheckedScaleTransform for ScaleTransform {
 }
 
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
-    fn opt_meas_keywords(&self) -> Vec<Option<IndexedOptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
         let dt = self.datatype();
-        let blank = |i: usize| {
-            let n = OptMeasKeyword::NumType(None);
-            Some(IndexedOptMeasKeyword::new(i.into(), n))
-        };
         match self {
-            Self::NonMixed(x) => (0..x.ncols()).map(blank).collect(),
+            Self::NonMixed(x) => iter::repeat_n(None, x.ncols()).collect(),
             Self::Mixed(x) => x
                 .columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let y: Option<NumType> = NumType::try_from(c.datatype())
+                    NumType::try_from(c.datatype())
                         .ok()
-                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    Some(IndexedOptMeasKeyword::new(i.into(), y.into()))
+                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
+                        .map(|v| OptMeasKeyword::from_value(v, i))
                 })
                 .collect(),
         }

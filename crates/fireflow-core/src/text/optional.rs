@@ -1,6 +1,6 @@
 use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
 use crate::text::index::IndexFromOne;
-use crate::validated::keys::{IndexedKey, Key, Key1, StdKey};
+use crate::validated::keys::Key1;
 
 use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
@@ -85,7 +85,7 @@ impl<A> Pointed<A> for Nothing<A> {
 pub struct OptionalString(pub String);
 
 /// A [`String`] that is stored as-is but will not be displayed/written if zero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub struct OptionalInt<T>(pub T);
@@ -126,23 +126,23 @@ pub(crate) trait DisplayMaybe: IsDefault {
     fn display_maybe(&self) -> Option<String>;
 }
 
-pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
-    type Inner;
+// pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
+//     type Inner;
 
-    fn metaroot_opt_pair_std(&self) -> (StdKey, Option<String>)
-    where
-        Self::Inner: Key,
-    {
-        (Self::Inner::std(), self.display_maybe())
-    }
+//     fn metaroot_opt_pair_std(&self) -> (StdKey, Option<String>)
+//     where
+//         Self::Inner: Key,
+//     {
+//         (Self::Inner::std(), self.display_maybe())
+//     }
 
-    fn meas_opt_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, Option<String>)
-    where
-        Self::Inner: IndexedKey,
-    {
-        (Self::Inner::std(i), self.display_maybe())
-    }
-}
+//     fn meas_opt_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, Option<String>)
+//     where
+//         Self::Inner: IndexedKey,
+//     {
+//         (Self::Inner::std(i), self.display_maybe())
+//     }
+// }
 
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
@@ -195,9 +195,9 @@ impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
     }
 }
 
-impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
-    type Inner = T;
-}
+// impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
+//     type Inner = T;
+// }
 
 impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
     type Inner = T;

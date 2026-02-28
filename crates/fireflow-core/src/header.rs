@@ -15,8 +15,8 @@ use crate::segment::{
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
-    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
-    KeywordVersionScore, Nextdata, OptKeyword, Par, ReqKeyword,
+    AsKeywordPair as _, Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext,
+    KeywordOptimizer, KeywordVersionScore, Nextdata, OptKeyword, Par, ReqKeyword,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
@@ -489,15 +489,8 @@ impl<T> HeaderKeywordsToWrite<T> {
             return Err(e.into());
         }
 
-        let req_pairs: Vec<_> = req1
-            .map(|x| x.as_pair())
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-
-        let opt_pairs: Vec<_> = opt1
-            .map(|x| x.as_pair())
-            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
-            .collect();
+        let req_pairs: Vec<_> = req1.map(|x| x.as_str_pair()).collect();
+        let opt_pairs: Vec<_> = opt1.map(|x| x.as_str_pair()).collect();
 
         // +1 at end accounts for first delimiter
         let text_len: u64 = flat_keywords_length(&req_pairs[..])
@@ -569,17 +562,8 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         // TODO this is wrong (it doesn't take escaping into account) and slow
-        let req_pairs: Vec<_> = req1
-            .into_iter()
-            .map(|x| x.as_pair())
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-
-        let opt_pairs: Vec<_> = opt1
-            .into_iter()
-            .map(|x| x.as_pair())
-            .filter_map(|(k, v)| v.map(|y| (k.to_string(), y)))
-            .collect();
+        let req_pairs: Vec<_> = req1.into_iter().map(|x| x.as_str_pair()).collect();
+        let opt_pairs: Vec<_> = opt1.into_iter().map(|x| x.as_str_pair()).collect();
 
         let nooffset_req_text_len = flat_keywords_length(&req_pairs[..]);
         let opt_text_len = flat_keywords_length(&opt_pairs[..]);

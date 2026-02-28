@@ -1,6 +1,7 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::core::UnitaryKeyLossError;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
@@ -21,8 +22,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
-
-use super::keywords::OptRootKeyword;
 
 /// The $BEGINDATETIME and $ENDDATETIME keys (3.2+).
 ///
@@ -139,10 +138,10 @@ impl Datetimes {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> [OptRootKeyword<'_>; 2] {
-        let x = OptRootKeyword::from(self.begin);
-        let y = OptRootKeyword::from(self.end);
-        [x, y]
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+        let x = self.begin.map(OptRootKeyword::from_value);
+        let y = self.end.map(OptRootKeyword::from_value);
+        [x, y].into_iter().flatten()
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {

@@ -51,20 +51,21 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
-    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
-    Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError,
-    HyperParError, IndexedKeyword, IndexedOptMeasKeyword, IndexedReqMeasKeyword, Inst,
+    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot, CSVBits,
+    CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells,
+    Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType,
+    DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain,
+    Gate, HyperGateError, HyperParError, Inst, Keyword0FromValue as _, Keyword1FromValue as _,
     KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
     LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
     NoCytError, NonStdKeyword, Op, OptKeyword, OptMeasKeyword, OptRootKeyword, OpticalFeature,
     OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
     Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range, ReqKeyword,
-    ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, Src, StdOrNonStdOptMeasKeyword,
-    StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix,
-    TemporalType, Timestep, TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode,
-    UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1, Src,
+    StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
+    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -122,7 +123,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
-use std::iter::{empty, once, repeat};
+use std::iter::{empty, once};
 use std::mem;
 use std::path::PathBuf;
 
@@ -1769,9 +1770,9 @@ pub trait DeprecatedMetaroot: Sized {}
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
 
-    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
+    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
 
-    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>;
+    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>;
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError>;
 
@@ -1790,9 +1791,9 @@ pub trait VersionedTemporal: Sized {
 
     fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>>;
 
-    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>>;
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>;
 
-    fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>;
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>;
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 
@@ -1964,21 +1965,21 @@ impl<T> Temporal<T> {
         self.specific.opt_root_keywords_inner()
     }
 
-    fn req_meas_keywords(&self, i: MeasIndex) -> Option<IndexedReqMeasKeyword<'_>>
+    // TODO not necessary
+    fn req_meas_keywords(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>
     where
         T: VersionedTemporal,
     {
-        self.specific
-            .req_meas_keywords_inner()
-            .map(|k| IndexedReqMeasKeyword::new(i, k))
+        self.specific.req_meas_keywords_inner(i)
     }
 
-    fn opt_meas_keywords(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>
+    fn opt_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>
     where
         T: VersionedTemporal,
     {
-        let n = OptMeasKeyword::from(&self.common.longname);
-        once(n).chain(self.specific.opt_meas_keywords_inner())
+        OptMeasKeyword::from_str(&self.common.longname, i)
+            .into_iter()
+            .chain(self.specific.opt_meas_keywords_inner(i))
     }
 
     fn all_opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
@@ -1991,9 +1992,7 @@ impl<T> Temporal<T> {
             .iter()
             .map(|(k, v)| NonStdKeyword::new(k, v))
             .map(StdOrNonStdOptMeasKeyword::from);
-        self.opt_meas_keywords()
-            .zip(repeat(i))
-            .map(|(v, j)| IndexedKeyword::new(j, v))
+        self.opt_meas_keywords(i)
             .map(StdOrNonStdOptMeasKeyword::from)
             .chain(cs)
     }
@@ -2072,44 +2071,47 @@ impl<O> Optical<O> {
             })
     }
 
-    fn req_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>
     where
         O: VersionedOptical,
     {
-        self.specific.req_keywords_inner()
+        self.specific.req_keywords_inner(i)
     }
 
-    fn opt_keywords(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>
+    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>
     where
         O: VersionedOptical,
     {
-        let x0 = OptMeasKeyword::from(&self.common.longname);
-        let x1 = OptMeasKeyword::from(&self.filter);
-        let x2 = OptMeasKeyword::from(self.power);
-        let x3 = OptMeasKeyword::from(&self.detector_type);
-        let x4 = OptMeasKeyword::from(self.percent_emitted);
-        let x5 = OptMeasKeyword::from(self.detector_voltage);
+        let x0 = OptMeasKeyword::from_str(&self.common.longname, i);
+        let x1 = OptMeasKeyword::from_str(&self.filter, i);
+        let x2 = OptMeasKeyword::from_str(&self.detector_type, i);
+        let x3 = self.power.map(|v| OptMeasKeyword::from_value(v, i));
+        let x4 = self
+            .percent_emitted
+            .map(|v| OptMeasKeyword::from_value(v, i));
+        let x5 = self
+            .detector_voltage
+            .map(|v| OptMeasKeyword::from_value(v, i));
         [x0, x1, x2, x3, x4, x5]
             .into_iter()
-            .chain(self.specific.opt_keywords_inner())
+            .flatten()
+            .chain(self.specific.opt_keywords_inner(i))
     }
 
-    fn req_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedReqMeasKeyword<'_>>
+    // TODO useless
+    fn req_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>
     where
         O: VersionedOptical,
     {
-        self.req_keywords()
-            .zip(repeat(i))
-            .map(|(k, j)| IndexedReqMeasKeyword::new(j, k))
+        self.req_keywords(i)
     }
 
-    fn opt_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = IndexedOptMeasKeyword<'_>>
+    // TODO useless
+    fn opt_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>
     where
         O: VersionedOptical,
     {
-        self.opt_keywords()
-            .zip(repeat(i))
-            .map(|(k, j)| IndexedOptMeasKeyword::new(j, k))
+        self.opt_keywords(i)
     }
 
     fn opt_and_nonstd_keywords(
@@ -2242,23 +2244,23 @@ where
     }
 
     fn req_keywords(&self, par: Par) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(par)).chain(self.specific.keywords_req_inner())
+        once(ReqRootKeyword::from_value(par)).chain(self.specific.keywords_req_inner())
     }
 
     fn opt_and_nonstd_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
-        let x0 = OptRootKeyword::from(self.abrt);
-        let x1 = OptRootKeyword::from(&self.com);
-        let x2 = OptRootKeyword::from(&self.cells);
-        let x3 = OptRootKeyword::from(&self.exp);
-        let x4 = OptRootKeyword::from(&self.fil);
-        let x5 = OptRootKeyword::from(&self.inst);
-        let x6 = OptRootKeyword::from(self.lost);
-        let x7 = OptRootKeyword::from(&self.op);
-        let x8 = OptRootKeyword::from(&self.proj);
-        let x9 = OptRootKeyword::from(&self.smno);
-        let x10 = OptRootKeyword::from(&self.src);
-        let x11 = OptRootKeyword::from(&self.sys);
-        let x12 = OptRootKeyword::from(&self.tr);
+        let x0 = OptRootKeyword::from_str(&self.com);
+        let x1 = OptRootKeyword::from_str(&self.cells);
+        let x2 = OptRootKeyword::from_str(&self.exp);
+        let x3 = OptRootKeyword::from_str(&self.fil);
+        let x4 = OptRootKeyword::from_str(&self.inst);
+        let x5 = OptRootKeyword::from_str(&self.op);
+        let x6 = OptRootKeyword::from_str(&self.proj);
+        let x7 = OptRootKeyword::from_str(&self.smno);
+        let x8 = OptRootKeyword::from_str(&self.src);
+        let x9 = OptRootKeyword::from_str(&self.sys);
+        let x10 = self.abrt.map(OptRootKeyword::from_value);
+        let x11 = self.lost.map(OptRootKeyword::from_value);
+        let x12 = self.tr.as_ref().map(OptRootKeyword::from_ref);
         let ns = self
             .nonstandard_keywords
             .iter()
@@ -2266,6 +2268,7 @@ where
             .map(StdOrNonStdOptRootKeyword::from);
         [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12]
             .into_iter()
+            .flatten()
             .chain(self.specific.keywords_opt_inner())
             .map(StdOrNonStdOptRootKeyword::from)
             .chain(ns)
@@ -2548,9 +2551,9 @@ where
             };
 
         let req_root = self.req_root_keywords().map(|x| x.as_str_pair());
-        let opt_root = self.opt_root_keywords().filter_map(|k| k.as_str_pair());
+        let opt_root = self.opt_root_keywords().map(|x| x.as_str_pair());
         let req_meas = self.req_meas_keywords().map(|x| x.as_str_pair());
-        let opt_meas = self.opt_meas_keywords().filter_map(|k| k.as_str_pair());
+        let opt_meas = self.opt_meas_keywords().map(|x| x.as_str_pair());
         go(req_root, include_req_root)
             .chain(go(opt_root, include_opt_root))
             .chain(go(req_meas, include_req_meas))
@@ -3911,7 +3914,7 @@ where
     {
         let req = self
             .req_root_keywords()
-            .chain(once(ReqRootKeyword::from(conf.tot)))
+            .chain(once(ReqRootKeyword::from_value(conf.tot)))
             .map(ReqKeyword::from)
             .chain(self.req_meas_keywords().map(ReqKeyword::from));
         let opt = self
@@ -3930,9 +3933,9 @@ where
             .then(|| {
                 self.measurements
                     .indexed_opt_names()
-                    .map(OptMeasKeyword::from)
+                    .flatten()
                     .enumerate()
-                    .map(|(i, k)| IndexedOptMeasKeyword::new(i.into(), k))
+                    .map(|(i, v)| OptMeasKeyword::from_ref(v, i))
                     .map(StdOrNonStdOptMeasKeyword::from)
             })
             .into_iter()
@@ -3953,15 +3956,14 @@ where
             .chain(lv)
     }
 
-    fn req_meas_keywords(&self) -> impl Iterator<Item = IndexedReqMeasKeyword<'_>> {
+    fn req_meas_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         let ns = (M::Name::INFALLABLE)
             .then(|| {
                 self.measurements
                     .indexed_opt_names()
                     .flatten()
-                    .map(ReqMeasKeyword::from)
                     .enumerate()
-                    .map(|(i, k)| IndexedReqMeasKeyword::new(i.into(), k))
+                    .map(|(i, v)| ReqMeasKeyword::from_ref(v, i))
             })
             .into_iter()
             .flatten();
@@ -3994,6 +3996,7 @@ where
         self.metaroot.opt_and_nonstd_keywords().chain(timestep)
     }
 
+    // TODO fixme
     #[cfg(feature = "serde")]
     fn meas_table<'a>(&'a self, delim: &str) -> Vec<String>
     where
@@ -4003,32 +4006,35 @@ where
         #[derive(From)]
         pub(crate) enum MeasKeyword<'a> {
             Index(MeasIndex),
-            Req(IndexedReqMeasKeyword<'a>),
-            Opt(IndexedOptMeasKeyword<'a>),
+            Req(ReqMeasKeyword<'a>),
+            Opt(OptMeasKeyword<'a>),
         }
 
+        // TODO fixme
         impl<'a> MeasKeyword<'a> {
             fn header(&'a self) -> String {
                 match self {
                     MeasKeyword::Index(_) => "index".into(),
-                    MeasKeyword::Req(x) => x.keyword.meas_header(),
-                    MeasKeyword::Opt(x) => x.keyword.meas_header(),
+                    // MeasKeyword::Req(x) => x.keyword.meas_header(),
+                    // MeasKeyword::Opt(x) => x.keyword.meas_header(),
+                    MeasKeyword::Req(_) => "XXX".into(),
+                    MeasKeyword::Opt(_) => "YYY".into(),
                 }
             }
 
             fn value(&'a self) -> String {
-                let na = || String::from("NA");
+                // let na = || String::from("NA");
                 match self {
                     MeasKeyword::Index(x) => x.to_string(),
-                    MeasKeyword::Req(x) => x.as_pair().1,
-                    MeasKeyword::Opt(x) => x.as_pair().1.unwrap_or_else(na),
+                    MeasKeyword::Req(x) => x.as_str_pair().1,
+                    MeasKeyword::Opt(x) => x.as_str_pair().1,
                 }
             }
         }
 
         let shortname = |n: Option<&'a Shortname>, index: MeasIndex| {
-            let keyword = OptMeasKeyword::Shortname(n);
-            MeasKeyword::from(IndexedOptMeasKeyword { index, keyword })
+            n.map(|v| OptMeasKeyword::from_ref(v, index))
+                .map(MeasKeyword::from)
         };
 
         // Convert all measurements to optical, which should be fine since
@@ -4071,7 +4077,7 @@ where
             let j = MeasIndex::from(i);
             // Order is: Index, Shortname, Required Keyword, Optional Keywords
             cols.push(MeasKeyword::from(j));
-            cols.push(shortname(*n, j));
+            cols.extend(shortname(*n, j));
             cols.extend(req_l.map(MeasKeyword::from));
             cols.extend(m.req_indexed_keywords(j).map(MeasKeyword::from));
             cols.extend(m.opt_indexed_keywords(j).map(MeasKeyword::from));
@@ -5778,10 +5784,10 @@ impl UnstainedData {
         )
     }
 
-    fn opt_keywords(&self) -> [OptRootKeyword<'_>; 2] {
-        let x0 = OptRootKeyword::from(&self.unstainedcenters);
-        let x1 = OptRootKeyword::from(&self.unstainedinfo);
-        [x0, x1]
+    fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+        let x0 = OptRootKeyword::from_unstainedcenters(&self.unstainedcenters);
+        let x1 = OptRootKeyword::from_str(&self.unstainedinfo);
+        [x0, x1].into_iter().flatten()
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = UnstainedLossError> {
@@ -5811,9 +5817,12 @@ impl SubsetData {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let x = OptRootKeyword::from(self.bits);
-        let y = OptRootKeyword::from(self.tot);
-        [x, y].into_iter().chain(self.flags.opt_keywords())
+        let x = OptRootKeyword::from_u32(&self.bits);
+        let y = OptRootKeyword::from_u32(&self.tot);
+        [x, y]
+            .into_iter()
+            .flatten()
+            .chain(self.flags.opt_keywords())
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = SubsetLossError> {
@@ -5856,12 +5865,14 @@ impl CSVFlags {
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let mode = (!self.0.is_empty()).then_some(CSMode(self.0.len()));
-        self.0
-            .iter()
+        let xs = &self.0;
+        let mode = (!xs.is_empty()).then_some(OptRootKeyword::from_value(CSMode(xs.len())));
+        xs.iter()
+            .flatten()
             .enumerate()
-            .map(|(i, f)| OptRootKeyword::CSVFlag(i.into(), *f))
-            .chain(once(OptRootKeyword::from(mode)))
+            .map(|(i, k)| SplitKeyword1::from_value1(*k, i))
+            .map(OptRootKeyword::from)
+            .chain(mode)
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
@@ -5892,11 +5903,11 @@ impl ModificationData {
         last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d.native, o))
     }
 
-    fn opt_keywords(&self) -> [OptRootKeyword<'_>; 3] {
-        let x0 = OptRootKeyword::from(&self.last_modifier);
-        let x1 = OptRootKeyword::from(&self.last_modified);
-        let x2 = OptRootKeyword::from(self.originality);
-        [x0, x1, x2]
+    fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+        let x0 = OptRootKeyword::from_str(&self.last_modifier);
+        let x1 = self.last_modified.map(OptRootKeyword::from_value);
+        let x2 = self.originality.map(OptRootKeyword::from_value);
+        [x0, x1, x2].into_iter().flatten()
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = ModificationLossError> {
@@ -5915,11 +5926,11 @@ impl CarrierData {
         Self::new(i, t, l)
     }
 
-    fn opt_keywords(&self) -> [OptRootKeyword<'_>; 3] {
-        let a = OptRootKeyword::from(&self.carrierid);
-        let b = OptRootKeyword::from(&self.carriertype);
-        let c = OptRootKeyword::from(&self.locationid);
-        [a, b, c]
+    fn opt_keywords(&self) -> impl IntoIterator<Item = OptRootKeyword<'_>> {
+        let a = OptRootKeyword::from_str(&self.carrierid);
+        let b = OptRootKeyword::from_str(&self.carriertype);
+        let c = OptRootKeyword::from_str(&self.locationid);
+        [a, b, c].into_iter().flatten()
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = CarrierLossError> {
@@ -5945,11 +5956,11 @@ impl PlateData {
         [a, b, c].into_iter()
     }
 
-    fn opt_keywords(&self) -> [OptRootKeyword<'_>; 3] {
-        let x0 = OptRootKeyword::from(&self.wellid);
-        let x1 = OptRootKeyword::from(&self.platename);
-        let x2 = OptRootKeyword::from(&self.plateid);
-        [x0, x1, x2]
+    fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+        let x0 = OptRootKeyword::from_str(&self.wellid);
+        let x1 = OptRootKeyword::from_str(&self.platename);
+        let x2 = OptRootKeyword::from_str(&self.plateid);
+        [x0, x1, x2].into_iter().flatten()
     }
 
     fn loss_errors(self) -> impl Iterator<Item = PlateLossError> {
@@ -5985,10 +5996,10 @@ impl PeakData {
         [a, b].into_iter()
     }
 
-    pub(crate) fn opt_keywords(&self) -> [OptMeasKeyword<'_>; 2] {
-        let x = OptMeasKeyword::from(self.bin);
-        let y = OptMeasKeyword::from(self.size);
-        [x, y]
+    pub(crate) fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let x = self.bin.map(|v| OptMeasKeyword::from_value(v, i));
+        let y = self.size.map(|v| OptMeasKeyword::from_value(v, i));
+        [x, y].into_iter().flatten()
     }
 
     fn loss_errors(&self, i: MeasIndex) -> impl Iterator<Item = PeakLossError> {
@@ -7105,16 +7116,19 @@ impl ScaleTransform {
         })
     }
 
-    fn req_suffixes(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_suffixes(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         let (scale, _): (Scale, _) = (*self).into();
-        once(ReqMeasKeyword::from(scale))
+        once(ReqMeasKeyword::from_value(scale, i))
     }
 
-    fn opt_suffixes(&self) -> Option<OptMeasKeyword<'_>> {
-        let (_, gain): (_, Option<Gain>) = (*self).into();
-        (!gain.is_some_and(|g| g.0.is_one()))
-            .then_some(gain)
-            .map(OptMeasKeyword::from)
+    fn opt_keyword(&self, i: MeasIndex) -> Option<OptMeasKeyword<'_>> {
+        if let (_, Some(gain)) = (*self).into()
+            && !gain.0.is_one()
+        {
+            Some(OptMeasKeyword::from_value(gain, i))
+        } else {
+            None
+        }
     }
 
     pub(crate) fn is_noop(&self) -> bool {
@@ -7703,14 +7717,17 @@ impl LookupTemporal for InnerTemporal3_2 {
 
 impl VersionedOptical for InnerOptical2_0 {
     type Ver = Version2_0;
-    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         empty()
     }
 
-    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        let x0 = OptMeasKeyword::from(self.scale);
-        let x1 = OptMeasKeyword::from(self.wavelength);
-        [x0, x1].into_iter().chain(self.peak.opt_keywords())
+    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let x0 = self.scale.map(|v| OptMeasKeyword::from_value(v, i));
+        let x1 = self.wavelength.map(|v| OptMeasKeyword::from_value(v, i));
+        [x0, x1]
+            .into_iter()
+            .flatten()
+            .chain(self.peak.opt_keywords(i))
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
@@ -7735,14 +7752,16 @@ impl VersionedOptical for InnerOptical2_0 {
 
 impl VersionedOptical for InnerOptical3_0 {
     type Ver = Version3_0;
-    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        self.scale.req_suffixes()
+    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+        self.scale.req_suffixes(i)
     }
 
-    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        once(OptMeasKeyword::from(self.wavelength))
-            .chain(self.peak.opt_keywords())
-            .chain(self.scale.opt_suffixes())
+    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        self.wavelength
+            .map(|v| OptMeasKeyword::from_value(v, i))
+            .into_iter()
+            .chain(self.peak.opt_keywords(i))
+            .chain(self.scale.opt_keyword(i))
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
@@ -7764,18 +7783,22 @@ impl VersionedOptical for InnerOptical3_0 {
 
 impl VersionedOptical for InnerOptical3_1 {
     type Ver = Version3_1;
-    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        self.scale.req_suffixes()
+    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+        self.scale.req_suffixes(i)
     }
 
-    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        let x0 = OptMeasKeyword::from(&self.wavelengths);
-        let x1 = OptMeasKeyword::from(&self.calibration);
-        let x2 = OptMeasKeyword::from(self.display);
+    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let x0 = OptMeasKeyword::from_wavelengths(&self.wavelengths, i);
+        let x1 = self
+            .calibration
+            .as_ref()
+            .map(|v| OptMeasKeyword::from_ref(v, i));
+        let x2 = self.display.map(|v| OptMeasKeyword::from_value(v, i));
         [x0, x1, x2]
             .into_iter()
-            .chain(self.peak.opt_keywords())
-            .chain(self.scale.opt_suffixes())
+            .flatten()
+            .chain(self.peak.opt_keywords(i))
+            .chain(self.scale.opt_keyword(i))
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
@@ -7799,22 +7822,29 @@ impl VersionedOptical for InnerOptical3_1 {
 
 impl VersionedOptical for InnerOptical3_2 {
     type Ver = Version3_2;
-    fn req_keywords_inner(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
-        self.scale.req_suffixes()
+    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+        self.scale.req_suffixes(i)
     }
 
-    fn opt_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        let x0 = OptMeasKeyword::from(&self.wavelengths);
-        let x1 = OptMeasKeyword::from(&self.calibration);
-        let x2 = OptMeasKeyword::from(self.display);
-        let x3 = OptMeasKeyword::from(&self.detector_name);
-        let x4 = OptMeasKeyword::from(&self.tag);
-        let x5 = OptMeasKeyword::from(&self.measurement_type);
-        let x6 = OptMeasKeyword::from(&self.feature);
-        let x7 = OptMeasKeyword::from(&self.analyte);
+    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let x0 = OptMeasKeyword::from_str(&self.detector_name, i);
+        let x1 = OptMeasKeyword::from_str(&self.tag, i);
+        let x2 = OptMeasKeyword::from_str(&self.measurement_type, i);
+        let x3 = OptMeasKeyword::from_str(&self.analyte, i);
+        let x4 = OptMeasKeyword::from_wavelengths(&self.wavelengths, i);
+        let x5 = self
+            .calibration
+            .as_ref()
+            .map(|v| OptMeasKeyword::from_ref(v, i));
+        let x6 = self.display.map(|x| OptMeasKeyword::from_value(x, i));
+        let x7 = self
+            .feature
+            .as_ref()
+            .map(|x| OptMeasKeyword::from_ref(x, i));
         [x0, x1, x2, x3, x4, x5, x6, x7]
             .into_iter()
-            .chain(self.scale.opt_suffixes())
+            .flatten()
+            .chain(self.scale.opt_keyword(i))
     }
 
     fn nonlinear_scale_error(&self, i: MeasIndex) -> Option<OpticalNonLinearError> {
@@ -7852,13 +7882,13 @@ impl VersionedTemporal for InnerTemporal2_0 {
         None
     }
 
-    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
+    fn req_meas_keywords_inner(&self, _: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
         None
     }
 
-    fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        let s = OptMeasKeyword::from(self.scale);
-        self.peak.opt_keywords().into_iter().chain(once(s))
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let s = OptMeasKeyword::from_opt_zst(self.scale, i);
+        self.peak.opt_keywords(i).chain(s)
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
@@ -7880,15 +7910,15 @@ impl VersionedTemporal for InnerTemporal3_0 {
     type Error = Infallible;
 
     fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
-        Some(OptRootKeyword::from(self.timestep))
+        Some(OptRootKeyword::from_value(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
-        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
 
-    fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        self.peak.opt_keywords().into_iter()
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        self.peak.opt_keywords(i)
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
@@ -7910,16 +7940,16 @@ impl VersionedTemporal for InnerTemporal3_1 {
     type Error = Infallible;
 
     fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
-        Some(OptRootKeyword::from(self.timestep))
+        Some(OptRootKeyword::from_value(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
-        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
 
-    fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        let d = OptMeasKeyword::from(self.display);
-        self.peak.opt_keywords().into_iter().chain(once(d))
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        let d = self.display.map(|v| OptMeasKeyword::from_value(v, i));
+        self.peak.opt_keywords(i).chain(d)
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
@@ -7941,15 +7971,17 @@ impl VersionedTemporal for InnerTemporal3_2 {
     type Error = AnyTemporalToOpticalKeyLossError;
 
     fn opt_root_keywords_inner(&self) -> Option<OptRootKeyword<'_>> {
-        Some(OptRootKeyword::from(self.timestep))
+        Some(OptRootKeyword::from_value(self.timestep))
     }
 
-    fn req_meas_keywords_inner(&self) -> Option<ReqMeasKeyword<'_>> {
-        Some(ReqMeasKeyword::from(TemporalScale3_0::default()))
+    fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
+        Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
 
-    fn opt_meas_keywords_inner(&self) -> impl Iterator<Item = OptMeasKeyword<'_>> {
-        once(OptMeasKeyword::from(self.display))
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>> {
+        self.display
+            .map(|v| OptMeasKeyword::from_value(v, i))
+            .into_iter()
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
@@ -8601,21 +8633,21 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(self.mode))
+        once(ReqRootKeyword::from_value(self.mode))
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let dfc = self
-            .comp
+        let cyt = OptRootKeyword::from_str(&self.cyt);
+        self.comp
             .as_ref()
             .map(Compensation2_0::non_zero_indices)
             .into_iter()
             .flatten()
-            .map(OptRootKeyword::from);
-        once(OptRootKeyword::from(&self.cyt))
+            .map(|x| SplitKeyword::new(Key2::new_i2(x.col.into(), x.row.into()), x.value))
+            .map(OptRootKeyword::from)
+            .chain(cyt)
             .chain(self.applied_gates.opt_keywords())
             .chain(self.timestamps.opt_keywords())
-            .chain(dfc)
     }
 
     fn swap_optical_temporal_inner(
@@ -8714,16 +8746,17 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::Mode(self.mode))
+        once(ReqRootKeyword::from_value(self.mode))
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let x0 = OptRootKeyword::from(&self.cyt);
-        let x1 = OptRootKeyword::from(&self.comp);
-        let x2 = OptRootKeyword::from(&self.cytsn);
-        let x3 = OptRootKeyword::from(&self.unicode);
+        let x0 = OptRootKeyword::from_str(&self.cyt);
+        let x1 = OptRootKeyword::from_str(&self.cytsn);
+        let x2 = self.comp.as_ref().map(OptRootKeyword::from_ref);
+        let x3 = self.unicode.as_ref().map(OptRootKeyword::from_ref);
         [x0, x1, x2, x3]
             .into_iter()
+            .flatten()
             .chain(self.applied_gates.opt_keywords())
             .chain(self.subset.opt_keywords())
             .chain(self.timestamps.opt_keywords())
@@ -8818,16 +8851,17 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::Mode(self.mode))
+        once(ReqRootKeyword::from_value(self.mode))
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let x0 = OptRootKeyword::from(&self.cyt);
-        let x1 = OptRootKeyword::from(&self.spillover);
-        let x2 = OptRootKeyword::from(&self.cytsn);
-        let x3 = OptRootKeyword::from(self.vol);
+        let x0 = OptRootKeyword::from_str(&self.cyt);
+        let x1 = OptRootKeyword::from_str(&self.cytsn);
+        let x2 = self.spillover.as_ref().map(OptRootKeyword::from_ref);
+        let x3 = self.vol.map(OptRootKeyword::from_value);
         [x0, x1, x2, x3]
             .into_iter()
+            .flatten()
             .chain(self.applied_gates.opt_keywords())
             .chain(self.subset.opt_keywords())
             .chain(self.modification.opt_keywords())
@@ -8953,17 +8987,18 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
-        once(ReqRootKeyword::from(&self.cyt))
+        once(ReqRootKeyword::from_ref(&self.cyt))
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let x0 = OptRootKeyword::from(self.mode);
-        let x1 = OptRootKeyword::from(&self.spillover);
-        let x2 = OptRootKeyword::from(&self.cytsn);
-        let x3 = OptRootKeyword::from(self.vol);
-        let x4 = OptRootKeyword::from(&self.flowrate);
+        let x0 = OptRootKeyword::from_str(&self.cytsn);
+        let x1 = OptRootKeyword::from_str(&self.flowrate);
+        let x2 = self.mode.map(OptRootKeyword::from_value);
+        let x3 = self.spillover.as_ref().map(OptRootKeyword::from_ref);
+        let x4 = self.vol.map(OptRootKeyword::from_value);
         [x0, x1, x2, x3, x4]
             .into_iter()
+            .flatten()
             .chain(self.applied_gates.opt_keywords())
             .chain(self.unstained.opt_keywords())
             .chain(self.modification.opt_keywords())

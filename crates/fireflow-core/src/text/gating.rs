@@ -12,9 +12,11 @@ use crate::text::deprecated::{
 };
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
-    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
-    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionWindow, UniGate, Vertex,
+    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateMeasKeyword,
+    GatePercentEmitted, GateRange, GateScale, GateShortname, Gating, IndexPair,
+    Keyword0FromValue as _, Keyword1FromValue as _, MeasOrGateIndex, OptRootKeyword, Par,
+    PrefixedMeasIndex, RegionGateIndex, RegionKeyword, RegionWindow, ScaleFix, SplitKeyword1,
+    UniGate, Vertex,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptMetarootKey as _,
@@ -37,7 +39,6 @@ use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::iter::once;
 use std::mem::take;
 use std::str::FromStr;
 use thiserror::Error;
@@ -49,11 +50,6 @@ use serde::Serialize;
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
-};
-
-use super::keywords::{
-    GateMeasKeyword, IndexedGateMeasKeyword, IndexedRegionKeyword, OptRootKeyword, RegionKeyword,
-    ScaleFix,
 };
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
@@ -351,14 +347,17 @@ impl AppliedGates2_0 {
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let gate = self.gated_measurements.gate();
+        let gate = self
+            .gated_measurements
+            .gate()
+            .map(OptRootKeyword::from_value);
         self.gated_measurements
             .0
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .map(OptRootKeyword::from)
-            .chain(once(OptRootKeyword::from(gate)))
+            .chain(gate)
             .chain(self.scheme.opt_keywords())
     }
 
@@ -490,14 +489,17 @@ impl AppliedGates3_0 {
 
     // TODO not DRY (see 2.0 version)
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let gate = self.gated_measurements.gate();
+        let gate = self
+            .gated_measurements
+            .gate()
+            .map(OptRootKeyword::from_value);
         self.gated_measurements
             .0
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .map(OptRootKeyword::from)
-            .chain(once(OptRootKeyword::from(gate)))
+            .chain(gate)
             .chain(self.scheme.opt_keywords())
     }
 
@@ -672,16 +674,23 @@ impl GatedMeasurement {
         [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
-    fn opt_keywords(&self, i: GateIndex) -> [IndexedGateMeasKeyword<'_>; 8] {
-        let x0 = GateMeasKeyword::from(self.scale);
-        let x1 = GateMeasKeyword::from(&self.filter);
-        let x2 = GateMeasKeyword::from(&self.shortname);
-        let x3 = GateMeasKeyword::from(self.percent_emitted);
-        let x4 = GateMeasKeyword::from(&self.range);
-        let x5 = GateMeasKeyword::from(&self.longname);
-        let x6 = GateMeasKeyword::from(&self.detector_type);
-        let x7 = GateMeasKeyword::from(self.detector_voltage);
-        [x0, x1, x2, x3, x4, x5, x6, x7].map(|k| IndexedGateMeasKeyword::new(i, k))
+    fn opt_keywords(&self, i: GateIndex) -> impl IntoIterator<Item = GateMeasKeyword<'_>> {
+        let x0 = GateMeasKeyword::from_str(&self.filter, i);
+        let x1 = GateMeasKeyword::from_str(&self.longname, i);
+        let x2 = GateMeasKeyword::from_str(&self.detector_type, i);
+        let x3 = self.scale.map(|v| GateMeasKeyword::from_value(v, i));
+        let x4 = self
+            .shortname
+            .as_ref()
+            .map(|v| GateMeasKeyword::from_ref(v, i));
+        let x5 = self
+            .percent_emitted
+            .map(|v| GateMeasKeyword::from_value(v, i));
+        let x6 = self.range.as_ref().map(|v| GateMeasKeyword::from_ref(v, i));
+        let x7 = self
+            .detector_voltage
+            .map(|v| GateMeasKeyword::from_value(v, i));
+        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter().flatten()
     }
 
     fn demote_keywords(self, i: GateIndex, nonstd: &mut NonStdKeywords) {
@@ -894,14 +903,14 @@ impl<I> GatingScheme<I> {
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>>
     where
         I: Copy,
-        RegionKeyword: From<RegionGateIndex<I>>,
+        RegionKeyword: From<SplitKeyword1<RegionGateIndex<I>>> + From<SplitKeyword1<RegionWindow>>,
     {
-        let gating = OptRootKeyword::from(&self.gating);
+        let gating = self.gating.as_ref().map(OptRootKeyword::from_ref);
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
             .map(OptRootKeyword::from)
-            .chain(once(gating))
+            .chain(gating)
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = GatingSchemeLossError>
@@ -1053,13 +1062,15 @@ impl<I> Region<I> {
         nonstd.insert_demoted_meas(i.into(), &rw);
     }
 
-    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> [IndexedRegionKeyword; 2]
+    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> [RegionKeyword; 2]
     where
         I: Copy,
-        RegionKeyword: From<RegionGateIndex<I>>,
+        RegionKeyword: From<SplitKeyword1<RegionGateIndex<I>>> + From<SplitKeyword1<RegionWindow>>,
     {
         let (ri, rw) = self.clone().split();
-        [ri.into(), rw.into()].map(|k| IndexedRegionKeyword::new(i, k))
+        let x0 = RegionKeyword::from_value(ri, i);
+        let x1 = RegionKeyword::from_value(rw, i);
+        [x0, x1]
     }
 
     fn loss_errors(i: RegionIndex) -> impl Iterator<Item = GateRegionLossError>

@@ -102,6 +102,15 @@ pub(crate) struct Escaped<T> {
     inner: T,
 }
 
+impl<T> Escaped<T> {
+    pub(crate) fn write_str(&self, buf: &mut String)
+    where
+        Self: fmt::Display,
+    {
+        write!(buf, "{self}").expect("str write should be infallible");
+    }
+}
+
 impl<T: DisplayEscaped> fmt::Display for Escaped<&T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.inner.fmt_escaped(self.delim, f)

@@ -1,7 +1,7 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
+    AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
     SelectVersionStrategy, VersionOverride,
 };
 use crate::core::{Other, WriteHeaderAndTextConfig};
@@ -32,7 +32,6 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator a
 use num_traits::identities::Zero;
 use thiserror::Error;
 
-use std::fmt::Write as _;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
 use std::str::FromStr;
@@ -477,7 +476,6 @@ impl<T> HeaderKeywordsToWrite<T> {
         let anal_len = conf.analysis_len;
         let other_lens = &conf.other_lens()[..];
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
-        let dso = DatasetOffset(0);
 
         // Check all keywords for illegally placed delimiters
         for k in kws {
@@ -491,36 +489,28 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // write non-offset keywords to buffer
         for x in kws {
-            let esc = Escaped::new(delim, x);
-            write!(text, "{esc}").unwrap();
+            Escaped::new(delim, x).write_str(&mut text);
         }
 
         let text_len: u64 = u64::try_from(text.len()).expect("overflow") + NEXTDATA_LEN;
-        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
+        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
-        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens, dso)?;
+        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
 
-        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
+        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len, dso)?;
+        let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len)?;
 
-        let nextdata = if conf.has_nextdata.is_set() {
-            let n = anal_seg.try_next_byte().map_or(anal_begin, u64::from);
-            UintZeroPad20(n)
-        } else {
-            UintZeroPad20(0)
-        };
-        let nextdata_value = Nextdata(nextdata);
-        let nextdata_kw = OffsetKeyword::from_value(nextdata_value);
+        let nextdata = get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
-        let esc = Escaped::new(delim, &nextdata_kw);
-        write!(text, "{esc}").unwrap();
+        Escaped::new(delim, &nextdata_kw).write_str(&mut text);
 
         let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
 
-        Ok(Self::new(header, text, String::default(), nextdata_value))
+        Ok(Self::new(header, text, String::default(), nextdata))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
@@ -539,7 +529,6 @@ impl<T> HeaderKeywordsToWrite<T> {
         let data_len = conf.data_len;
         let anal_len = conf.analysis_len;
         let other_lens = &conf.other_lens()[..];
-        let dso = DatasetOffset(0);
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
         // check all keywords to ensure we have no illegally placed delimiters
@@ -555,19 +544,23 @@ impl<T> HeaderKeywordsToWrite<T> {
             }
         }
 
+        // TODO this might be optimized by pre-allocating (which would require
+        // estimating the size of TEXT a priori) or by dumping characters into a
+        // null buffer and counting them, then writing the file later. This
+        // would save memory and possibly be as fast depending on how well we
+        // can estimate the number of chars to be written.
+
         // init string buffers for primary and supp with first delim
         let mut req_text = String::from(char::from(delim));
         let mut opt_text = String::from(char::from(delim));
 
         // Write non-offset keywords to buffers.
         for x in req {
-            let esc = Escaped::new(delim, x);
-            write!(req_text, "{esc}").unwrap();
+            Escaped::new(delim, x).write_str(&mut req_text);
         }
 
         for x in opt {
-            let esc = Escaped::new(delim, x);
-            write!(opt_text, "{esc}").unwrap();
+            Escaped::new(delim, x).write_str(&mut opt_text);
         }
 
         // Compute lengths of primary and supplemental TEXT given the length of
@@ -584,11 +577,10 @@ impl<T> HeaderKeywordsToWrite<T> {
         let supp_text_len = u64::try_from(opt_text.len()).expect("overflow");
         let all_text_len = req_text_len + supp_text_len - 1;
 
-        let make_text_seg = |len| {
-            PrimaryTextSegment::try_new_with_len(prim_text_begin, len, dso).map(|seg| {
-                let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
-                (seg, other_begin)
-            })
+        let make_text_seg = |len| -> Result<_, WriteTEXTHeaderError> {
+            let seg = PrimaryTextSegment::try_new_with_len(prim_text_begin, len)?;
+            let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
+            Ok((seg, other_begin))
         };
 
         // Include STEXT only if the optional keywords don't fit within the
@@ -596,45 +588,32 @@ impl<T> HeaderKeywordsToWrite<T> {
         let prim_text_res = make_text_seg(all_text_len);
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
-                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens, dso)?;
-                (
-                    prim_text_seg,
-                    other_segs,
-                    SupplementalTextSegment::default(),
-                    next_begin,
-                )
+                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
+                let supp_text_seg = SupplementalTextSegment::default();
+                (prim_text_seg, other_segs, supp_text_seg, next_begin)
             } else {
                 let (prim_text_seg, other_begin) = make_text_seg(req_text_len)?;
-                let (other_segs, supp_text_begin) =
-                    Self::other_segments(other_begin, other_lens, dso)?;
+                let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
                 // TODO what happens if supp_text_len is 1 because there are no
                 // optional keyword?
                 let supp_text_seg =
-                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len, dso);
+                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
             };
 
-        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len, dso);
+        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
 
-        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, anal_len, dso);
+        let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
+        let anal_seg = TEXTAnalysisSegment::new_with_len(anal_begin, anal_len);
 
-        let h_analysis_seg = analysis_seg.as_header();
+        let h_anal_seg = anal_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = if conf.has_nextdata.is_set() {
-            let n = analysis_seg
-                .try_next_byte()
-                .map_or(analysis_begin, u64::from);
-            UintZeroPad20(n)
-        } else {
-            UintZeroPad20(0)
-        };
-        let nextdata_value = Nextdata(nextdata);
-        let nextdata_kw = OffsetKeyword::from_value(nextdata_value);
+        let nextdata = get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
         // Add offset keywords to the end of required TEXT buffer.
         //
@@ -644,12 +623,11 @@ impl<T> HeaderKeywordsToWrite<T> {
             .keywords()
             .into_iter()
             .chain(data_seg.keywords())
-            .chain(analysis_seg.keywords())
+            .chain(anal_seg.keywords())
             .chain(once(nextdata_kw));
 
         for x in offset_kws {
-            let esc = Escaped::new(delim, &x);
-            write!(req_text, "{esc}").unwrap();
+            Escaped::new(delim, &x).write_str(&mut req_text);
         }
 
         // Combine optional and required buffers if supp text is empty. Since
@@ -664,10 +642,9 @@ impl<T> HeaderKeywordsToWrite<T> {
             (req_text, opt_text)
         };
 
-        let header =
-            WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
+        let header = WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_anal_seg, other_segs);
 
-        Ok(Self::new(header, primary, supplemental, nextdata_value))
+        Ok(Self::new(header, primary, supplemental, nextdata))
     }
 
     pub(crate) fn h_write<W: Write>(
@@ -708,7 +685,6 @@ impl<T> HeaderKeywordsToWrite<T> {
     fn other_segments(
         begin: u64,
         other_lens: &[u64],
-        offset: DatasetOffset,
     ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
     where
         T: Copy + TryFrom<u64> + Into<u64>,
@@ -716,7 +692,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let ret = other_lens
             .iter()
             .scan(begin, |b, &length| {
-                let s = OtherSegment::try_new_with_len(*b, length, offset);
+                let s = OtherSegment::try_new_with_len(*b, length);
                 *b += length;
                 Some(s)
             })
@@ -728,6 +704,19 @@ impl<T> HeaderKeywordsToWrite<T> {
             .map_or(begin, Into::into);
         Ok((ret, next))
     }
+}
+
+fn get_nextdata<I, S, T>(seg_begin: u64, seg: &Segment<I, S, T>, flag: AppendableFlag) -> Nextdata
+where
+    T: Copy + Into<u64>,
+{
+    let ret = if flag.is_set() {
+        let n = seg.try_next_byte().map_or(seg_begin, u64::from);
+        UintZeroPad20(n)
+    } else {
+        UintZeroPad20(0)
+    };
+    Nextdata(ret)
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.

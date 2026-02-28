@@ -1102,6 +1102,16 @@ impl<I, S, T> Segment<I, S, T> {
     pub(crate) fn try_new_with_len(
         begin: u64,
         length: u64,
+    ) -> Result<Self, <T as TryFrom<u64>>::Error>
+    where
+        T: TryFrom<u64> + Copy,
+    {
+        Self::try_new_abs_with_len(begin, length, DatasetOffset(0))
+    }
+
+    pub(crate) fn try_new_abs_with_len(
+        begin: u64,
+        length: u64,
         offset: DatasetOffset,
     ) -> Result<Self, <T as TryFrom<u64>>::Error>
     where
@@ -1116,7 +1126,14 @@ impl<I, S, T> Segment<I, S, T> {
         Ok(Self::new(s))
     }
 
-    pub(crate) fn new_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
+    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
+    where
+        T: From<u64> + Copy,
+    {
+        Self::new_abs_with_len(begin, length, DatasetOffset(0))
+    }
+
+    pub(crate) fn new_abs_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
     where
         T: From<u64> + Copy,
     {

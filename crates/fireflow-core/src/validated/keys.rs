@@ -11,15 +11,18 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords as kws;
 use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
+use crate::validated::sub_pattern::SubPattern;
 
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
-use fireflow_types::nonempty_string::NEString;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, iter::NonEmptyIterator as _};
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, iter::NonEmptyIterator as _,
+};
 use thiserror::Error;
 use unicase::Ascii;
 
@@ -780,15 +783,15 @@ impl ParsedKeywords {
         val: &NESlice<u8>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
-        enum TrimResult {
-            Trimmed(bool),
+        enum TrimResult<'a> {
+            Trimmed(Cow<'a, NEStr>, bool),
             Empty(DummyTriFlag),
         }
 
         enum KeyValueResult<'a> {
             Ignore(StdKey, StringOrBytes),
             Empty(KeyOrBytes, DummyTriFlag),
-            NonEmpty(AnyKey, Cow<'a, str>, bool),
+            NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
             NonUtf8Value(AnyKey, TruncatedBytes),
             NonAsciiKey(TruncatedBytes, TruncatedString, bool),
             BothInvalid(TruncatedBytes, TruncatedBytes),
@@ -810,37 +813,36 @@ impl ParsedKeywords {
             }
         };
 
-        // TODO return nonempty string here after checking that it isn't empty
-        let check_trim = |trimmed: &str, flag| {
-            if trimmed.is_empty() {
-                TrimResult::Empty(flag)
-            } else {
-                TrimResult::Trimmed(val.len().get() < trimmed.len())
-            }
-        };
-
         let parse_value = || {
             let flag = conf.trim_value_whitespace;
             let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
             if conf.use_latin1.is_set() {
-                let it = val.iter().copied().map(char::from);
+                let it = val.into_nonempty_iter().copied().map(char::from);
                 if let Some(tf) = triflag {
-                    let trimmed: String = it
+                    if let Some(ne) = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
-                        .collect();
-                    let tres = check_trim(trimmed.as_str(), tf);
-                    Some((Cow::Owned(trimmed), tres))
+                        .try_into_nonempty_iter()
+                    {
+                        let s: NEString = ne.collect();
+                        let was_trimmed = val.len() < s.len();
+                        Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
+                    } else {
+                        Some(TrimResult::Empty(tf))
+                    }
                 } else {
-                    Some((Cow::Owned(it.collect()), TrimResult::Trimmed(false)))
+                    Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
                 }
-            } else if let Ok(vv) = str::from_utf8(val.as_ref()) {
+            } else if let Ok(vv) = NEStr::from_utf8(val) {
                 if let Some(tf) = triflag {
-                    let trimmed = vv.trim();
-                    let tres = check_trim(trimmed, tf);
-                    Some((Cow::Borrowed(trimmed), tres))
+                    if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
+                        let was_trimmed = vv.len() < trimmed.len();
+                        Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
+                    } else {
+                        Some(TrimResult::Empty(tf))
+                    }
                 } else {
-                    Some((Cow::Borrowed(vv), TrimResult::Trimmed(false)))
+                    Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
                 }
             } else {
                 None
@@ -854,10 +856,10 @@ impl ParsedKeywords {
                     KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.as_ref().to_vec()))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
-                    if let Some((value, trim_res)) = parse_value() {
+                    if let Some(trim_res) = parse_value() {
                         match trim_res {
                             TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                            TrimResult::Trimmed(was_trimmed) => {
+                            TrimResult::Trimmed(value, was_trimmed) => {
                                 KeyValueResult::NonEmpty(ak, value, was_trimmed)
                             }
                         }
@@ -868,10 +870,10 @@ impl ParsedKeywords {
             } else {
                 // Non-standard key: does not start with '$' and is ASCII
                 let ak = AnyKey::NonStd(NonStdKey(kstr));
-                if let Some((value, trim_res)) = parse_value() {
+                if let Some(trim_res) = parse_value() {
                     match trim_res {
                         TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                        TrimResult::Trimmed(was_trimmed) => {
+                        TrimResult::Trimmed(value, was_trimmed) => {
                             KeyValueResult::NonEmpty(ak, value, was_trimmed)
                         }
                     }
@@ -882,13 +884,13 @@ impl ParsedKeywords {
         } else {
             // Non-ascii key with possibly non-Utf-8 value
             let kbytes = TruncatedBytes(key.as_ref().to_vec());
-            if let Some((value, trim_res)) = parse_value() {
+            if let Some(trim_res) = parse_value() {
                 match trim_res {
                     TrimResult::Empty(flag) => {
                         KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
                     }
-                    TrimResult::Trimmed(was_trimmed) => {
-                        let tv = value.into_owned().into();
+                    TrimResult::Trimmed(value, was_trimmed) => {
+                        let tv = String::from(value.into_owned()).into();
                         KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
                     }
                 }
@@ -900,7 +902,7 @@ impl ParsedKeywords {
         match kv_res {
             KeyValueResult::NonEmpty(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = StringOrBytes::from(TruncatedString(v.as_ref().to_owned()));
+                    let vo = StringOrBytes::from(TruncatedString(v.as_ref().to_string()));
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -911,12 +913,19 @@ impl ParsedKeywords {
                             self.insert_nonunique_nonstd(kstr, vo, conf)
                         } else {
                             let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
-                            let rv = if let Some(s) = subs.get(&rk) {
-                                s.sub(v.as_ref())
+                            if let Some(&s) = subs.get(&rk) {
+                                let sub_res = s.sub(v.as_ref().as_ref());
+                                if let Ok(ne) = NEString::try_from(sub_res) {
+                                    self.insert_nonunique_std(rk, ne, conf)
+                                } else {
+                                    let sk = StdKey(rk);
+                                    let e =
+                                        SubPatternEmptyError::new(sk, v.into_owned(), s.clone());
+                                    LogResult::new_err(e.into())
+                                }
                             } else {
-                                v.into_owned()
-                            };
-                            self.insert_nonunique_std(rk, rv, conf)
+                                self.insert_nonunique_std(rk, v.into_owned(), conf)
+                            }
                         }
                     }
                     AnyKey::NonStd(NonStdKey(kstr)) => {
@@ -962,7 +971,7 @@ impl ParsedKeywords {
     fn insert_nonunique_std(
         &mut self,
         k: KeyString,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
@@ -977,7 +986,7 @@ impl ParsedKeywords {
     fn insert_nonunique_nonstd(
         &mut self,
         k: KeyString,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
@@ -993,7 +1002,7 @@ impl ParsedKeywords {
         kws: &mut HashMap<K, String>,
         nonunique: &mut Vec<(K, TruncatedString)>,
         k: K,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError>
     where
@@ -1008,7 +1017,7 @@ impl ParsedKeywords {
                     key: key.clone(),
                     value: value.clone(),
                 };
-                nonunique.push((key, TruncatedString(value)));
+                nonunique.push((key, TruncatedString(value.into())));
                 LogResult::new_deferred_switchable3((), err.into(), flag)
                     .switchable_into_non_commutative()
             }
@@ -1017,7 +1026,7 @@ impl ParsedKeywords {
                     .replace_standard_key_values
                     .get(ent.key().as_ref())
                     .map(ToString::to_string)
-                    .unwrap_or(value);
+                    .unwrap_or(value.into());
                 ent.insert(v);
                 LogResult::new_ok(())
             }
@@ -1026,7 +1035,7 @@ impl ParsedKeywords {
 
     pub(crate) fn append_std(
         &mut self,
-        new: &HashMap<KeyString, String>,
+        new: &HashMap<KeyString, NEString>,
         flag: AllowNonunique,
     ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
         let es = new
@@ -1035,11 +1044,11 @@ impl ParsedKeywords {
                 Entry::Occupied(e) => {
                     self.diag
                         .non_unique_std_keywords
-                        .push((StdKey(k.clone()), TruncatedString(v.clone())));
+                        .push((StdKey(k.clone()), TruncatedString(v.clone().into())));
                     Some(KeyPresent::new(e.key().clone(), v.clone()))
                 }
                 Entry::Vacant(e) => {
-                    e.insert(v.clone());
+                    e.insert(v.clone().into());
                     None
                 }
             });
@@ -1189,6 +1198,21 @@ pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
+    Sub(SubPatternEmptyError),
+}
+
+/// Error when applying a [`SubPattern`] resulted in an empty string.
+#[derive(Debug, PartialEq, Error, new)]
+#[error(
+    "applying substitution pattern '{pat}' to value '{value}' for key \
+     '{key}' resulted in empty string"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct SubPatternEmptyError {
+    key: StdKey,
+    value: NEString,
+    pat: SubPattern,
 }
 
 /// Error when key has blank value
@@ -1206,7 +1230,7 @@ pub struct BlankValueError(pub KeyOrBytes);
 #[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
     pub key: T,
-    pub value: String,
+    pub value: NEString,
 }
 
 /// Error when keyword has any invalid chars.

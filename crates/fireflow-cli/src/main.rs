@@ -45,6 +45,7 @@ use fireflow_types::config::{
     VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
+use fireflow_types::nonempty_string::NEString;
 
 use ansi_term::{ANSIString, Style};
 use clap::{
@@ -1527,7 +1528,8 @@ fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
 fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
     let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
     let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
-    Ok((kf, v.to_owned()))
+    let vf = v.parse::<NEString>().map_err(|e| e.to_string())?;
+    Ok((kf, vf))
 }
 
 fn parse_sub_pattern_pair(s: &str) -> StrResult<SubPatternPair> {
@@ -1610,7 +1612,7 @@ type StrResult<T> = Result<T, String>;
 
 type BiKeystringPair = (KeyString, KeyString);
 
-type KeystringStringPair = (KeyString, String);
+type KeystringStringPair = (KeyString, NEString);
 
 type SubPatternPair = (KeyStringOrPattern, SubPattern);
 

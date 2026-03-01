@@ -6435,7 +6435,12 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
-    fn new_non_empty_str(path: Path) -> Self {
+    fn new_non_empty_str() -> Self {
+        let path: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        Self::new_non_empty_str_inner(path)
+    }
+
+    fn new_non_empty_str_inner(path: Path) -> Self {
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
@@ -8938,7 +8943,7 @@ impl DocArgParam {
     fn new_replace_standard_key_values() -> Self {
         Self::new_param(
             "replace_standard_key_values",
-            PyDict::new1(PyStr::new_keystring(), PyStr::default()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_non_empty_str()),
             format!(
                 "Replace values for standard keys in {TEXT} Comparisons are case \
                  insensitive. The leading {DOLLAR_STR} is implied so do not include it."
@@ -8971,7 +8976,7 @@ impl DocArgParam {
     fn new_append_standard_keywords() -> Self {
         Self::new_param(
             "append_standard_keywords",
-            PyDict::new1(PyStr::new_keystring(), PyStr::default()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_non_empty_str()),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
                  will be included as they appear here. The leading {DOLLAR_STR} \
@@ -10063,7 +10068,7 @@ impl Kw {
             | Self::Carriertype
             | Self::Locationid
             | Self::UnstainedInfo => PyStr::default().rstype(path).into(),
-            Self::Cyt3_2 => PyStr::new_non_empty_str(path).into(),
+            Self::Cyt3_2 => PyStr::new_non_empty_str_inner(path).into(),
             Self::Abrt | Self::Lost => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
             Self::CSVBits | Self::CSTot => PyInt::new_u32().rstype(path).into(),
             Self::Unicode => {

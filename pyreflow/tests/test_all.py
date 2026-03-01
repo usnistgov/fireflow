@@ -2701,9 +2701,10 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_flat_text(
             p, replace_standard_key_values={"meaning_of_life": "explosions"}
         )
-        _ = pf.api.fcs_read_flat_text(
-            p, replace_standard_key_values={"meaning_of_life": ""}
-        )
+        with pytest.raises(pf.ParseKeywordValueError):
+            _ = pf.api.fcs_read_flat_text(
+                p, replace_standard_key_values={"meaning_of_life": ""}
+            )
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(
                 p, replace_standard_key_values={"": "notblank"}
@@ -2719,9 +2720,10 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_flat_text(
             p, append_standard_keywords={"meaning_of_life": "plutonium"}
         )
-        _ = pf.api.fcs_read_flat_text(
-            p, append_standard_keywords={"meaning_of_life": ""}
-        )
+        with pytest.raises(pf.ParseKeywordValueError):
+            _ = pf.api.fcs_read_flat_text(
+                p, append_standard_keywords={"meaning_of_life": ""}
+            )
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, append_standard_keywords={"": "notblank"})
 

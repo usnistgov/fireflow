@@ -37,6 +37,7 @@ use fireflow_types::config::{
     VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
+use fireflow_types::nonempty_string::NEString;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
@@ -1362,7 +1363,7 @@ pub struct TemporalHasOpticalKeyError {
 /// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<KeyString, String>;
+pub type KeyStringValues = HashMap<KeyString, NEString>;
 
 /// A list of patterns that match [`crate::validated::keys::StdKey`]s or
 /// [`crate::validated::keys::NonStdKey`]s.

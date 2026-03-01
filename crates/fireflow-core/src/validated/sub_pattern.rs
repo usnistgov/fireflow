@@ -1,3 +1,4 @@
+use derive_more::Display;
 use regex::Regex;
 use thiserror::Error;
 
@@ -5,11 +6,20 @@ use thiserror::Error;
 use fireflow_core_proc::DisplayAsPyErr;
 
 /// Pattern to match a string and apply a sed-like substitution operation.
-#[derive(Clone)]
+#[derive(Clone, Debug, Display)]
+#[display("s/{from}/{to}{g}", g = if self.global { "/g" } else { "" })]
 pub struct SubPattern {
     from: Regex,
     to: String,
     global: bool,
+}
+
+impl PartialEq for SubPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.from.as_str() == other.from.as_str()
+            && self.to == other.to
+            && self.global == other.global
+    }
 }
 
 impl SubPattern {

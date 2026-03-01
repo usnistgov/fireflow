@@ -1,14 +1,14 @@
 use derive_more::{AsRef, Display, Into};
 use nonempty_collections::{
-    IntoNonEmptyIterator, NEVec,
+    IntoNonEmptyIterator, NESlice, NEVec,
     iter::{FromNonEmptyIterator, NonEmptyIterator as _},
 };
 use thiserror::Error;
 
-use std::borrow::Borrow;
 use std::hash::Hash;
 use std::ptr::from_ref;
-use std::str::FromStr;
+use std::str::{FromStr, Utf8Error};
+use std::{borrow::Borrow, num::NonZeroUsize};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -34,7 +34,7 @@ pub struct NEString(String);
 
 impl Borrow<NEStr> for NEString {
     fn borrow(&self) -> &NEStr {
-        str_to_ne_unchecked(self.0.as_str())
+        NEStr::new_unchecked(self.0.as_str())
     }
 }
 
@@ -75,6 +75,11 @@ impl NEString {
         self.0.push_str(s);
     }
 
+    #[must_use]
+    pub fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.len()).unwrap()
+    }
+
     /// Like [`String::from_utf8_unchecked`] but requires a [`NEVec<u8>`].
     ///
     /// # Safety
@@ -94,7 +99,26 @@ impl NEStr {
         if s.is_empty() {
             None
         } else {
-            Some(str_to_ne_unchecked(s))
+            Some(Self::new_unchecked(s))
+        }
+    }
+
+    pub fn from_utf8<'a>(bytes: &'a NESlice<u8>) -> Result<&'a Self, Utf8Error> {
+        Ok(Self::new_unchecked(str::from_utf8(bytes.as_ref())?))
+    }
+
+    #[must_use]
+    pub fn len(&self) -> NonZeroUsize {
+        NonZeroUsize::new(self.0.len()).unwrap()
+    }
+
+    const fn new_unchecked(s: &str) -> &Self {
+        // Ripped off from ByteStr::from_bytes
+        let p: *const str = from_ref(s);
+        // SAFETY: NEStr and str have same layout
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const Self)
         }
     }
 }
@@ -125,13 +149,3 @@ impl FromStr for NEString {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct NonEmptyStringError;
-
-const fn str_to_ne_unchecked(s: &str) -> &NEStr {
-    // Ripped off from ByteStr::from_bytes
-    let p: *const str = from_ref(s);
-    // SAFETY: NEStr and str have same layout
-    unsafe {
-        #[allow(clippy::as_conversions)]
-        &*(p as *const NEStr)
-    }
-}

@@ -235,10 +235,13 @@ impl From<Vec<u8>> for StringOrBytes {
 /// The constant traits is validated to only contain ASCII characters.
 // TODO const_trait_impl will be able to clean this up once stable
 pub trait Key: Sized {
-    const C: &'static str;
+    const C: &'static NEStr;
 
     const _CHECK: () = {
-        assert!(is_alpha_underscore_str(Self::C), "C must only be letters");
+        assert!(
+            is_alpha_underscore_str(Self::C.as_str()),
+            "C must only be letters"
+        );
     };
 
     #[must_use]
@@ -255,32 +258,36 @@ pub trait Key: Sized {
     }
 }
 
+pub enum PrefixSuffix {
+    Prefix(&'static NEStr),
+    Both(&'static NEStr, &'static NEStr),
+}
+
+impl PrefixSuffix {
+    const fn as_str(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Prefix(x) => (x.as_str(), ""),
+            Self::Both(x, y) => (x.as_str(), y.as_str()),
+        }
+    }
+}
+
 /// A [`StdKey`] with one index
 ///
 /// The constant traits are validated to only contain ASCII characters.
 pub trait IndexedKey: Sized {
-    const PREFIX: &'static str;
-    const SUFFIX: &'static str;
+    const C: PrefixSuffix;
 
-    const _CHECK_PREFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::PREFIX),
-            "PREFIX must only be letters"
-        );
-    };
-
-    const _CHECK_SUFFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::SUFFIX),
-            "SUFFIX must only be letters"
-        );
+    const _CHECK: () = {
+        let (s0, s1) = Self::C.as_str();
+        assert!(is_alpha_underscore_str(s0), "prefix must only be letters");
+        assert!(is_alpha_underscore_str(s1), "suffix must only be letters");
     };
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
         // trigger compile time error if pre/suffix are anything but letters/underscore
-        Self::_CHECK_PREFIX;
-        Self::_CHECK_SUFFIX;
+        Self::_CHECK;
         let key = Key1::<Self>::new_i1(i.into());
         // TODO make this a compile time error
         StdKey::new(NEString::try_from(key.to_string()).unwrap())
@@ -292,14 +299,15 @@ pub trait IndexedKey: Sized {
 
     #[must_use]
     fn std_blank() -> String {
+        let (s0, s1) = Self::C.as_str();
         // reserve enough space for '$', prefix, suffix, and 'n'
-        let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
+        let n = s0.len() + 2 + s1.len();
         let mut s = String::new();
         s.reserve_exact(n);
         s.push('$');
-        s.push_str(Self::PREFIX);
+        s.push_str(s0);
         s.push('n');
-        s.push_str(Self::SUFFIX);
+        s.push_str(s1);
         s
     }
 
@@ -312,9 +320,10 @@ pub trait IndexedKey: Sized {
     #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
-        s.push_str(Self::PREFIX);
+        let (s0, s1) = Self::C.as_str();
+        s.push_str(s0);
         s.push_str("[1-9][0-9]*");
-        s.push_str(Self::SUFFIX);
+        s.push_str(s1);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()
     }
@@ -331,37 +340,26 @@ pub trait IndexedKey: Sized {
 ///
 /// The constant traits are validated to only contain ASCII characters.
 pub trait BiIndexedKey: Sized {
-    const PREFIX: &'static str;
-    const MIDDLE: &'static str;
-    const SUFFIX: &'static str;
+    const PREFIX: &'static NEStr;
+    const MIDDLE: &'static NEStr;
+    // we could add a suffix for completion's sake, but so far the only keyword
+    // that requires this trait is DFCmTOn which doesn't have a suffix
 
-    const _CHECK_PREFIX: () = {
+    const _CHECK: () = {
         assert!(
-            is_alpha_underscore_str(Self::PREFIX),
+            is_alpha_underscore_str(Self::PREFIX.as_str()),
             "PREFIX must only be letters"
         );
-    };
-
-    const _CHECK_MIDDLE: () = {
         assert!(
-            is_alpha_underscore_str(Self::MIDDLE),
+            is_alpha_underscore_str(Self::MIDDLE.as_str()),
             "MIDDLE must only be letters"
-        );
-    };
-
-    const _CHECK_SUFFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::SUFFIX),
-            "SUFFIX must only be letters"
         );
     };
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
         // trigger compile time error if pre/mid/suffix are anything but letters/underscore
-        Self::_CHECK_PREFIX;
-        Self::_CHECK_MIDDLE;
-        Self::_CHECK_SUFFIX;
+        Self::_CHECK;
         let key = Key2::<Self>::new_i2(i.into(), j.into());
         // TODO make this a compile time error
         StdKey::new(NEString::try_from(key.to_string()).unwrap())
@@ -371,11 +369,10 @@ pub trait BiIndexedKey: Sized {
     #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
-        s.push_str(Self::PREFIX);
+        s.push_str(Self::PREFIX.as_str());
         s.push_str("([1-9][0-9]*)");
-        s.push_str(Self::MIDDLE);
+        s.push_str(Self::MIDDLE.as_str());
         s.push_str("([1-9][0-9]*)");
-        s.push_str(Self::SUFFIX);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()
     }
@@ -524,14 +521,15 @@ impl<T: Key> fmt::Display for Key0<T> {
 
 impl<T: IndexedKey> fmt::Display for Key1<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}{}{}", T::PREFIX, self.index, T::SUFFIX)
+        let (s0, s1) = T::C.as_str();
+        write!(f, "{s0}{}{s1}", self.index)
     }
 }
 
 impl<T: BiIndexedKey> fmt::Display for Key2<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = &self.index;
-        write!(f, "{}{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1, T::SUFFIX)
+        write!(f, "{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1)
     }
 }
 

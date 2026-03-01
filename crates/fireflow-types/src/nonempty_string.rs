@@ -48,9 +48,8 @@ impl ToOwned for NEStr {
 #[macro_export]
 macro_rules! ne_str {
     ($s:expr) => {{
-        const RET: Option<&$crate::nonempty_string::NEStr> =
-            $crate::nonempty_string::NEStr::try_new($s);
-        RET.expect("String cannot be empty")
+        const _: () = assert!(!$s.is_empty(), "string cannot be empty");
+        $crate::nonempty_string::NEStr::try_new($s).unwrap()
     }};
 }
 
@@ -108,18 +107,33 @@ impl NEStr {
     }
 
     #[must_use]
-    pub fn len(&self) -> NonZeroUsize {
+    pub const fn len(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.len()).unwrap()
     }
 
+    #[must_use]
+    pub const fn as_str(&self) -> &str {
+        let p: *const Self = from_ref(self);
+        // SAFETY: NEStr and str have same layout
+        unsafe {
+            #[allow(clippy::as_conversions)]
+            &*(p as *const str)
+        }
+    }
+
     const fn new_unchecked(s: &str) -> &Self {
-        // Ripped off from ByteStr::from_bytes
         let p: *const str = from_ref(s);
         // SAFETY: NEStr and str have same layout
         unsafe {
             #[allow(clippy::as_conversions)]
             &*(p as *const Self)
         }
+    }
+}
+
+impl From<&NEStr> for NEString {
+    fn from(value: &NEStr) -> Self {
+        Self(value.as_str().to_owned())
     }
 }
 

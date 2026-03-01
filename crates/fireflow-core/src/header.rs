@@ -27,6 +27,7 @@ use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use fireflow_types::nonempty_string::NEStr;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
@@ -754,6 +755,6 @@ const OFFSETS_LEN_3_0: u64 = DATA_LEN + ANALYSIS_LEN + STEXT_LEN + NEXTDATA_LEN;
 ///
 /// Assume key does not have '$' on the front, so add 1.
 #[allow(clippy::as_conversions)]
-const fn std_key_len(s: &str) -> u64 {
-    (s.len() + 1) as u64
+const fn std_key_len(s: &NEStr) -> u64 {
+    (s.len().get() + 1) as u64
 }

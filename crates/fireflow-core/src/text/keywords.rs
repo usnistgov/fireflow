@@ -37,7 +37,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key, Key0, Key1,
-    Key2, NonStdKey, NonStdKeywords, SpecificKey, StdKeywords, TruncatedString,
+    Key2, NonStdKey, NonStdKeywords, PrefixSuffix, SpecificKey, StdKeywords, TruncatedString,
 };
 use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
@@ -3456,7 +3456,7 @@ macro_rules! newtype_opt_bool {
 macro_rules! kw_meta {
     ($t:ident, $k:expr) => {
         impl Key for $t {
-            const C: &'static str = $k;
+            const C: &'static NEStr = ne_str!($k);
         }
     };
 }
@@ -3464,8 +3464,7 @@ macro_rules! kw_meta {
 macro_rules! kw_meas {
     ($t:ident, $sfx:expr) => {
         impl IndexedKey for $t {
-            const PREFIX: &'static str = MEAS_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
+            const C: PrefixSuffix = PrefixSuffix::Both(MEAS_KW_PREFIX, ne_str!($sfx));
         }
     };
 }
@@ -3475,7 +3474,7 @@ macro_rules! kw_meta_string {
         newtype_string!($t);
 
         impl Key for $t {
-            const C: &'static str = $kw;
+            const C: &'static NEStr = ne_str!($kw);
         }
     };
 }
@@ -3485,7 +3484,7 @@ macro_rules! kw_meta_int {
         newtype_int!($t, $type);
 
         impl Key for $t {
-            const C: &'static str = $kw;
+            const C: &'static NEStr = ne_str!($kw);
         }
     };
 }
@@ -3602,8 +3601,7 @@ macro_rules! kw_time {
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
         impl IndexedKey for $t {
-            const PREFIX: &'static str = GATE_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
+            const C: PrefixSuffix = PrefixSuffix::Both(GATE_KW_PREFIX, ne_str!($sfx));
         }
         opt_meas!($t, $outer);
     };
@@ -3619,16 +3617,6 @@ macro_rules! kw_opt_gate_string {
     ($t:ident, $sfx:expr) => {
         newtype_string!($t);
         kw_opt_gate!($t, $sfx, Self);
-    };
-}
-
-macro_rules! kw_opt_region {
-    ($t:ident, $sfx:expr) => {
-        impl IndexedKey for $t {
-            const PREFIX: &'static str = REGION_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
-        }
-        opt_meas!($t, Option<Self>);
     };
 }
 
@@ -3804,9 +3792,8 @@ kw_opt_meas!(Calibration3_2, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ i
 pub struct Dfc;
 
 impl BiIndexedKey for Dfc {
-    const PREFIX: &'static str = "DFC";
-    const MIDDLE: &'static str = "TO";
-    const SUFFIX: &'static str = "";
+    const PREFIX: &'static NEStr = ne_str!("DFC");
+    const MIDDLE: &'static NEStr = ne_str!("TO");
 }
 
 impl Dfc {
@@ -3835,8 +3822,7 @@ newtype_int!(CSVFlag, u32);
 opt_meas!(CSVFlag, Option<Self>);
 
 impl IndexedKey for CSVFlag {
-    const PREFIX: &'static str = "CSV";
-    const SUFFIX: &'static str = "FLAG";
+    const C: PrefixSuffix = PrefixSuffix::Both(ne_str!("CSV"), ne_str!("FLAG"));
 }
 
 // $PKn (2.0-3.1)
@@ -3844,8 +3830,7 @@ newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, Option<Self>);
 
 impl IndexedKey for PeakBin {
-    const PREFIX: &'static str = "PK";
-    const SUFFIX: &'static str = "";
+    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PK"));
 }
 
 // $PKNn (2.0-3.1)
@@ -3853,8 +3838,7 @@ newtype_int!(PeakIndex, MeasIndex);
 opt_meas!(PeakIndex, Option<Self>);
 
 impl IndexedKey for PeakIndex {
-    const PREFIX: &'static str = "PKN";
-    const SUFFIX: &'static str = "";
+    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PKN"));
 }
 
 // 2.0-3.1 gating parameters
@@ -3870,11 +3854,14 @@ kw_opt_gate_string!(GateDetectorType, tk::DET_TYPE_KW_SUFFIX);
 kw_opt_gate_other!(GateDetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX);
 kw_opt_meta!(Gating, tk::GATING_KW, Option<Self>);
 
-kw_opt_region!(RegionWindow, REGION_WINDOW_KW_SUFFIX);
+impl IndexedKey for RegionWindow {
+    const C: PrefixSuffix = PrefixSuffix::Both(REGION_KW_PREFIX, REGION_WINDOW_KW_SUFFIX);
+}
+
+opt_meas!(RegionWindow, Option<Self>);
 
 impl<I> IndexedKey for RegionGateIndex<I> {
-    const PREFIX: &'static str = REGION_KW_PREFIX;
-    const SUFFIX: &'static str = REGION_INDEX_KW_SUFFIX;
+    const C: PrefixSuffix = PrefixSuffix::Both(REGION_KW_PREFIX, REGION_INDEX_KW_SUFFIX);
 }
 
 impl<I> Optional for RegionGateIndex<I> {
@@ -4356,9 +4343,12 @@ impl AnyKeywordClass {
             starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
         {
             // $Rn* keywords
-            if RegionGateIndex::<()>::SUFFIX.eq_ignore_ascii_case(suffix) {
+            if REGION_INDEX_KW_SUFFIX.as_ref().eq_ignore_ascii_case(suffix) {
                 Self::RegionIndex
-            } else if RegionWindow::SUFFIX.eq_ignore_ascii_case(suffix) {
+            } else if REGION_WINDOW_KW_SUFFIX
+                .as_ref()
+                .eq_ignore_ascii_case(suffix)
+            {
                 Self::RegionWindow
             } else {
                 Self::NonStandard
@@ -4383,12 +4373,12 @@ impl AnyKeywordClass {
     }
 }
 
-pub(crate) const MEAS_KW_PREFIX: &str = "P";
-pub(crate) const GATE_KW_PREFIX: &str = "G";
-pub(crate) const REGION_KW_PREFIX: &str = "R";
+pub(crate) const MEAS_KW_PREFIX: &NEStr = ne_str!("P");
+pub(crate) const GATE_KW_PREFIX: &NEStr = ne_str!("G");
+pub(crate) const REGION_KW_PREFIX: &NEStr = ne_str!("R");
 
-pub(crate) const REGION_INDEX_KW_SUFFIX: &str = "I";
-pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
+pub(crate) const REGION_INDEX_KW_SUFFIX: &NEStr = ne_str!("I");
+pub(crate) const REGION_WINDOW_KW_SUFFIX: &NEStr = ne_str!("W");
 
 const AREA: &str = "Area";
 const WIDTH: &str = "Width";

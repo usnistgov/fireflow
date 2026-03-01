@@ -566,6 +566,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// erroneously exists.
     pub trim_text_end: TrimTEXTEnd,
 
+    // TODO this could be combined with replace_std_keys where empty string
+    // means "ignore"
     /// Remove standard keys from TEXT.
     ///
     /// Comparisons will be case-insensitive. Members of this list should not

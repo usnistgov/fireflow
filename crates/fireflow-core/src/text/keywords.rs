@@ -257,7 +257,7 @@ pub enum ReqRootKeyword<'a> {
     Cyt(RefKeyword0<'a, Cyt3_2>),
 }
 
-pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a String>;
+pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
 
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
@@ -573,7 +573,7 @@ where
 
 impl AsKeywordPair for NonStdKeyword<'_> {
     fn as_key_pair(&self) -> (AnyKey, String) {
-        (self.key.clone().into(), self.value.clone())
+        (self.key.clone().into(), self.value.to_string())
     }
 }
 

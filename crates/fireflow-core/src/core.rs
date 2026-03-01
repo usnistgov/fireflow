@@ -106,6 +106,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey, TriFlag};
+use fireflow_types::nonempty_string::NEStr;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1990,7 +1991,7 @@ impl<T> Temporal<T> {
             .common
             .nonstandard_keywords
             .iter()
-            .map(|(k, v)| NonStdKeyword::new(k, v))
+            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
             .map(StdOrNonStdOptMeasKeyword::from);
         self.opt_meas_keywords(i)
             .map(StdOrNonStdOptMeasKeyword::from)
@@ -2125,7 +2126,7 @@ impl<O> Optical<O> {
             .common
             .nonstandard_keywords
             .iter()
-            .map(|(k, v)| NonStdKeyword::new(k, v))
+            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
             .map(StdOrNonStdOptMeasKeyword::from);
         self.opt_indexed_keywords(i)
             .map(StdOrNonStdOptMeasKeyword::from)
@@ -2264,7 +2265,7 @@ where
         let ns = self
             .nonstandard_keywords
             .iter()
-            .map(|(k, v)| NonStdKeyword::new(k, v))
+            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
             .map(StdOrNonStdOptRootKeyword::from);
         [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12]
             .into_iter()

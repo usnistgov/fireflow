@@ -27,7 +27,7 @@ use crate::text::relational::{
     IndicesToRemove, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
+    DKey1, IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
 };
 use type_families::{
     ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1,
@@ -45,6 +45,8 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::keywords::{RegionWindowRef, RegionWindowSplitKeyword, SplitKeyword};
 
 #[cfg(feature = "python")]
 use {
@@ -900,10 +902,11 @@ impl<I> GatingScheme<I> {
         nonstd.insert_demoted_metaroot_opt(self.gating.as_ref());
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>>
+    pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionKeyword: From<SplitKeyword1<RegionGateIndex<I>>> + From<SplitKeyword1<RegionWindow>>,
+        RegionKeyword<'a>:
+            From<SplitKeyword1<RegionGateIndex<I>>> + From<RegionWindowSplitKeyword<'a>>,
     {
         let gating = self.gating.as_ref().map(OptRootKeyword::from_ref);
         self.regions
@@ -1062,14 +1065,23 @@ impl<I> Region<I> {
         nonstd.insert_demoted_meas(i.into(), &rw);
     }
 
-    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> [RegionKeyword; 2]
+    pub(crate) fn opt_keywords<'a>(&'a self, i: RegionIndex) -> [RegionKeyword<'a>; 2]
     where
         I: Copy,
-        RegionKeyword: From<SplitKeyword1<RegionGateIndex<I>>> + From<SplitKeyword1<RegionWindow>>,
+        RegionKeyword<'a>:
+            From<SplitKeyword1<RegionGateIndex<I>>> + From<RegionWindowSplitKeyword<'a>>,
     {
-        let (ri, rw) = self.clone().split();
+        let ri = match self {
+            Self::Univariate(r) => RegionGateIndex::Univariate(r.index),
+            Self::Bivariate(r) => RegionGateIndex::Bivariate(r.index),
+        };
+        let rw = match self {
+            Self::Univariate(r) => RegionWindowRef::Univariate(&r.gate),
+            Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
+        };
         let x0 = RegionKeyword::from_value(ri, i);
-        let x1 = RegionKeyword::from_value(rw, i);
+        let rk = DKey1::new_i1(i.into());
+        let x1 = RegionKeyword::from(SplitKeyword::new(rk, rw));
         [x0, x1]
     }
 

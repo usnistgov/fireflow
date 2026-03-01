@@ -264,7 +264,7 @@ pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a String>;
 #[delegate(DisplayEscaped)]
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
-    GateRegion(RegionKeyword),
+    GateRegion(RegionKeyword<'a>),
     Dfc(SplitKeyword<DKey2<Dfc>, f32>),
     UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters<'a>>),
     Timestep(SplitKeyword0<Timestep>),
@@ -373,12 +373,11 @@ pub enum GateMeasKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsKeywordPair)]
 #[delegate(DisplayEscaped)]
-pub enum RegionKeyword {
+pub enum RegionKeyword<'a> {
     GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
     GateIndex3_0(SplitKeyword1<RegionGateIndex<MeasOrGateIndex>>),
     GateIndex3_2(SplitKeyword1<RegionGateIndex<PrefixedMeasIndex>>),
-    // TODO borrow this? has several vecs that need to be cloned
-    Window(SplitKeyword1<RegionWindow>),
+    Window(RegionWindowSplitKeyword<'a>),
 }
 
 #[derive(Clone, Display, new)]
@@ -405,6 +404,8 @@ pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
 
 pub type NEStringKeyword<'a, K> = SplitKeyword<K, &'a NEStr>;
 pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
+
+pub type RegionWindowSplitKeyword<'a> = SplitKeyword<DKey1<RegionWindow>, RegionWindowRef<'a>>;
 
 impl<T> SplitKeyword0<T> {
     pub(crate) fn from_value0(value: T) -> Self {
@@ -548,7 +549,7 @@ impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
-impl Keyword1FromValue<'_> for RegionKeyword {}
+impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
 #[delegatable_trait]
 pub(crate) trait AsKeywordPair {
@@ -2383,12 +2384,25 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
+// TODO this display shouldn't be needed
 #[derive(Clone, Display, Debug, PartialEq)]
 pub enum RegionWindow {
     #[display("{_0}")]
     Univariate(UniGate),
     #[display("{}", _0.iter().join(";"))]
     Bivariate(NEVec<Vertex>),
+}
+
+/// A reference to the contents of [`RegionWindow`].
+///
+/// This is necessary since internally these values are separate and cannot
+/// be borrowed using [`RegionWindow`].
+#[derive(Clone, Display)]
+pub enum RegionWindowRef<'a> {
+    #[display("{_0}")]
+    Univariate(&'a UniGate),
+    #[display("{}", _0.iter().join(";"))]
+    Bivariate(NESlice<'a, Vertex>),
 }
 
 /// A vertex on a polygon gate

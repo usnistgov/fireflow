@@ -826,6 +826,7 @@ dependencies = [
  "derive_more",
  "fireflow-core-proc",
  "itertools 0.14.0",
+ "nonempty-collections",
  "phf 0.13.1",
  "phf_codegen",
  "pyo3",

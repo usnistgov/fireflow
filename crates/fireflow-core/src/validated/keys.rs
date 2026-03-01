@@ -12,12 +12,17 @@ use crate::text::keywords as kws;
 use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 
+use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
+use fireflow_types::nonempty_string::NEString;
+
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use itertools::Itertools as _;
-use nonempty_collections::NESlice;
+use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, iter::NonEmptyIterator as _};
+use thiserror::Error;
+use unicase::Ascii;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -27,8 +32,6 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::OnceLock;
-use thiserror::Error;
-use unicase::Ascii;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -69,7 +72,7 @@ pub struct NonStdKey(KeyString);
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(str)]
-pub struct KeyString(Ascii<String>);
+pub struct KeyString(Ascii<NEString>);
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
@@ -240,7 +243,8 @@ pub trait Key: Sized {
     fn std() -> StdKey {
         Self::_CHECK;
         let key = Key0::<Self>::default();
-        StdKey::new(key.to_string())
+        // TODO make this a compile time error
+        StdKey::new(NEString::try_from(key.to_string()).unwrap())
     }
 
     fn self_std(&self) -> StdKey {
@@ -275,7 +279,8 @@ pub trait IndexedKey: Sized {
         Self::_CHECK_PREFIX;
         Self::_CHECK_SUFFIX;
         let key = Key1::<Self>::new_i1(i.into());
-        StdKey::new(key.to_string())
+        // TODO make this a compile time error
+        StdKey::new(NEString::try_from(key.to_string()).unwrap())
     }
 
     fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
@@ -355,7 +360,8 @@ pub trait BiIndexedKey: Sized {
         Self::_CHECK_MIDDLE;
         Self::_CHECK_SUFFIX;
         let key = Key2::<Self>::new_i2(i.into(), j.into());
-        StdKey::new(key.to_string())
+        // TODO make this a compile time error
+        StdKey::new(NEString::try_from(key.to_string()).unwrap())
     }
 
     /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
@@ -591,7 +597,7 @@ impl NonStdKeywordsExt for HashMap<NonStdKey, String> {
 }
 
 impl KeyString {
-    fn new(s: String) -> Self {
+    fn new(s: NEString) -> Self {
         Self(Ascii::new(s))
     }
 
@@ -601,7 +607,8 @@ impl KeyString {
 
     fn from_bytes_maybe(xs: &NESlice<u8>, latin1: UseLatin1) -> Option<Self> {
         if latin1.is_set() {
-            Some(Self::new(xs.iter().copied().map(char::from).collect()))
+            let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
+            Some(Self::new(ne))
         } else if is_printable_ascii(xs.as_ref()) {
             // SAFETY: we just checked that the bytes are only ASCII chars
             Some(unsafe { Self::from_bytes(xs) })
@@ -611,8 +618,9 @@ impl KeyString {
     }
 
     unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
+        let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
-        Self::new(unsafe { String::from_utf8_unchecked(xs.as_ref().to_vec()) })
+        Self::new(unsafe { NEString::from_utf8_unchecked(ne) })
     }
 }
 
@@ -631,7 +639,7 @@ impl StdKey {
         Ascii::new(self.0.0.as_ref())
     }
 
-    fn new(s: String) -> Self {
+    fn new(s: NEString) -> Self {
         Self(KeyString::new(s))
     }
 
@@ -655,22 +663,18 @@ impl StdKey {
     }
 }
 
-impl NonStdKey {
-    fn new(s: String) -> Self {
-        Self(KeyString::new(s))
-    }
-}
-
 impl FromStr for KeyString {
     type Err = AsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            Err(AsciiStringError::Empty)
-        } else if !is_printable_ascii(s.as_ref()) {
-            Err(AsciiStringError::Ascii(s.into()))
+        if let Ok(ne) = s.parse::<NEString>() {
+            if is_printable_ascii(s.as_ref()) {
+                Ok(Self(Ascii::new(ne)))
+            } else {
+                Err(AsciiStringError::Ascii(s.into()))
+            }
         } else {
-            Ok(Self(Ascii::new(s.into())))
+            Err(AsciiStringError::Empty)
         }
     }
 }
@@ -701,7 +705,7 @@ impl FromStr for NonStdKey {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
         if has_no_std_prefix(ks.as_ref().as_bytes()) {
-            Ok(Self::new(ks.to_string()))
+            Ok(Self(ks))
         } else {
             Err(NonStdKeyError::Prefix(ks))
         }
@@ -1368,7 +1372,7 @@ mod tests {
     fn fromstr_std_key() {
         let s = "$MAJESTY";
         let k = s.parse::<StdKey>().unwrap();
-        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
+        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".parse().unwrap()))), k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
@@ -1390,17 +1394,16 @@ mod tests {
     fn fromstr_std_key_nonascii() {
         let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
         let k = s.parse::<StdKey>();
-        assert_eq!(
-            Err(StdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
-            k
-        );
+        let e = StdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
     fn fromstr_std_key_noprefix() {
         let s = "IMBROKE";
         let k = s.parse::<StdKey>();
-        assert_eq!(Err(StdKeyError::Prefix(KeyString(Ascii::new(s.into())))), k);
+        let e = StdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
@@ -1421,7 +1424,8 @@ mod tests {
     fn fromstr_nonstd_key() {
         let s = "YTSEJAM";
         let k = s.parse::<NonStdKey>().unwrap();
-        assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
+        let ns = NonStdKey(KeyString(Ascii::new("YTSEJAM".parse().unwrap())));
+        assert_eq!(ns, k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
@@ -1443,20 +1447,16 @@ mod tests {
     fn fromstr_nonstd_key_nonascii() {
         let s = "サイ";
         let k = s.parse::<NonStdKey>();
-        assert_eq!(
-            Err(NonStdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
-            k
-        );
+        let e = NonStdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
     fn fromstr_nonstd_key_hasprefix() {
         let s = "$IMRICH";
         let k = s.parse::<NonStdKey>();
-        assert_eq!(
-            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.into())))),
-            k
-        );
+        let e = NonStdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+        assert_eq!(Err(e), k);
     }
 
     #[test]

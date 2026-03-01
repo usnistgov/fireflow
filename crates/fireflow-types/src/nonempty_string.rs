@@ -1,4 +1,8 @@
 use derive_more::{AsRef, Display, Into};
+use nonempty_collections::{
+    IntoNonEmptyIterator, NEVec,
+    iter::{FromNonEmptyIterator, NonEmptyIterator as _},
+};
 use thiserror::Error;
 
 use std::borrow::Borrow;
@@ -47,19 +51,19 @@ macro_rules! ne_str {
         const RET: Option<&$crate::nonempty_string::NEStr> =
             $crate::nonempty_string::NEStr::try_new($s);
         RET.expect("String cannot be empty")
-        // This move is ripped off from ByteStr::from_bytes, except that we use
-        // a macro here to ensure that such str's can only be made at compile
-        // time so that the non-empty property can be checked. After checking,
-        // double cast to the wrapper type and return a reference to it.
-        // const _: () = assert!(!$s.is_empty(), "String cannot be empty");
-        // let p = std::ptr::from_ref($s);
-        // // SAFETY: `NEStr` is a transparent wrapper around `str`, so we can turn
-        // // a reference to the wrapped type into a reference to the wrapper type.
-        // unsafe {
-        //     #[allow(clippy::as_conversions)]
-        //     &*(p as *const $crate::nonempty_string::NEStr)
-        // }
     }};
+}
+
+impl FromNonEmptyIterator<char> for NEString {
+    fn from_nonempty_iter<I>(iter: I) -> Self
+    where
+        I: IntoNonEmptyIterator<Item = char>,
+    {
+        let (x0, xs) = iter.into_nonempty_iter().next();
+        let mut s = String::from(x0);
+        s.extend(xs);
+        Self(s)
+    }
 }
 
 impl NEString {
@@ -69,6 +73,18 @@ impl NEString {
 
     pub fn push_str(&mut self, s: &str) {
         self.0.push_str(s);
+    }
+
+    /// Like [`String::from_utf8_unchecked`] but requires a [`NEVec<u8>`].
+    ///
+    /// # Safety
+    ///
+    /// The user must ensure bytes are valid UTF-8.
+    #[must_use]
+    pub unsafe fn from_utf8_unchecked(bytes: NEVec<u8>) -> Self {
+        // SAFETY: unsafe function
+        let ret = unsafe { String::from_utf8_unchecked(bytes.into()) };
+        Self(ret)
     }
 }
 
@@ -83,15 +99,23 @@ impl NEStr {
     }
 }
 
+impl TryFrom<String> for NEString {
+    type Error = NonEmptyStringError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Err(NonEmptyStringError)
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
 impl FromStr for NEString {
     type Err = NonEmptyStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            Err(NonEmptyStringError)
-        } else {
-            Ok(Self(s.to_owned()))
-        }
+        Self::try_from(s.to_owned())
     }
 }
 

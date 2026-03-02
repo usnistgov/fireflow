@@ -1041,15 +1041,6 @@ impl Timestep {
 
 pub(crate) type TimestepAdded = bool;
 
-/// The value of the $VOL keyword
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[into(NonNegFloat, f32)]
-pub struct Vol(pub NonNegFloat);
-
-impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
-
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
@@ -2927,6 +2918,11 @@ macro_rules! impl_non_neg_float {
 
         impl_newtype_try_from!($t, NonNegFloat, f32, RangedFloatError);
     };
+}
+
+impl_non_neg_float! {
+    /// The value of the $VOL key.
+    Vol
 }
 
 impl_non_neg_float! {

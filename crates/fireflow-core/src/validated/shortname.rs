@@ -2,8 +2,12 @@ use crate::text::index::MeasIndex;
 
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::NEString;
-use fireflow_types::{config::DEDUP_PNN_SEP, nonempty_string::NonEmptyStringError};
+use fireflow_types::{
+    config::DEDUP_PNN_SEP,
+    nonempty_string::{NonEmptyStringError, ToDisplayNE, ambassador_impl_ToDisplayNE},
+};
 
+use ambassador::Delegate;
 use derive_more::{AsRef, Display, From, Into};
 use std::str::FromStr;
 use thiserror::Error;
@@ -20,10 +24,11 @@ use {
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas or be empty.
-#[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Shortname(NEString);
 
 impl Shortname {

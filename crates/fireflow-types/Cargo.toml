@@ -14,7 +14,10 @@ const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true }
 phf = { workspace = true, features = ["macros", "unicase"] }
 unicase = { workspace = true }
+bigdecimal = { workspace = true }
 nonempty-collections = { workspace = true }
+ambassador = { workspace = true }
+derive-new = { workspace = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 

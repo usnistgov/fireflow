@@ -8,14 +8,18 @@ use crate::text::relational::{
 };
 use crate::validated::keys::{BiIndex, Key2, SpecificKey, StdKeywords};
 
+use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEDelim, ToDisplayNE};
+
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty_collections::{
-    IntoIteratorExt as _, NonEmptyArrayExt as _, iter::NonEmptyIterator as _,
+    IntoIteratorExt as _, NEVec, NonEmptyArrayExt as _, iter::NonEmptyIterator as _,
 };
-use std::fmt;
 use thiserror::Error;
+
+use std::fmt;
+use std::num::NonZeroUsize;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -42,6 +46,18 @@ pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
     matrix: DMatrix<f32>,
+}
+
+impl<'a> ToDisplayNE<'a> for Compensation {
+    type NE = NEConcat3<NonZeroUsize, char, NEDelim<NEVec<f32>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let n = NonZeroUsize::new(self.matrix.ncols()).expect("matrix should be at least 2x2");
+        // DMatrix slices are column major, so transpose first to output
+        // row-major
+        let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())
+            .expect("matrix should be at least 2x2");
+        NEConcat::new(n, ',').append(NEDelim::new(',', xs))
+    }
 }
 
 /// The value of one $DFCmTOn keyword.

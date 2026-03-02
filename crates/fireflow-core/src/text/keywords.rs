@@ -45,15 +45,18 @@ use crate::validated::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
 
-use nonempty_collections::NESlice;
+use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{
     EnumStrIter as _, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
 };
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
-use fireflow_types::nonempty_string::{NEStr, NEString};
-use fireflow_types::{impl_str_enum, ne_str};
+use fireflow_types::nonempty_string::{
+    DisplayNE, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr, NEString, ToDisplayNE,
+    ambassador_impl_ToDisplayNE,
+};
+use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
@@ -128,13 +131,17 @@ struct EscapedFormatter<'a, 'b> {
 }
 
 impl EscapedFormatter<'_, '_> {
-    fn write_with_delim<V: fmt::Display>(&mut self, v: V, escape: bool) -> fmt::Result {
+    fn write_with_delim<V>(&mut self, v: &V, escape: bool) -> fmt::Result
+    where
+        for<'a> V: ToDisplayNE<'a>,
+    {
         let delim = self.delim;
+        let w = v.to_ne().wrap();
         if escape {
-            write!(self, "{v}")?;
+            write!(self, "{w}")?;
             write!(self.inner, "{delim}")
         } else {
-            write!(self.inner, "{v}{delim}")
+            write!(self.inner, "{w}{delim}")
         }
     }
 }
@@ -165,8 +172,8 @@ impl fmt::Write for EscapedFormatter<'_, '_> {
 
 impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
 where
-    DollarKey<K, I>: fmt::Display,
-    V: fmt::Display,
+    for<'a> DollarKey<K, I>: ToDisplayNE<'a>,
+    for<'a> V: ToDisplayNE<'a>,
 {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut xf = EscapedFormatter { delim, inner: f };
@@ -182,7 +189,7 @@ impl DisplayEscaped for NonStdKeyword<'_> {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut xf = EscapedFormatter { delim, inner: f };
         xf.write_with_delim(self.key, true)?;
-        xf.write_with_delim(self.value, true)?;
+        xf.write_with_delim(&self.value, true)?;
         Ok(())
     }
 }
@@ -266,7 +273,7 @@ pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword<'a>),
     Dfc(SplitKeyword<DKey2<Dfc>, f32>),
-    UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters<'a>>),
+    UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters>),
     Timestep(SplitKeyword0<Timestep>),
     CSMode(SplitKeyword0<CSMode>),
     CSVFlag(SplitKeyword1<CSVFlag>),
@@ -679,11 +686,13 @@ impl HasDelim for GateMeasKeyword<'_> {
     }
 }
 
+// TODO not DRY, this is like the other offsets
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add, PartialEq)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add, PartialEq, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, UintZeroPad20)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Nextdata(pub UintZeroPad20);
 
 impl Nextdata {
@@ -785,6 +794,16 @@ pub enum Scale {
     Log(LogScale),
 }
 
+impl<'a> ToDisplayNE<'a> for Scale {
+    type NE = NEAlt<&'a NEStr, LogScale>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Linear => NEAlt::Left(ne_str!("0,0")),
+            Self::Log(x) => NEAlt::Right(*x),
+        }
+    }
+}
+
 /// Diagnostic data from parsing $PnE
 #[derive(Clone, PartialEq, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -822,6 +841,13 @@ pub enum ScaleFix {
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
+}
+
+impl<'a> ToDisplayNE<'a> for LogScale {
+    type NE = NEDelim<[PositiveFloat; 2]>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEDelim::new(',', [self.decades, self.offset])
+    }
 }
 
 impl Scale {
@@ -959,8 +985,9 @@ impl LogRangeError {
 }
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
+#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Gain(pub PositiveFloat);
 
 impl Gain {
@@ -1007,10 +1034,11 @@ pub enum LookupTemporalGainError {
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, From, FromStr, Display, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Display, Into, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Timestep(pub PositiveFloat);
 
 impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
@@ -1053,6 +1081,13 @@ pub struct Trigger {
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+impl<'a> ToDisplayNE<'a> for Trigger {
+    type NE = NEConcat3<&'a Shortname, char, u32>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(&self.measurement, ',').append(self.threshold)
+    }
 }
 
 impl HasDelim for Trigger {
@@ -1140,10 +1175,10 @@ pub enum TriggerError {
     IntFormat(ParseIntError),
 }
 
-impl_str_enum!(
+impl_str_enum_kw!(
     /// The values used for the $MODE key (up to 3.1)
     #[derive(PartialEq, Eq, Default, Display, Debug)]
-    #[display("{}", self.into_str())]
+    #[display("{}", self.as_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     Mode,
@@ -1174,6 +1209,13 @@ pub enum DeprecatedModeWarning {
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[display("L")]
 pub struct Mode3_2;
+
+impl<'a> ToDisplayNE<'a> for Mode3_2 {
+    type NE = &'a NEStr;
+    fn to_ne(&'a self) -> Self::NE {
+        ne_str!("L")
+    }
+}
 
 impl FromStr for Mode3_2 {
     type Err = Mode3_2Error;
@@ -1225,6 +1267,21 @@ pub enum Display {
         offset: PositiveFloat,
         decades: PositiveFloat,
     },
+}
+
+impl<'a> ToDisplayNE<'a> for Display {
+    type NE = NEConcat5<&'a NEStr, char, f32, char, f32>;
+    fn to_ne(&'a self) -> Self::NE {
+        let (m, x, y) = match self {
+            Self::Lin { lower, upper } => (ne_str!("Linear"), *lower, *upper),
+            Self::Log { offset, decades } => (
+                ne_str!("Logarithmic"),
+                f32::from(*offset),
+                f32::from(*decades),
+            ),
+        };
+        NEConcat::new(m, ',').append(x).append(',').append(y)
+    }
 }
 
 impl FromStrDelim for Display {
@@ -1280,10 +1337,10 @@ pub enum DisplayError {
     Log(f32, f32),
 }
 
-impl_str_enum!(
+impl_str_enum_kw!(
     /// The three values for the $PnDATATYPE keyword (3.2+)
     #[derive(PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
-    #[display("{}", self.into_str())]
+    #[display("{}", self.as_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     NumType,
@@ -1301,8 +1358,9 @@ impl_str_enum!(
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display, Debug)]
+#[derive(Clone, Copy, From, Display, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
     O2(SizedByteOrd<2>),
@@ -1398,8 +1456,9 @@ impl ByteOrd2_0 {
 }
 
 /// The $BYTEORD field in FCS 3.1 and 3.2
-#[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
+#[derive(Clone, Copy, From, Display, FromStr, Default, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct ByteOrd3_1(pub Endian);
 
 impl From<NoByteOrd<false>> for ByteOrd3_1 {
@@ -1408,10 +1467,10 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
     }
 }
 
-impl_str_enum!(
+impl_str_enum_kw!(
     /// The four allowed values for the $DATATYPE keyword.
     #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
-    #[display("{}", self.into_str())]
+    #[display("{}", self.as_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     AlphaNumType,
@@ -1517,6 +1576,13 @@ impl TryFrom<AlphaNumType> for NumType {
 #[display("0,0")]
 pub struct TemporalScaleInner;
 
+impl<'a> ToDisplayNE<'a> for TemporalScaleInner {
+    type NE = &'a NEStr;
+    fn to_ne(&'a self) -> Self::NE {
+        ne_str!("0,0")
+    }
+}
+
 #[derive(Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TemporalScaleFix {
@@ -1554,7 +1620,8 @@ impl FromStrDelim for TemporalScaleInner {
 impl_from_str_with_delim!(TemporalScaleInner, TemporalScaleError);
 
 /// The value of the $PnE key for temporal measurements (3.0+)
-#[derive(Clone, PartialEq, Display, Debug, Default)]
+#[derive(Clone, PartialEq, Display, Debug, Default, Delegate)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
 
 impl FromStrWith for TemporalScale3_0 {
@@ -1617,6 +1684,13 @@ pub struct TemporalScaleError;
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: NEString,
+}
+
+impl<'a> ToDisplayNE<'a> for Calibration3_1 {
+    type NE = NEConcat3<PositiveFloat, char, &'a NEStr>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(self.slope, ',').append(self.unit.as_ne_str())
+    }
 }
 
 impl HasDelim for Calibration3_1 {
@@ -1686,6 +1760,17 @@ pub struct Calibration3_2 {
     pub unit: NEString,
 }
 
+impl<'a> ToDisplayNE<'a> for Calibration3_2 {
+    type NE = NEConcat5<PositiveFloat, char, f32, char, &'a NEStr>;
+    fn to_ne(&'a self) -> Self::NE {
+        // NOTE offset will always be written even if it is zero
+        NEConcat::new(self.slope, ',')
+            .append(self.offset)
+            .append(',')
+            .append(self.unit.as_ne_str())
+    }
+}
+
 impl HasDelim for Calibration3_2 {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.unit.has_delim(d)
@@ -1750,11 +1835,13 @@ impl Calibration3_2 {
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct CalibrationLossError(MeasIndex, f32);
 
+// TODO combine pos floats into one macro
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
+#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Wavelength(pub PositiveFloat);
 
 impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
@@ -1776,6 +1863,15 @@ pub struct Wavelengths(pub Vec<PositiveFloat>);
 #[derive(Clone, Display)]
 #[display("{}", self.0.iter().join(","))]
 pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
+
+impl<'a> ToDisplayNE<'a> for NEWavelengths<'a> {
+    type NE = NEDelim<NESlice<'a, PositiveFloat>>;
+    fn to_ne(&'a self) -> Self::NE {
+        // TODO this should be in the NE collections lib
+        let xs = NESlice::try_from_slice(self.0.as_ref()).unwrap();
+        NEDelim::new(',', xs)
+    }
+}
 
 impl DisplayMaybe for Wavelengths {
     fn display_maybe(&self) -> Option<String> {
@@ -1870,6 +1966,18 @@ pub enum WavelengthsError {
 #[display("{}.{:02}", _0.format(DATETIME_FMT), _0.nanosecond() / 10_000_000)]
 pub struct LastModified(pub NaiveDateTime);
 
+impl<'a> ToDisplayNE<'a> for LastModified {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        let mut s = NEString::try_from(self.0.format(DATETIME_FMT).to_string())
+            .expect("format should be non-empty");
+        let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
+        s.push('.');
+        s.push_str(cc.as_str());
+        s
+    }
+}
+
 impl FromStrWith for LastModified {
     type Err = LastModifiedError;
     type Payload<'a> = ();
@@ -1918,10 +2026,10 @@ pub enum LastModifiedError {
     Format,
 }
 
-impl_str_enum!(
+impl_str_enum_kw!(
     /// The value for the $ORIGINALITY key (3.1+)
     #[derive(PartialEq, Debug, Display)]
-    #[display("{}", self.into_str())]
+    #[display("{}", self.as_str())]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     Originality,
@@ -1936,10 +2044,11 @@ impl_str_enum!(
 );
 
 /// The value of the $COMP keyword (3.0 only)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
+#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Compensation3_0(pub Compensation);
 
 impl FromStrWith for Compensation3_0 {
@@ -2032,6 +2141,23 @@ pub struct Unicode {
     pub kws: Vec<NEString>,
 }
 
+// TODO fixme, the correct type with a slice complains about not being general enough
+impl<'a> ToDisplayNE<'a> for Unicode {
+    // type NE = NEConcatR<u32, NEConcat<char, NEDelim<NEVec<&'a NEStr>>>>;
+    type NE = u32;
+    fn to_ne(&'a self) -> Self::NE {
+        self.page
+        // let kws = self
+        //     .kws
+        //     .iter()
+        //     .map(|s| s.as_ne_str())
+        //     .try_into_nonempty_iter()
+        //     .map(|ne| NEDelim::new(',', ne.collect::<NEVec<_>>()))
+        //     .map(|kws| NEConcat::new(',', kws));
+        // NEConcat::new(self.page, kws)
+    }
+}
+
 impl HasDelim for Unicode {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.kws.iter().find_map(|x| x.has_delim(d))
@@ -2119,9 +2245,10 @@ impl FromStr for TemporalTypeInner {
 pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug, Display, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum Feature {
     #[display("{_0}")]
     Optical(OpticalFeature),
@@ -2175,38 +2302,23 @@ impl FromStrWith for Feature {
     }
 }
 
-/// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum OpticalFeature {
-    #[display("{}", AREA)]
-    Area,
-    #[display("{}", WIDTH)]
-    Width,
-    #[display("{}", HEIGHT)]
-    Height,
-}
-
-impl FromStr for OpticalFeature {
-    type Err = OpticalFeatureError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            AREA => Ok(Self::Area),
-            WIDTH => Ok(Self::Width),
-            HEIGHT => Ok(Self::Height),
-            _ => Err(OpticalFeatureError),
-        }
-    }
-}
-
-/// Error when parsing [`Feature`] (optical only)
-#[derive(Debug, Error)]
-#[error("must be one of 'Area', 'Width', or 'Height'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct OpticalFeatureError;
+// TODO this does too much, we only need this inside another enum, and the
+// error struct is useless
+impl_str_enum_kw!(
+    /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
+    #[derive(PartialEq, Debug, Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    OpticalFeature,
+    /// Error when parsing [`Feature`] (optical only)
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    OpticalFeatureError,
+    Area   => ne_str!("Area"),
+    Width  => ne_str!("Width"),
+    Height => ne_str!("Height")
+);
 
 /// Error when parsing [`Feature`]
 #[derive(Debug, Error)]
@@ -2228,6 +2340,19 @@ pub enum RegionGateIndex<I> {
     Bivariate(IndexPair<I>),
 }
 
+impl<'a, I> ToDisplayNE<'a> for RegionGateIndex<I>
+where
+    for<'b> I: ToDisplayNE<'b> + Copy,
+{
+    type NE = NEAlt<I, IndexPair<I>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(*x),
+            Self::Bivariate(x) => NEAlt::Right(*x),
+        }
+    }
+}
+
 /// The two indices of a bivariate gate
 #[derive(Clone, Copy, PartialEq, Display, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -2235,6 +2360,16 @@ pub enum RegionGateIndex<I> {
 pub struct IndexPair<I> {
     pub x: I,
     pub y: I,
+}
+
+impl<'a, I> ToDisplayNE<'a> for IndexPair<I>
+where
+    for<'b> I: ToDisplayNE<'b> + Copy,
+{
+    type NE = NEDelim<[I; 2]>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEDelim::new(',', [self.x, self.y])
+    }
 }
 
 impl_kind1!(pub IndexPairFamily, IndexPair);
@@ -2303,6 +2438,16 @@ pub enum MeasOrGateIndex {
     Gate(GateIndex),
 }
 
+impl<'a> ToDisplayNE<'a> for MeasOrGateIndex {
+    type NE = NEConcat<char, IndexFromOne>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Meas(x) => NEConcat::new('P', x.0),
+            Self::Gate(x) => NEConcat::new('G', x.0),
+        }
+    }
+}
+
 impl FromStr for MeasOrGateIndex {
     type Err = MeasOrGateIndexError;
 
@@ -2346,6 +2491,13 @@ pub enum MeasOrGateIndexError {
 #[into(MeasIndex, usize)]
 #[display("P{_0}")]
 pub struct PrefixedMeasIndex(pub MeasIndex);
+
+impl<'a> ToDisplayNE<'a> for PrefixedMeasIndex {
+    type NE = NEConcat<char, MeasIndex>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new('P', self.0)
+    }
+}
 
 impl FromStr for PrefixedMeasIndex {
     type Err = PrefixedMeasIndexError;
@@ -2396,6 +2548,16 @@ pub enum RegionWindowRef<'a> {
     Bivariate(NESlice<'a, Vertex>),
 }
 
+impl<'a> ToDisplayNE<'a> for RegionWindowRef<'a> {
+    type NE = NEAlt<&'a UniGate, NESlice<'a, Vertex>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(x),
+            Self::Bivariate(x) => NEAlt::Right(NESlice::try_from_slice(x.as_ref()).unwrap()),
+        }
+    }
+}
+
 /// A vertex on a polygon gate
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -2405,6 +2567,13 @@ pub struct Vertex {
     pub y: BigDecimal,
 }
 
+impl<'a> ToDisplayNE<'a> for Vertex {
+    type NE = NEConcat3<&'a BigDecimal, char, &'a BigDecimal>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(&self.x, ';').append(&self.y)
+    }
+}
+
 /// A gate on one dimension with lower and upper bound
 #[derive(Clone, PartialEq, Display, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -2412,6 +2581,13 @@ pub struct Vertex {
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
+}
+
+impl<'a> ToDisplayNE<'a> for UniGate {
+    type NE = NEConcat3<&'a BigDecimal, char, &'a BigDecimal>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(&self.lower, ',').append(&self.upper)
+    }
 }
 
 impl FromStrDelim for RegionWindow {
@@ -2540,6 +2716,25 @@ pub enum Gating {
     And(Box<Self>, Box<Self>),
     #[display("({_0} OR {_1})")]
     Or(Box<Self>, Box<Self>),
+}
+
+impl<'a> ToDisplayNE<'a> for Gating {
+    type NE = NEAlt<
+        NEAlt<RegionIndex, NEConcat<&'a NEStr, &'a Box<Gating>>>,
+        NEAlt<
+            NEConcat5<char, &'a Box<Gating>, &'a NEStr, &'a Box<Gating>, char>,
+            NEConcat5<char, &'a Box<Gating>, &'a NEStr, &'a Box<Gating>, char>,
+        >,
+    >;
+    fn to_ne(&'a self) -> Self::NE {
+        let conj = |x, middle, y| NEConcat::new('(', x).append(middle).append(y).append(')');
+        match self {
+            Self::Region(x) => NEAlt::Left(NEAlt::Left(*x)),
+            Self::Not(x) => NEAlt::Left(NEAlt::Right(NEConcat::new(ne_str!("(NOT "), x))),
+            Self::And(x, y) => NEAlt::Right(NEAlt::Left(conj(x, ne_str!(" AND "), y))),
+            Self::Or(x, y) => NEAlt::Right(NEAlt::Right(conj(x, ne_str!(" OR "), y))),
+        }
+    }
 }
 
 impl Gating {
@@ -2736,11 +2931,22 @@ pub enum Width {
     Variable,
 }
 
+impl<'a> ToDisplayNE<'a> for Width {
+    type NE = NEAlt<BitsOrChars, &'a NEStr>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Fixed(x) => NEAlt::Left(*x),
+            Self::Variable => NEAlt::Right(ne_str!("*")),
+        }
+    }
+}
+
 /// The value of the $PnR key.
-#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug)]
+#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Range(pub BigDecimal);
 
 impl Range {
@@ -2894,26 +3100,29 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmN key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug, AsRef)]
+#[derive(Clone, From, Display, FromStr, PartialEq, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[as_ref(str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, From, Display, FromStr, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u64)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateRange(pub Range);
 
 macro_rules! impl_non_neg_float {
     ($(#[$meta:meta])* $t:ident) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
+        #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug, Delegate)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[into(NonNegFloat, f32)]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub NonNegFloat);
 
         impl_newtype_try_from!($t, NonNegFloat, f32, RangedFloatError);
@@ -2951,9 +3160,10 @@ impl_non_neg_float! {
 }
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, Display, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateScale(pub Scale);
 
 impl FromStrWith for GateScale {
@@ -2972,10 +3182,11 @@ impl FromStrWith for GateScale {
 ///
 /// This is not a normal string because it is required in 3.2 and thus cannot
 /// be empty.
-#[derive(Clone, Display, FromStr, PartialEq, Into, Debug, AsRef)]
+#[derive(Clone, Display, FromStr, PartialEq, Into, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[as_ref(str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Cyt3_2(pub NEString);
 
 impl From<Cyt3_2> for Cyt {
@@ -3005,15 +3216,25 @@ pub struct NoCytError;
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
-// TODO seal in separate module
 #[derive(Clone, Display)]
 #[display(
     "{n},{k},{v}",
     n = self.0.len(),
-    k = self.0.keys().join(","),
-    v = self.0.values().join(",")
+    k = self.0.as_ref().keys().join(","),
+    v = self.0.as_ref().values().join(",")
 )]
-pub struct NEUnstainedCenters<'a>(pub(crate) &'a HashMap<Shortname, f32>);
+pub struct NEUnstainedCenters(pub(crate) NEMap<Shortname, f32>);
+
+impl<'a> ToDisplayNE<'a> for NEUnstainedCenters {
+    type NE =
+        NEConcat5<NonZeroUsize, char, NEDelim<NEVec<&'a Shortname>>, char, NEDelim<NEVec<f32>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let n = self.0.len();
+        let ks = NEDelim::new(',', self.0.keys().collect());
+        let vs = NEDelim::new(',', self.0.values().copied().collect());
+        NEConcat::new(n, ',').append(ks).append(',').append(vs)
+    }
+}
 
 /// Error when parsing [`UnstainedCenters`] from string
 #[derive(Debug, Error)]
@@ -3029,8 +3250,8 @@ pub enum ParseUnstainedCenterError {
 }
 
 impl UnstainedCenters {
-    pub(crate) fn try_ne(&self) -> Option<NEUnstainedCenters<'_>> {
-        (!self.0.is_empty()).then_some(NEUnstainedCenters(&self.0))
+    pub(crate) fn try_ne(&self) -> Option<NEUnstainedCenters> {
+        NEMap::try_from_map(self.0.clone()).map(NEUnstainedCenters)
     }
 
     pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
@@ -3411,10 +3632,22 @@ macro_rules! newtype_string {
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
         #[derive(
-            Clone, Copy, Display, FromStr, From, Into, PartialEq, PartialOrd, Eq, Ord, Debug,
+            Clone,
+            Copy,
+            Display,
+            FromStr,
+            From,
+            Into,
+            PartialEq,
+            PartialOrd,
+            Eq,
+            Ord,
+            Debug,
+            Delegate,
         )]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub $type);
     };
 }
@@ -3886,7 +4119,8 @@ opt_meta!(Nextdata, Option<Self>);
 macro_rules! kw_offset {
     ($(#[$attr:meta])* $t:ident, $key:expr) => {
         $(#[$attr])*
-        #[derive(Display, From, Into, FromStr, Debug, Clone, Copy)]
+        #[derive(Display, From, Into, FromStr, Debug, Clone, Copy, Delegate)]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         #[into(u64, i128, UintZeroPad20)]
         pub struct $t(pub UintZeroPad20);
 

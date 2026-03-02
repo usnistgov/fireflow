@@ -14,7 +14,10 @@ use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
-use fireflow_types::nonempty_string::{NEStr, NEString};
+use fireflow_types::ne_str;
+use fireflow_types::nonempty_string::{
+    NEConcat, NEConcat4, NEConcatR, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
+};
 
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
@@ -62,10 +65,11 @@ pub struct StdKey(KeyString);
 /// A key from TEXT which is not codified by the FCS standard.
 ///
 /// This cannot start with `"$"` and may only contain ASCII characters.
-#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(KeyString, str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonStdKey(KeyString);
 
 /// The internal string for a key (standard or nonstandard).
@@ -76,6 +80,13 @@ pub struct NonStdKey(KeyString);
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(str)]
 pub struct KeyString(Ascii<NEString>);
+
+impl<'a> ToDisplayNE<'a> for KeyString {
+    type NE = &'a NEStr;
+    fn to_ne(&'a self) -> Self::NE {
+        self.0.as_ne_str()
+    }
+}
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
@@ -483,7 +494,7 @@ impl<T> DKey2<T> {
 }
 
 /// Composite index for [`StdKey`] with two index values
-#[derive(Debug, Clone, new)]
+#[derive(Debug, Clone, Copy, new)]
 pub struct BiIndex {
     pub i0: IndexFromOne,
     pub i1: IndexFromOne,
@@ -510,6 +521,45 @@ impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
     fn as_std_key(&self) -> StdKey {
         let i = &self.index;
         T::std(i.i0, i.i1)
+    }
+}
+
+impl<'a, T: Key> ToDisplayNE<'a> for Key0<T> {
+    type NE = &'a NEStr;
+    fn to_ne(&self) -> &NEStr {
+        T::C
+    }
+}
+
+impl<'a, T: IndexedKey> ToDisplayNE<'a> for Key1<T> {
+    type NE = NEConcatR<NEConcat<&'a NEStr, IndexFromOne>, &'a NEStr>;
+    fn to_ne(&self) -> Self::NE {
+        let (pre, suf) = match T::C {
+            PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
+            PrefixSuffix::Prefix(pre) => (pre, None),
+        };
+        NEConcat::new(pre, self.index).append(suf)
+    }
+}
+
+impl<'a, T: BiIndexedKey> ToDisplayNE<'a> for Key2<T> {
+    type NE = NEConcat4<&'a NEStr, IndexFromOne, &'a NEStr, IndexFromOne>;
+    fn to_ne(&'a self) -> Self::NE {
+        let i = &self.index;
+        NEConcat::new(T::PREFIX, i.i0)
+            .append(T::MIDDLE)
+            .append(i.i1)
+    }
+}
+
+impl<'a, K: 'a, I: 'a> ToDisplayNE<'a> for DollarKey<K, I>
+where
+    SpecificKey<K, I>: Copy,
+    for<'b> SpecificKey<K, I>: ToDisplayNE<'b>,
+{
+    type NE = NEConcat<&'a NEStr, SpecificKey<K, I>>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(ne_str!("$"), self.0)
     }
 }
 

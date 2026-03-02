@@ -822,7 +822,10 @@ dependencies = [
 name = "fireflow-types"
 version = "0.1.0"
 dependencies = [
+ "ambassador",
+ "bigdecimal",
  "const_format",
+ "derive-new",
  "derive_more",
  "fireflow-core-proc",
  "itertools 0.14.0",

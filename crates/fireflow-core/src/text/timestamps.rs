@@ -9,17 +9,20 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use fireflow_types::config::DEFAULT_DATE_FORMAT;
+use fireflow_types::nonempty_string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
+use ambassador::Delegate;
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use num_traits::cast::ToPrimitive as _;
 use regex::Regex;
+use thiserror::Error;
+
 use std::fmt;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -67,8 +70,9 @@ pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
 /// A wrapper for timestamps which encodes if it is the start or end
-#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
+#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 impl<const IS_ETIM: bool, T> FromStrWith for Xtim<IS_ETIM, T>
@@ -100,6 +104,14 @@ where
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(DEFAULT_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
+
+impl<'a> ToDisplayNE<'a> for FCSDate {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        NEString::try_from(self.0.format(DEFAULT_DATE_FORMAT).to_string())
+            .expect("format should be non-empty")
+    }
+}
 
 type OldInputs<X> = (Option<Btim<X>>, Option<Etim<X>>, Option<FCSDate>);
 
@@ -322,6 +334,15 @@ pub struct StdFCSDateError;
 #[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
 
+impl<'a> ToDisplayNE<'a> for FCSTime {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        // TODO sketchy (see StrftimeItems for a possible alternative that can be checked and is faster)
+        NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+            .expect("time format should never be empty")
+    }
+}
+
 impl PartialEq for FCSTime {
     fn eq(&self, other: &Self) -> bool {
         // ignore sub-seconds since these timestamps do not have this level of
@@ -422,6 +443,19 @@ impl fmt::Display for FCSTime60 {
     }
 }
 
+impl<'a> ToDisplayNE<'a> for FCSTime60 {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        // TODO clean this up
+        let mut s = NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+            .expect("time format should never be empty");
+        let cc = format!("{:02}", u64::from(self.0.nanosecond()) * 60 / 1_000_000_000);
+        s.push(':');
+        s.push_str(cc.as_str());
+        s
+    }
+}
+
 /// Error when parsing [`FCSTime60`] from string
 #[derive(Debug, Error)]
 #[error(
@@ -479,6 +513,19 @@ impl fmt::Display for FCSTime100 {
         let base = self.0.format("%H:%M:%S");
         let cc = self.0.nanosecond() / 10_000_000;
         write!(f, "{base}.{cc:02}")
+    }
+}
+
+impl<'a> ToDisplayNE<'a> for FCSTime100 {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        // TODO clean this up
+        let mut s = NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+            .expect("time format should never be empty");
+        let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
+        s.push('.');
+        s.push_str(cc.as_str());
+        s
     }
 }
 

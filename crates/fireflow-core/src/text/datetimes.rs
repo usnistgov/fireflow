@@ -8,14 +8,17 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use fireflow_types::keywords::{
     ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
 };
+use fireflow_types::nonempty_string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 use type_families::BifunctorOnce as _;
 
+use ambassador::Delegate;
 use chrono::{
     DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, ParseError, TimeZone as _,
 };
 use derive_more::{AsRef, Display, From, Into};
-use std::mem;
 use thiserror::Error;
+
+use std::mem;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -37,19 +40,21 @@ pub struct Datetimes {
 }
 
 /// The $BEGINDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct BeginDateTime(pub FCSDateTime);
 
 /// The $ENDDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
@@ -58,6 +63,14 @@ pub struct EndDateTime(pub FCSDateTime);
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[display("{}", _0.format(ISO_DATETIME_TZ_HH_MM))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
+
+impl<'a> ToDisplayNE<'a> for FCSDateTime {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        NEString::try_from(self.0.format(ISO_DATETIME_TZ_HH_MM).to_string())
+            .expect("format should be non-empty")
+    }
+}
 
 impl Datetimes {
     #[must_use]

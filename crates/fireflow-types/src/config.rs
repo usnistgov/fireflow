@@ -10,16 +10,17 @@ use thiserror::Error;
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 pub trait EnumStrIter: Sized {
-    fn into_ne_str(self) -> &'static NEStr;
+    fn as_ne_str(&self) -> &'static NEStr;
 
-    fn into_str(self) -> &'static str {
-        self.into_ne_str().as_ref()
+    fn as_str(&self) -> &'static str {
+        self.as_ne_str().as_ref()
     }
 
     fn iter() -> impl Iterator<Item = Self>;
 
+    #[must_use]
     fn iter_str() -> impl Iterator<Item = &'static str> {
-        Self::iter().map(EnumStrIter::into_str)
+        Self::iter().map(|x| EnumStrIter::as_str(&x))
     }
 }
 
@@ -38,6 +39,7 @@ macro_rules! impl_str_enum {
     ) => {
         $(#[$flag_meta])*
         #[derive(Clone, Copy)]
+        // TODO use param for viz
         pub enum $flag_name {
             $(
                 $(#[$var_meta])*
@@ -59,7 +61,7 @@ macro_rules! impl_str_enum {
         }
 
         impl $crate::config::EnumStrIter for $flag_name {
-            fn into_ne_str(self) -> &'static $crate::nonempty_string::NEStr {
+            fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
                 match self {
                     $(Self::$var => $strlit,)*
                 }
@@ -72,6 +74,7 @@ macro_rules! impl_str_enum {
 
         $(#[$error_meta])*
         #[derive(Error, Debug)]
+        // TODO ditto viz
         pub struct $error_name;
 
         impl std::fmt::Display for $error_name {
@@ -80,6 +83,30 @@ macro_rules! impl_str_enum {
                 let (last, rest) = all.split_last().expect("should have at least 2 levels");
                 let ys = rest.iter().map(|x| format!("'{x}'")).join(", ");
                 write!(f, "must be one of {ys}, or '{last}'")
+            }
+        }
+    };
+}
+
+/// Make enum string enum literal to be used as a keyword value.
+///
+/// This will impl the enum literal and add a ToDisplayNE trait.
+#[macro_export]
+macro_rules! impl_str_enum_kw {
+    ($(#[$flag_meta:meta])* $flag_name:ident,
+     $(#[$error_meta:meta])* $error_name:ident,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
+    ) => {
+        impl_str_enum!(
+            $(#[$flag_meta])* $flag_name,
+            $(#[$error_meta])* $error_name,
+            $($(#[$var_meta])* $var => $strlit),*
+        );
+
+        impl ToDisplayNE<'_> for $flag_name {
+            type NE = &'static $crate::nonempty_string::NEStr;
+            fn to_ne(&self) -> Self::NE {
+                $crate::config::EnumStrIter::as_ne_str(self)
             }
         }
     };
@@ -100,7 +127,7 @@ macro_rules! impl_config_flag {
     ) => {
         impl_str_enum!(
             #[derive(Display, Default)]
-            #[display("{}", self.into_str())]
+            #[display("{}", self.as_str())]
             #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
             $(#[$flag_meta])* $flag_name,
 
@@ -350,7 +377,7 @@ const ANALYTE_LEVEL: &NEStr = ne_str!("ANALYTE");
 impl_str_enum!(
     /// Disallowed and ignorable optical keywords for temporal measurements.
     #[derive(PartialEq, Eq, Debug, Hash, Display)]
-    #[display("{}", self.into_str())]
+    #[display("{}", self.as_str())]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
     TemporalOpticalKey,
     /// Error when creating [`TemporalOpticalKey`] from [`String`]

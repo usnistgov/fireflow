@@ -10,6 +10,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
+use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEConcat5, NEDelim, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -20,7 +21,7 @@ use thiserror::Error;
 
 use std::fmt;
 use std::hash::Hash;
-use std::num::ParseIntError;
+use std::num::{NonZeroUsize, ParseIntError};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -44,6 +45,7 @@ pub struct GenericSpillover<T> {
     /// Assumed to be a subset of the values in the $PnN keys and unique.
     #[as_ref([T])]
     // TODO just use shortname for this because shortname will also match with numbers
+    // TODO use NEVec
     measurements: Vec<T>,
 
     /// Numeric values in the spillover matrix in row-major order.
@@ -210,6 +212,22 @@ impl fmt::Display for Spillover {
         // row-major
         let xs = self.matrix.transpose().as_slice().iter().join(",");
         write!(f, "{n},{names},{xs}")
+    }
+}
+
+impl<'a> ToDisplayNE<'a> for Spillover {
+    type NE = NEConcat5<NonZeroUsize, char, NEDelim<NEVec<Shortname>>, char, NEDelim<NEVec<f32>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let n = NonZeroUsize::new(self.measurements.len()).expect("matrix should be 2x2");
+        let names = NEVec::try_from_slice(&self.measurements[..]).expect("matrix should be 2x2");
+        // DMatrix slices are column major, so transpose first to output
+        // row-major
+        let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())
+            .expect("matrix should be 2x2");
+        NEConcat::new(n, ',')
+            .append(NEDelim::new(',', names))
+            .append(',')
+            .append(NEDelim::new(',', xs))
     }
 }
 

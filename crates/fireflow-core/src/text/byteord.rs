@@ -2,15 +2,25 @@ use crate::macros::match_many_to_one;
 use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
+use fireflow_types::ne_str;
+use fireflow_types::nonempty_string::{
+    NEAlt, NEDelim, NEStr, ToDisplayNE, ambassador_impl_ToDisplayNE,
+};
+
+use ambassador::Delegate;
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
+use nonempty_collections::{
+    IntoNonEmptyIterator as _, NEVec, NonEmptyArrayExt as _, NonEmptyIterator as _,
+};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use thiserror::Error;
+
 use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -40,6 +50,16 @@ pub enum Endian {
     #[default]
     #[display("1,2,3,4")]
     Little,
+}
+
+impl<'a> ToDisplayNE<'a> for Endian {
+    type NE = &'a NEStr;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Big => ne_str!("4,3,2,1"),
+            Self::Little => ne_str!("1,2,3,4"),
+        }
+    }
 }
 
 /// Marker type representing lack of byte order.
@@ -78,16 +98,18 @@ pub(crate) enum PrivBytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
 
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub(crate) struct PrivBitsOrChars(NonZeroU8);
 
 /// Relate types corresponding to keywords to those storing byte layout.
@@ -167,7 +189,7 @@ macro_rules! byteord_from_sized {
         }
 
         impl From<SizedByteOrd<$len>> for [NonZeroU8; $len] {
-            fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
+            fn from(value: SizedByteOrd<$len>) -> Self {
                 debug_assert!($len <= 8_usize, "this should not be called for len > 8");
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
@@ -191,6 +213,25 @@ macro_rules! byteord_from_sized {
 
         impl HasByteOrd for SizedByteOrd<$len> {
             type ByteOrd = ByteOrd2_0;
+        }
+
+        // TODO could return an array here instead of vec but this would require
+        // enumerating each size in ByteOrd2_0
+        impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
+            type NE = NEAlt<Endian, NEDelim<NEVec<NonZeroU8>>>;
+            fn to_ne(&'a self) -> Self::NE {
+                match self {
+                    Self::Endian(e) => NEAlt::Left(*e),
+                    Self::Order(o) => {
+                        let xs = o
+                            .as_nonempty_slice()
+                            .into_nonempty_iter()
+                            .map(|&x| NonZeroU8::MIN.saturating_add(x))
+                            .collect();
+                        NEAlt::Right(NEDelim::new(',', xs))
+                    }
+                }
+            }
         }
     };
 }

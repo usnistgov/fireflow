@@ -4,6 +4,7 @@ use crate::header::MAX_HEADER_OFFSET;
 use crate::validated::ascii_range::Chars;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
+use fireflow_types::nonempty_string::{PaddedU64, ToDisplayNE};
 use num_derive::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
 use std::fmt;
@@ -52,6 +53,16 @@ use {
 #[from(u64, NonZeroU64)]
 #[display("{_0:0>20}")]
 pub struct UintZeroPad20(pub u64);
+
+impl ToDisplayNE<'_> for UintZeroPad20 {
+    type NE = PaddedU64;
+    fn to_ne(&'_ self) -> Self::NE {
+        PaddedU64 {
+            pad: 20,
+            value: self.0,
+        }
+    }
+}
 
 impl TryFrom<i128> for UintZeroPad20 {
     type Error = TryFromIntError;

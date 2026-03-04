@@ -3,11 +3,8 @@ use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::ne_str;
-use fireflow_types::nonempty_string::{
-    NEAlt, NEDelim, NEStr, ToDisplayNE, ambassador_impl_ToDisplayNE,
-};
+use fireflow_types::nonempty_string::{NEAlt, NED, NEDelim, NEStr, ToDisplayNE};
 
-use ambassador::Delegate;
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -52,9 +49,9 @@ pub enum Endian {
     Little,
 }
 
-impl<'a> ToDisplayNE<'a> for Endian {
-    type NE = &'a NEStr;
-    fn to_ne(&'a self) -> Self::NE {
+impl ToDisplayNE<'_> for Endian {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
         match self {
             Self::Big => ne_str!("4,3,2,1"),
             Self::Little => ne_str!("1,2,3,4"),
@@ -98,18 +95,23 @@ pub(crate) enum PrivBytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display, Delegate)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
-#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
 
+impl<'a> ToDisplayNE<'a> for BitsOrChars {
+    type NE = NonZeroU8;
+    fn to_ne(&'a self) -> Self::NE {
+        self.0.0
+    }
+}
+
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display, Delegate)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
-#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub(crate) struct PrivBitsOrChars(NonZeroU8);
 
 /// Relate types corresponding to keywords to those storing byte layout.
@@ -218,10 +220,10 @@ macro_rules! byteord_from_sized {
         // TODO could return an array here instead of vec but this would require
         // enumerating each size in ByteOrd2_0
         impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
-            type NE = NEAlt<Endian, NEDelim<NEVec<NonZeroU8>>>;
+            type NE = NEAlt<NED<Endian>, NEDelim<NEVec<NonZeroU8>>>;
             fn to_ne(&'a self) -> Self::NE {
                 match self {
-                    Self::Endian(e) => NEAlt::Left(*e),
+                    Self::Endian(e) => NEAlt::Left(NED(*e)),
                     Self::Order(o) => {
                         let xs = o
                             .as_nonempty_slice()

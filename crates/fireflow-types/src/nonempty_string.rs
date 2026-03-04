@@ -1,6 +1,8 @@
+#![allow(clippy::as_conversions)]
+
 use ambassador::delegatable_trait;
 use bigdecimal::BigDecimal;
-use derive_more::{AsRef, Display, Into};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use nonempty_collections::{
     FromNonEmptyIterator, IntoNonEmptyIterator, NESlice, NEVec, NonEmptyArrayExt,
@@ -12,6 +14,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::num::{NonZeroU8, NonZeroU32};
 use std::ptr::from_ref;
+use std::slice;
 use std::str::{FromStr, Utf8Error};
 use std::{borrow::Borrow, num::NonZeroUsize};
 
@@ -36,6 +39,46 @@ pub struct NEStr(str);
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
 pub struct NEString(String);
+
+#[derive(Clone, Copy, new)]
+pub struct NEConcat<A, B>(A, B);
+pub type NEConcatR<A, B> = NEConcat<A, Option<B>>;
+pub type NEConcatL<A, B> = NEConcat<Option<B>, A>;
+
+pub type NEConcat3<A, B, C> = NEConcat<NEConcat<A, B>, C>;
+pub type NEConcat4<A, B, C, D> = NEConcat<NEConcat3<A, B, C>, D>;
+pub type NEConcat5<A, B, C, D, E> = NEConcat<NEConcat4<A, B, C, D>, E>;
+
+/// A [`u64`] that is 0-padded.
+///
+/// This only works for [`u64`] (for now) because there is no generic trait
+/// for log10.
+#[derive(Clone, Copy)]
+pub struct PaddedU64 {
+    pub pad: u32,
+    pub value: u64,
+}
+
+pub enum NEAlt<A, B> {
+    Left(A),
+    Right(B),
+}
+
+#[derive(new)]
+pub struct NEDelim<I> {
+    delim: char,
+    inner: I,
+}
+
+impl<A, B> NEConcat<A, B> {
+    pub fn prepend<C>(self, x: C) -> NEConcat<C, Self> {
+        NEConcat::new(x, self)
+    }
+
+    pub fn append<C>(self, x: C) -> NEConcat<Self, C> {
+        NEConcat::new(self, x)
+    }
+}
 
 impl Borrow<NEStr> for NEString {
     fn borrow(&self) -> &NEStr {
@@ -125,19 +168,13 @@ impl NEStr {
     pub const fn as_str(&self) -> &str {
         let p: *const Self = from_ref(self);
         // SAFETY: NEStr and str have same layout
-        unsafe {
-            #[allow(clippy::as_conversions)]
-            &*(p as *const str)
-        }
+        unsafe { &*(p as *const str) }
     }
 
     const fn new_unchecked(s: &str) -> &Self {
         let p: *const str = from_ref(s);
         // SAFETY: NEStr and str have same layout
-        unsafe {
-            #[allow(clippy::as_conversions)]
-            &*(p as *const Self)
-        }
+        unsafe { &*(p as *const Self) }
     }
 }
 
@@ -181,6 +218,30 @@ pub trait ToDisplayNE<'a> {
     fn to_ne(&'a self) -> Self::NE;
 }
 
+/// Allows a type with [`ToDisplayNE`] to be displayed with [`DisplayNE`].
+#[derive(From)]
+#[repr(transparent)]
+pub struct NED<T>(pub T);
+
+impl<T> NED<T> {
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn on_inner_slice(s: NESlice<'_, T>) -> NESlice<'_, Self> {
+        let n = s.len().get();
+        let p = s.as_ref().as_ptr();
+        // SAFETY: NED is a zero-sized type so this is a noop
+        let ne = unsafe { slice::from_raw_parts(p.cast::<Self>(), n) };
+        NESlice::try_from_slice(ne).unwrap()
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn with_ref(x: &T) -> &Self {
+        let p: *const T = from_ref(x);
+        // SAFETY: NEStr and str have same layout
+        unsafe { &*(p.cast::<Self>()) }
+    }
+}
+
 pub struct NEWrap<T>(pub T);
 
 impl<T: DisplayNE> fmt::Display for NEWrap<T> {
@@ -191,13 +252,6 @@ impl<T: DisplayNE> fmt::Display for NEWrap<T> {
 
 pub trait DisplayNE {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result;
-
-    fn wrap(self) -> NEWrap<Self>
-    where
-        Self: Sized,
-    {
-        NEWrap(self)
-    }
 
     fn fmt_ne(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct CheckedFormatter<'a, 'b> {
@@ -237,43 +291,6 @@ pub trait DisplayNE {
     }
 }
 
-impl<T: DisplayNE> DisplayNE for &T {
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        T::fmt_ne_inner(self, f)
-    }
-}
-
-impl<'a, T: ToDisplayNE<'a>> ToDisplayNE<'a> for &T {
-    type NE = T::NE;
-    fn to_ne(&'a self) -> Self::NE {
-        T::to_ne(*self)
-    }
-}
-
-macro_rules! impl_display_ne {
-    ($t:ident) => {
-        impl DisplayNE for $t {
-            fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-                write!(f, "{self}")
-            }
-        }
-    };
-}
-
-impl_display_ne!(char);
-impl_display_ne!(usize);
-impl_display_ne!(u8);
-impl_display_ne!(u16);
-impl_display_ne!(u32);
-impl_display_ne!(u64);
-impl_display_ne!(f32);
-impl_display_ne!(f64);
-impl_display_ne!(NonZeroUsize);
-impl_display_ne!(NonZeroU8);
-impl_display_ne!(NonZeroU32);
-impl_display_ne!(NEString);
-impl_display_ne!(BigDecimal);
-
 macro_rules! impl_to_display_ne_copy {
     ($t:ident) => {
         impl ToDisplayNE<'_> for $t {
@@ -311,69 +328,34 @@ macro_rules! impl_to_display_ne_ref {
 
 impl_to_display_ne_ref!(BigDecimal);
 
-#[derive(Clone, Copy, new)]
-pub struct NEConcat<A, B>(A, B);
-pub type NEConcatR<A, B> = NEConcat<A, Option<B>>;
-pub type NEConcatL<A, B> = NEConcat<Option<B>, A>;
-
-pub type NEConcat3<A, B, C> = NEConcat<NEConcat<A, B>, C>;
-pub type NEConcat4<A, B, C, D> = NEConcat<NEConcat3<A, B, C>, D>;
-pub type NEConcat5<A, B, C, D, E> = NEConcat<NEConcat4<A, B, C, D>, E>;
-
-/// A [`u64`] that is 0-padded.
-///
-/// This only works for [`u64`] (for now) because there is no generic trait
-/// for log10.
-#[derive(Clone, Copy)]
-pub struct PaddedU64 {
-    pad: u32,
-    value: u64,
-}
-
-pub enum NEAlt<A, B> {
-    Left(A),
-    Right(B),
-}
-
-#[derive(new)]
-pub struct NEDelim<I> {
-    delim: char,
-    inner: I,
-}
-
-impl<A, B> NEConcat<A, B> {
-    pub fn prepend<C>(self, x: C) -> NEConcat<C, Self> {
-        NEConcat::new(x, self)
-    }
-
-    pub fn append<C>(self, x: C) -> NEConcat<Self, C> {
-        NEConcat::new(self, x)
+impl<'a, T: ToDisplayNE<'a> + ?Sized> ToDisplayNE<'a> for &T {
+    type NE = T::NE;
+    fn to_ne(&'a self) -> Self::NE {
+        T::to_ne(*self)
     }
 }
 
 impl<'a, A, B> ToDisplayNE<'a> for NEConcat<A, B>
 where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-    for<'b, 'c> NEConcat<<A as ToDisplayNE<'b>>::NE, <B as ToDisplayNE<'c>>::NE>: DisplayNE,
+    for<'b> A: ToDisplayNE<'b> + 'a,
+    for<'b> B: ToDisplayNE<'b> + 'a,
 {
-    type NE = NEConcat<<A as ToDisplayNE<'a>>::NE, <B as ToDisplayNE<'a>>::NE>;
+    type NE = NEConcat<&'a NED<A>, &'a NED<B>>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat(A::to_ne(&self.0), B::to_ne(&self.1))
+        NEConcat(NED::with_ref(&self.0), NED::with_ref(&self.1))
     }
 }
 
 impl<'a, A, B> ToDisplayNE<'a> for NEAlt<A, B>
 where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-    NEAlt<<A as ToDisplayNE<'a>>::NE, <B as ToDisplayNE<'a>>::NE>: DisplayNE,
+    for<'b> A: ToDisplayNE<'b> + 'a,
+    for<'b> B: ToDisplayNE<'b> + 'a,
 {
-    type NE = NEAlt<<A as ToDisplayNE<'a>>::NE, <B as ToDisplayNE<'a>>::NE>;
+    type NE = NEAlt<&'a NED<A>, &'a NED<B>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
-            Self::Left(x) => NEAlt::Left(A::to_ne(x)),
-            Self::Right(x) => NEAlt::Right(B::to_ne(x)),
+            Self::Left(x) => NEAlt::Left(NED::with_ref(x)),
+            Self::Right(x) => NEAlt::Right(NED::with_ref(x)),
         }
     }
 }
@@ -382,13 +364,13 @@ impl<'a, T> ToDisplayNE<'a> for Box<T>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = &'a Box<T>;
+    type NE = &'a Self;
     fn to_ne(&'a self) -> Self::NE {
         self
     }
 }
 
-impl<'a, T> DisplayNE for Box<T>
+impl<T> DisplayNE for Box<T>
 where
     for<'b> T: ToDisplayNE<'b>,
 {
@@ -401,20 +383,9 @@ impl<'a, T> ToDisplayNE<'a> for NESlice<'a, T>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = Self;
+    type NE = NESlice<'a, NED<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        // TODO fix upstream
-        Self::try_from_slice(self.as_ref()).unwrap()
-    }
-}
-
-impl<'a, T> ToDisplayNE<'a> for NEDelim<NEVec<T>>
-where
-    for<'b> T: ToDisplayNE<'b> + 'a,
-{
-    type NE = NEDelim<NESlice<'a, T>>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice())
+        NED::on_inner_slice(ne_slice_by_ref(self))
     }
 }
 
@@ -422,21 +393,20 @@ impl<'a, T> ToDisplayNE<'a> for NEVec<T>
 where
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = NESlice<'a, T>;
+    type NE = NESlice<'a, NED<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        self.as_nonempty_slice()
+        NED::on_inner_slice(self.as_nonempty_slice())
     }
 }
 
-impl<'a, T> ToDisplayNE<'a> for NEDelim<NESlice<'a, T>>
+impl<'a, T> ToDisplayNE<'a> for NEDelim<NEVec<T>>
 where
-    for<'b> T: ToDisplayNE<'b>,
+    for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = Self;
+    type NE = NEDelim<NESlice<'a, NED<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let x = self.inner.as_ref();
-        let y = NESlice::try_from_slice(x).unwrap();
-        NEDelim::new(self.delim, y)
+        let xs = NED::on_inner_slice(self.inner.as_nonempty_slice());
+        NEDelim::new(self.delim, xs)
     }
 }
 
@@ -445,118 +415,21 @@ where
     [T; LEN]: NonEmptyArrayExt<T>,
     for<'b> T: ToDisplayNE<'b> + 'a,
 {
-    type NE = NEDelim<NESlice<'a, T>>;
+    type NE = NEDelim<NESlice<'a, NED<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice())
+        let xs = NED::on_inner_slice(self.inner.as_nonempty_slice());
+        NEDelim::new(self.delim, xs)
     }
 }
 
-impl<A, B> DisplayNE for NEConcat<A, B>
-where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        self.0.to_ne().fmt_ne_inner(f)?;
-        self.1.to_ne().fmt_ne_inner(f)?;
-        Ok(())
-    }
-}
-
-impl<A, B> DisplayNE for NEConcatR<A, B>
-where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        self.0.to_ne().fmt_ne_inner(f)?;
-        if let Some(x) = self.1.as_ref() {
-            x.to_ne().fmt_ne_inner(f)?;
-        }
-        Ok(())
-    }
-}
-
-impl<A, B> DisplayNE for NEConcatL<A, B>
-where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        if let Some(x) = self.0.as_ref() {
-            x.to_ne().fmt_ne_inner(f)?;
-        }
-        self.1.to_ne().fmt_ne_inner(f)?;
-        Ok(())
-    }
-}
-
-impl<A, B> DisplayNE for NEAlt<A, B>
-where
-    for<'b> A: ToDisplayNE<'b>,
-    for<'b> B: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        match self {
-            Self::Left(x) => x.to_ne().fmt_ne_inner(f),
-            Self::Right(x) => x.to_ne().fmt_ne_inner(f),
-        }
-    }
-}
-
-impl<T> DisplayNE for NESlice<'_, T>
+impl<'a, T> ToDisplayNE<'a> for NEDelim<NESlice<'a, T>>
 where
     for<'b> T: ToDisplayNE<'b>,
 {
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        for x in self {
-            x.to_ne().fmt_ne_inner(f)?;
-        }
-        Ok(())
-    }
-}
-
-impl<T> DisplayNE for NEDelim<NESlice<'_, T>>
-where
-    for<'b> T: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        let c = self.delim;
-        let (x0, xs) = self.inner.nonempty_iter().next();
-        x0.to_ne().fmt_ne_inner(f)?;
-        for x in xs {
-            write!(f, "{c}")?;
-            x.to_ne().fmt_ne_inner(f)?;
-        }
-        Ok(())
-    }
-}
-
-impl<T> DisplayNE for NEVec<T>
-where
-    for<'b> T: ToDisplayNE<'b>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        self.as_nonempty_slice().fmt_ne_inner(f)
-    }
-}
-
-impl<T, const LEN: usize> DisplayNE for NEDelim<[T; LEN]>
-where
-    [T; LEN]: NonEmptyArrayExt<T>,
-    for<'a> T: ToDisplayNE<'a>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
-    }
-}
-
-impl<T> DisplayNE for NEDelim<NEVec<T>>
-where
-    for<'a> T: ToDisplayNE<'a>,
-{
-    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
+    type NE = NEDelim<NESlice<'a, NED<T>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let xs = NED::on_inner_slice(ne_slice_by_ref(&self.inner));
+        NEDelim::new(self.delim, xs)
     }
 }
 
@@ -567,13 +440,51 @@ impl<'a> ToDisplayNE<'a> for NEString {
     }
 }
 
-// TODO this seem wrong, it shouldn't be necessary for the borrow type
-impl<'a> ToDisplayNE<'a> for &NEStr {
-    type NE = &'a NEStr;
+impl<'a> ToDisplayNE<'a> for NEStr {
+    type NE = &'a Self;
     fn to_ne(&'a self) -> Self::NE {
         self
     }
 }
+
+impl<T> DisplayNE for NED<T>
+where
+    for<'a> T: ToDisplayNE<'a>,
+{
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        self.0.to_ne().fmt_ne_inner(f)
+    }
+}
+
+impl<T: DisplayNE> DisplayNE for &T {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        T::fmt_ne_inner(self, f)
+    }
+}
+
+macro_rules! impl_display_ne {
+    ($t:ident) => {
+        impl DisplayNE for $t {
+            fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+                write!(f, "{self}")
+            }
+        }
+    };
+}
+
+impl_display_ne!(char);
+impl_display_ne!(usize);
+impl_display_ne!(u8);
+impl_display_ne!(u16);
+impl_display_ne!(u32);
+impl_display_ne!(u64);
+impl_display_ne!(f32);
+impl_display_ne!(f64);
+impl_display_ne!(NonZeroUsize);
+impl_display_ne!(NonZeroU8);
+impl_display_ne!(NonZeroU32);
+impl_display_ne!(NEString);
+impl_display_ne!(BigDecimal);
 
 impl DisplayNE for &NEStr {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
@@ -581,14 +492,105 @@ impl DisplayNE for &NEStr {
     }
 }
 
+impl<A: DisplayNE, B: DisplayNE> DisplayNE for NEConcat<A, B> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        self.0.fmt_ne_inner(f)?;
+        self.1.fmt_ne_inner(f)?;
+        Ok(())
+    }
+}
+
+impl<A: DisplayNE, B: DisplayNE> DisplayNE for NEConcatR<A, B> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        self.0.fmt_ne_inner(f)?;
+        if let Some(x) = self.1.as_ref() {
+            x.fmt_ne_inner(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl<A: DisplayNE, B: DisplayNE> DisplayNE for NEConcatL<A, B> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        if let Some(x) = self.0.as_ref() {
+            x.fmt_ne_inner(f)?;
+        }
+        self.1.fmt_ne_inner(f)?;
+        Ok(())
+    }
+}
+
+impl<A: DisplayNE, B: DisplayNE> DisplayNE for NEAlt<A, B> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        match self {
+            Self::Left(x) => x.fmt_ne_inner(f),
+            Self::Right(x) => x.fmt_ne_inner(f),
+        }
+    }
+}
+
+impl<T: DisplayNE> DisplayNE for NESlice<'_, T> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        for x in self {
+            x.fmt_ne_inner(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: DisplayNE> DisplayNE for NEDelim<NESlice<'_, T>> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        let c = self.delim;
+        let (x0, xs) = self.inner.nonempty_iter().next();
+        x0.fmt_ne_inner(f)?;
+        for x in xs {
+            write!(f, "{c}")?;
+            x.fmt_ne_inner(f)?;
+        }
+        Ok(())
+    }
+}
+
+impl<T: DisplayNE> DisplayNE for NEVec<T> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        self.as_nonempty_slice().fmt_ne_inner(f)
+    }
+}
+
+impl<T, const LEN: usize> DisplayNE for NEDelim<[T; LEN]>
+where
+    [T; LEN]: NonEmptyArrayExt<T>,
+    T: DisplayNE,
+{
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
+    }
+}
+
+impl<T: DisplayNE> DisplayNE for NEDelim<NEVec<T>> {
+    fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
+        NEDelim::new(self.delim, self.inner.as_nonempty_slice()).fmt_ne_inner(f)
+    }
+}
+
 // TODO testme
 impl DisplayNE for PaddedU64 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
-        let n_digits = self.value.checked_ilog10().unwrap_or(1);
+        let n_digits = self.value.checked_ilog10().unwrap_or_default() + 1;
         let n_pad = self.pad.saturating_sub(n_digits);
         for _ in 0..n_pad {
             f.write_char('0')?;
         }
         write!(f, "{}", self.value)
     }
+}
+
+#[must_use]
+pub fn ne_slice_by_ref<'a, T>(s: &'a NESlice<'a, T>) -> NESlice<'a, T> {
+    // TODO this should be fixed upstream
+    //
+    // This is the equivalent of converting &Option<T> to Option<&T> (ie
+    // 'flipping' the borrow) which should be a noop and shouldn't require
+    // using a failable try_* method.
+    NESlice::try_from_slice(s.as_ref()).unwrap()
 }

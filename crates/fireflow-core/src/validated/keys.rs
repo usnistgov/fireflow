@@ -16,7 +16,7 @@ use crate::validated::sub_pattern::SubPattern;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
-    NEConcat, NEConcat4, NEConcatR, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
+    NEConcat, NEConcat4, NEConcatR, NED, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
 };
 
 use ambassador::{Delegate, delegatable_trait};
@@ -524,42 +524,41 @@ impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
     }
 }
 
-impl<'a, T: Key> ToDisplayNE<'a> for Key0<T> {
-    type NE = &'a NEStr;
-    fn to_ne(&self) -> &NEStr {
+impl<T: Key> ToDisplayNE<'_> for Key0<T> {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> &'static NEStr {
         T::C
     }
 }
 
-impl<'a, T: IndexedKey> ToDisplayNE<'a> for Key1<T> {
-    type NE = NEConcatR<NEConcat<&'a NEStr, IndexFromOne>, &'a NEStr>;
+impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
+    type NE = NEConcatR<NEConcat<&'static NEStr, NED<IndexFromOne>>, &'static NEStr>;
     fn to_ne(&self) -> Self::NE {
         let (pre, suf) = match T::C {
             PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
             PrefixSuffix::Prefix(pre) => (pre, None),
         };
-        NEConcat::new(pre, self.index).append(suf)
+        NEConcat::new(pre, NED(self.index)).append(suf)
     }
 }
 
-impl<'a, T: BiIndexedKey> ToDisplayNE<'a> for Key2<T> {
-    type NE = NEConcat4<&'a NEStr, IndexFromOne, &'a NEStr, IndexFromOne>;
-    fn to_ne(&'a self) -> Self::NE {
+impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
+    type NE = NEConcat4<&'static NEStr, NED<IndexFromOne>, &'static NEStr, NED<IndexFromOne>>;
+    fn to_ne(&self) -> Self::NE {
         let i = &self.index;
-        NEConcat::new(T::PREFIX, i.i0)
+        NEConcat::new(T::PREFIX, NED(i.i0))
             .append(T::MIDDLE)
-            .append(i.i1)
+            .append(NED(i.i1))
     }
 }
 
-impl<'a, K: 'a, I: 'a> ToDisplayNE<'a> for DollarKey<K, I>
+impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
 where
-    SpecificKey<K, I>: Copy,
-    for<'b> SpecificKey<K, I>: ToDisplayNE<'b>,
+    SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
 {
-    type NE = NEConcat<&'a NEStr, SpecificKey<K, I>>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(ne_str!("$"), self.0)
+    type NE = NEConcat<&'static NEStr, NED<SpecificKey<K, I>>>;
+    fn to_ne(&self) -> Self::NE {
+        NEConcat::new(ne_str!("$"), NED(self.0))
     }
 }
 

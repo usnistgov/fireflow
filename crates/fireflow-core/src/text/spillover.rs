@@ -10,7 +10,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
-use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEConcat5, NEDelim, ToDisplayNE};
+use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NED, NEDelim, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -216,10 +216,21 @@ impl fmt::Display for Spillover {
 }
 
 impl<'a> ToDisplayNE<'a> for Spillover {
-    type NE = NEConcat5<NonZeroUsize, char, NEDelim<NEVec<Shortname>>, char, NEDelim<NEVec<f32>>>;
+    type NE = NEConcat5<
+        NonZeroUsize,
+        char,
+        NEDelim<NEVec<NED<&'a Shortname>>>,
+        char,
+        NEDelim<NEVec<f32>>,
+    >;
     fn to_ne(&'a self) -> Self::NE {
         let n = NonZeroUsize::new(self.measurements.len()).expect("matrix should be 2x2");
-        let names = NEVec::try_from_slice(&self.measurements[..]).expect("matrix should be 2x2");
+        // TODO this can be cleaned up
+        let names = self.measurements[..]
+            .try_into_nonempty_iter()
+            .expect("matrix should be 2x2")
+            .map(NED)
+            .collect();
         // DMatrix slices are column major, so transpose first to output
         // row-major
         let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())

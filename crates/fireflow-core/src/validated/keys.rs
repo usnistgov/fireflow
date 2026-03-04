@@ -16,7 +16,8 @@ use crate::validated::sub_pattern::SubPattern;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
-    NEConcat, NEConcat4, NEConcatR, ToNE, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
+    NEAlt, NEConcat, NEConcat4, NEConcatR, NEStr, NEString, ToDisplayNE, ToNE,
+    ambassador_impl_ToDisplayNE,
 };
 
 use ambassador::{Delegate, delegatable_trait};
@@ -62,6 +63,13 @@ use {
 #[display("${_0}")]
 pub struct StdKey(KeyString);
 
+impl<'a> ToDisplayNE<'a> for StdKey {
+    type NE = NEConcat<char, ToNE<&'a KeyString>>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new('$', ToNE(&self.0))
+    }
+}
+
 /// A key from TEXT which is not codified by the FCS standard.
 ///
 /// This cannot start with `"$"` and may only contain ASCII characters.
@@ -82,9 +90,9 @@ pub struct NonStdKey(KeyString);
 pub struct KeyString(Ascii<NEString>);
 
 impl<'a> ToDisplayNE<'a> for KeyString {
-    type NE = &'a NEStr;
+    type NE = &'a NEString;
     fn to_ne(&'a self) -> Self::NE {
-        self.0.as_ne_str()
+        &self.0
     }
 }
 
@@ -179,6 +187,16 @@ pub struct ParsedKeywordsDiagnostic {
 pub enum AnyKey {
     Std(StdKey),
     NonStd(NonStdKey),
+}
+
+impl<'a> ToDisplayNE<'a> for AnyKey {
+    type NE = NEAlt<ToNE<&'a StdKey>, ToNE<&'a NonStdKey>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Std(x) => NEAlt::Left(ToNE(x)),
+            Self::NonStd(x) => NEAlt::Right(ToNE(x)),
+        }
+    }
 }
 
 pub type StdKeywords = HashMap<StdKey, String>;

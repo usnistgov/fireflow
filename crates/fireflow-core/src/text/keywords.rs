@@ -53,8 +53,8 @@ use fireflow_types::config::{
 };
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 use fireflow_types::nonempty_string::{
-    NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr, NEString, NEWrap, ToDisplayNE, ToNE,
-    ambassador_impl_ToDisplayNE, ne_slice_by_ref,
+    DisplayNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr, NEString, NEWrap,
+    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_slice_by_ref,
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
@@ -560,27 +560,30 @@ impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
 #[delegatable_trait]
 pub(crate) trait AsKeywordPair {
-    fn as_key_pair(&self) -> (AnyKey, String);
+    fn as_key_pair(&self) -> (AnyKey, NEString);
 
-    fn as_str_pair(&self) -> (String, String) {
+    fn as_str_pair(&self) -> (NEString, NEString) {
         let (k, v) = self.as_key_pair();
-        (k.to_string(), v)
+        (ToNE(k).to_ne_string(), v)
     }
 }
 
 impl<K, V> AsKeywordPair for SplitKeyword<K, V>
 where
     K: AsStdKey,
-    V: fmt::Display,
+    for<'a> V: ToDisplayNE<'a>,
 {
-    fn as_key_pair(&self) -> (AnyKey, String) {
-        (self.key.as_std_key().into(), self.value.to_string())
+    fn as_key_pair(&self) -> (AnyKey, NEString) {
+        (
+            self.key.as_std_key().into(),
+            ToNE(&self.value).to_ne_string(),
+        )
     }
 }
 
 impl AsKeywordPair for NonStdKeyword<'_> {
-    fn as_key_pair(&self) -> (AnyKey, String) {
-        (self.key.clone().into(), self.value.to_string())
+    fn as_key_pair(&self) -> (AnyKey, NEString) {
+        (self.key.clone().into(), ToNE(&self.value).to_ne_string())
     }
 }
 

@@ -6529,7 +6529,7 @@ impl<E: From<PyException>> PyDict<E> {
     }
 
     fn new_keywords() -> Self {
-        Self::new1(PyStr::default(), PyStr::default())
+        Self::new1(PyStr::new_non_empty_str(), PyStr::new_non_empty_str())
     }
 
     fn new_sub_patterns() -> Self {

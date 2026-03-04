@@ -106,7 +106,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey, TriFlag};
-use fireflow_types::nonempty_string::NEStr;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -130,6 +130,9 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {serde::Serialize, std::string::ToString as _};
+
+#[cfg(feature = "serde")]
+use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
 
 #[cfg(feature = "python")]
 use {
@@ -2530,11 +2533,11 @@ where
         &self,
         req_or_opt: IncludeReqOrOpt,
         root_or_meas: IncludeRootOrMeas,
-    ) -> HashMap<String, String> {
+    ) -> HashMap<NEString, NEString> {
         fn go(
-            xs: impl Iterator<Item = (String, String)>,
+            xs: impl Iterator<Item = (NEString, NEString)>,
             include: bool,
-        ) -> impl Iterator<Item = (String, String)> {
+        ) -> impl Iterator<Item = (NEString, NEString)> {
             include.then_some(xs).into_iter().flatten()
         }
 
@@ -4029,10 +4032,10 @@ where
                 }
             }
 
-            fn value(&'a self) -> String {
+            fn value(&'a self) -> NEString {
                 // let na = || String::from("NA");
                 match self {
-                    MeasKeyword::Index(x) => x.to_string(),
+                    MeasKeyword::Index(x) => ToNE(x).to_ne_string(),
                     MeasKeyword::Req(x) => x.as_str_pair().1,
                     MeasKeyword::Opt(x) => x.as_str_pair().1,
                 }

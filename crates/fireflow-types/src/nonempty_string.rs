@@ -198,7 +198,22 @@ impl ToOwned for NEStr {
 /// Types can be converted into other types which implement this interface via
 /// [`ToDisplayNE`] which is the meant to be the only way in which this trait
 /// is accessed.
-pub trait DisplayNE: sealed::DisplayNEInner {}
+pub trait DisplayNE: sealed::DisplayNEInner {
+    fn to_ne_string(&self) -> NEString
+    where
+        Self: Sized,
+    {
+        struct DisplayWrapper<'a, T>(&'a T);
+
+        impl<T: DisplayNE> fmt::Display for DisplayWrapper<'_, T> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt_ne(f)
+            }
+        }
+
+        NEString(DisplayWrapper(self).to_string())
+    }
+}
 
 mod sealed {
     use std::fmt;

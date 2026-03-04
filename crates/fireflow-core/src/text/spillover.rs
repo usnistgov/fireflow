@@ -10,7 +10,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
-use fireflow_types::nonempty_string::{NEConcat, NEConcat5, ToNE, NEDelim, ToDisplayNE};
+use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, ToDisplayNE, ToNE};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

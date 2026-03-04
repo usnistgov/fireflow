@@ -255,9 +255,8 @@ impl IsDeprecated for DeprecatedGatingSchemeRef<'_> {
             Self::Gating(x) => x.errors(es),
             Self::Region(x) => {
                 for (&r, _) in x.iter() {
-                    let i = r.into();
-                    es.push(AnyDepKeyError::RegionIndex(DepKeyWarning(Key1::new_i1(i))));
-                    es.push(AnyDepKeyError::RegionWindow(DepKeyWarning(Key1::new_i1(i))));
+                    es.push(AnyDepKeyError::RegionIndex(DepKeyWarning(Key1::new_i1(r))));
+                    es.push(AnyDepKeyError::RegionWindow(DepKeyWarning(Key1::new_i1(r))));
                 }
             }
         }

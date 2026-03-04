@@ -69,7 +69,6 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
 };
-use num_derive::Zero;
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
@@ -216,7 +215,7 @@ pub(crate) enum AnyKeyword<'a> {
 
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub(crate) enum ReqKeyword<'a> {
     Root(ReqRootKeyword<'a>),
@@ -252,7 +251,7 @@ pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
 
 // TODO this shouldn't need to be pub
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum ReqRootKeyword<'a> {
     ByteOrd2_0(SplitKeyword0<ByteOrd2_0>),
@@ -267,7 +266,7 @@ pub enum ReqRootKeyword<'a> {
 pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
 
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
@@ -324,7 +323,7 @@ pub enum OptRootKeyword<'a> {
 }
 
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum ReqMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
@@ -335,7 +334,7 @@ pub enum ReqMeasKeyword<'a> {
 }
 
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum OptMeasKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
@@ -364,7 +363,7 @@ pub enum OptMeasKeyword<'a> {
 }
 
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum GateMeasKeyword<'a> {
     Scale(SplitKeyword1<GateScale>),
@@ -378,7 +377,7 @@ pub enum GateMeasKeyword<'a> {
 }
 
 #[derive(Clone, From, Delegate)]
-#[delegate(AsKeywordPair)]
+#[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum RegionKeyword<'a> {
     GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
@@ -484,7 +483,7 @@ impl<'a> OptRootKeyword<'a> {
 
 impl<'a> OptMeasKeyword<'a> {
     pub(crate) fn from_wavelengths(x: &'a Wavelengths, i: MeasIndex) -> Option<Self> {
-        let ret = SplitKeyword::new(DKey1::new_i1(i.into()), x.try_ne()?);
+        let ret = SplitKeyword::new(DKey1::new_i1(i), x.try_ne()?);
         Some(Self::from(ret))
     }
 
@@ -496,7 +495,7 @@ impl<'a> OptMeasKeyword<'a> {
     {
         let y: &Option<Z> = x.as_ref();
         let z = y.as_ref().copied()?;
-        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i.into()), z);
+        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i), z);
         Some(Self::from(ret))
     }
 }
@@ -559,6 +558,11 @@ impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
 #[delegatable_trait]
+pub(crate) trait AsStdKeywordPair {
+    fn as_std_key_pair(&self) -> (StdKey, NEString);
+}
+
+#[delegatable_trait]
 pub(crate) trait AsKeywordPair {
     fn as_key_pair(&self) -> (AnyKey, NEString);
 
@@ -568,16 +572,20 @@ pub(crate) trait AsKeywordPair {
     }
 }
 
-impl<K, V> AsKeywordPair for SplitKeyword<K, V>
+impl<K, V> AsStdKeywordPair for SplitKeyword<K, V>
 where
     K: AsStdKey,
     for<'a> V: ToDisplayNE<'a>,
 {
+    fn as_std_key_pair(&self) -> (StdKey, NEString) {
+        (self.key.as_std_key(), ToNE(&self.value).to_ne_string())
+    }
+}
+
+impl<T: AsStdKeywordPair> AsKeywordPair for T {
     fn as_key_pair(&self) -> (AnyKey, NEString) {
-        (
-            self.key.as_std_key().into(),
-            ToNE(&self.value).to_ne_string(),
-        )
+        let (k, v) = self.as_std_key_pair();
+        (k.into(), v)
     }
 }
 
@@ -689,9 +697,8 @@ impl HasDelim for GateMeasKeyword<'_> {
     }
 }
 
-// TODO not DRY, this is like the other offsets
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add, PartialEq, Delegate)]
+#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, PartialEq, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, UintZeroPad20)]
@@ -1838,7 +1845,6 @@ impl Calibration3_2 {
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct CalibrationLossError(MeasIndex, f32);
 
-// TODO combine pos floats into one macro
 /// The value for the $PnL key (2.0/3.0).
 #[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -1928,7 +1934,7 @@ impl Wavelengths {
     ) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
         NEVec::try_from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
-            let k = Key1::new_i1(i.into());
+            let k = Key1::new_i1(i);
             let e = WavelengthsLossError(k, n);
             let wl = Some(Wavelength(ws.into_nonempty_iter().next().0));
             LogResult::new_deferred_if(usize::from(n) == 1, wl, e)
@@ -2540,6 +2546,19 @@ pub enum RegionWindow {
     Univariate(UniGate),
     #[display("{}", _0.iter().join(";"))]
     Bivariate(NEVec<Vertex>),
+}
+
+impl<'a> ToDisplayNE<'a> for RegionWindow {
+    type NE = NEAlt<ToNE<&'a UniGate>, NESlice<'a, ToNE<Vertex>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(ToNE(x)),
+            Self::Bivariate(x) => {
+                let xs = ToNE::on_inner_slice(x.as_nonempty_slice());
+                NEAlt::Right(xs)
+            }
+        }
+    }
 }
 
 /// A reference to the contents of [`RegionWindow`].

@@ -27,8 +27,10 @@ use crate::text::relational::{
     IndicesToRemove, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    DKey1, IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
+    AsStdKey as _, DKey1, IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKeywords,
 };
+use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
 use type_families::{
     ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1,
 };
@@ -46,7 +48,7 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::keywords::{RegionWindowRef, RegionWindowSplitKeyword, SplitKeyword};
+use super::keywords::{RegionWindowRef, SplitKeyword};
 
 #[cfg(feature = "python")]
 use {
@@ -696,16 +698,12 @@ impl GatedMeasurement {
     }
 
     fn demote_keywords(self, i: GateIndex, nonstd: &mut NonStdKeywords) {
-        nonstd.insert_demoted_meas_opt(i.into(), self.scale.as_ref());
-        nonstd.insert_demoted_meas_maybe(i.into(), &self.filter);
-        nonstd.insert_demoted_meas_opt(i.into(), self.shortname.as_ref());
-        nonstd.insert_demoted_meas_opt(i.into(), self.percent_emitted.as_ref());
-        nonstd.insert_demoted_meas_opt(i.into(), self.range.as_ref());
-        nonstd.insert_demoted_meas_maybe(i.into(), &self.longname);
-        nonstd.insert_demoted_meas_maybe(i.into(), &self.detector_type);
-        nonstd.insert_demoted_meas_opt(i.into(), self.detector_voltage.as_ref());
+        for k in self.opt_keywords(i) {
+            nonstd.insert_demoted_keyword(OptRootKeyword::from(k).into());
+        }
     }
 
+    // TODO this can also be cleaned up using the keyword iterator from above
     fn loss_errors(&self, i: GateIndex) -> impl Iterator<Item = GatedMeasurementLossError> {
         let x0 = self.scale.indexed_key_loss_error(i);
         let x1 = self.filter.indexed_key_loss_error(i);
@@ -774,7 +772,7 @@ impl<I> GatingScheme<I> {
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi.into());
-                ExistingIndexedLinkError::new(Key1::new_i1(ri.into()), js)
+                ExistingIndexedLinkError::new(Key1::new_i1(ri), js)
             })
     }
 
@@ -789,7 +787,7 @@ impl<I> GatingScheme<I> {
             .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi);
-                IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri.into()))
+                IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri))
             })
     }
 
@@ -857,6 +855,7 @@ impl<I> GatingScheme<I> {
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
@@ -894,19 +893,24 @@ impl<I> GatingScheme<I> {
 
     fn demote_keywords(self, nonstd: &mut NonStdKeywords)
     where
-        I: fmt::Display + FromStr + Copy,
+        I: Copy,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
             r.demote_keywords(ri, nonstd);
         }
-        nonstd.insert_demoted_metaroot_opt(self.gating.as_ref());
+        let g = self
+            .gating
+            .as_ref()
+            .map(OptRootKeyword::from_ref)
+            .map(Into::into);
+        nonstd.insert_demoted_keyword_opt(g);
     }
 
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionKeyword<'a>:
-            From<SplitKeyword1<RegionGateIndex<I>>> + From<RegionWindowSplitKeyword<'a>>,
+        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
         let gating = self.gating.as_ref().map(OptRootKeyword::from_ref);
         self.regions
@@ -1004,6 +1008,7 @@ impl<I> Region<I> {
     where
         I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
         let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Region)
@@ -1015,6 +1020,15 @@ impl<I> Region<I> {
             .into_semigroup();
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
+        let demote_index = |gi, ns: &mut NonStdKeywords| {
+            let k = OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).into();
+            ns.insert_demoted_keyword(k);
+        };
+        let demote_window = |w: RegionWindow, ns: &mut NonStdKeywords| {
+            let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
+            let v = ToNE(w).to_ne_string();
+            ns.insert_demoted(k, v.to_string());
+        };
         index_res
             .zip_f2_once(window_res)
             .and_then_deferred_switchable_result(flag, |(gi_out, w_out)| {
@@ -1031,21 +1045,21 @@ impl<I> Region<I> {
                         Ok(x) => Ok(Some(x.fmap_into())),
                         Err((old_gi, old_w)) => {
                             if flag.is_demote() {
-                                nonstd.insert_demoted_meas(ri.into(), &old_gi);
-                                nonstd.insert_demoted_meas(ri.into(), &old_w);
+                                demote_index(old_gi, nonstd);
+                                demote_window(old_w, nonstd);
                             }
                             Err(IndexWindowMismatchError::Both(ri))
                         }
                     },
-                    (Some(gi), None) => {
+                    (Some(old_gi), None) => {
                         if flag.is_demote() {
-                            nonstd.insert_demoted_meas(ri.into(), &gi);
+                            demote_index(old_gi, nonstd);
                         }
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
-                    (None, Some(w)) => {
+                    (None, Some(old_w)) => {
                         if flag.is_demote() {
-                            nonstd.insert_demoted_meas(ri.into(), &w);
+                            demote_window(old_w, nonstd);
                         }
                         Err(IndexWindowMismatchError::NoIndex(ri))
                     }
@@ -1056,20 +1070,21 @@ impl<I> Region<I> {
             })
     }
 
-    pub(crate) fn demote_keywords(&self, i: RegionIndex, nonstd: &mut NonStdKeywords)
+    pub(crate) fn demote_keywords<'a>(&'a self, i: RegionIndex, nonstd: &mut NonStdKeywords)
     where
-        I: Copy + FromStr + fmt::Display,
+        I: Copy,
+        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
-        let (ri, rw) = self.clone().split();
-        nonstd.insert_demoted_meas(i.into(), &ri);
-        nonstd.insert_demoted_meas(i.into(), &rw);
+        for r in self.opt_keywords(i) {
+            let kw = OptRootKeyword::from(r).into();
+            nonstd.insert_demoted_keyword(kw);
+        }
     }
 
     pub(crate) fn opt_keywords<'a>(&'a self, i: RegionIndex) -> [RegionKeyword<'a>; 2]
     where
         I: Copy,
-        RegionKeyword<'a>:
-            From<SplitKeyword1<RegionGateIndex<I>>> + From<RegionWindowSplitKeyword<'a>>,
+        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
         let ri = match self {
             Self::Univariate(r) => RegionGateIndex::Univariate(r.index),
@@ -1080,8 +1095,8 @@ impl<I> Region<I> {
             Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
         };
         let x0 = RegionKeyword::from_value(ri, i);
-        let rk = DKey1::new_i1(i.into());
-        let x1 = RegionKeyword::from(SplitKeyword::new(rk, rw));
+        let rk = DKey1::new_i1(i);
+        let x1 = RegionKeyword::Window(SplitKeyword::new(rk, rw));
         [x0, x1]
     }
 
@@ -1089,29 +1104,13 @@ impl<I> Region<I> {
     where
         I: Copy,
     {
-        let ri = IndexedKeyLossError(Key1::new_i1(i.into()));
-        let rw = IndexedKeyLossError(Key1::new_i1(i.into()));
+        let ri = IndexedKeyLossError(Key1::new_i1(i));
+        let rw = IndexedKeyLossError(Key1::new_i1(i));
         [
             GateRegionLossError::Index(ri),
             GateRegionLossError::Window(rw),
         ]
         .into_iter()
-    }
-
-    pub(crate) fn split(self) -> (RegionGateIndex<I>, RegionWindow)
-    where
-        I: Copy,
-    {
-        match self {
-            Self::Univariate(r) => (
-                RegionGateIndex::Univariate(r.index),
-                RegionWindow::Univariate(r.gate),
-            ),
-            Self::Bivariate(r) => (
-                RegionGateIndex::Bivariate(r.index),
-                RegionWindow::Bivariate(r.vertices.into()),
-            ),
-        }
     }
 
     fn try_index_into<J0, J1>(self) -> Result<Region<J0>, AnyIndexForRegionError<J1>>
@@ -1200,8 +1199,8 @@ impl GatedMeasurements {
     }
 
     fn demote_keywords(self, nonstd: &mut NonStdKeywords) {
-        let gate = self.gate();
-        nonstd.insert_demoted_metaroot_opt(gate.as_ref());
+        let gate = self.gate().map(OptRootKeyword::from_value).map(Into::into);
+        nonstd.insert_demoted_keyword_opt(gate);
         for (i, g) in self.0.into_iter().enumerate() {
             g.demote_keywords(i.into(), nonstd);
         }

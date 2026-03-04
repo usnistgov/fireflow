@@ -206,6 +206,7 @@ impl<X> Timestamps<X> {
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -228,9 +229,12 @@ impl<X> Timestamps<X> {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_btim.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_etim.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_date.as_ref());
+                            let bk = old_btim.map(OptRootKeyword::from_value);
+                            let ek = old_etim.map(OptRootKeyword::from_value);
+                            let dk = old_date.map(OptRootKeyword::from_value);
+                            for k in [bk, ek, dk].into_iter().flatten() {
+                                nonstd.insert_demoted_keyword(k.into());
+                            }
                         }
                     })
                     .into_semigroup()

@@ -142,8 +142,11 @@ impl Datetimes {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_begin.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_end.as_ref());
+                            let bk = old_begin.map(OptRootKeyword::from_value);
+                            let ek = old_end.map(OptRootKeyword::from_value);
+                            for k in [bk, ek].into_iter().flatten() {
+                                nonstd.insert_demoted_keyword(k.into());
+                            }
                         }
                     })
                     .into_semigroup()

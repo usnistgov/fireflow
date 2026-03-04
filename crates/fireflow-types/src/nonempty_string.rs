@@ -248,6 +248,18 @@ mod sealed {
 /// Convert a type to one that implemements [`DisplayNE`].
 #[delegatable_trait]
 pub trait ToDisplayNE<'a> {
+    // TODO this entire mod can probably be cleaned up once this issue is
+    // solved: https://github.com/rust-lang/rust/issues/87479. This will let us
+    // put a lifetime bound on NE instead of at the trait level. This in turn
+    // will let us to remove all the 'for<'a> T: bla bla' bounds, which in turn
+    // will likely allow us to eliminate the ToNE and put all bounds in terms of
+    // ToDisplayNE (In the case of DisplayNE, the inner types can simply be
+    // unwrapped using ToDisplayNE). This is basically impossible now due to
+    // limitations in how rust scopes lifetime parameters. For instance, any
+    // type which takes two types (NEConcat, NEAlt) will need to have two
+    // lifetime params in the NE type if we were to sub ToDisplayNE::NE for each
+    // inner type. These two lifetimes currently need to be set to the trait
+    // level, which is overly constrained.
     type NE: DisplayNE;
 
     fn to_ne(&'a self) -> Self::NE;

@@ -6593,7 +6593,7 @@ impl ConvertFromShortname<Option<Shortname>> for Identity<Shortname> {
         i: MeasIndex,
     ) -> Result<Self, NameConversionError> {
         value
-            .ok_or_else(|| NameConversionError(Key1::new_i1(i.into())))
+            .ok_or_else(|| NameConversionError(Key1::new_i1(i)))
             .map(Identity)
     }
 }
@@ -7092,7 +7092,7 @@ impl ScaleTransform {
     fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, IndexedKeyLossError<Gain>> {
         match self {
             Self::Lin(x) => {
-                let e = IndexedKeyLossError::<Gain>(Key1::new_i1(i.into()));
+                let e = IndexedKeyLossError::<Gain>(Key1::new_i1(i));
                 let v = Scale::Linear;
                 LogResult::new_log_if(x.is_one(), v, v, e)
             }
@@ -8653,7 +8653,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
             .map(Compensation2_0::non_zero_indices)
             .into_iter()
             .flatten()
-            .map(|x| SplitKeyword::new(DKey2::new_i2(x.col.into(), x.row.into()), x.value))
+            .map(|x| SplitKeyword::new(DKey2::new_i2(x.col, x.row), x.value))
             .map(OptRootKeyword::from)
             .chain(cyt)
             .chain(self.applied_gates.opt_keywords())

@@ -30,6 +30,11 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::keywords::{
+    Compensation3_0, Dfc, Gating, Keyword0FromValue as _, MeasOrGateIndex, OptRootKeyword,
+    PrefixedMeasIndex, RefKeyword0, RegionGateIndex, RegionKeyword, RegionWindow, SplitKeyword1,
+    Trigger, UnstainedCenters,
+};
 use crate::validated::keys::{
     BiIndex, BiIndexedKey as _, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
     SpecificKey, StdKey,
@@ -38,10 +43,6 @@ use crate::validated::shortname::Shortname;
 
 use super::gating::Region;
 use super::index::RegionIndex;
-use super::keywords::{
-    Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
-    RegionWindow, Trigger, UnstainedCenters,
-};
 use super::spillover::Spillover;
 
 use derive_more::{AsRef, Display, From};
@@ -341,27 +342,40 @@ impl<T> DependentIndexedKeyError<T> {
 
 impl RemovedLink {
     pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
-        macro_rules! go_gate {
-            ($x:expr) => {
-                $x.region.demote_keywords($x.region_index, kws)
-            };
+        fn go_ref<'a, T>(x: &'a T, kws: &mut NonStdKeywords)
+        where
+            OptRootKeyword<'a>: From<RefKeyword0<'a, T>>,
+        {
+            let kw = OptRootKeyword::from_ref(x);
+            kws.insert_demoted_keyword(kw.into());
         }
+
+        fn go_gate<'a, I>(r: &'a RemovedGateLink<I>, kws: &mut NonStdKeywords)
+        where
+            I: Copy,
+            RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        {
+            r.region.demote_keywords(r.region_index, kws);
+        }
+
         match self {
-            Self::GatingRegion3_0(x) => go_gate!(x),
-            Self::GatingRegion3_2(x) => go_gate!(x),
-            Self::Gating(x) => kws.insert_demoted_metaroot(&x.gating),
+            Self::GatingRegion3_0(x) => go_gate(x, kws),
+            Self::GatingRegion3_2(x) => go_gate(x, kws),
+            Self::Gating(x) => go_ref(&x.gating, kws),
             Self::Comp2_0(xs) => {
                 for x in xs {
                     let (k, v) = x.as_keyval();
                     kws.insert_demoted(k, v);
                 }
             }
-            Self::Comp3_0(x) => kws.insert_demoted_metaroot(&x.key),
-            Self::Spillover(x) => kws.insert_demoted_metaroot(&x.key),
+            Self::Comp3_0(x) => go_ref(&x.key, kws),
+            Self::Spillover(x) => go_ref(&x.key, kws),
             Self::UnstainedCenters(x) => {
-                kws.insert_demoted_metaroot_maybe(&x.key);
+                if let Some(kw) = OptRootKeyword::from_unstainedcenters(&x.key) {
+                    kws.insert_demoted_keyword(kw.into());
+                }
             }
-            Self::Trigger(x) => kws.insert_demoted_metaroot(&x.key),
+            Self::Trigger(x) => go_ref(&x.key, kws),
         }
     }
 
@@ -408,6 +422,7 @@ impl RemovedLink {
 }
 
 impl RemovedComp2_0Cell {
+    // TODO use common kw enum interface for this
     fn as_keyval(&self) -> (StdKey, String) {
         // NOTE col is first
         let k = Dfc::std(self.col, self.row);
@@ -424,7 +439,7 @@ impl RemovedComp2_0Cell {
                 xs
             }
         };
-        let k = SpecificKey::new_i2(self.col.into(), self.row.into());
+        let k = SpecificKey::new_i2(self.col, self.row);
         BiIndexedKeyToIndexLinkError::new(xs, k)
     }
 }
@@ -489,7 +504,7 @@ impl<I> RemovedGateLink<I> {
     {
         let ri = self.region_index;
         let region_key = RegionGateIndex::<()>::std(ri);
-        let k = SpecificKey::new_i1(ri.into());
+        let k = SpecificKey::new_i1(ri);
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentIndexedKeyError::new2(ri.into(), NEVec::new(region_key));
         [BrokenIndexedLinkError::from(e0).into(), e1.into()].into_iter()

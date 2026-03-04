@@ -8,7 +8,9 @@ use crate::logging::{
     WarningOrErrorResult,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords as kws;
+use crate::text::keywords::{
+    self as kws, AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
+};
 use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
@@ -482,14 +484,14 @@ impl<T> Default for Key0<T> {
 }
 
 impl<T> Key1<T> {
-    pub(crate) fn new_i1(i: IndexFromOne) -> Self {
-        Self::new(i)
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
+        Self::new(i.into())
     }
 }
 
 impl<T> Key2<T> {
-    pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
-        Self::new(BiIndex::new(i, j))
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
+        Self::new(BiIndex::new(i.into(), j.into()))
     }
 }
 
@@ -500,13 +502,13 @@ impl<T> Default for DKey0<T> {
 }
 
 impl<T> DKey1<T> {
-    pub(crate) fn new_i1(i: IndexFromOne) -> Self {
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
         Self(Key1::new_i1(i))
     }
 }
 
 impl<T> DKey2<T> {
-    pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
         Self(Key2::new_i2(i, j))
     }
 }
@@ -602,11 +604,25 @@ impl<T: BiIndexedKey> fmt::Display for Key2<T> {
 
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
+#[derive(From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+pub(crate) enum StdOptKeyword<'a> {
+    Root(OptRootKeyword<'a>),
+    Meas(OptMeasKeyword<'a>),
+}
+
 pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted(&mut self, key: StdKey, value: String);
 
-    fn insert_demoted_metaroot<T: Key + fmt::Display>(&mut self, value: &T) {
-        self.insert_demoted(T::std(), value.to_string());
+    fn insert_demoted_keyword(&mut self, keyword: StdOptKeyword<'_>) {
+        let (k, v) = keyword.as_std_key_pair();
+        self.insert_demoted(k, v.to_string());
+    }
+
+    fn insert_demoted_keyword_opt(&mut self, keyword: Option<StdOptKeyword<'_>>) {
+        if let Some(k) = keyword {
+            self.insert_demoted_keyword(k);
+        }
     }
 
     fn insert_demoted_metaroot_opt<T: Key + fmt::Display>(&mut self, value: Option<&T>) {
@@ -653,7 +669,7 @@ pub(crate) trait NonStdKeywordsExt {
     }
 }
 
-impl NonStdKeywordsExt for HashMap<NonStdKey, String> {
+impl NonStdKeywordsExt for NonStdKeywords {
     fn insert_demoted(&mut self, key: StdKey, value: String) {
         let mut k = NonStdKey(key.0);
         while self.contains_key(&k) {

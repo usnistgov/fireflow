@@ -82,7 +82,7 @@ impl Compensation2_0 {
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
-                let k = SpecificKey::new_i2(c.into(), r.into());
+                let k = SpecificKey::new_i2(c, r);
                 match Dfc::lookup(kws, k) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
@@ -131,7 +131,7 @@ impl Compensation2_0 {
             let n = self.0.matrix.nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
             let cutoff = if bad_matrix { 0 } else { par.0 };
-            let k = Key2::new_i2(kw.col.into(), kw.row.into());
+            let k = Key2::new_i2(kw.col, kw.row);
             let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
             let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
             [r, c]
@@ -184,13 +184,13 @@ impl Compensation2_0 {
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
         self.non_zero_indices().map(|kw| {
             let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
-            ExistingIndexedLinkError::new(Key2::new_i2(kw.col.into(), kw.row.into()), xs)
+            ExistingIndexedLinkError::new(Key2::new_i2(kw.col, kw.row), xs)
         })
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
         self.non_zero_indices()
-            .map(|kw| BiIndexedKeyLossError(Key2::new_i2(kw.col.into(), kw.row.into())))
+            .map(|kw| BiIndexedKeyLossError(Key2::new_i2(kw.col, kw.row)))
     }
 }
 

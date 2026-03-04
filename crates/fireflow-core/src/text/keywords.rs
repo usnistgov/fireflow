@@ -53,7 +53,7 @@ use fireflow_types::config::{
 };
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 use fireflow_types::nonempty_string::{
-    NEAlt, NEConcat, NEConcat3, NEConcat5, NED, NEDelim, NEStr, NEString, NEWrap, ToDisplayNE,
+    NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr, NEString, NEWrap, ToDisplayNE, ToNE,
     ambassador_impl_ToDisplayNE, ne_slice_by_ref,
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
@@ -795,11 +795,11 @@ pub enum Scale {
 }
 
 impl ToDisplayNE<'_> for Scale {
-    type NE = NEAlt<&'static NEStr, NED<LogScale>>;
+    type NE = NEAlt<&'static NEStr, ToNE<LogScale>>;
     fn to_ne(&self) -> Self::NE {
         match self {
             Self::Linear => NEAlt::Left(ne_str!("0,0")),
-            Self::Log(x) => NEAlt::Right(NED(*x)),
+            Self::Log(x) => NEAlt::Right(ToNE(*x)),
         }
     }
 }
@@ -844,9 +844,9 @@ pub struct LogScale {
 }
 
 impl<'a> ToDisplayNE<'a> for LogScale {
-    type NE = NEDelim<[NED<PositiveFloat>; 2]>;
+    type NE = NEDelim<[ToNE<PositiveFloat>; 2]>;
     fn to_ne(&'a self) -> Self::NE {
-        NEDelim::new(',', [NED(self.decades), NED(self.offset)])
+        NEDelim::new(',', [ToNE(self.decades), ToNE(self.offset)])
     }
 }
 
@@ -1084,9 +1084,9 @@ pub struct Trigger {
 }
 
 impl<'a> ToDisplayNE<'a> for Trigger {
-    type NE = NEConcat3<NED<&'a Shortname>, char, u32>;
+    type NE = NEConcat3<ToNE<&'a Shortname>, char, u32>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(NED(&self.measurement), ',').append(self.threshold)
+        NEConcat::new(ToNE(&self.measurement), ',').append(self.threshold)
     }
 }
 
@@ -1687,9 +1687,9 @@ pub struct Calibration3_1 {
 }
 
 impl<'a> ToDisplayNE<'a> for Calibration3_1 {
-    type NE = NEConcat3<NED<PositiveFloat>, char, &'a NEString>;
+    type NE = NEConcat3<ToNE<PositiveFloat>, char, &'a NEString>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(NED(self.slope), ',').append(&self.unit)
+        NEConcat::new(ToNE(self.slope), ',').append(&self.unit)
     }
 }
 
@@ -1761,10 +1761,10 @@ pub struct Calibration3_2 {
 }
 
 impl<'a> ToDisplayNE<'a> for Calibration3_2 {
-    type NE = NEConcat5<NED<PositiveFloat>, char, f32, char, &'a NEString>;
+    type NE = NEConcat5<ToNE<PositiveFloat>, char, f32, char, &'a NEString>;
     fn to_ne(&'a self) -> Self::NE {
         // NOTE offset will always be written even if it is zero
-        NEConcat::new(NED(self.slope), ',')
+        NEConcat::new(ToNE(self.slope), ',')
             .append(self.offset)
             .append(',')
             .append(&self.unit)
@@ -1865,9 +1865,9 @@ pub struct Wavelengths(pub Vec<PositiveFloat>);
 pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
 
 impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
-    type NE = NEDelim<NESlice<'a, NED<PositiveFloat>>>;
+    type NE = NEDelim<NESlice<'a, ToNE<PositiveFloat>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = NED::on_inner_slice(ne_slice_by_ref(&self.0));
+        let xs = ToNE::on_inner_slice(ne_slice_by_ref(&self.0));
         NEDelim::new(',', xs)
     }
 }
@@ -2140,20 +2140,14 @@ pub struct Unicode {
     pub kws: Vec<NEString>,
 }
 
-// TODO fixme, the correct type with a slice complains about not being general enough
 impl<'a> ToDisplayNE<'a> for Unicode {
-    // type NE = NEConcatR<u32, NEConcat<char, NEDelim<NEVec<&'a NEStr>>>>;
-    type NE = u32;
+    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<NESlice<'a, NEString>>>>;
     fn to_ne(&'a self) -> Self::NE {
-        self.page
-        // let kws = self
-        //     .kws
-        //     .iter()
-        //     .map(|s| s.as_ne_str())
-        //     .try_into_nonempty_iter()
-        //     .map(|ne| NEDelim::new(',', ne.collect::<NEVec<_>>()))
-        //     .map(|kws| NEConcat::new(',', kws));
-        // NEConcat::new(self.page, kws)
+        if let Some(kws) = NESlice::try_from_slice(&self.kws[..]) {
+            NEAlt::Right(NEConcat::new(self.page, ',').append(NEDelim::new(',', kws)))
+        } else {
+            NEAlt::Left(self.page)
+        }
     }
 }
 
@@ -2255,10 +2249,10 @@ pub enum Feature {
 }
 
 impl<'a> ToDisplayNE<'a> for Feature {
-    type NE = NEAlt<NED<OpticalFeature>, &'a NEString>;
+    type NE = NEAlt<ToNE<OpticalFeature>, &'a NEString>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
-            Self::Optical(x) => NEAlt::Left(NED(*x)),
+            Self::Optical(x) => NEAlt::Left(ToNE(*x)),
             Self::Other(x) => NEAlt::Right(x),
         }
     }
@@ -2352,11 +2346,11 @@ impl<'a, I> ToDisplayNE<'a> for RegionGateIndex<I>
 where
     for<'b> I: ToDisplayNE<'b> + Copy,
 {
-    type NE = NEAlt<NED<I>, NED<IndexPair<I>>>;
+    type NE = NEAlt<ToNE<I>, ToNE<IndexPair<I>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
-            Self::Univariate(x) => NEAlt::Left(NED(*x)),
-            Self::Bivariate(x) => NEAlt::Right(NED(*x)),
+            Self::Univariate(x) => NEAlt::Left(ToNE(*x)),
+            Self::Bivariate(x) => NEAlt::Right(ToNE(*x)),
         }
     }
 }
@@ -2374,9 +2368,9 @@ impl<'a, I> ToDisplayNE<'a> for IndexPair<I>
 where
     for<'b> I: ToDisplayNE<'b> + Copy,
 {
-    type NE = NEDelim<[NED<I>; 2]>;
+    type NE = NEDelim<[ToNE<I>; 2]>;
     fn to_ne(&'a self) -> Self::NE {
-        NEDelim::new(',', [self.x, self.y].map(NED))
+        NEDelim::new(',', [self.x, self.y].map(ToNE))
     }
 }
 
@@ -2447,13 +2441,13 @@ pub enum MeasOrGateIndex {
 }
 
 impl<'a> ToDisplayNE<'a> for MeasOrGateIndex {
-    type NE = NEConcat<char, NED<IndexFromOne>>;
+    type NE = NEConcat<char, ToNE<IndexFromOne>>;
     fn to_ne(&'a self) -> Self::NE {
         let (p, n) = match self {
             Self::Meas(x) => ('P', x.0),
             Self::Gate(x) => ('G', x.0),
         };
-        NEConcat::new(p, NED(n))
+        NEConcat::new(p, ToNE(n))
     }
 }
 
@@ -2502,9 +2496,9 @@ pub enum MeasOrGateIndexError {
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl<'a> ToDisplayNE<'a> for PrefixedMeasIndex {
-    type NE = NEConcat<char, NED<MeasIndex>>;
+    type NE = NEConcat<char, ToNE<MeasIndex>>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new('P', NED(self.0))
+        NEConcat::new('P', ToNE(self.0))
     }
 }
 
@@ -2558,12 +2552,12 @@ pub enum RegionWindowRef<'a> {
 }
 
 impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
-    type NE = NEAlt<NED<&'a UniGate>, NESlice<'a, NED<Vertex>>>;
+    type NE = NEAlt<ToNE<&'a UniGate>, NESlice<'a, ToNE<Vertex>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
-            Self::Univariate(x) => NEAlt::Left(NED(x)),
+            Self::Univariate(x) => NEAlt::Left(ToNE(x)),
             Self::Bivariate(x) => {
-                let xs = NED::on_inner_slice(ne_slice_by_ref(x));
+                let xs = ToNE::on_inner_slice(ne_slice_by_ref(x));
                 NEAlt::Right(xs)
             }
         }
@@ -2732,7 +2726,7 @@ pub enum Gating {
 
 impl<'a> ToDisplayNE<'a> for Gating {
     type NE = NEAlt<
-        NEAlt<NED<RegionIndex>, NEConcat<&'static NEStr, &'a Box<Self>>>,
+        NEAlt<ToNE<RegionIndex>, NEConcat<&'static NEStr, &'a Box<Self>>>,
         NEAlt<
             NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
             NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
@@ -2741,7 +2735,7 @@ impl<'a> ToDisplayNE<'a> for Gating {
     fn to_ne(&'a self) -> Self::NE {
         let conj = |x, middle, y| NEConcat::new('(', x).append(middle).append(y).append(')');
         match self {
-            Self::Region(x) => NEAlt::Left(NEAlt::Left(NED(*x))),
+            Self::Region(x) => NEAlt::Left(NEAlt::Left(ToNE(*x))),
             Self::Not(x) => NEAlt::Left(NEAlt::Right(NEConcat::new(ne_str!("(NOT "), x))),
             Self::And(x, y) => NEAlt::Right(NEAlt::Left(conj(x, ne_str!(" AND "), y))),
             Self::Or(x, y) => NEAlt::Right(NEAlt::Right(conj(x, ne_str!(" OR "), y))),
@@ -2944,10 +2938,10 @@ pub enum Width {
 }
 
 impl ToDisplayNE<'_> for Width {
-    type NE = NEAlt<NED<BitsOrChars>, &'static NEStr>;
+    type NE = NEAlt<ToNE<BitsOrChars>, &'static NEStr>;
     fn to_ne(&self) -> Self::NE {
         match self {
-            Self::Fixed(x) => NEAlt::Left(NED(*x)),
+            Self::Fixed(x) => NEAlt::Left(ToNE(*x)),
             Self::Variable => NEAlt::Right(ne_str!("*")),
         }
     }
@@ -3241,13 +3235,13 @@ impl<'a> ToDisplayNE<'a> for NEUnstainedCenters {
     type NE = NEConcat5<
         NonZeroUsize,
         char,
-        NEDelim<NEVec<NED<&'a Shortname>>>,
+        NEDelim<NEVec<ToNE<&'a Shortname>>>,
         char,
         NEDelim<NEVec<f32>>,
     >;
     fn to_ne(&'a self) -> Self::NE {
         let n = self.0.len();
-        let ks = NEDelim::new(',', self.0.keys().map(NED).collect());
+        let ks = NEDelim::new(',', self.0.keys().map(ToNE).collect());
         let vs = NEDelim::new(',', self.0.values().copied().collect());
         NEConcat::new(n, ',').append(ks).append(',').append(vs)
     }
@@ -4640,10 +4634,6 @@ pub(crate) const REGION_KW_PREFIX: &NEStr = ne_str!("R");
 
 pub(crate) const REGION_INDEX_KW_SUFFIX: &NEStr = ne_str!("I");
 pub(crate) const REGION_WINDOW_KW_SUFFIX: &NEStr = ne_str!("W");
-
-// const AREA: &str = "Area";
-// const WIDTH: &str = "Width";
-// const HEIGHT: &str = "Height";
 
 const TIME: &str = "Time";
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";

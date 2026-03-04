@@ -3,7 +3,7 @@ use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::ne_str;
-use fireflow_types::nonempty_string::{NEAlt, NED, NEDelim, NEStr, ToDisplayNE};
+use fireflow_types::nonempty_string::{NEAlt, NEDelim, NEStr, ToDisplayNE, ToNE};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
@@ -220,10 +220,10 @@ macro_rules! byteord_from_sized {
         // TODO could return an array here instead of vec but this would require
         // enumerating each size in ByteOrd2_0
         impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
-            type NE = NEAlt<NED<Endian>, NEDelim<NEVec<NonZeroU8>>>;
+            type NE = NEAlt<ToNE<Endian>, NEDelim<NEVec<NonZeroU8>>>;
             fn to_ne(&'a self) -> Self::NE {
                 match self {
-                    Self::Endian(e) => NEAlt::Left(NED(*e)),
+                    Self::Endian(e) => NEAlt::Left(ToNE(*e)),
                     Self::Order(o) => {
                         let xs = o
                             .as_nonempty_slice()

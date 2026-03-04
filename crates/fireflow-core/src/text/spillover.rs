@@ -10,7 +10,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
-use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NED, NEDelim, ToDisplayNE};
+use fireflow_types::nonempty_string::{NEConcat, NEConcat5, ToNE, NEDelim, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -219,7 +219,7 @@ impl<'a> ToDisplayNE<'a> for Spillover {
     type NE = NEConcat5<
         NonZeroUsize,
         char,
-        NEDelim<NEVec<NED<&'a Shortname>>>,
+        NEDelim<NEVec<ToNE<&'a Shortname>>>,
         char,
         NEDelim<NEVec<f32>>,
     >;
@@ -229,7 +229,7 @@ impl<'a> ToDisplayNE<'a> for Spillover {
         let names = self.measurements[..]
             .try_into_nonempty_iter()
             .expect("matrix should be 2x2")
-            .map(NED)
+            .map(ToNE)
             .collect();
         // DMatrix slices are column major, so transpose first to output
         // row-major

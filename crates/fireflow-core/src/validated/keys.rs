@@ -16,7 +16,7 @@ use crate::validated::sub_pattern::SubPattern;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
-    NEConcat, NEConcat4, NEConcatR, NED, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
+    NEConcat, NEConcat4, NEConcatR, ToNE, NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE,
 };
 
 use ambassador::{Delegate, delegatable_trait};
@@ -532,23 +532,23 @@ impl<T: Key> ToDisplayNE<'_> for Key0<T> {
 }
 
 impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
-    type NE = NEConcatR<NEConcat<&'static NEStr, NED<IndexFromOne>>, &'static NEStr>;
+    type NE = NEConcatR<NEConcat<&'static NEStr, ToNE<IndexFromOne>>, &'static NEStr>;
     fn to_ne(&self) -> Self::NE {
         let (pre, suf) = match T::C {
             PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
             PrefixSuffix::Prefix(pre) => (pre, None),
         };
-        NEConcat::new(pre, NED(self.index)).append(suf)
+        NEConcat::new(pre, ToNE(self.index)).append(suf)
     }
 }
 
 impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
-    type NE = NEConcat4<&'static NEStr, NED<IndexFromOne>, &'static NEStr, NED<IndexFromOne>>;
+    type NE = NEConcat4<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr, ToNE<IndexFromOne>>;
     fn to_ne(&self) -> Self::NE {
         let i = &self.index;
-        NEConcat::new(T::PREFIX, NED(i.i0))
+        NEConcat::new(T::PREFIX, ToNE(i.i0))
             .append(T::MIDDLE)
-            .append(NED(i.i1))
+            .append(ToNE(i.i1))
     }
 }
 
@@ -556,9 +556,9 @@ impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
 where
     SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
 {
-    type NE = NEConcat<&'static NEStr, NED<SpecificKey<K, I>>>;
+    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K, I>>>;
     fn to_ne(&self) -> Self::NE {
-        NEConcat::new(ne_str!("$"), NED(self.0))
+        NEConcat::new(ne_str!("$"), ToNE(self.0))
     }
 }
 

@@ -6,7 +6,6 @@ use crate::core::UnitaryKeyLossError;
 use crate::header::Version;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
-    WarningAndErrorsResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::nonempty::FCSNonEmpty;
@@ -1022,17 +1021,6 @@ pub enum Mode {
     Correlated,
 }
 
-/// Error when [`Mode`] has a deprecated value (FCS 3.1)
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
-pub enum DeprecatedModeWarning {
-    #[error("$MODE=C is deprecated")]
-    ModeCorrelated,
-    #[error("$MODE=U is deprecated")]
-    ModeUncorrelated,
-}
-
 /// Error when parsing [`Mode`] from string
 #[derive(Debug, Error)]
 #[error("must be one of 'C', 'L', or 'U'")]
@@ -1325,51 +1313,12 @@ pub enum AlphaNumType {
     Double,
 }
 
-macro_rules! check_ascii {
-    ($res:expr, $conf:expr) => {
-        if let Ok(dt) = $res
-            && dt == Self::Ascii
-        {
-            let flag = $conf.disallow_deprecated;
-            $res.map_err(LookupDatatypeError::from)
-                .into_nowarn()
-                .nowarn_extend_warning_or_error3(
-                    DeprecatedDatatypeWarning,
-                    |_| (),
-                    LookupDatatypeError::from,
-                    flag,
-                )
-        } else {
-            $res.map_err(LookupDatatypeError::from).into_log()
-        }
-    };
-}
-
-pub(crate) type LookupDatatypeResult =
-    WarningAndErrorsResult<AlphaNumType, (), DeprecatedDatatypeWarning, LookupDatatypeError>;
-
 impl AlphaNumType {
     pub(crate) fn matches_truncation(self, trunc: TruncateEventValues) -> bool {
         matches!(
             (trunc, self),
             (TruncateEventValues::IntOnly, Self::Integer) | (TruncateEventValues::All, _)
         )
-    }
-
-    pub(crate) fn get_req_check_ascii(
-        kws: &StdKeywords,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupDatatypeResult {
-        let res = Self::get_metaroot_req(kws);
-        check_ascii!(res, conf)
-    }
-
-    pub(crate) fn remove_req_check_ascii(
-        kws: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupDatatypeResult {
-        let res = Self::remove_metaroot_req(kws);
-        check_ascii!(res, conf)
     }
 }
 
@@ -1386,21 +1335,6 @@ impl FromStr for AlphaNumType {
         }
     }
 }
-
-/// Error when looking up [`AlphaNumType`] from keywords.
-#[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupDatatypeError {
-    Parse(ReqKeyError<AlphaNumType>),
-    Deprecated(DeprecatedDatatypeWarning),
-}
-
-/// Error when [`AlphaNumType`] is ASCII which is deprecated in 3.1 and 3.2
-#[derive(Debug, Error)]
-#[error("$DATATYPE=A is deprecated")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
-pub struct DeprecatedDatatypeWarning;
 
 /// Error when parsing [`AlphaNumType`] from string
 #[derive(Debug, Error)]

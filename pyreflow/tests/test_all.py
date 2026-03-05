@@ -3028,7 +3028,6 @@ class TestConfig:
                 path,
                 allow_header_text_offset_mismatch=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             if is_analysis:
                 return uncore.dataset_segs.analysis_seg
@@ -3050,33 +3049,6 @@ class TestConfig:
                 assert go("text_warn") == text
             assert go("header_silent") == header
             assert go("text_silent") == text
-
-    @staticmethod
-    def _test_disallow_deprecated(
-        path: Path,
-        version: pt.FCSVersion,
-        dep_versions: list[pt.FCSVersion],
-        exc_versions: list[pt.FCSVersion],
-    ) -> None:
-        def go(f: TriFlag) -> bool:
-            core, uncore = pf.api.fcs_read_std_text(
-                path, disallow_deprecated=f, time_meas_pattern=None
-            )
-            return True
-
-        if version in dep_versions:
-            TestConfig._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
-        elif version in exc_versions:
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("true")
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("false")
-            with pytest.RaisesGroup(pf.ExtraKeywordError):
-                assert go("silent")
-        else:
-            assert go("true")
-            assert go("false")
-            assert go("silent")
 
     @all_versions
     @pytest.mark.parametrize(
@@ -3738,7 +3710,6 @@ class TestConfig:
                 p,
                 dedup_measurement_names=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return core.all_shortnames
 
@@ -3757,7 +3728,6 @@ class TestConfig:
                 p,
                 trim_intra_value_whitespace=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
 
         self._test_config_flag(go, None, [pf.ParseKeywordValueError])
@@ -3774,7 +3744,6 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 time_meas_pattern=f,
-                disallow_deprecated="silent",
                 process_extra_timestep="drop_silent",
             )
             t = core.temporal
@@ -3795,7 +3764,6 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_time=f,
-                disallow_deprecated="silent",
             )
             return core.temporal is None
 
@@ -3811,7 +3779,6 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 add_missing_timestep=f,
-                disallow_deprecated="silent",
             )
             assert core.temporal is not None
             t = core.temporal[2]
@@ -3879,7 +3846,6 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 force_linear_scale=f,
-                disallow_deprecated="silent",
             )
             ss = (
                 [
@@ -3958,7 +3924,6 @@ class TestConfig:
                 p,
                 ignore_time_optical_keys=f,
                 process_time_optical_keys=g,
-                disallow_deprecated="silent",
             )
             ps = uncore.std_diagnostics.pseudostandard
             ns = core.measurements[0].nonstandard_keywords
@@ -4026,7 +3991,6 @@ class TestConfig:
                 p,
                 spillover_measurement_mode=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
 
         if version in ["FCS2.0", "FCS3.0"]:
@@ -4066,7 +4030,6 @@ class TestConfig:
                 p,
                 date_pattern=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return core.date is not None
 
@@ -4091,7 +4054,6 @@ class TestConfig:
                 p,
                 time_pattern=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return core.btim is not None
 
@@ -4116,7 +4078,6 @@ class TestConfig:
                 p,
                 datetime_pattern=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             if isinstance(core, pf.CoreTEXT3_2):
                 return core.begindatetime is not None
@@ -4150,7 +4111,6 @@ class TestConfig:
                 p,
                 last_modified_pattern=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             if isinstance(core, pf.CoreTEXT3_2 | pf.CoreTEXT3_1):
                 return core.last_modified is not None
@@ -4186,7 +4146,6 @@ class TestConfig:
                 p,
                 allow_other_feature=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             if isinstance(core, pf.CoreTEXT3_2):
                 return (core.all_awh_features[0], core.all_features[0])
@@ -4222,7 +4181,6 @@ class TestConfig:
                 p,
                 process_pseudostandard=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.pseudostandard)
 
@@ -4253,7 +4211,6 @@ class TestConfig:
                 p,
                 process_hyper_par=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.hyper_par)
 
@@ -4284,7 +4241,6 @@ class TestConfig:
                 p,
                 process_other_version=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.other_version)
 
@@ -4322,7 +4278,6 @@ class TestConfig:
                 p,
                 process_extra_timestep=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.timestep)
 
@@ -4363,7 +4318,6 @@ class TestConfig:
                 p,
                 fix_log_scale_offsets=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return True
 
@@ -4386,7 +4340,6 @@ class TestConfig:
                 p,
                 disallow_localtime=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return True
 
@@ -4412,7 +4365,6 @@ class TestConfig:
                 p,
                 nonstandard_measurement_pattern=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return (
                 core.nonstandard_keywords,
@@ -4432,7 +4384,6 @@ class TestConfig:
                 p,
                 text_data_correction=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.data_seg
 
@@ -4456,7 +4407,6 @@ class TestConfig:
                 p,
                 text_analysis_correction=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.analysis_seg
 
@@ -4485,7 +4435,6 @@ class TestConfig:
                 p,
                 ignore_text_data_offsets=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.data_seg
 
@@ -4506,7 +4455,6 @@ class TestConfig:
                 p,
                 ignore_text_analysis_offsets=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.analysis_seg
 
@@ -4548,7 +4496,6 @@ class TestConfig:
                 p,
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.data_seg
 
@@ -4581,7 +4528,6 @@ class TestConfig:
                 p,
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return uncore.dataset_segs.analysis_seg
 
@@ -4616,13 +4562,12 @@ class TestConfig:
                 p,
                 process_optional_failure=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             return core.nonstandard_keywords
 
-        # $MODE is also demoted due to disallow_deprecated flag
-        comp = {"DATE": val} if version != "FCS3.2" else {"DATE": val, "MODE": "L"}
-        self._test_process_kw_fail_flag(go, comp, {}, [pf.ParseKeywordValueError])
+        self._test_process_kw_fail_flag(
+            go, {"DATE": val}, {}, [pf.ParseKeywordValueError]
+        )
 
     @all_versions
     def test_int_widths_from_byteord(
@@ -4637,7 +4582,6 @@ class TestConfig:
                 p,
                 integer_widths_from_byteord=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             lt = core.layout
             if isinstance(lt, pf.OrderedUint24Layout | pf.OrderedUint32Layout):
@@ -4665,7 +4609,6 @@ class TestConfig:
                 p,
                 integer_byteord_override=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             lt = core.layout
             if isinstance(lt, pf.OrderedUint32Layout):
@@ -4702,132 +4645,11 @@ class TestConfig:
                 p,
                 disallow_range_truncation=f,
                 time_meas_pattern=None,
-                disallow_deprecated="silent",
             )
             # TODO return diagnostics for ranges that were trimmed
             return True
 
         self._test_inverted_tri_flag(go, True, [pf.RelationalError])
-
-    @all_versions
-    @pytest.mark.parametrize("mode", ["L", "C", "U"])
-    def test_disallow_deprecated_mode(
-        self, version: pt.FCSVersion, mode: pt.Mode, tmp_path: Path
-    ) -> None:
-        p = tmp_path / "thing.fcs"
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
-        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
-
-        def go(f: TriFlag) -> bool:
-            core, uncore = pf.api.fcs_read_std_text(
-                p, disallow_deprecated=f, time_meas_pattern=None
-            )
-            return True
-
-        if version == "FCS3.2":
-            if mode in ["C", "U"]:
-                with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                    go("true")
-                with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                    go("false")
-                with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                    go("silent")
-            else:
-                self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
-        elif version == "FCS3.1":
-            if mode in ["C", "U"]:
-                self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
-            else:
-                assert go("true")
-                assert go("false")
-                assert go("silent")
-        else:
-            assert go("true")
-            assert go("false")
-            assert go("silent")
-
-    @all_versions
-    def test_disallow_deprecated_ascii(
-        self, version: pt.FCSVersion, tmp_path: Path
-    ) -> None:
-        p = tmp_path / "thing.fcs"
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "10", "$P1R": "32"}
-        self.mock_header_std_text(p, version, kws=kws, par=1, datatype="A")
-
-        def go(f: TriFlag) -> bool:
-            core, uncore = pf.api.fcs_read_std_text(
-                p, disallow_deprecated=f, time_meas_pattern=None
-            )
-            return True
-
-        if version in ["FCS3.2", "FCS3.1"]:
-            self._test_inverted_tri_flag(go, True, [pf.FCSDeprecatedError])
-        else:
-            assert go("true")
-            assert go("false")
-            assert go("silent")
-
-    # TODO there should be a more general version of this that tests how
-    # keywords are classified.
-
-    # TODO this doesn't test $GATING and $Rn*
-
-    @all_versions
-    @pytest.mark.parametrize(
-        "key, val, dep_versions, exc_versions",
-        [
-            ("$BTIM", "12:00:00", ["FCS3.2"], []),
-            ("$ETIM", "12:00:00", ["FCS3.2"], []),
-            ("$DATE", "31-Dec-1999", ["FCS3.2"], []),
-            ("$P1P", "42", ["FCS3.2"], []),
-            ("$PLATEID", "Phiber Optik", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
-            ("$PLATENAME", "Acid Phreak", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
-            ("$WELLID", "Corrupt", ["FCS3.2"], ["FCS2.0", "FCS3.0"]),
-            ("$PK1", "1", ["FCS3.1"], ["FCS3.2"]),
-            ("$PKN1", "2", ["FCS3.1"], ["FCS3.2"]),
-        ],
-    )
-    def test_disallow_deprecated_kws(
-        self,
-        version: pt.FCSVersion,
-        key: str,
-        val: str,
-        dep_versions: list[pt.FCSVersion],
-        exc_versions: list[pt.FCSVersion],
-        tmp_path: Path,
-    ) -> None:
-        p = tmp_path / "thing.fcs"
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", key: val}
-        mode: pt.Mode | None = None if version == "FCS3.2" else "L"
-        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
-
-        self._test_disallow_deprecated(p, version, dep_versions, exc_versions)
-
-    @all_versions
-    @pytest.mark.parametrize(
-        "key, val",
-        [
-            ("$G1E", "0,0"),
-            ("$G1F", "the great"),
-            ("$G1N", "Scorpion"),
-            ("$G1P", "50"),
-            ("$G1R", "9001"),
-            ("$G1S", "Erik Bloodaxe"),
-            ("$G1T", "light sail"),
-            ("$G1V", "3.1415926"),
-        ],
-    )
-    def test_disallow_deprecated_gnn_kws(
-        self, version: pt.FCSVersion, key: str, val: str, tmp_path: Path
-    ) -> None:
-        p = tmp_path / "thing.fcs"
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", key: val}
-        if version != "FCS3.2":
-            kws["$GATE"] = "1"
-        mode: pt.Mode | None = None if version == "FCS3.2" else "L"
-        self.mock_header_std_text(p, version, kws=kws, par=1, mode=mode)
-
-        self._test_disallow_deprecated(p, version, ["FCS3.1"], ["FCS3.2"])
 
     @pytest.mark.parametrize(
         "version, data_seg",
@@ -5193,10 +5015,7 @@ class TestReadWrite:
         core.write_dataset(p1)
         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
         if core.version in ["FCS3.1", "FCS3.2"]:
-            with pytest.warns(pf.PyreflowWarning):
-                new_core1, _ = pf.api.fcs_read_std_dataset(
-                    p1, time_meas_pattern=LINK_NAME2
-                )
+            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
         else:
             new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
         assert new_core0 != core

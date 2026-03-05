@@ -916,11 +916,6 @@ pub struct ReadDataKeywordsConfig {
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
     pub disallow_range_truncation: DisallowRangeTrunc,
-
-    /// If `true`, throw an error if TEXT includes any deprecated features.
-    ///
-    /// If `false`, merely throw a warning.
-    pub disallow_deprecated: DisallowDeprecated,
 }
 
 /// Specific instructions for reading events from DATA segment
@@ -1241,7 +1236,6 @@ impl_tri_error_flag!(false_is_error AllowTotMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
 
-impl_tri_error_flag!(true_is_error DisallowDeprecated);
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 

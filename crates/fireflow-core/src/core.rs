@@ -3,11 +3,10 @@
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowDeprecated, DisallowRangeTrunc, DummyTriFlag, OverlapCorrectionLimit,
-    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig,
-    ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DisallowRangeTrunc, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
+    ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
+    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
@@ -40,10 +39,6 @@ use crate::text::datetimes::{
     BeginDateTime, DatetimeLossError, Datetimes, EndDateTime, LookupDatetimesError,
     ReversedDatetimesError,
 };
-use crate::text::deprecated::{
-    AnyDepKeyError, DeprecatedPeakRef, DeprecatedPlateRef, DeprecatedRef, DeprecatedStrRef,
-    IndexedDepRef, IsDeprecated as _,
-};
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
     AppliedGates3_0To3_2Error, AppliedGates3_2, GatedMeasurements, GatingSchemeLossError,
@@ -53,16 +48,16 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
     Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
-    Cyt3_2, Cytsn, DeprecatedModeWarning, DetectorName, DetectorType, DetectorVoltage, Dfc,
-    Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError,
-    HyperParError, Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid,
-    LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2,
-    ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalScaleFix, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Proj, PseudostandardError, Range, Scale, ScaleFix, Smno, Src, Sys, Tag,
-    TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded,
-    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
-    Wavelengths, WavelengthsLossError, Wellid,
+    Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
+    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError, HyperParError,
+    Inst, KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
+    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
+    NoCytError, Op, OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin,
+    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
+    PseudostandardError, Range, Scale, ScaleFix, Smno, Src, Sys, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
+    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -102,7 +97,7 @@ use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
-use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey, TriFlag};
+use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1669,8 +1664,6 @@ pub trait VersionedMetaroot: Sized {
         names: &NamedSet<'_>,
     ) -> impl Iterator<Item = RemovedLink>;
 
-    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>>;
-
     /// Return error if any data in this struct links to given list of names.
     fn meas_has_existing_named_links_with_inner(
         &self,
@@ -1762,8 +1755,6 @@ pub trait VersionedMetaroot: Sized {
     ) -> (Self::Optical, Self::Temporal);
 }
 
-pub trait DeprecatedMetaroot: Sized {}
-
 pub trait VersionedOptical: Sized {
     type Ver: Versioned;
 
@@ -1783,8 +1774,6 @@ pub trait VersionedOptical: Sized {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError>;
-
-    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
 pub trait VersionedTemporal: Sized {
@@ -1801,8 +1790,6 @@ pub trait VersionedTemporal: Sized {
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError>;
-
-    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>>;
 }
 
 pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
@@ -2177,28 +2164,6 @@ impl<O> Optical<O> {
         [filter, power, det_type, per_emit, det_volt]
             .into_iter()
             .flatten()
-    }
-
-    fn deprecated(
-        &mut self,
-        i: MeasIndex,
-        es: &mut Vec<AnyDepKeyError>,
-        keep: bool,
-        do_demote: bool,
-    ) where
-        O: VersionedOptical,
-        Version: From<O::Ver>,
-    {
-        let v = O::Ver::fcs_version();
-        let p = (v >= Version::FCS3_2).then(|| {
-            DeprecatedRef::PercentEmitted(IndexedDepRef::new(i.into(), &mut self.percent_emitted))
-        });
-        for mut d in self.specific.deprecated(i).chain(p) {
-            if do_demote {
-                d.demote(&mut self.common.nonstandard_keywords, keep);
-            }
-            d.errors(es);
-        }
     }
 }
 
@@ -4377,8 +4342,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     /// Make a new CoreTEXT from flat keywords.
     ///
-    /// Return any errors encountered, including missing required keywords,
-    /// parse errors, and/or deprecation warnings.
+    /// Return any errors encountered, including missing required keywords and
+    /// parse errors.
     ///
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
@@ -4674,50 +4639,6 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         )
     }
 
-    fn deprecated(
-        &mut self,
-        dep_flag: DisallowDeprecated,
-        xfer_flag: ProcessOptionalFailure,
-    ) -> SwitchableErrorsResult<(), (), DisallowDeprecated, AnyDepKeyError>
-    where
-        Version: From<M::Ver>,
-    {
-        let mut es = vec![];
-        // Demote deprecated keywords to nonstandard if a) we consider it an
-        // error if a deprecated key is present and b) if when we drop and
-        // optional flag we are to transfer it to the nonstandard dict. If (a)
-        // is not true, we don't care (only a warning), if (b) is not true, the
-        // transfer shouldn't happen
-        //
-        // NOTE the drop_optional flag should not be used here because the
-        // disallow_deprecated flag effectively takes its place. If this flag is
-        // set, the we consider it an error to be deprecated, thus dropping a
-        // keyval is not relevant (error = crash).
-        let keep = xfer_flag.is_demote();
-        let disallow_dep = matches!(dep_flag.0, TriFlag::True | TriFlag::Silent);
-        let do_demote = disallow_dep && xfer_flag.is_demote();
-        for mut d in self.metaroot.specific.deprecated(private::NoTouchy) {
-            if do_demote {
-                d.demote(&mut self.metaroot.nonstandard_keywords, keep);
-            }
-            d.errors(&mut es);
-        }
-        for (i, e) in self.measurements.iter_mut().enumerate() {
-            match e {
-                Element::Center(t) => {
-                    for mut d in t.specific.deprecated(i.into()) {
-                        if do_demote {
-                            d.demote(&mut t.common.nonstandard_keywords, keep);
-                        }
-                        d.errors(&mut es);
-                    }
-                }
-                Element::NonCenter(o) => o.deprecated(i.into(), &mut es, keep, do_demote),
-            }
-        }
-        LogResult::new_switchable_iter3((), (), es, dep_flag)
-    }
-
     // only meant to be called during lookup when keywords are being read from
     // a hashtable
     pub(crate) fn try_new<C>(
@@ -4773,15 +4694,6 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
                     .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
-                    .and_then_commutative(|mut ret| {
-                        let xfer_flag = rconf.process_optional_failure;
-                        let dep_flag = rconf.disallow_deprecated;
-                        ret.deprecated(dep_flag, xfer_flag)
-                            .map_switchable_errors(NewCoreWarning::from)
-                            .switchable_into_commutative()
-                            .map_errors(LookupCoreError::from)
-                            .set_ok_value(ret)
-                    })
             })
     }
 
@@ -5924,13 +5836,6 @@ impl PlateData {
         Self::new(i, n, w)
     }
 
-    fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedPlateRef<'_>> {
-        let a = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.platename));
-        let b = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.plateid));
-        let c = DeprecatedPlateRef::from(DeprecatedStrRef(&mut self.wellid));
-        [a, b, c].into_iter()
-    }
-
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             self.wellid.metaroot_opt_pair(),
@@ -5965,13 +5870,6 @@ impl PeakData {
             .switchable_into_commutative()
             .into_semigroup();
         b.lift_f2_once(s, Self::new)
-    }
-
-    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedPeakRef<'_>> {
-        let j = i.into();
-        let a = DeprecatedPeakRef::from(IndexedDepRef::new(j, &mut self.size));
-        let b = DeprecatedPeakRef::from(IndexedDepRef::new(j, &mut self.bin));
-        [a, b].into_iter()
     }
 
     pub(crate) fn opt_keywords(
@@ -7730,10 +7628,6 @@ impl VersionedOptical for InnerOptical2_0 {
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
         self.wavelength.indexed_key_loss_error(i).into_iter()
     }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
-    }
 }
 
 impl VersionedOptical for InnerOptical3_0 {
@@ -7764,10 +7658,6 @@ impl VersionedOptical for InnerOptical3_0 {
         i: MeasIndex,
     ) -> impl Iterator<Item = AnyOpticalToTemporalKeyLossError> {
         self.wavelength.indexed_key_loss_error(i).into_iter()
-    }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
     }
 }
 
@@ -7806,10 +7696,6 @@ impl VersionedOptical for InnerOptical3_1 {
         let a = self.calibration.indexed_key_loss_error(i);
         let b = self.wavelengths.indexed_key_loss_error(i);
         [a, b].into_iter().flatten()
-    }
-
-    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        self.peak.deprecated(i).map(DeprecatedRef::from)
     }
 }
 
@@ -7860,10 +7746,6 @@ impl VersionedOptical for InnerOptical3_2 {
             .into_iter()
             .flatten()
     }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
-    }
 }
 
 impl VersionedTemporal for InnerTemporal2_0 {
@@ -7894,10 +7776,6 @@ impl VersionedTemporal for InnerTemporal2_0 {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
-    }
 }
 
 impl VersionedTemporal for InnerTemporal3_0 {
@@ -7925,10 +7803,6 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
-    }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
     }
 }
 
@@ -7960,10 +7834,6 @@ impl VersionedTemporal for InnerTemporal3_1 {
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).infallible_err_into()
     }
-
-    fn deprecated(&mut self, i: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        self.peak.deprecated(i).map(DeprecatedRef::from)
-    }
 }
 
 impl VersionedTemporal for InnerTemporal3_2 {
@@ -7991,10 +7861,6 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
     fn temporal_to_optical_error(&self, i: MeasIndex) -> Option<AnyTemporalToOpticalKeyLossError> {
         self.can_convert_to_optical(i).err()
-    }
-
-    fn deprecated(&mut self, _: MeasIndex) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
     }
 }
 
@@ -8426,20 +8292,6 @@ impl LookupMetaroot for InnerMetaroot3_1 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let process_mode = |mode| {
-            let err = match &mode {
-                Mode::Correlated => Some(DeprecatedModeWarning::ModeCorrelated),
-                Mode::Uncorrelated => Some(DeprecatedModeWarning::ModeUncorrelated),
-                Mode::List => None,
-            };
-            let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-            let flag = rconf.disallow_deprecated;
-            SwitchableErrorsResult::new_switchable_iter3(mode, (), err, flag)
-                .map_switchable_errors(LookupMetarootWarning::from)
-                .switchable_into_commutative()
-                .map_errors(LookupMetarootError::from)
-        };
-
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
         let cyt = Cyt::remove_root_opt_nofail(std);
@@ -8467,8 +8319,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
 
         let mode = Mode::remove_metaroot_req(std)
             .map_err(LookupMetarootError::from)
-            .into_log()
-            .and_then_commutative(process_mode);
+            .into_log();
 
         spill
             .zip6_commutative(subset, modif, ts, vol, ag)
@@ -8599,10 +8450,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         Compensation2_0::remove_invalid_link(&mut self.comp, par).into_iter()
     }
 
-    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
-    }
-
     fn meas_has_existing_named_links_with_inner(
         &self,
         _: &OpticalNamesToRemove<'_>,
@@ -8700,10 +8547,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         let comp = Compensation3_0::remove_invalid_link(&mut self.comp, par).map(RemovedLink::from);
         let ag = self.applied_gates.remove_invalid_links(par);
         comp.into_iter().chain(ag)
-    }
-
-    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        empty()
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -8810,10 +8653,6 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
             .remove_invalid_links(par)
             .into_iter()
             .chain(spill.map(RemovedLink::from))
-    }
-
-    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        self.applied_gates.deprecated().map(DeprecatedRef::from)
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -8932,18 +8771,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             .into_iter()
             .chain(spill.map(RemovedLink::from))
             .chain(uc.map(RemovedLink::from))
-    }
-
-    fn deprecated(&mut self, _: private::NoTouchy) -> impl Iterator<Item = DeprecatedRef<'_>> {
-        let a = self.timestamps.deprecated().map(DeprecatedRef::from);
-        let b = DeprecatedRef::from(&mut self.mode);
-        let c = self.applied_gates.0.deprecated().map(DeprecatedRef::from);
-        self.plate
-            .deprecated()
-            .map(DeprecatedRef::from)
-            .chain(a)
-            .chain(once(b))
-            .chain(c)
     }
 
     fn meas_has_existing_named_links_with_inner(
@@ -10024,8 +9851,6 @@ pub enum NewCoreWarning {
     Time(MissingTime),
     /// A keyword has invalid links (and is dropped in the case of a warning)
     Link(BrokenOrDependentLinkError),
-    /// A keyword is deprecated
-    Deprecated(AnyDepKeyError),
 }
 
 type LookupMetarootResult<V> =
@@ -10055,9 +9880,6 @@ pub enum LookupMetarootWarning {
     Modified(LookupModifiedDataError),
     UnstainedCenter(OptKeyStError<UnstainedCenters>),
     Mode3_2(OptKeyError<Mode3_2>),
-    // NOTE this can never be an error even if we forbid deprecated keys
-    // because there is no easy way to fix it (ie by dropping a key)
-    Mode(DeprecatedModeWarning),
     Unicode(OptKeyStError<Unicode>),
     Spillover(OptKeyStError<Spillover>),
     Gate2_0(LookupAppliedGates2_0Error),

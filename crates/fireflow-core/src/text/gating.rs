@@ -7,9 +7,6 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::nonempty::FCSNonEmpty;
-use crate::text::deprecated::{
-    DepGatedMeasRef, DeprecatedGatingSchemeRef, DeprecatedStrRef, IndexedDepRef,
-};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
@@ -526,14 +523,6 @@ impl AppliedGates3_0 {
             .extend_deferred_switchable_errors3(gs)
             .map_deferred_value(AppliedGates3_2)
     }
-
-    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
-        self.gated_measurements
-            .0
-            .iter_mut()
-            .enumerate()
-            .flat_map(|(i, g)| g.deprecated(i.into()))
-    }
 }
 
 impl AppliedGates3_2 {
@@ -648,24 +637,6 @@ impl GatedMeasurement {
                 )
             },
         )
-    }
-
-    fn deprecated(&mut self, i: GateIndex) -> impl Iterator<Item = DepGatedMeasRef<'_>> {
-        let j = i.into();
-        macro_rules! go {
-            ($j:expr, $x:expr) => {
-                DepGatedMeasRef::from(IndexedDepRef::new($j, $x))
-            };
-        }
-        let x0 = go!(j, &mut self.scale);
-        let x1 = go!(j, DeprecatedStrRef(&mut self.filter));
-        let x2 = go!(j, &mut self.shortname);
-        let x3 = go!(j, &mut self.percent_emitted);
-        let x4 = go!(j, &mut self.range);
-        let x5 = go!(j, DeprecatedStrRef(&mut self.longname));
-        let x6 = go!(j, DeprecatedStrRef(&mut self.detector_type));
-        let x7 = go!(j, &mut self.detector_voltage);
-        [x0, x1, x2, x3, x4, x5, x6, x7].into_iter()
     }
 
     fn opt_keywords_std(&self, i: GateIndex) -> impl Iterator<Item = (StdKey, String)> {
@@ -944,14 +915,6 @@ impl<I> GatingScheme<I> {
                 .into_nowarn()
                 .set_err_value(GatingScheme::default())
         })
-    }
-}
-
-impl GatingScheme<PrefixedMeasIndex> {
-    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedGatingSchemeRef<'_>> {
-        let g = DeprecatedGatingSchemeRef::from(&mut self.gating);
-        let r = DeprecatedGatingSchemeRef::from(&mut self.regions);
-        [g, r].into_iter()
     }
 }
 

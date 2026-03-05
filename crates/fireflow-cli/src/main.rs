@@ -6,10 +6,10 @@ use fireflow_core::config::{
     AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
     AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd,
     AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
-    DatasetOffset, DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _,
-    NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern,
-    TriErrorFlag, TruncateOffsetLimit, VersionOverride,
+    DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
+    OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
+    ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern, TriErrorFlag,
+    TruncateOffsetLimit, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -643,11 +643,6 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(ProcessExtraTimestep));
 
-    let disallow_deprecated = tri_flag_arg::<DisallowDeprecated>(
-        DISALLOW_DEPRECATED,
-        "Disallow any deprecated keywords are present.",
-    );
-
     let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
         format!(
@@ -729,7 +724,6 @@ fn run() -> AppResult<()> {
         process_hyper_par,
         process_other_version,
         process_extra_timestep,
-        disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
         ns_meas_pattern,
@@ -1357,7 +1351,6 @@ fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
     });
-    get_opt(s, DISALLOW_DEPRECATED, |x| c.disallow_deprecated = x);
 
     c
 }
@@ -1745,8 +1738,6 @@ const PROCESS_OTHER_VERSION: &str = "process-other-version";
 const PROCESS_EXTRA_TIMESTEP: &str = "process-extra-timestep";
 
 const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-failure";
-
-const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 
 const FIX_LOG_SCALE_OFFSETS: &str = "fix-log-scale-offsets";
 

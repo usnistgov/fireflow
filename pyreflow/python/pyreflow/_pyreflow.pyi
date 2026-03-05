@@ -993,7 +993,6 @@ class CoreTEXT2_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1090,7 +1089,6 @@ class CoreTEXT3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1193,7 +1191,6 @@ class CoreTEXT3_1(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1300,7 +1297,6 @@ class CoreTEXT3_2(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1387,7 +1383,6 @@ class CoreDataset2_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1503,7 +1498,6 @@ class CoreDataset3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1626,7 +1620,6 @@ class CoreDataset3_1(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1753,7 +1746,6 @@ class CoreDataset3_2(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1772,7 +1764,6 @@ class ParseKeyError(PyreflowError): ...
 class ParseKeywordValueError(PyreflowError): ...
 class InvalidKeywordValueError(PyreflowError): ...
 class ExtraKeywordError(PyreflowError): ...
-class FCSDeprecatedError(PyreflowError): ...
 class ConversionError(PyreflowError): ...
 class RelationalError(PyreflowError): ...
 class EventDataError(PyreflowError): ...
@@ -2380,7 +2371,6 @@ def fcs_read_std_text(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2442,7 +2432,6 @@ def fcs_read_flat_dataset(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2532,7 +2521,6 @@ def fcs_read_std_dataset(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2675,7 +2663,6 @@ def fcs_read_std_texts(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2738,7 +2725,6 @@ def fcs_read_flat_datasets(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2829,7 +2815,6 @@ def fcs_read_std_datasets(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2861,7 +2846,6 @@ def fcs_read_flat_dataset_with_keywords(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2931,7 +2915,6 @@ def fcs_summarize(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2953,7 +2936,6 @@ __all__ = [
     "ParseKeywordValueError",
     "InvalidKeywordValueError",
     "ExtraKeywordError",
-    "FCSDeprecatedError",
     "ConversionError",
     "RelationalError",
     "EventDataError",

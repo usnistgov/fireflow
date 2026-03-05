@@ -262,12 +262,11 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER} or {TEXT} are unparsable"));
     let exc1 = PyException::new_extra();
-    let exc2 = PyException::new_deprecated();
-    let exc3 = PyException::new_parse_keyval();
-    let exc4 = PyException::new_pyreflow(PyreflowError::Relational)
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords that are referenced by other keywords are missing");
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let pt_ret =
         PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
@@ -363,15 +362,13 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
-    let exc1 = PyException::new_deprecated()
-        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA}"
     ));
-    let exc4 = PyException::new_event_data();
+    let exc3 = PyException::new_event_data();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let pt_data_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
     let pt_smry_ret = PyClass::new_py(["api"], "DatasetSummary");
@@ -479,16 +476,15 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
-    let exc1 = PyException::new_deprecated();
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA} or \
          if keywords that are referenced by other keywords do not exist"
     ));
-    let exc4 = PyException::new_event_data();
-    let exc5 = PyException::new_extra();
+    let exc3 = PyException::new_event_data();
+    let exc4 = PyException::new_extra();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
+    let xs = [exc0, exc1, exc2, exc3, exc4];
 
     let pt_ret = PyTuple::new1(PyUnion::new_anycoredataset())
         .add(PyClass::new_py(["api"], "StdDatasetOutput"));
@@ -564,15 +560,13 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .desc(format!("If {DATA} is unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
-    let exc1 = PyException::new_deprecated()
-        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA}"
     ));
-    let exc4 = PyException::new_event_data();
+    let exc3 = PyException::new_event_data();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
@@ -3091,16 +3085,15 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     );
     let dataset_offset_param = DocArg::new_dataset_offset_param();
 
-    let exc0 = PyException::new_deprecated();
-    let exc1 = PyException::new_parse_keyval();
-    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc0 = PyException::new_parse_keyval();
+    let exc1 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA} or \
          if keywords that are referenced by other keywords do not exist",
     ));
-    let exc3 = PyException::new_event_data();
-    let exc4 = PyException::new_extra();
+    let exc2 = PyException::new_event_data();
+    let exc3 = PyException::new_extra();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let doc = DocString::new_fun("Make new instance from keywords.")
         .arg(path_param)
@@ -4886,8 +4879,6 @@ enum PyreflowError {
     InvalidKeywordValue,
     #[display("ExtraKeywordError")]
     ExtraKeyword,
-    #[display("FCSDeprecatedError")]
-    FCSDeprecated,
     #[display("ConversionError")]
     Conversion,
     #[display("RelationalError")]
@@ -5996,14 +5987,6 @@ impl PyException {
     fn new_extra() -> Self {
         Self::new_pyreflow(PyreflowError::ExtraKeyword)
             .desc("If any standard keys are unused and not dropped by some other option")
-    }
-
-    fn new_deprecated() -> Self {
-        Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(format!(
-            "If any keywords or their values are deprecated and \
-             {disallow_deprecated} is {TRUE}",
-            disallow_deprecated = arg(DISALLOW_DEPRECATED),
-        ))
     }
 
     fn new_parse_keyval() -> Self {
@@ -8184,22 +8167,18 @@ impl DocArgParam {
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
-        let disallow_deprecated = Self::new_disallow_deprecated_param();
 
         let layout_ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => [
-                process_optional_failure,
-                disallow_range_truncation,
-                disallow_deprecated,
-            ]
-            .into_iter()
-            .collect(),
+            Some(Version::FCS3_1 | Version::FCS3_2) => {
+                [process_optional_failure, disallow_range_truncation]
+                    .into_iter()
+                    .collect()
+            }
             _ => [
                 process_optional_failure,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
-                disallow_deprecated,
             ]
             .into_iter()
             .collect(),
@@ -8490,12 +8469,6 @@ impl DocArgParam {
     fn new_process_optional_failure() -> Self {
         let d = "Process optional keys which cause an error.";
         Self::new_proc_kw_fail("process_optional_failure", "ProcessOptionalFailure", d)
-    }
-
-    fn new_disallow_deprecated_param() -> Self {
-        let d = "Choose how to handle deprecated key if encountered.";
-        let e = PyreflowError::FCSDeprecated;
-        Self::new_tri_flag_param(DISALLOW_DEPRECATED, false, "DisallowDeprecated", d, e)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
@@ -10276,7 +10249,6 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 
 const BIG_OTHER: &str = "big_other";
 const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
-const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
 const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";

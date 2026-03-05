@@ -74,9 +74,8 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, LookupDatatypeError,
-    LookupDatatypeResult, NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, Scale, Tot,
-    Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, NumType, Par, Range, RangeToIntError,
+    RangeToIntErrorKind, Scale, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -3925,7 +3924,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::remove_req_check_ascii(std, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Option::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -3936,7 +3935,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         par: Par,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::get_req_check_ascii(kws, conf);
+        let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -4223,7 +4222,7 @@ impl DataLayout3_2 {
     }
 
     fn lookup_inner(
-        datatype: LookupDatatypeResult,
+        datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
         conf: &ReadDataKeywordsConfig,
@@ -4233,9 +4232,8 @@ impl DataLayout3_2 {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
-            .into_semigroup()
+            .map_err(LookupLayoutError::from)
+            .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
                 Self::try_new(d, e, cs, conf)
@@ -4285,7 +4283,6 @@ impl<T> AnyOrderedLayout<T> {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_err(LookupDatatypeError::from)
             .map_err(LookupLayoutError::from)
             .into_log()
             .zip3_commutative(byteord_, columns_)
@@ -4416,7 +4413,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::remove_req_check_ascii(std, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -4427,14 +4424,14 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         par: Par,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::get_req_check_ascii(kws, conf);
+        let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
     fn lookup_inner(
-        datatype: LookupDatatypeResult,
+        datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
         conf: &ReadDataKeywordsConfig,
@@ -4444,9 +4441,8 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
-            .into_semigroup()
+            .map_err(LookupLayoutError::from)
+            .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
                 Self::try_new(d, e.0, cs, conf)
@@ -4853,7 +4849,7 @@ type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning,
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutError {
     New(NewDataLayoutError),
-    AlphaNumType(LookupDatatypeError),
+    AlphaNumType(ReqKeyError<AlphaNumType>),
     ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
     ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
     Meas(LookupMeasLayoutError),
@@ -4864,7 +4860,7 @@ pub enum LookupLayoutError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
     New(NewMixedTypeWarning),
-    Datatype(DeprecatedDatatypeWarning),
+    Datatype(ReqKeyError<AlphaNumType>),
     Meas(OptIndexedKeyError<NumType>),
 }
 

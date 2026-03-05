@@ -51,12 +51,12 @@ macro_rules! ne_str {
 }
 
 /// A string slice which can never be empty.
-#[derive(AsRef, Display)]
+#[derive(AsRef, Display, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct NEStr(str);
 
 /// A string which can never be empty.
-#[derive(Clone, PartialEq, Eq, Hash, Default, Display, Into, Debug, AsRef)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]

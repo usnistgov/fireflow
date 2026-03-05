@@ -343,6 +343,7 @@ pub enum OptMeasKeyword<'a> {
     Tag(NEStringKeyword1<'a, Tag>),
     Analyte(NEStringKeyword1<'a, Analyte>),
     OpticalType(NEStringKeyword1<'a, OpticalType>),
+    TemporalType(OptZSTKeyword1<TemporalType, TemporalTypeInner>),
     TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
     Wavelengths(SplitKeyword<DKey1<Wavelengths>, NEWavelengths<'a>>),
     Shortname(RefKeyword1<'a, Shortname>),
@@ -2132,9 +2133,10 @@ impl FromStr for OpticalType {
     type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            TIME => Err(OpticalTypeError),
-            _ => Ok(Self(s.to_owned().into())),
+        if s == TIME.as_ref() {
+            Err(OpticalTypeError)
+        } else {
+            Ok(Self(s.to_owned().into()))
         }
     }
 }
@@ -2144,13 +2146,22 @@ impl FromStr for OpticalType {
 #[display("{}", TIME)]
 pub struct TemporalTypeInner;
 
+// TODO combine with the other ZST in macro
+impl ToDisplayNE<'_> for TemporalTypeInner {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
+        TIME
+    }
+}
+
 impl FromStr for TemporalTypeInner {
     type Err = TemporalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            TIME => Ok(Self),
-            _ => Err(TemporalTypeError),
+        if s == TIME.as_ref() {
+            Ok(Self)
+        } else {
+            Err(TemporalTypeError)
         }
     }
 }
@@ -4534,11 +4545,13 @@ pub(crate) const REGION_KW_PREFIX: &NEStr = ne_str!("R");
 pub(crate) const REGION_INDEX_KW_SUFFIX: &NEStr = ne_str!("I");
 pub(crate) const REGION_WINDOW_KW_SUFFIX: &NEStr = ne_str!("W");
 
-const TIME: &str = "Time";
+const TIME: &NEStr = ne_str!("Time");
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
 #[cfg(test)]
 mod tests {
+    use fireflow_types::nonempty_string::DisplayNE as _;
+
     use super::*;
     use crate::test::*;
 
@@ -4654,12 +4667,15 @@ mod tests {
     #[test]
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        // assert_from_to_str_maybe_with::<Wavelengths>("0.5", (), &conf);
-        // assert_from_to_str_maybe_with::<Wavelengths>("0.5,2", (), &conf);
+        let go = |v: &str| {
+            let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+            let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
+            assert_eq!(w_str.as_ref(), v);
+        };
+        go("0.5");
+        go("0.5,2");
         assert!(Wavelengths::from_str_with("x", (), &conf).is_err());
     }
-
-    // TODO fix all formerly-display maybe tests
 
     #[test]
     fn pnl_3_1_commas() {
@@ -4667,13 +4683,9 @@ mod tests {
         let v = "1, 2";
         assert!(Wavelengths::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        // assert_eq!(
-        //     Wavelengths::from_str_with(v, (), &conf)
-        //         .unwrap()
-        //         .native
-        //         .display_maybe(),
-        //     Some("1,2".into())
-        // );
+        let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+        let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(w_str.as_ne_str(), ne_str!("1,2"));
     }
 
     #[test]
@@ -4723,21 +4735,28 @@ mod tests {
     #[test]
     fn pntype_optical() {
         // this can basically be everything, even though only a few values make sense
-        // assert_from_to_str_maybe::<OpticalType>("Forward Scatter");
-        // assert_from_to_str_maybe::<OpticalType>("Side Scatter");
-        // assert_from_to_str_maybe::<OpticalType>("Raw Fluorescence");
-        // assert_from_to_str_maybe::<OpticalType>("Unmixed Fluorescence");
-        // assert_from_to_str_maybe::<OpticalType>("Mass");
-        // assert_from_to_str_maybe::<OpticalType>("Electronic Volume");
-        // assert_from_to_str_maybe::<OpticalType>("Index");
-        // assert_from_to_str_maybe::<OpticalType>("Classification");
-        // assert_from_to_str_maybe::<OpticalType>("Spongebob");
+        let go = |v| {
+            let t = OpticalType::from_str(v).unwrap();
+            let k = OptMeasKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
+            assert!(k.as_std_key_pair().1.as_ref() == v);
+        };
+        go("Forward Scatter");
+        go("Side Scatter");
+        go("Raw Fluorescence");
+        go("Unmixed Fluorescence");
+        go("Mass");
+        go("Electronic Volume");
+        go("Index");
+        go("Classification");
+        go("Spongebob");
     }
 
     #[test]
     fn pntype_time() {
-        // assert_from_to_str_maybe::<TemporalType>("Time");
-        // assert!(TemporalType::from_str("Space").is_err());
+        let t = TemporalType::from_str("Time").unwrap();
+        let k = OptMeasKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
+        assert!(k.as_std_key_pair().1.as_ref() == "Time");
+        assert!(TemporalType::from_str("Space").is_err());
     }
 
     #[test]
@@ -4839,8 +4858,11 @@ mod tests {
 
     #[test]
     fn unstained_centers() {
-        // let conf = ReadStdKeywordsConfig::default();
-        // assert_from_to_str_maybe_with::<UnstainedCenters>("1,X,0", (), &conf);
+        let conf = ReadStdKeywordsConfig::default();
+        let v = "1,X,0";
+        let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
+        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(s.as_ref(), v);
     }
 
     #[test]
@@ -4849,13 +4871,9 @@ mod tests {
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(UnstainedCenters::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        // assert_eq!(
-        //     UnstainedCenters::from_str_with(v, (), &conf)
-        //         .unwrap()
-        //         .native
-        //         .display_maybe(),
-        //     Some("1,X,0".into())
-        // );
+        let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
+        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(s.as_ref(), "1,X,0");
     }
 
     #[test]

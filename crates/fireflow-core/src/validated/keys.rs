@@ -17,8 +17,8 @@ use crate::validated::sub_pattern::SubPattern;
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
-    NEAlt, NEConcat, NEConcat4, NEConcatR, NEStr, NEString, ToDisplayNE, ToNE,
-    ambassador_impl_ToDisplayNE,
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr, NEString,
+    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
 };
 
 use ambassador::{Delegate, delegatable_trait};
@@ -279,8 +279,7 @@ pub trait Key: Sized {
     fn std() -> StdKey {
         Self::_CHECK;
         let key = Key0::<Self>::default();
-        // TODO make this a compile time error
-        StdKey::new(NEString::try_from(key.to_string()).unwrap())
+        StdKey::new(key.as_ne_string())
     }
 
     fn self_std(&self) -> StdKey {
@@ -319,8 +318,7 @@ pub trait IndexedKey: Sized {
         // trigger compile time error if pre/suffix are anything but letters/underscore
         Self::_CHECK;
         let key = Key1::<Self>::new_i1(i.into());
-        // TODO make this a compile time error
-        StdKey::new(NEString::try_from(key.to_string()).unwrap())
+        StdKey::new(key.as_ne_string())
     }
 
     fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
@@ -391,8 +389,7 @@ pub trait BiIndexedKey: Sized {
         // trigger compile time error if pre/mid/suffix are anything but letters/underscore
         Self::_CHECK;
         let key = Key2::<Self>::new_i2(i.into(), j.into());
-        // TODO make this a compile time error
-        StdKey::new(NEString::try_from(key.to_string()).unwrap())
+        StdKey::new(key.as_ne_string())
     }
 
     /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
@@ -730,14 +727,13 @@ impl FromStr for StdKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
-        // ASSUME this will not fail because we know the string is
-        // non-empty
-        let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
+        let ne = ks.0.as_ne_str().as_bytes();
+        let (y, ys) = ne.split_first();
         if *y != STD_PREFIX {
             Err(StdKeyError::Prefix(ks))
         } else if let Some(zs) = NESlice::try_from_slice(ys) {
             // SAFETY: this will not fail because we know the string has only
-            // ASCII bytes and we checked that the slice is non-empty
+            // ASCII bytes
             Ok(Self(unsafe { KeyString::from_bytes(&zs) }))
         } else {
             Err(StdKeyError::Empty)

@@ -50,8 +50,8 @@ use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 use fireflow_types::nonempty_string::{
-    DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr,
-    NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_slice_by_ref,
+    DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim,
+    NESliceExt as _, NEStr, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
@@ -1787,7 +1787,7 @@ pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
 impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
     type NE = NEDelim<NESlice<'a, ToNE<PositiveFloat>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(ne_slice_by_ref(&self.0));
+        let xs = ToNE::on_inner_slice(self.0.by_ref());
         NEDelim::new(',', xs)
     }
 }
@@ -2470,7 +2470,7 @@ impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
             Self::Bivariate(x) => {
-                let xs = ToNE::on_inner_slice(ne_slice_by_ref(x));
+                let xs = ToNE::on_inner_slice(x.by_ref());
                 NEAlt::Right(xs)
             }
         }

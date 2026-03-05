@@ -30,17 +30,6 @@ use {
     pyo3::prelude::*,
 };
 
-/// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
-#[must_use]
-pub fn ne_slice_by_ref<'a, T>(s: &'a NESlice<'a, T>) -> NESlice<'a, T> {
-    // TODO this should be fixed upstream
-    //
-    // This is the equivalent of converting &Option<T> to Option<&T> (ie
-    // 'flipping' the borrow) which should be a noop and shouldn't require
-    // using a failable try_* method.
-    NESlice::try_from_slice(s.as_ref()).unwrap()
-}
-
 /// Create a static non-empty string.
 #[macro_export]
 macro_rules! ne_str {
@@ -74,13 +63,12 @@ impl<T> ToNE<T> {
     pub fn on_inner_slice(s: NESlice<'_, T>) -> NESlice<'_, Self> {
         let n = s.len().get();
         let p = s.as_ref().as_ptr();
-        // SAFETY: NED is a zero-sized type so this is a noop
+        // SAFETY: target is a zero-sized type so this is a noop
         let ne = unsafe { slice::from_raw_parts(p.cast::<Self>(), n) };
         NESlice::try_from_slice(ne).unwrap()
     }
 
     /// Wrap a borrowed type.
-    #[allow(clippy::needless_pass_by_value)]
     fn with_ref(x: &T) -> &Self {
         let p: *const T = from_ref(x);
         // SAFETY: NEStr and str have same layout
@@ -168,6 +156,34 @@ impl ToOwned for NEStr {
     type Owned = NEString;
     fn to_owned(&self) -> Self::Owned {
         NEString(self.0.to_string())
+    }
+}
+
+// TODO these should be added upstream
+pub trait NESliceExt<'a> {
+    type Inner;
+
+    /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
+    // This is the equivalent of converting &Option<T> to Option<&T> (ie
+    // 'flipping' the borrow) which should be a noop and shouldn't require using
+    // a failable try_* method.
+    #[must_use]
+    fn by_ref(&'a self) -> NESlice<'a, Self::Inner>;
+
+    /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
+    #[must_use]
+    fn split_first(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
+}
+
+impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
+    type Inner = T;
+
+    fn by_ref(&'a self) -> Self {
+        Self::try_from_slice(self.as_ref()).unwrap()
+    }
+
+    fn split_first(&'a self) -> (&'a T, &'a [T]) {
+        self.as_ref().split_first().unwrap()
     }
 }
 
@@ -324,6 +340,11 @@ impl NEStr {
     }
 
     #[must_use]
+    pub fn as_bytes(&self) -> NESlice<'_, u8> {
+        NESlice::try_from_slice(self.as_str().as_bytes()).unwrap()
+    }
+
+    #[must_use]
     pub const fn len(&self) -> NonZeroUsize {
         NonZeroUsize::new(self.0.len()).unwrap()
     }
@@ -466,7 +487,7 @@ where
 {
     type NE = NESlice<'a, ToNE<T>>;
     fn to_ne(&'a self) -> Self::NE {
-        ToNE::on_inner_slice(ne_slice_by_ref(self))
+        ToNE::on_inner_slice(self.by_ref())
     }
 }
 
@@ -509,7 +530,7 @@ where
 {
     type NE = NEDelim<NESlice<'a, ToNE<T>>>;
     fn to_ne(&'a self) -> Self::NE {
-        let xs = ToNE::on_inner_slice(ne_slice_by_ref(&self.inner));
+        let xs = ToNE::on_inner_slice(self.inner.by_ref());
         NEDelim::new(self.delim, xs)
     }
 }

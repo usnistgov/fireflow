@@ -4,7 +4,7 @@ use crate::validated::keys::Key1;
 
 use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
-use derive_more::{AsMut, AsRef, From, FromStr};
+use derive_more::{AsMut, AsRef, From};
 use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
@@ -75,19 +75,6 @@ impl<A> Pointed<A> for Nothing<A> {
         Self::default()
     }
 }
-
-/// A [`String`] that is stored as-is but will not be displayed/written if blank.
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-#[as_ref(str)]
-pub struct OptionalString(pub String);
-
-/// A [`String`] that is stored as-is but will not be displayed/written if zero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr, AsRef)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-pub struct OptionalInt<T>(pub T);
 
 /// A value that can either have one value or be empty.
 ///

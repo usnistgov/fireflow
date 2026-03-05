@@ -21,7 +21,7 @@ use crate::text::lookup::{
     ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
-use crate::text::optional::{CheckMaybe, OptionalInt, OptionalString, OptionalZST};
+use crate::text::optional::{CheckMaybe, OptionalZST};
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
     ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
@@ -2120,7 +2120,7 @@ pub enum UnicodeError {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
-pub struct OpticalType(OptionalString);
+pub struct OpticalType(String);
 
 /// Error when parsing [`OpticalType`] from string
 #[derive(Debug, Error)]
@@ -2136,7 +2136,7 @@ impl FromStr for OpticalType {
         if s == TIME.as_ref() {
             Err(OpticalTypeError)
         } else {
-            Ok(Self(s.to_owned().into()))
+            Ok(Self(s.to_owned()))
         }
     }
 }
@@ -3144,7 +3144,7 @@ pub struct Cyt3_2(pub NEString);
 
 impl From<Cyt3_2> for Cyt {
     fn from(value: Cyt3_2) -> Self {
-        Self(OptionalString(value.0.into()))
+        Self(value.0.into())
     }
 }
 
@@ -3152,7 +3152,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
     type Error = NoCytError;
 
     fn try_from(value: Cyt) -> Result<Self, Self::Error> {
-        (value.0).0.parse().map_err(|_| NoCytError)
+        (value.0).parse().map_err(|_| NoCytError)
     }
 }
 
@@ -3552,7 +3552,7 @@ macro_rules! newtype_string {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         #[as_ref(str)]
-        pub struct $t(pub OptionalString);
+        pub struct $t(pub String);
 
         impl CheckMaybe for $t {
             type Inner = Self;
@@ -3583,6 +3583,7 @@ macro_rules! newtype_int {
     };
 }
 
+// TODO refactor
 macro_rules! impl_display_maybe_self {
     ($t:ident) => {
         impl CheckMaybe for $t {
@@ -3591,13 +3592,13 @@ macro_rules! impl_display_maybe_self {
     };
 }
 
-macro_rules! newtype_opt_int {
-    ($t:ident, $inner:ident) => {
+macro_rules! newtype_opt_u32 {
+    ($t:ident) => {
         #[derive(Clone, Copy, Default, PartialEq, Eq, FromStr, Debug, AsRef)]
-        #[as_ref($inner)]
+        #[as_ref(u32)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        pub struct $t(pub OptionalInt<$inner>);
+        pub struct $t(pub u32);
 
         impl_display_maybe_self!($t);
     };
@@ -3791,9 +3792,9 @@ macro_rules! meas_opt_zst {
     };
 }
 
-macro_rules! kw_opt_meta_opt_int {
-    ($t:ident, $inner:ident, $sym:expr) => {
-        newtype_opt_int!($t, $inner);
+macro_rules! kw_opt_meta_opt_u32 {
+    ($t:ident, $sym:expr) => {
+        newtype_opt_u32!($t);
         kw_opt_meta!($t, $sym, Self);
     };
 }
@@ -3978,8 +3979,8 @@ pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 // 3.0/3.1 subsets
 kw_opt_meta_int!(CSMode, usize, tk::CSMODE_KW);
 
-kw_opt_meta_opt_int!(CSTot, u32, tk::CSTOT_KW);
-kw_opt_meta_opt_int!(CSVBits, u32, tk::CSVBITS_KW);
+kw_opt_meta_opt_u32!(CSTot, tk::CSTOT_KW);
+kw_opt_meta_opt_u32!(CSVBits, tk::CSVBITS_KW);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);

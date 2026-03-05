@@ -125,7 +125,22 @@ pub fn derive_to_py_via_display(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     let name = &parsed.ident;
 
-    let ret = quote! {
+    let to_string = parse_quote!(ToString::to_string);
+    into_str_pyobject(name, &to_string)
+}
+
+/// Implement IntoPyObject to PyString via DisplayNE for the Rust type
+#[proc_macro_derive(IntoPyNEString)]
+pub fn derive_to_py_via_ne_display(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+
+    let to_string = parse_quote!(fireflow_types::nonempty_string::DisplayableNE::as_string);
+    into_str_pyobject(name, &to_string)
+}
+
+fn into_str_pyobject(name: &Ident, to_string: &Path) -> TokenStream {
+    quote! {
         impl<'py> pyo3::conversion::IntoPyObject<'py> for #name {
             type Target = pyo3::types::PyString;
             type Output = pyo3::Bound<'py, Self::Target>;
@@ -138,11 +153,11 @@ pub fn derive_to_py_via_display(input: TokenStream) -> TokenStream {
                 <Self as pyo3::conversion::IntoPyObject<'py>>::Output,
                 <Self as pyo3::conversion::IntoPyObject<'py>>::Error
             > {
-                self.to_string().into_pyobject(py)
+                #to_string(&self).into_pyobject(py)
             }
         }
-    };
-    ret.into()
+    }
+    .into()
 }
 
 /// Implement FromPyObject from PyString via FromStr for the Rust type

@@ -97,6 +97,7 @@ use crate::validated::dataframe::{
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 
 use fireflow_types::config::TruncateEventValues;
+use fireflow_types::nonempty_string::DisplayableNE as _;
 use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
@@ -4594,14 +4595,14 @@ impl fmt::Display for WidthMismatchError {
             write!(
                 f,
                 "measurement width ({head}) does not match byte order ({})",
-                self.byteord,
+                self.byteord.as_displayable(),
             )
         } else {
             write!(
                 f,
                 "multiple measurement widths given ({}) for byte order [{}]",
                 once(head).chain(t).into_iter().join(", "),
-                self.byteord,
+                self.byteord.as_displayable(),
             )
         }
     }
@@ -4908,7 +4909,10 @@ pub enum ReadDataframeWarning {
 
 /// Error when event value is above its $PnR
 #[derive(Debug, Display, new)]
-#[display("event value in column {column} and row {row}, exceeds $PnR ({range})")]
+#[display(
+    "event value in column {column} and row {row}, exceeds $PnR ({})",
+    range.as_displayable()
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub struct EventOverRangeError {
@@ -5081,8 +5085,8 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[derive(From, Debug, Error)]
 #[error(
     "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
-    from = _0.error.src.as_alpha_num_type(),
-    to = _0.error.dest_type,
+    from = _0.error.src.as_alpha_num_type().as_displayable(),
+    to = _0.error.dest_type.as_displayable(),
     p = NumType::std(_0.index),
     b = Width::std(_0.index),
     r = Range::std(_0.index),
@@ -5242,8 +5246,8 @@ impl fmt::Display for ScaleMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
         let ekey = Scale::std(i);
-        let dt = self.datatype;
-        let eval = self.scale;
+        let dt = self.datatype.as_displayable();
+        let eval = self.scale.as_displayable();
         write!(
             f,
             "only integer columns may have non-linear scale, \
@@ -5267,13 +5271,14 @@ impl fmt::Display for ScaleTransformMismatchError {
         let i = self.index;
         let ekey = Scale::std(i);
         let gkey = Gain::std(i);
-        let dt = self.datatype;
+        let dt = self.datatype.as_displayable();
         let (eval, g): (Scale, Option<Gain>) = self.scale.into();
-        let gval = g.map_or("not set".into(), |s| format!("'{s}'"));
+        let gval = g.map_or("not set".into(), |s| format!("'{}'", s.as_displayable()));
         write!(
             f,
             "only integer columns may have non-unitary scale transforms, \
-             column is '{dt}' where {ekey} is '{eval}' and {gkey} is {gval}"
+             column is '{dt}' where {ekey} is '{}' and {gkey} is {gval}",
+            eval.as_displayable(),
         )
     }
 }

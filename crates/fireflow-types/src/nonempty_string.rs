@@ -91,23 +91,6 @@ impl<T> ToNE<T> {
 /// Allows a type with [`DisplayNE`] to be formatted via [`fmt::Display`].
 pub struct NEWrap<T>(pub T);
 
-impl<T> NEWrap<T> {
-    pub fn to_ne_string(&self) -> NEString
-    where
-        T: Sized + DisplayNE,
-    {
-        struct DisplayWrapper<'a, T>(&'a T);
-
-        impl<T: DisplayNE> fmt::Display for DisplayWrapper<'_, T> {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                self.0.fmt_ne(f)
-            }
-        }
-
-        NEString(DisplayWrapper(&self.0).to_string())
-    }
-}
-
 impl<T: DisplayNE> fmt::Display for NEWrap<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt_ne(f)
@@ -264,6 +247,23 @@ pub trait ToDisplayNE<'a> {
 
     fn to_ne(&'a self) -> Self::NE;
 }
+
+/// Directly format something that has [`ToDisplay`].
+pub trait DisplayableNE<'a>: Sized + ToDisplayNE<'a> {
+    fn as_displayable(&'a self) -> NEWrap<Self::NE> {
+        NEWrap(self.to_ne())
+    }
+
+    fn as_string(&'a self) -> String {
+        self.as_displayable().to_string()
+    }
+
+    fn as_ne_string(&'a self) -> NEString {
+        NEString(self.as_string())
+    }
+}
+
+impl<'a, T: ToDisplayNE<'a>> DisplayableNE<'a> for T {}
 
 impl FromNonEmptyIterator<char> for NEString {
     fn from_nonempty_iter<I>(iter: I) -> Self

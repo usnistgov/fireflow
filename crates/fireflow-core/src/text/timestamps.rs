@@ -18,7 +18,6 @@ use num_traits::cast::ToPrimitive as _;
 use regex::Regex;
 use thiserror::Error;
 
-use std::fmt;
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
@@ -69,7 +68,7 @@ pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
 /// A wrapper for timestamps which encodes if it is the start or end
-#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug, Delegate)]
+#[derive(Clone, Copy, FromStr, From, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
@@ -98,10 +97,9 @@ where
 }
 
 /// The value of the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(DEFAULT_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
 
 impl<'a> ToDisplayNE<'a> for FCSDate {
@@ -203,7 +201,7 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
+        X: PartialOrd + FromStr + From<NaiveTime>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
@@ -322,10 +320,9 @@ pub struct ConfigFCSDateError(String);
 pub struct StdFCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Display, Debug)]
+#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
 
 impl<'a> ToDisplayNE<'a> for FCSTime {
@@ -429,14 +426,6 @@ impl FromStr for FCSTime60 {
     }
 }
 
-impl fmt::Display for FCSTime60 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
-        write!(f, "{base}:{cc:02}")
-    }
-}
-
 impl<'a> ToDisplayNE<'a> for FCSTime60 {
     type NE = NEString;
     fn to_ne(&'a self) -> Self::NE {
@@ -499,14 +488,6 @@ impl FromStr for FCSTime100 {
                 NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
             })
             .map(FCSTime100)
-    }
-}
-
-impl fmt::Display for FCSTime100 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{base}.{cc:02}")
     }
 }
 

@@ -1,7 +1,7 @@
 use fireflow_types::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
-use derive_more::{Add, Display, Into, Mul};
+use derive_more::{Add, Into, Mul};
 use num_derive::{One, Zero};
 use thiserror::Error;
 
@@ -19,7 +19,7 @@ use pyo3::prelude::*;
 use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
 /// A non-negative [`f32`]
-#[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug, Delegate)]
+#[derive(Clone, Copy, PartialEq, Into, Add, Mul, One, Zero, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
@@ -27,7 +27,7 @@ use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 pub struct NonNegFloat(f32);
 
 /// A positive [`f32`]
-#[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug, Delegate)]
+#[derive(Clone, Copy, PartialEq, Into, Mul, One, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]

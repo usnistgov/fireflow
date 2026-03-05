@@ -40,7 +40,7 @@ pub struct Datetimes {
 }
 
 /// The $BEGINDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug, Delegate)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
@@ -49,7 +49,7 @@ pub struct Datetimes {
 pub struct BeginDateTime(pub FCSDateTime);
 
 /// The $ENDDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug, Delegate)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
@@ -58,10 +58,9 @@ pub struct BeginDateTime(pub FCSDateTime);
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(ISO_DATETIME_TZ_HH_MM))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 impl<'a> ToDisplayNE<'a> for FCSDateTime {

@@ -3,14 +3,11 @@ use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::ne_str;
-use fireflow_types::nonempty_string::{NEAlt, NEDelim, NEStr, ToDisplayNE, ToNE};
+use fireflow_types::nonempty_string::{NEDelim, NEStr, ToDisplayNE};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoNonEmptyIterator as _, NEVec, NonEmptyArrayExt as _, NonEmptyIterator as _,
-};
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
@@ -39,13 +36,11 @@ pub enum SizedByteOrd<const LEN: usize> {
 }
 
 /// Endianness (big or little)
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
-    #[display("4,3,2,1")]
     Big,
     #[default]
-    #[display("1,2,3,4")]
     Little,
 }
 
@@ -62,9 +57,8 @@ impl ToDisplayNE<'_> for Endian {
 /// Marker type representing lack of byte order.
 ///
 /// This is used in ASCII layouts, for which $BYTEORD is meaningless.
-#[derive(Clone, Copy, Default, PartialEq, Display)]
+#[derive(Clone, Copy, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("1,2,3,4")]
 pub struct NoByteOrd<const ORD: bool>;
 
 pub type NoByteOrd2_0 = NoByteOrd<true>;
@@ -77,9 +71,10 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 pub struct Bytes(pub(crate) PrivBytes);
 
 /// Private version of `Bytes`
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(u8)]
+#[display("{}", u8::from(*self))]
 pub(crate) enum PrivBytes {
     B1 = 1,
     B2,
@@ -95,7 +90,7 @@ pub(crate) enum PrivBytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
@@ -108,7 +103,7 @@ impl<'a> ToDisplayNE<'a> for BitsOrChars {
 }
 
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
@@ -220,19 +215,10 @@ macro_rules! byteord_from_sized {
         // TODO could return an array here instead of vec but this would require
         // enumerating each size in ByteOrd2_0
         impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
-            type NE = NEAlt<ToNE<Endian>, NEDelim<NEVec<NonZeroU8>>>;
+            type NE = NEDelim<NEVec<NonZeroU8>>;
             fn to_ne(&'a self) -> Self::NE {
-                match self {
-                    Self::Endian(e) => NEAlt::Left(ToNE(*e)),
-                    Self::Order(o) => {
-                        let xs = o
-                            .as_nonempty_slice()
-                            .into_nonempty_iter()
-                            .map(|&x| NonZeroU8::MIN.saturating_add(x))
-                            .collect();
-                        NEAlt::Right(NEDelim::new(',', xs))
-                    }
-                }
+                let xs = <[NonZeroU8; $len]>::from(*self);
+                NEDelim::new(',', xs.into_nonempty_iter().collect())
             }
         }
     };
@@ -425,15 +411,6 @@ impl FromStr for Endian {
     }
 }
 
-impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
-where
-    [NonZeroU8; LEN]: From<Self>,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
-    }
-}
-
 impl FromStr for Width {
     type Err = ParseIntError;
 
@@ -444,12 +421,6 @@ impl FromStr for Width {
                 .parse::<NonZeroU8>()
                 .map(|x| Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))),
         }
-    }
-}
-
-impl fmt::Display for PrivBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        u8::from(*self).fmt(f)
     }
 }
 

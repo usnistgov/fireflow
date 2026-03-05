@@ -101,7 +101,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
-use fireflow_types::nonempty_string::{NEStr, NEString};
+use fireflow_types::nonempty_string::{DisplayableNE as _, NEStr, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1076,14 +1076,12 @@ pub struct InnerOptical3_2 {
 }
 
 /// A scale transform derived from $PnE/$PnG.
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleTransform {
     /// A linear transform ($PnE=0,0 and $PnG=1.0 or is null)
-    #[display("Lin({_0})")]
     Lin(PositiveFloat),
     /// A log transform ($PnE!=0,0 and $PnG!=1.0 or is null)
-    #[display("Log({_0})")]
     Log(LogScale),
 }
 
@@ -10070,7 +10068,9 @@ impl<T> Default for Key0LossError<T> {
 #[derive(Debug, Error)]
 #[error(
     "could not make scale transform with log scale \
-     '{scale}' and non-unit gain '{gain}'"
+     '{}' and non-unit gain '{}'",
+    scale.as_displayable(),
+    gain.as_displayable(),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]

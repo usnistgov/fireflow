@@ -16,10 +16,10 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
+use nonempty_collections::NESlice;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
 
-use std::fmt;
 use std::hash::Hash;
 use std::num::{NonZeroUsize, ParseIntError};
 
@@ -204,39 +204,23 @@ impl HasDelim for Spillover {
     }
 }
 
-impl fmt::Display for Spillover {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.measurements.len();
-        let names = self.measurements.iter().join(",");
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{names},{xs}")
-    }
-}
-
 impl<'a> ToDisplayNE<'a> for Spillover {
     type NE = NEConcat5<
         NonZeroUsize,
         char,
-        NEDelim<NEVec<ToNE<&'a Shortname>>>,
+        NEDelim<NESlice<'a, ToNE<Shortname>>>,
         char,
         NEDelim<NEVec<f32>>,
     >;
     fn to_ne(&'a self) -> Self::NE {
         let n = NonZeroUsize::new(self.measurements.len()).expect("matrix should be 2x2");
-        // TODO this can be cleaned up
-        let names = self.measurements[..]
-            .try_into_nonempty_iter()
-            .expect("matrix should be 2x2")
-            .map(ToNE)
-            .collect();
+        let names = NESlice::try_from_slice(&self.measurements[..]).expect("matrix should be 2x2");
         // DMatrix slices are column major, so transpose first to output
         // row-major
         let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())
             .expect("matrix should be 2x2");
         NEConcat::new(n, ',')
-            .append(NEDelim::new(',', names))
+            .append(NEDelim::new(',', ToNE::on_inner_slice(names)))
             .append(',')
             .append(NEDelim::new(',', xs))
     }
@@ -336,6 +320,8 @@ mod tests {
     use super::*;
     use crate::test::*;
 
+    use fireflow_types::nonempty_string::DisplayableNE as _;
+
     #[test]
     fn spillover() {
         let conf = ReadStdKeywordsConfig::default();
@@ -359,7 +345,7 @@ mod tests {
             &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
-        let spill = res.unwrap().native.to_string();
+        let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
@@ -374,7 +360,7 @@ mod tests {
             &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
-        let spill = res.unwrap().native.to_string();
+        let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
@@ -402,7 +388,7 @@ mod tests {
             &"Y".parse::<Shortname>().unwrap(),
         ];
         let res = Spillover::from_str_with("2, X,  Y , 0, 0,    0, 0", &ns, &conf);
-        let spill = res.unwrap().native.to_string();
+        let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 

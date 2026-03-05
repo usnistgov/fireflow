@@ -47,13 +47,11 @@ use crate::validated::textdelim::{
 use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
-use fireflow_types::config::{
-    EnumStrIter as _, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
-};
+use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
 use fireflow_types::nonempty_string::{
-    DisplayNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr, NEString, NEWrap,
-    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_slice_by_ref,
+    DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NEStr,
+    NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE, ne_slice_by_ref,
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
@@ -91,7 +89,7 @@ use super::lookup::{
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{
-        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
+        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyNEString,
     },
     fireflow_types::python as py,
     pyo3::prelude::*,
@@ -134,7 +132,7 @@ impl EscapedFormatter<'_, '_> {
         V: ?Sized + for<'a> ToDisplayNE<'a>,
     {
         let delim = self.delim;
-        let w = NEWrap(v.to_ne());
+        let w = v.as_displayable();
         if escape {
             write!(self, "{w}")?;
             write!(self.inner, "{delim}")
@@ -386,9 +384,7 @@ pub enum RegionKeyword<'a> {
     Window(RegionWindowSplitKeyword<'a>),
 }
 
-#[derive(Clone, Display, new)]
-#[display("{value}")]
-#[display(bound(V: fmt::Display))]
+#[derive(Clone, new)]
 pub struct SplitKeyword<K, V> {
     key: K,
     value: V,
@@ -698,7 +694,7 @@ impl HasDelim for GateMeasKeyword<'_> {
 }
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, PartialEq, Delegate)]
+#[derive(From, Into, FromStr, Debug, Clone, Copy, PartialEq, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, UintZeroPad20)]
@@ -791,16 +787,14 @@ pub struct NegativeNextdataError(i128);
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Debug, Display, Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
     #[default]
-    #[display("0,0")]
     Linear,
 
     /// Log scale, where both numbers are positive
-    #[display("{_0}")]
     Log(LogScale),
 }
 
@@ -845,9 +839,8 @@ pub enum ScaleFix {
     TrimmedLogFixed(String),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Display, new)]
+#[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{decades},{offset}")]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
@@ -995,7 +988,7 @@ impl LogRangeError {
 }
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug, Delegate)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Gain(pub PositiveFloat);
@@ -1044,7 +1037,7 @@ pub enum LookupTemporalGainError {
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, From, FromStr, Display, Into, Debug, Delegate)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Into, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
@@ -1082,9 +1075,8 @@ pub(crate) type TimestepAdded = bool;
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{measurement},{threshold}")]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
@@ -1187,10 +1179,9 @@ pub enum TriggerError {
 
 impl_str_enum_kw!(
     /// The values used for the $MODE key (up to 3.1)
-    #[derive(PartialEq, Eq, Default, Display, Debug)]
-    #[display("{}", self.as_str())]
+    #[derive(PartialEq, Eq, Default, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
     Mode,
     /// Error when parsing [`Mode`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1203,10 +1194,9 @@ impl_str_enum_kw!(
 );
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
-#[derive(Clone, Copy, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[display("L")]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub struct Mode3_2;
 
 impl ToDisplayNE<'_> for Mode3_2 {
@@ -1253,18 +1243,16 @@ pub struct Mode3_2Error;
 pub struct ModeUpgradeError;
 
 /// The value for the $PnD key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like `"Linear,<lower>,<upper>"`)
-    #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
-    /// Logarithmic display (value like `"Logarithmic,<offset>,<decades>"`)
-    #[display("Logarithmic,{decades},{offset}")]
+    /// Logarithmic display (value like `"Logarithmic,<decades>,<offset>"`)
     Log {
-        offset: PositiveFloat,
         decades: PositiveFloat,
+        offset: PositiveFloat,
     },
 }
 
@@ -1275,8 +1263,8 @@ impl ToDisplayNE<'_> for Display {
             Self::Lin { lower, upper } => (ne_str!("Linear"), *lower, *upper),
             Self::Log { offset, decades } => (
                 ne_str!("Logarithmic"),
-                f32::from(*offset),
                 f32::from(*decades),
+                f32::from(*offset),
             ),
         };
         NEConcat::new(m, ',').append(x).append(',').append(y)
@@ -1338,10 +1326,9 @@ pub enum DisplayError {
 
 impl_str_enum_kw!(
     /// The three values for the $PnDATATYPE keyword (3.2+)
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
-    #[display("{}", self.as_str())]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
     NumType,
     /// Error when parsing [`NumType`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1357,7 +1344,7 @@ impl_str_enum_kw!(
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display, Debug, Delegate)]
+#[derive(Clone, Copy, From, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
@@ -1455,7 +1442,7 @@ impl ByteOrd2_0 {
 }
 
 /// The $BYTEORD field in FCS 3.1 and 3.2
-#[derive(Clone, Copy, From, Display, FromStr, Default, Debug, Delegate)]
+#[derive(Clone, Copy, From, FromStr, Default, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct ByteOrd3_1(pub Endian);
@@ -1468,10 +1455,9 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
 
 impl_str_enum_kw!(
     /// The four allowed values for the $DATATYPE keyword.
-    #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
-    #[display("{}", self.as_str())]
+    #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
     AlphaNumType,
     /// Error when parsing [`AlphaNumType`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1517,8 +1503,7 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, Copy, PartialEq, Display, Debug, Default)]
-#[display("0,0")]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TemporalScaleInner;
 
 impl ToDisplayNE<'_> for TemporalScaleInner {
@@ -1565,7 +1550,7 @@ impl FromStrDelim for TemporalScaleInner {
 impl_from_str_with_delim!(TemporalScaleInner, TemporalScaleError);
 
 /// The value of the $PnE key for temporal measurements (3.0+)
-#[derive(Clone, PartialEq, Display, Debug, Default, Delegate)]
+#[derive(Clone, PartialEq, Debug, Default, Delegate)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
 
@@ -1617,9 +1602,8 @@ pub struct TemporalScaleError;
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like "`<value>,<unit>`"
-#[derive(Clone, PartialEq, Debug, Display, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{slope},{unit}")]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: NEString,
@@ -1690,9 +1674,8 @@ impl From<Calibration3_1> for Calibration3_2 {
 ///
 /// This should be formatted like `"<value>,[<offset>,]<unit>"` and differs from
 /// 3.1 with the optional inclusion of `offset` (assumed 0 if not included).
-#[derive(Clone, PartialEq, Debug, Display, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{slope},{offset},{unit}")]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
@@ -1775,7 +1758,7 @@ impl Calibration3_2 {
 pub struct CalibrationLossError(MeasIndex, f32);
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug, Delegate)]
+#[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
@@ -1798,8 +1781,7 @@ impl From<Wavelength> for Wavelengths {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
-#[derive(Clone, Display)]
-#[display("{}", self.0.iter().join(","))]
+#[derive(Clone)]
 pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
 
 impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
@@ -1883,10 +1865,9 @@ pub enum WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[display("{}.{:02}", _0.format(DATETIME_FMT), _0.nanosecond() / 10_000_000)]
 pub struct LastModified(pub NaiveDateTime);
 
 impl<'a> ToDisplayNE<'a> for LastModified {
@@ -1951,10 +1932,9 @@ pub enum LastModifiedError {
 
 impl_str_enum_kw!(
     /// The value for the $ORIGINALITY key (3.1+)
-    #[derive(PartialEq, Debug, Display)]
-    #[display("{}", self.as_str())]
+    #[derive(PartialEq, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
     Originality,
     /// Error when parsing [`Originality`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1967,7 +1947,7 @@ impl_str_enum_kw!(
 );
 
 /// The value of the $COMP keyword (3.0 only)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug, Delegate)]
+#[derive(Clone, From, Into, AsRef, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
@@ -2056,9 +2036,8 @@ pub enum ParseCompError {
 /// anything in this library and is present to be complete. The original purpose
 /// was to indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{page},{}", kws.iter().join(","))]
 pub struct Unicode {
     pub page: u32,
     pub kws: Vec<NEString>,
@@ -2142,8 +2121,7 @@ impl FromStr for OpticalType {
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, Copy, PartialEq, Debug, Display, Default)]
-#[display("{}", TIME)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TemporalTypeInner;
 
 // TODO combine with the other ZST in macro
@@ -2172,13 +2150,11 @@ impl FromStr for TemporalTypeInner {
 pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum Feature {
-    #[display("{_0}")]
     Optical(OpticalFeature),
-    #[display("{_0}")]
     Other(NEString),
 }
 
@@ -2242,10 +2218,9 @@ impl FromStrWith for Feature {
 // error struct is useless
 impl_str_enum_kw!(
     /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
-    #[derive(PartialEq, Debug, Display)]
-    #[display("{}", self.as_str())]
+    #[derive(PartialEq, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
     OpticalFeature,
     /// Error when parsing [`Feature`] (optical only)
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -2269,7 +2244,7 @@ pub enum FeatureError {
 }
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Display, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum RegionGateIndex<I> {
     Univariate(I),
@@ -2290,9 +2265,8 @@ where
 }
 
 /// The two indices of a bivariate gate
-#[derive(Clone, Copy, PartialEq, Display, Debug, new)]
+#[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{x},{y}")]
 pub struct IndexPair<I> {
     pub x: I,
     pub y: I,
@@ -2364,13 +2338,11 @@ pub enum RegionGateIndexError<E> {
 }
 
 /// Index which can either refer to a gate ($Gn*) or a measurement ($Pn*)
-#[derive(Clone, Copy, From, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum MeasOrGateIndex {
-    #[display("P{_0}")]
     Meas(MeasIndex),
-    #[display("G{_0}")]
     Gate(GateIndex),
 }
 
@@ -2421,12 +2393,11 @@ pub enum MeasOrGateIndexError {
 /// Index for $RnI (3.2)
 ///
 /// This is just a measurement index with 'P' in front of it
-#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug, Display)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(MeasIndex, usize)]
 #[into(MeasIndex, usize)]
-#[display("P{_0}")]
 pub struct PrefixedMeasIndex(pub MeasIndex);
 
 impl<'a> ToDisplayNE<'a> for PrefixedMeasIndex {
@@ -2464,23 +2435,20 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-// TODO this display shouldn't be needed
-#[derive(Clone, Display, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RegionWindow {
-    #[display("{_0}")]
     Univariate(UniGate),
-    #[display("{}", _0.iter().join(";"))]
     Bivariate(NEVec<Vertex>),
 }
 
 impl<'a> ToDisplayNE<'a> for RegionWindow {
-    type NE = NEAlt<ToNE<&'a UniGate>, NESlice<'a, ToNE<Vertex>>>;
+    type NE = NEAlt<ToNE<&'a UniGate>, NEDelim<NESlice<'a, ToNE<Vertex>>>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
             Self::Univariate(x) => NEAlt::Left(ToNE(x)),
             Self::Bivariate(x) => {
                 let xs = ToNE::on_inner_slice(x.as_nonempty_slice());
-                NEAlt::Right(xs)
+                NEAlt::Right(NEDelim::new(';', xs))
             }
         }
     }
@@ -2490,11 +2458,9 @@ impl<'a> ToDisplayNE<'a> for RegionWindow {
 ///
 /// This is necessary since internally these values are separate and cannot
 /// be borrowed using [`RegionWindow`].
-#[derive(Clone, Display)]
+#[derive(Clone)]
 pub enum RegionWindowRef<'a> {
-    #[display("{_0}")]
     Univariate(&'a UniGate),
-    #[display("{}", _0.iter().join(";"))]
     Bivariate(NESlice<'a, Vertex>),
 }
 
@@ -2512,9 +2478,8 @@ impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
 }
 
 /// A vertex on a polygon gate
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{x},{y}")]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
@@ -2523,14 +2488,13 @@ pub struct Vertex {
 impl<'a> ToDisplayNE<'a> for Vertex {
     type NE = NEConcat3<&'a BigDecimal, char, &'a BigDecimal>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(&self.x, ';').append(&self.y)
+        NEConcat::new(&self.x, ',').append(&self.y)
     }
 }
 
 /// A gate on one dimension with lower and upper bound
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{lower},{upper}")]
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
@@ -2657,23 +2621,19 @@ pub enum RegionWindowError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum Gating {
-    #[display("R{_0}")]
     Region(RegionIndex),
-    #[display("(NOT {_0})")]
     Not(Box<Self>),
-    #[display("({_0} AND {_1})")]
     And(Box<Self>, Box<Self>),
-    #[display("({_0} OR {_1})")]
     Or(Box<Self>, Box<Self>),
 }
 
 impl<'a> ToDisplayNE<'a> for Gating {
     type NE = NEAlt<
-        NEAlt<ToNE<RegionIndex>, NEConcat<&'static NEStr, &'a Box<Self>>>,
+        NEAlt<NEConcat<char, ToNE<RegionIndex>>, NEConcat3<&'static NEStr, &'a Box<Self>, char>>,
         NEAlt<
             NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
             NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
@@ -2682,8 +2642,10 @@ impl<'a> ToDisplayNE<'a> for Gating {
     fn to_ne(&'a self) -> Self::NE {
         let conj = |x, middle, y| NEConcat::new('(', x).append(middle).append(y).append(')');
         match self {
-            Self::Region(x) => NEAlt::Left(NEAlt::Left(ToNE(*x))),
-            Self::Not(x) => NEAlt::Left(NEAlt::Right(NEConcat::new(ne_str!("(NOT "), x))),
+            Self::Region(x) => NEAlt::Left(NEAlt::Left(NEConcat::new('R', ToNE(*x)))),
+            Self::Not(x) => {
+                NEAlt::Left(NEAlt::Right(NEConcat::new(ne_str!("(NOT "), x).append(')')))
+            }
             Self::And(x, y) => NEAlt::Right(NEAlt::Left(conj(x, ne_str!(" AND "), y))),
             Self::Or(x, y) => NEAlt::Right(NEAlt::Right(conj(x, ne_str!(" OR "), y))),
         }
@@ -2874,13 +2836,11 @@ pub enum GatingError {
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 pub enum Width {
-    #[display("{_0}")]
     Fixed(BitsOrChars),
-    #[display("*")]
     Variable,
 }
 
@@ -2895,7 +2855,7 @@ impl ToDisplayNE<'_> for Width {
 }
 
 /// The value of the $PnR key.
-#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug, Delegate)]
+#[derive(Clone, From, FromStr, Add, Sub, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
@@ -3053,7 +3013,7 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmN key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug, AsRef, Delegate)]
+#[derive(Clone, From, FromStr, PartialEq, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[as_ref(str)]
@@ -3061,7 +3021,7 @@ impl TryFrom<f64> for Range {
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug, Delegate)]
+#[derive(Clone, From, FromStr, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u64)]
@@ -3071,7 +3031,7 @@ pub struct GateRange(pub Range);
 macro_rules! impl_non_neg_float {
     ($(#[$meta:meta])* $t:ident) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug, Delegate)]
+        #[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[into(NonNegFloat, f32)]
@@ -3113,7 +3073,7 @@ impl_non_neg_float! {
 }
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, PartialEq, Debug, Delegate)]
+#[derive(Clone, Copy, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
@@ -3135,7 +3095,7 @@ impl FromStrWith for GateScale {
 ///
 /// This is not a normal string because it is required in 3.2 and thus cannot
 /// be empty.
-#[derive(Clone, Display, FromStr, PartialEq, Into, Debug, AsRef, Delegate)]
+#[derive(Clone, FromStr, PartialEq, Into, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[as_ref(str)]
@@ -3169,13 +3129,7 @@ pub struct NoCytError;
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
-#[derive(Clone, Display)]
-#[display(
-    "{n},{k},{v}",
-    n = self.0.len(),
-    k = self.0.as_ref().keys().join(","),
-    v = self.0.as_ref().values().join(",")
-)]
+#[derive(Clone)]
 pub struct NEUnstainedCenters(pub(crate) NEMap<Shortname, f32>);
 
 impl<'a> ToDisplayNE<'a> for NEUnstainedCenters {
@@ -4032,7 +3986,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 impl<I> Optional for RegionGateIndex<I> {
     type Outer = Option<Self>;
 }
-impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
+impl<I> OptIndexedKey for RegionGateIndex<I> {}
 
 // offsets for all versions
 kw_req_meta!(Nextdata, tk::NEXTDATA_KW);
@@ -4041,7 +3995,7 @@ opt_meta!(Nextdata, Option<Self>);
 macro_rules! kw_offset {
     ($(#[$attr:meta])* $t:ident, $key:expr) => {
         $(#[$attr])*
-        #[derive(Display, From, Into, FromStr, Debug, Clone, Copy, Delegate)]
+        #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate)]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
         #[into(u64, i128, UintZeroPad20)]
         pub struct $t(pub UintZeroPad20);
@@ -4927,7 +4881,7 @@ mod tests {
     #[test]
     fn str_to_byteord_valid() {
         assert_from_to_str::<ByteOrd2_0>("1");
-        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
         assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
         assert_from_to_str::<ByteOrd2_0>("3,4,2,1");

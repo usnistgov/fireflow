@@ -824,7 +824,7 @@ impl<I> GatingScheme<I> {
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
     >
     where
-        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq + Copy,
+        I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
@@ -969,7 +969,7 @@ impl<I> Region<I> {
         LookupRegionError<LookupRegionIndexError<I>>,
     >
     where
-        I: FromStr + fmt::Display + LinkedMeasIndex + PartialEq,
+        I: FromStr + LinkedMeasIndex + PartialEq,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
     {
@@ -1280,7 +1280,7 @@ pub enum AppliedGates2_0To3_2LossError {
 /// no longer valid as described above.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+#[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
 pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
     Region(ConvertIndexForRegionError<I, INDEX_IS_GATE>),
     Scheme(DependentKeyError<Gating>),
@@ -1294,19 +1294,19 @@ pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-#[cfg_attr(feature = "python", bound(I: fmt::Display + Copy))]
+#[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
 pub struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
     IndexedError<AnyIndexForRegionError<I>>,
 );
 
-impl<I: fmt::Display + Copy, const INDEX_IS_GATE: bool> fmt::Display
+impl<I: Into<IndexFromOne> + Copy, const INDEX_IS_GATE: bool> fmt::Display
     for ConvertIndexForRegionError<I, INDEX_IS_GATE>
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let region_key = RegionGateIndex::<()>::std(self.0.index);
         let keys = |i: I, is_plural: bool, is_gate: bool| {
             let prefix = if is_gate { "G" } else { "P" };
-            let key = format!("{prefix}{i}*");
+            let key = format!("{prefix}{}*", i.into());
             if is_plural {
                 format!("{key} keywords")
             } else {

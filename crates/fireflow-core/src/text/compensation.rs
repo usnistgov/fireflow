@@ -18,7 +18,6 @@ use nonempty_collections::{
 };
 use thiserror::Error;
 
-use std::fmt;
 use std::num::NonZeroUsize;
 
 #[cfg(feature = "serde")]
@@ -244,16 +243,6 @@ pub enum NewCompError {
     TooSmall,
     #[error("compensation matrix may not have Nan, +Inf, or -Inf")]
     NotFinite,
-}
-
-impl fmt::Display for Compensation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.matrix.ncols();
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
-    }
 }
 
 /// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)

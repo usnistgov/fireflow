@@ -1,6 +1,5 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::text::deprecated::DeprecatedTimestampsRef;
 use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword0};
 use crate::text::lookup::{
     DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
@@ -251,15 +250,6 @@ impl<X> Timestamps<X> {
         let b = self.etim.map(OptRootKeyword::from_value);
         let c = self.date.map(OptRootKeyword::from_value);
         [a, b, c].into_iter().flatten()
-    }
-}
-
-impl Timestamps<FCSTime100> {
-    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedTimestampsRef<'_>> {
-        let a = DeprecatedTimestampsRef::from(&mut self.btim);
-        let b = DeprecatedTimestampsRef::from(&mut self.etim);
-        let c = DeprecatedTimestampsRef::from(&mut self.date);
-        [a, b, c].into_iter()
     }
 }
 

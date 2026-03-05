@@ -90,13 +90,6 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
-    FCSDeprecatedError,
-    PyreflowError,
-    "Raised when a deprecated FCS feature is encountered."
-);
-
-create_exception!(
-    _pyreflow,
     ConversionError,
     PyreflowError,
     "Raised upon failure when converting between FCS versions.\n\

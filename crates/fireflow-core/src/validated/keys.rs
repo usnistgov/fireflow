@@ -11,7 +11,6 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     self as kws, AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
-use crate::text::optional::DisplayMaybe;
 use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
@@ -622,43 +621,6 @@ pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted_keyword_opt(&mut self, keyword: Option<StdOptKeyword<'_>>) {
         if let Some(k) = keyword {
             self.insert_demoted_keyword(k);
-        }
-    }
-
-    fn insert_demoted_metaroot_opt<T: Key + fmt::Display>(&mut self, value: Option<&T>) {
-        if let Some(v) = value {
-            self.insert_demoted(T::std(), v.to_string());
-        }
-    }
-
-    fn insert_demoted_metaroot_maybe<T: Key + DisplayMaybe>(&mut self, value: &T) {
-        if let Some(v) = value.display_maybe() {
-            self.insert_demoted(T::std(), v);
-        }
-    }
-
-    fn insert_demoted_meas<T>(&mut self, i: IndexFromOne, value: &T)
-    where
-        T: IndexedKey + fmt::Display,
-    {
-        self.insert_demoted(T::std(i), value.to_string());
-    }
-
-    fn insert_demoted_meas_opt<T>(&mut self, i: IndexFromOne, value: Option<&T>)
-    where
-        T: IndexedKey + fmt::Display,
-    {
-        if let Some(v) = value {
-            self.insert_demoted_meas(i, v);
-        }
-    }
-
-    fn insert_demoted_meas_maybe<T>(&mut self, i: IndexFromOne, value: &T)
-    where
-        T: IndexedKey + DisplayMaybe,
-    {
-        if let Some(v) = value.display_maybe() {
-            self.insert_demoted(T::std(i), v);
         }
     }
 

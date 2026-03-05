@@ -8,7 +8,6 @@ use derive_more::{AsMut, AsRef, From, FromStr};
 use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
-use std::string::ToString;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -122,28 +121,6 @@ impl<T: Default + PartialEq> IsDefault for T {
     }
 }
 
-pub(crate) trait DisplayMaybe: IsDefault {
-    fn display_maybe(&self) -> Option<String>;
-}
-
-// pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
-//     type Inner;
-
-//     fn metaroot_opt_pair_std(&self) -> (StdKey, Option<String>)
-//     where
-//         Self::Inner: Key,
-//     {
-//         (Self::Inner::std(), self.display_maybe())
-//     }
-
-//     fn meas_opt_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, Option<String>)
-//     where
-//         Self::Inner: IndexedKey,
-//     {
-//         (Self::Inner::std(i), self.display_maybe())
-//     }
-// }
-
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
@@ -162,42 +139,6 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
         (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>(k).into())
     }
 }
-
-impl DisplayMaybe for OptionalString {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0.is_empty() {
-            None
-        } else {
-            Some(self.0.clone())
-        }
-    }
-}
-
-impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalInt<T> {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0 == T::default() {
-            None
-        } else {
-            Some(self.0.to_string())
-        }
-    }
-}
-
-impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalZST<T> {
-    fn display_maybe(&self) -> Option<String> {
-        self.0.as_ref().map(ToString::to_string)
-    }
-}
-
-impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
-    fn display_maybe(&self) -> Option<String> {
-        self.as_ref().map(ToString::to_string)
-    }
-}
-
-// impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
-//     type Inner = T;
-// }
 
 impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
     type Inner = T;

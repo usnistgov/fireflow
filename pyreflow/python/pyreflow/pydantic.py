@@ -116,7 +116,6 @@ class _ReadDataKeywordsConfig(BaseModel):
     integer_widths_from_byteord: bool = False
     integer_byteord_override: pft.ByteOrd | None = None
     disallow_range_truncation: pft.TriFlag = _DEFAULT_TRIFLAG
-    disallow_deprecated: pft.TriFlag = _DEFAULT_TRIFLAG
 
 
 class _ReadEventsConfig(BaseModel):

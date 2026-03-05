@@ -1,5 +1,5 @@
 use crate::config::{AllowLoss, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::core::{IndexedKeyLossError, TrimmedKeywords, UnitaryKeyLossError};
+use crate::core::{Key0LossError, Key1LossError, KeyLossError, TrimmedKeywords};
 use crate::data::IndexedError;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
@@ -1067,8 +1067,8 @@ impl<I> Region<I> {
     where
         I: Copy,
     {
-        let ri = IndexedKeyLossError(Key1::new_i1(i));
-        let rw = IndexedKeyLossError(Key1::new_i1(i));
+        let ri = KeyLossError(DKey1::new_i1(i));
+        let rw = KeyLossError(DKey1::new_i1(i));
         [
             GateRegionLossError::Index(ri),
             GateRegionLossError::Window(rw),
@@ -1206,9 +1206,8 @@ impl GatedMeasurements {
 
     fn loss_errors(&self) -> impl Iterator<Item = GatedMeasurementsLossError> {
         let xs = &self.0;
-        let g = (!xs.is_empty()).then_some(GatedMeasurementsLossError::Gate(
-            UnitaryKeyLossError::default(),
-        ));
+        let g =
+            (!xs.is_empty()).then_some(GatedMeasurementsLossError::Gate(Key0LossError::default()));
         xs.iter()
             .enumerate()
             .flat_map(|(i, m)| m.loss_errors(i.into()))
@@ -1386,22 +1385,22 @@ impl<J1> BiIndexForRegionError<J1> {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatingSchemeLossError {
     Region(GateRegionLossError),
-    Gating(UnitaryKeyLossError<Gating>),
+    Gating(Key0LossError<Gating>),
 }
 
 /// Error when $RnI/$RnW keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GateRegionLossError {
-    Index(IndexedKeyLossError<RegionGateIndex<()>>),
-    Window(IndexedKeyLossError<RegionWindow>),
+    Index(Key1LossError<RegionGateIndex<()>>),
+    Window(Key1LossError<RegionWindow>),
 }
 
 /// Error when $Gn* or $GATE keywords need to be dropped when converting versions
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatedMeasurementsLossError {
-    Gate(UnitaryKeyLossError<Gate>),
+    Gate(Key0LossError<Gate>),
     GatedMeas(GatedMeasurementLossError),
 }
 
@@ -1409,14 +1408,14 @@ pub enum GatedMeasurementsLossError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum GatedMeasurementLossError {
-    Scale(IndexedKeyLossError<GateScale>),
-    Filter(IndexedKeyLossError<GateFilter>),
-    Shortname(IndexedKeyLossError<GateShortname>),
-    PEmit(IndexedKeyLossError<GatePercentEmitted>),
-    Range(IndexedKeyLossError<GateRange>),
-    Longname(IndexedKeyLossError<GateLongname>),
-    DetType(IndexedKeyLossError<GateDetectorType>),
-    DetVolt(IndexedKeyLossError<GateDetectorVoltage>),
+    Scale(Key1LossError<GateScale>),
+    Filter(Key1LossError<GateFilter>),
+    Shortname(Key1LossError<GateShortname>),
+    PEmit(Key1LossError<GatePercentEmitted>),
+    Range(Key1LossError<GateRange>),
+    Longname(Key1LossError<GateLongname>),
+    DetType(Key1LossError<GateDetectorType>),
+    DetVolt(Key1LossError<GateDetectorVoltage>),
 }
 
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0

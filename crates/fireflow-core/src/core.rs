@@ -93,7 +93,7 @@ use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
-    BiIndexedKey, DKey2, IndexedKey, Key, Key0, Key1, Key2, NonStdKey, NonStdKeywords,
+    DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key0, Key1, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
@@ -5798,7 +5798,7 @@ impl CSVFlags {
     }
 
     fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
-        let e = (!self.0.is_empty()).then_some(UnitaryKeyLossError::<CSMode>::default().into());
+        let e = (!self.0.is_empty()).then_some(Key0LossError::<CSMode>::default().into());
         let go = |(i, f): (usize, &Option<_>)| f.indexed_key_loss_error(i);
         self.0.iter().enumerate().filter_map(go).chain(e)
     }
@@ -6987,10 +6987,10 @@ impl ScaleTransform {
     /// This may be lossy because the $PnG value cannot be represented with
     /// just a `Scale` object, and thus needs to be dropped if present and
     /// not equal to 1.0.
-    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, IndexedKeyLossError<Gain>> {
+    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, Key1LossError<Gain>> {
         match self {
             Self::Lin(x) => {
-                let e = IndexedKeyLossError::<Gain>(Key1::new_i1(i));
+                let e = KeyLossError(DKey1::new_i1(i));
                 let v = Scale::Linear;
                 LogResult::new_log_if(x.is_one(), v, v, e)
             }
@@ -9605,13 +9605,13 @@ pub enum MetarootConvertWarning {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyMetarootKeyLossError {
-    Cytsn(UnitaryKeyLossError<Cytsn>),
-    Unicode(UnitaryKeyLossError<Unicode>),
-    Vol(UnitaryKeyLossError<Vol>),
-    Flowrate(UnitaryKeyLossError<Flowrate>),
-    Comp2_0(BiIndexedKeyLossError<Dfc>),
-    Comp3_0(UnitaryKeyLossError<Compensation3_0>),
-    Spillover(UnitaryKeyLossError<Spillover>),
+    Cytsn(Key0LossError<Cytsn>),
+    Unicode(Key0LossError<Unicode>),
+    Vol(Key0LossError<Vol>),
+    Flowrate(Key0LossError<Flowrate>),
+    Comp2_0(Key2LossError<Dfc>),
+    Comp3_0(Key0LossError<Compensation3_0>),
+    Spillover(Key0LossError<Spillover>),
     Unstained(UnstainedLossError),
     Datetime(DatetimeLossError),
     Carrier(CarrierLossError),
@@ -9630,23 +9630,23 @@ pub enum AnyMetarootKeyLossError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalKeyLossError {
-    Filter(IndexedKeyLossError<Filter>),
-    Power(IndexedKeyLossError<Power>),
-    DetectorType(IndexedKeyLossError<DetectorType>),
-    PercentEmitted(IndexedKeyLossError<PercentEmitted>),
-    DetectorVoltage(IndexedKeyLossError<DetectorVoltage>),
-    Wavelength(IndexedKeyLossError<Wavelength>),
-    Wavelengths(IndexedKeyLossError<Wavelengths>),
-    MeasType(IndexedKeyLossError<OpticalType>),
-    TempType(IndexedKeyLossError<TemporalType>),
-    Analyte(IndexedKeyLossError<Analyte>),
-    Tag(IndexedKeyLossError<Tag>),
-    Gain(IndexedKeyLossError<Gain>),
-    Display(IndexedKeyLossError<Display>),
-    DetectorName(IndexedKeyLossError<DetectorName>),
-    Feature(IndexedKeyLossError<Feature>),
-    Calibration3_1(IndexedKeyLossError<Calibration3_1>),
-    Calibration3_2(IndexedKeyLossError<Calibration3_2>),
+    Filter(Key1LossError<Filter>),
+    Power(Key1LossError<Power>),
+    DetectorType(Key1LossError<DetectorType>),
+    PercentEmitted(Key1LossError<PercentEmitted>),
+    DetectorVoltage(Key1LossError<DetectorVoltage>),
+    Wavelength(Key1LossError<Wavelength>),
+    Wavelengths(Key1LossError<Wavelengths>),
+    MeasType(Key1LossError<OpticalType>),
+    TempType(Key1LossError<TemporalType>),
+    Analyte(Key1LossError<Analyte>),
+    Tag(Key1LossError<Tag>),
+    Gain(Key1LossError<Gain>),
+    Display(Key1LossError<Display>),
+    DetectorName(Key1LossError<DetectorName>),
+    Feature(Key1LossError<Feature>),
+    Calibration3_1(Key1LossError<Calibration3_1>),
+    Calibration3_2(Key1LossError<Calibration3_2>),
     Peak(PeakLossError),
 }
 
@@ -9654,9 +9654,9 @@ pub enum AnyOpticalKeyLossError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalKeyLossError {
-    TempType(IndexedKeyLossError<TemporalType>),
-    Display(IndexedKeyLossError<Display>),
-    Timestamp(UnitaryKeyLossError<Timestep>),
+    TempType(Key1LossError<TemporalType>),
+    Display(Key1LossError<Display>),
+    Timestamp(Key0LossError<Timestep>),
     Peak(PeakLossError),
 }
 
@@ -9664,52 +9664,52 @@ pub enum AnyTemporalKeyLossError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalToTemporalKeyLossError {
-    Filter(IndexedKeyLossError<Filter>),
-    Power(IndexedKeyLossError<Power>),
-    DetectorType(IndexedKeyLossError<DetectorType>),
-    PercentEmitted(IndexedKeyLossError<PercentEmitted>),
-    DetectorVoltage(IndexedKeyLossError<DetectorVoltage>),
-    Wavelength(IndexedKeyLossError<Wavelength>),
-    Wavelengths(IndexedKeyLossError<Wavelengths>),
-    MeasType(IndexedKeyLossError<OpticalType>),
-    Analyte(IndexedKeyLossError<Analyte>),
-    Tag(IndexedKeyLossError<Tag>),
-    Gain(IndexedKeyLossError<Gain>),
-    DetectorName(IndexedKeyLossError<DetectorName>),
-    Feature(IndexedKeyLossError<Feature>),
-    Calibration3_1(IndexedKeyLossError<Calibration3_1>),
-    Calibration3_2(IndexedKeyLossError<Calibration3_2>),
+    Filter(Key1LossError<Filter>),
+    Power(Key1LossError<Power>),
+    DetectorType(Key1LossError<DetectorType>),
+    PercentEmitted(Key1LossError<PercentEmitted>),
+    DetectorVoltage(Key1LossError<DetectorVoltage>),
+    Wavelength(Key1LossError<Wavelength>),
+    Wavelengths(Key1LossError<Wavelengths>),
+    MeasType(Key1LossError<OpticalType>),
+    Analyte(Key1LossError<Analyte>),
+    Tag(Key1LossError<Tag>),
+    Gain(Key1LossError<Gain>),
+    DetectorName(Key1LossError<DetectorName>),
+    Feature(Key1LossError<Feature>),
+    Calibration3_1(Key1LossError<Calibration3_1>),
+    Calibration3_2(Key1LossError<Calibration3_2>),
 }
 
 /// Error when a temporal keyword will be lost when converting to optical
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalToOpticalKeyLossError {
-    TempType(IndexedKeyLossError<TemporalType>),
+    TempType(Key1LossError<TemporalType>),
 }
 
 /// Error when $PKn and $PKNn keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PeakLossError {
-    Bin(IndexedKeyLossError<PeakBin>),
-    Number(IndexedKeyLossError<PeakIndex>),
+    Bin(Key1LossError<PeakBin>),
+    Number(Key1LossError<PeakIndex>),
 }
 
 /// Error when "plate" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PlateLossError {
-    Platename(UnitaryKeyLossError<Platename>),
-    Plateid(UnitaryKeyLossError<Plateid>),
-    Wellid(UnitaryKeyLossError<Wellid>),
+    Platename(Key0LossError<Platename>),
+    Plateid(Key0LossError<Plateid>),
+    Wellid(Key0LossError<Wellid>),
 }
 
 /// Error when "subset" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SubsetLossError {
-    Bits(UnitaryKeyLossError<CSVBits>),
+    Bits(Key0LossError<CSVBits>),
     Flag(CSVFlagsLossError),
 }
 
@@ -9717,34 +9717,34 @@ pub enum SubsetLossError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum CSVFlagsLossError {
-    CSMode(UnitaryKeyLossError<CSMode>),
-    CSVFlag(IndexedKeyLossError<CSVFlag>),
+    CSMode(Key0LossError<CSMode>),
+    CSVFlag(Key1LossError<CSVFlag>),
 }
 
 /// Error when "modification" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ModificationLossError {
-    LastModifier(UnitaryKeyLossError<LastModifier>),
-    LastModified(UnitaryKeyLossError<LastModified>),
-    Originality(UnitaryKeyLossError<Originality>),
+    LastModifier(Key0LossError<LastModifier>),
+    LastModified(Key0LossError<LastModified>),
+    Originality(Key0LossError<Originality>),
 }
 
 /// Error when "carrier" keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum CarrierLossError {
-    Carrierid(UnitaryKeyLossError<Carrierid>),
-    Locationid(UnitaryKeyLossError<Locationid>),
-    Carriertype(UnitaryKeyLossError<Carriertype>),
+    Carrierid(Key0LossError<Carrierid>),
+    Locationid(Key0LossError<Locationid>),
+    Carriertype(Key0LossError<Carriertype>),
 }
 
 /// Error when $UNSTAINED* keywords would be lost due to version change
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum UnstainedLossError {
-    UnstainedCenters(UnitaryKeyLossError<UnstainedCenters>),
-    UnstainedInfo(UnitaryKeyLossError<UnstainedInfo>),
+    UnstainedCenters(Key0LossError<UnstainedCenters>),
+    UnstainedInfo(Key0LossError<UnstainedInfo>),
 }
 
 /// Error when reading DATA segment from already-parsed keywords
@@ -10046,38 +10046,25 @@ pub struct MissingTime(pub Regex);
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
-/// Error when non-indexed key would be lost upon conversion
+/// Error when key would be lost upon conversion
 #[derive(Debug, Error, Display)]
-#[display(bound(T: Key))]
+#[display(bound(K: fmt::Display))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-#[cfg_attr(feature = "python", bound(T: Key))]
-pub struct UnitaryKeyLossError<T>(pub Key0<T>);
+#[cfg_attr(feature = "python", bound(K: fmt::Display))]
+pub struct KeyLossError<K>(pub K);
 
-impl<T> Default for UnitaryKeyLossError<T> {
+pub type Key0LossError<T> = KeyLossError<DKey0<T>>;
+pub type Key1LossError<T> = KeyLossError<DKey1<T>>;
+pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
+
+// TODO this shouldn't be necessary
+impl<T> Default for Key0LossError<T> {
     fn default() -> Self {
-        Self(Key0::default())
+        Self(DKey0::default())
     }
 }
-
-/// Error when indexed key would be lost upon conversion
-#[derive(Debug, Error, Display)]
-#[display(bound(T: IndexedKey))]
-#[display("{_0} must be dropped to convert")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-#[cfg_attr(feature = "python", bound(T: IndexedKey))]
-pub struct IndexedKeyLossError<T>(pub Key1<T>);
-
-/// Error when bi-indexed key would be lost upon conversion
-#[derive(Debug, Error, Display)]
-#[display(bound(T: BiIndexedKey))]
-#[display("{_0} must be dropped to convert")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-#[cfg_attr(feature = "python", bound(T: BiIndexedKey))]
-pub struct BiIndexedKeyLossError<T>(pub Key2<T>);
 
 /// Error when $PnE is log and $PnG is not 1.0 or None
 #[derive(Debug, Error)]

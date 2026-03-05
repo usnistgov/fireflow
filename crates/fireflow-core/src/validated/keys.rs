@@ -448,7 +448,7 @@ pub struct SpecificKey<T, I> {
 }
 
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
-#[derive(Display, From, Delegate)]
+#[derive(Display, From, Delegate, Debug)]
 #[display("${_0}")]
 #[delegate(AsStdKey)]
 pub struct DollarKey<T, I>(pub SpecificKey<T, I>);

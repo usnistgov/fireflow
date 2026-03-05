@@ -1,11 +1,10 @@
-use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::core::{Key0LossError, Key1LossError, KeyLossError};
 use crate::text::index::IndexFromOne;
-use crate::validated::keys::Key1;
+use crate::validated::keys::DKey1;
 
 use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
 use derive_more::{AsMut, AsRef, From};
-use std::fmt;
 use std::iter;
 use std::marker::PhantomData;
 
@@ -113,21 +112,21 @@ pub(crate) trait CheckMaybe: Sized + IsDefault {
 
     fn root_key_loss_error<E>(&self) -> Option<E>
     where
-        E: From<UnitaryKeyLossError<Self::Inner>>,
+        E: From<Key0LossError<Self::Inner>>,
     {
-        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::default().into())
+        (!self.is_default()).then_some(Key0LossError::<Self::Inner>::default().into())
     }
 
     fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
-        E: From<IndexedKeyLossError<Self::Inner>>,
+        E: From<Key1LossError<Self::Inner>>,
     {
-        let k = Key1::new_i1(i.into());
-        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>(k).into())
+        let k = DKey1::new_i1(i.into());
+        (!self.is_default()).then_some(KeyLossError(k).into())
     }
 }
 
-impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
+impl<T: PartialEq> CheckMaybe for Option<T> {
     type Inner = T;
 }
 

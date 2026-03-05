@@ -1,5 +1,5 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::core::UnitaryKeyLossError;
+use crate::core::Key0LossError;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
@@ -161,9 +161,9 @@ impl Datetimes {
     }
 
     pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
-        let x0 = UnitaryKeyLossError::<BeginDateTime>::default();
+        let x0 = Key0LossError::<BeginDateTime>::default();
         let y0 = self.begin.is_some().then_some(x0.into());
-        let x1 = UnitaryKeyLossError::<EndDateTime>::default();
+        let x1 = Key0LossError::<EndDateTime>::default();
         let y1 = self.end.is_some().then_some(x1.into());
         [y0, y1].into_iter().flatten()
     }
@@ -282,8 +282,8 @@ pub enum LookupDatetimesError {
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DatetimeLossError {
-    Begin(UnitaryKeyLossError<BeginDateTime>),
-    End(UnitaryKeyLossError<EndDateTime>),
+    Begin(Key0LossError<BeginDateTime>),
+    End(Key0LossError<EndDateTime>),
 }
 
 #[cfg(test)]

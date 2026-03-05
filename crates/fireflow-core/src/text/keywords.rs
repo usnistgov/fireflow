@@ -2,7 +2,7 @@ use crate::config::{
     ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
-use crate::core::UnitaryKeyLossError;
+use crate::core::Key0LossError;
 use crate::header::Version;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
@@ -1060,8 +1060,8 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn loss_error(self) -> Option<UnitaryKeyLossError<Self>> {
-        (!self.0.is_one()).then_some(UnitaryKeyLossError::default())
+    pub(crate) fn loss_error(self) -> Option<Key0LossError<Self>> {
+        (!self.0.is_one()).then_some(Key0LossError::default())
     }
 
     pub(crate) fn lookup(

@@ -1,12 +1,12 @@
 use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig};
-use crate::core::BiIndexedKeyLossError;
+use crate::core::{Key2LossError, KeyLossError};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, DKey2, Key2, SpecificKey, StdKeywords};
 
 use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEDelim, ToDisplayNE};
 
@@ -188,9 +188,9 @@ impl Compensation2_0 {
         })
     }
 
-    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
+    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = Key2LossError<Dfc>> {
         self.non_zero_indices()
-            .map(|kw| BiIndexedKeyLossError(Key2::new_i2(kw.col, kw.row)))
+            .map(|kw| KeyLossError(DKey2::new_i2(kw.col, kw.row)))
     }
 }
 

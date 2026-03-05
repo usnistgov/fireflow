@@ -2634,20 +2634,24 @@ pub enum Gating {
 impl<'a> ToDisplayNE<'a> for Gating {
     type NE = NEAlt<
         NEAlt<NEConcat<char, ToNE<RegionIndex>>, NEConcat3<&'static NEStr, &'a Box<Self>, char>>,
-        NEAlt<
-            NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
-            NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
-        >,
+        NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
     >;
     fn to_ne(&'a self) -> Self::NE {
-        let conj = |x, middle, y| NEConcat::new('(', x).append(middle).append(y).append(')');
+        let conj = |x, middle, y| {
+            let ret = NEConcat::new('(', x).append(middle).append(y).append(')');
+            NEAlt::Right(ret)
+        };
         match self {
-            Self::Region(x) => NEAlt::Left(NEAlt::Left(NEConcat::new('R', ToNE(*x)))),
-            Self::Not(x) => {
-                NEAlt::Left(NEAlt::Right(NEConcat::new(ne_str!("(NOT "), x).append(')')))
+            Self::Region(x) => {
+                let ret = NEConcat::new('R', ToNE(*x));
+                NEAlt::Left(NEAlt::Left(ret))
             }
-            Self::And(x, y) => NEAlt::Right(NEAlt::Left(conj(x, ne_str!(" AND "), y))),
-            Self::Or(x, y) => NEAlt::Right(NEAlt::Right(conj(x, ne_str!(" OR "), y))),
+            Self::Not(x) => {
+                let ret = NEConcat::new(ne_str!("(NOT "), x).append(')');
+                NEAlt::Left(NEAlt::Right(ret))
+            }
+            Self::And(x, y) => conj(x, ne_str!(" AND "), y),
+            Self::Or(x, y) => conj(x, ne_str!(" OR "), y),
         }
     }
 }

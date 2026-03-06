@@ -1185,11 +1185,11 @@ impl_str_enum_kw!(
     #[derive(PartialEq, Eq, Default, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    Mode,
+    pub Mode,
     /// Error when parsing [`Mode`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    ModeError,
+    pub ModeError,
     #[default]
     List         => ne_str!("L"),
     Uncorrelated => ne_str!("U"),
@@ -1332,11 +1332,11 @@ impl_str_enum_kw!(
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    NumType,
+    pub NumType,
     /// Error when parsing [`NumType`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    NumTypeError,
+    pub NumTypeError,
     Integer => ne_str!("I"),
     Float   => ne_str!("F"),
     Double  => ne_str!("D")
@@ -1461,11 +1461,11 @@ impl_str_enum_kw!(
     #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    AlphaNumType,
+    pub AlphaNumType,
     /// Error when parsing [`AlphaNumType`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    AlphaNumTypeError,
+    pub AlphaNumTypeError,
     Ascii   => ne_str!("A"),
     Integer => ne_str!("I"),
     Float   => ne_str!("F"),
@@ -1938,11 +1938,11 @@ impl_str_enum_kw!(
     #[derive(PartialEq, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    Originality,
+    pub Originality,
     /// Error when parsing [`Originality`] from string
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    OriginalityError,
+    pub OriginalityError,
     Original        => ne_str!("Original"),
     NonDataModified => ne_str!("NonDataModified"),
     Appended        => ne_str!("Appended"),
@@ -2224,11 +2224,11 @@ impl_str_enum_kw!(
     #[derive(PartialEq, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    OpticalFeature,
+    pub OpticalFeature,
     /// Error when parsing [`Feature`] (optical only)
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    OpticalFeatureError,
+    pub OpticalFeatureError,
     Area   => ne_str!("Area"),
     Width  => ne_str!("Width"),
     Height => ne_str!("Height")

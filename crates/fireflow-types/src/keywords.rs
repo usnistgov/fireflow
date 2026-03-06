@@ -3,6 +3,7 @@ use crate::{impl_str_enum, ne_str};
 
 use const_format::formatcp;
 use derive_more::Display;
+use nonempty_collections::{NEVec, NonEmptyArrayExt as _, nev};
 use unicase::Ascii;
 
 #[cfg(feature = "python")]
@@ -147,6 +148,7 @@ impl RootKeywordClass {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum MeasKeywordClass {
     OptAny,
     OptGE3_0,
@@ -182,12 +184,13 @@ pub enum VersionMembership {
 }
 
 impl VersionMembership {
-    fn contains_version(self, version: Version) -> bool {
+    #[must_use]
+    pub fn versions(self) -> NEVec<Version> {
         match self {
-            Self::One(x) => x == version,
-            Self::Two(xs) => xs.contains(&version),
-            Self::Three(xs) => xs.contains(&version),
-            Self::All => true,
+            Self::One(x) => NEVec::new(x),
+            Self::Two([x, y]) => nev![x, y],
+            Self::Three([x, y, z]) => nev![x, y, z],
+            Self::All => ALL_VERSIONS.into_nonempty_vec(),
         }
     }
 
@@ -209,6 +212,16 @@ impl VersionMembership {
     #[must_use]
     pub fn is_3_2(&self) -> bool {
         self.contains_version(Version::FCS3_2)
+    }
+
+    #[must_use]
+    pub fn contains_version(self, version: Version) -> bool {
+        match self {
+            Self::One(x) => x == version,
+            Self::Two(xs) => xs.contains(&version),
+            Self::Three(xs) => xs.contains(&version),
+            Self::All => true,
+        }
     }
 }
 

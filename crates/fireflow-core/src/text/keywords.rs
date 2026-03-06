@@ -49,7 +49,7 @@ use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{
-    self as tk, ALL_VERSIONS, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
+    self as tk, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
 };
 use fireflow_types::nonempty_string::{
     DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim,
@@ -3276,10 +3276,7 @@ pub struct ExtraStdKeywords {
 }
 
 pub(crate) enum ExtraKeywordClass {
-    VersionEQ(Version),
-    VersionLE(Version),
-    VersionGE(Version),
-    Version3_0or3_1,
+    Version(NEVec<Version>),
     HyperPar,
     HyperGate,
     Pseudostandard,
@@ -3307,78 +3304,39 @@ impl ExtraStdKeywords {
         par: Par,
         gate: Gate,
     ) -> Option<ExtraKeywordClass> {
-        let minimal_version = |v| (current_version < v).then_some(ExtraKeywordClass::VersionGE(v));
-        let maximal_version = |v| (v < current_version).then_some(ExtraKeywordClass::VersionLE(v));
-        let eq_version = |v| (current_version != v).then_some(ExtraKeywordClass::VersionEQ(v));
-
-        let minimal_indexed_version = |v, i: MeasIndex| {
-            if usize::from(i) >= par.0 {
+        let if_invalid_version = |vs: VersionMembership| {
+            (!vs.contains_version(current_version))
+                .then(|| ExtraKeywordClass::Version(vs.versions()))
+        };
+        let if_hyperpar = |i: usize, vs: VersionMembership| {
+            if i >= par.0 {
                 Some(ExtraKeywordClass::HyperPar)
             } else {
-                minimal_version(v)
+                if_invalid_version(vs)
             }
         };
-
-        let maximal_indexed_version = |v, i: MeasIndex| {
-            if usize::from(i) >= par.0 {
-                Some(ExtraKeywordClass::HyperPar)
-            } else {
-                maximal_version(v)
-            }
-        };
-
         match AnyKeywordClass::classify_keyword(key) {
-            AnyKeywordClass::Root(r) => match r {
-                RootKeywordClass::Beginanalysis
-                | RootKeywordClass::Beginstext
-                | RootKeywordClass::Begindata
-                | RootKeywordClass::Endanalysis
-                | RootKeywordClass::Endstext
-                | RootKeywordClass::Enddata => minimal_version(Version::FCS3_0),
-                RootKeywordClass::Timestep => {
-                    if current_version < Version::FCS3_0 {
-                        Some(ExtraKeywordClass::VersionGE(Version::FCS3_0))
-                    } else {
-                        Some(ExtraKeywordClass::UnusedTimestep)
-                    }
-                }
-                RootKeywordClass::OptGE3_1 => minimal_version(Version::FCS3_1),
-                RootKeywordClass::OptGE3_2 => minimal_version(Version::FCS3_2),
-                RootKeywordClass::OptEQ3_0or3_1 => (current_version == Version::FCS3_0
-                    || current_version == Version::FCS3_1)
-                    .then_some(ExtraKeywordClass::Version3_0or3_1),
-                RootKeywordClass::OptEQ3_0 => eq_version(Version::FCS3_0),
-                RootKeywordClass::OptLE3_1 => maximal_version(Version::FCS3_1),
-                _ => None,
-            },
-            AnyKeywordClass::MeasOptGE3_0(i) => minimal_indexed_version(Version::FCS3_0, i),
-            AnyKeywordClass::MeasOptGE3_1(i) => minimal_indexed_version(Version::FCS3_1, i),
-            AnyKeywordClass::MeasOptGE3_2(i) => minimal_indexed_version(Version::FCS3_2, i),
-            AnyKeywordClass::MeasOptLE3_1(i) => maximal_indexed_version(Version::FCS3_1, i),
-            AnyKeywordClass::MeasOptEq3_0or3_1(i) => {
-                if usize::from(i) >= par.0 {
-                    Some(ExtraKeywordClass::HyperPar)
-                } else if current_version == Version::FCS3_0 || current_version == Version::FCS3_1 {
-                    Some(ExtraKeywordClass::Version3_0or3_1)
+            AnyKeywordClass::Root(c) => {
+                let m = c.membership();
+                if m.contains_version(current_version) {
+                    matches!(c, RootKeywordClass::Timestep)
+                        .then_some(ExtraKeywordClass::UnusedTimestep)
                 } else {
-                    None
+                    Some(ExtraKeywordClass::Version(m.versions()))
                 }
             }
-            AnyKeywordClass::GateOptLE3_1(i) => {
-                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
-            }
+            AnyKeywordClass::Meas(i, c) => if_hyperpar(i.into(), c.membership()),
+            AnyKeywordClass::Peak(i) => if_hyperpar(i.into(), PKN_VERS),
+            AnyKeywordClass::CSVFlag(i) => if_hyperpar(i.into(), CSV_VERS),
             AnyKeywordClass::Dfc(x, y) => {
                 if usize::from(x) >= par.0 || usize::from(y) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)
                 } else {
-                    eq_version(Version::FCS2_0)
+                    if_invalid_version(Dfc::VERS)
                 }
             }
-            AnyKeywordClass::Scale(i)
-            | AnyKeywordClass::Shortname(i)
-            | AnyKeywordClass::Wavelength(i)
-            | AnyKeywordClass::MeasAny(i) => {
-                (usize::from(i) >= par.0).then_some(ExtraKeywordClass::HyperPar)
+            AnyKeywordClass::GateOptLE3_1(i) => {
+                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
             }
             AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
             AnyKeywordClass::NonStandard => Some(ExtraKeywordClass::Pseudostandard),
@@ -3401,13 +3359,6 @@ impl ExtraStdKeywords {
         let mut other_version_es = vec![];
         let mut timestep = None;
         for (k, v) in kws {
-            macro_rules! go_version {
-                ($vs:expr) => {
-                    let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
-                    other_version_es.push(e);
-                    other_version.insert(k, v);
-                };
-            }
             if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
@@ -3418,23 +3369,10 @@ impl ExtraStdKeywords {
                         hyper_gate_es.push(HyperGateError::new(gate, k.clone()));
                         hyper_gate.insert(k, v);
                     }
-                    ExtraKeywordClass::VersionEQ(ver) => {
-                        let vs = NEVec::new(ver);
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::VersionLE(ver) => {
-                        let mut vs = NEVec::new(ver);
-                        vs.extend(ALL_VERSIONS.iter().filter(|&&x| x < ver).copied());
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::VersionGE(ver) => {
-                        let mut vs = NEVec::new(ver);
-                        vs.extend(ALL_VERSIONS.iter().filter(|&&x| x > ver).copied());
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::Version3_0or3_1 => {
-                        let vs = NEVec::from((Version::FCS3_0, vec![Version::FCS3_1]));
-                        go_version!(vs);
+                    ExtraKeywordClass::Version(vs) => {
+                        let e = KeywordOtherVersionError::new(k.clone(), current_version, vs);
+                        other_version_es.push(e);
+                        other_version.insert(k, v);
                     }
                     ExtraKeywordClass::Pseudostandard => {
                         pseudo_es.push(PseudostandardError(k.clone()));
@@ -4077,8 +4015,10 @@ kw_opt_meta_opt_u32!(CSVBits, tk::CSVBITS_KW, tk::CSVBITS_VERS);
 newtype_int!(CSVFlag, u32);
 opt_meas!(CSVFlag, Option<Self>);
 
+const CSV_VERS: VersionMembership = VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]);
+
 impl VersionedKey for CSVFlag {
-    const VERS: VersionMembership = VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]);
+    const VERS: VersionMembership = CSV_VERS;
 }
 
 // TODO use macro for this
@@ -4476,36 +4416,39 @@ impl KeywordOptimizer {
                 RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
                 RootKeywordClass::OptAny => self.n_any += 1,
             },
-            AnyKeywordClass::MeasOptGE3_0(_) => {
-                self.n_opt_min3_0 += 1;
-            }
-            AnyKeywordClass::MeasOptGE3_1(_) => {
-                self.n_opt_min3_1 += 1;
-            }
-            AnyKeywordClass::MeasOptGE3_2(_) => {
-                self.n_opt_min3_2 += 1;
-            }
-            AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
-                self.n_opt_eq3_0or3_1 += 1;
-            }
-            AnyKeywordClass::MeasOptLE3_1(_) => {
-                self.n_opt_max3_1 += 1;
-            }
-            AnyKeywordClass::Scale(_) => self.n_pne += 1,
-            AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
-            AnyKeywordClass::Wavelength(_) => {
-                // TODO what to do on failure?
-                if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
-                    if w.native.0.len() > 1 {
-                        self.n_opt_min3_1 += 1;
-                    } else {
-                        self.n_any += 1;
+            AnyKeywordClass::Meas(_, r) => match r {
+                MeasKeywordClass::OptGE3_0 => {
+                    self.n_opt_min3_0 += 1;
+                }
+                MeasKeywordClass::OptGE3_1 => {
+                    self.n_opt_min3_1 += 1;
+                }
+                MeasKeywordClass::OptGE3_2 => {
+                    self.n_opt_min3_2 += 1;
+                }
+                MeasKeywordClass::Scale => self.n_pne += 1,
+                MeasKeywordClass::Shortname => self.n_pnn += 1,
+                MeasKeywordClass::Wavelength => {
+                    // TODO what to do on failure?
+                    if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
+                        if w.native.0.len() > 1 {
+                            self.n_opt_min3_1 += 1;
+                        } else {
+                            self.n_any += 1;
+                        }
                     }
                 }
+                MeasKeywordClass::OptAny => self.n_any += 1,
+            },
+            AnyKeywordClass::Peak(_) => {
+                self.n_opt_max3_1 += 1;
+            }
+            AnyKeywordClass::CSVFlag(_) => {
+                self.n_opt_eq3_0or3_1 += 1;
             }
             AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
             AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
-            AnyKeywordClass::MeasAny(_) | AnyKeywordClass::RegionWindow => self.n_any += 1,
+            AnyKeywordClass::RegionWindow => self.n_any += 1,
             AnyKeywordClass::RegionIndex => {
                 if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
                     self.n_opt_eq2_0 += 1;
@@ -4534,15 +4477,9 @@ enum ModeValue {
 
 enum AnyKeywordClass {
     Root(RootKeywordClass),
-    MeasAny(MeasIndex),
-    MeasOptGE3_0(MeasIndex),
-    MeasOptGE3_1(MeasIndex),
-    MeasOptGE3_2(MeasIndex),
-    MeasOptLE3_1(MeasIndex),
-    MeasOptEq3_0or3_1(MeasIndex),
-    Shortname(MeasIndex),
-    Scale(MeasIndex),
-    Wavelength(MeasIndex),
+    Meas(MeasIndex, MeasKeywordClass),
+    CSVFlag(MeasIndex),
+    Peak(MeasIndex),
     Dfc(MeasIndex, MeasIndex),
     GateOptLE3_1(GateIndex),
     RegionIndex,
@@ -4597,26 +4534,18 @@ impl AnyKeywordClass {
                 && suffix.is_empty()
             {
                 // $PKNn
-                Self::MeasOptLE3_1(index.into())
+                Self::Peak(index.into())
             } else if let Some((index, suffix)) =
                 starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
                 && suffix.is_empty()
             {
                 // $PKn
-                Self::MeasOptLE3_1(index.into())
+                Self::Peak(index.into())
             } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
                 // $Pn*
                 let j = index.into();
                 if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
-                    match vc {
-                        MeasKeywordClass::OptAny => Self::MeasAny(j),
-                        MeasKeywordClass::OptGE3_0 => Self::MeasOptGE3_0(j),
-                        MeasKeywordClass::OptGE3_1 => Self::MeasOptGE3_1(j),
-                        MeasKeywordClass::OptGE3_2 => Self::MeasOptGE3_2(j),
-                        MeasKeywordClass::Shortname => Self::Shortname(j),
-                        MeasKeywordClass::Scale => Self::Scale(j),
-                        MeasKeywordClass::Wavelength => Self::Wavelength(j),
-                    }
+                    Self::Meas(j, *vc)
                 } else {
                     Self::NonStandard
                 }
@@ -4648,7 +4577,7 @@ impl AnyKeywordClass {
             && suffix.eq_ignore_ascii_case("FLAG")
         {
             // $CSVnFLAG
-            Self::MeasOptEq3_0or3_1(index.into())
+            Self::CSVFlag(index.into())
         } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
             .and_then(|r| split_index_and_suffix(r))
             .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))

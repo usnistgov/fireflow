@@ -1,5 +1,18 @@
+use crate::config::EnumStrIter as _;
+use crate::{impl_str_enum, ne_str};
+
 use const_format::formatcp;
+use derive_more::Display;
 use unicase::Ascii;
+
+#[cfg(feature = "python")]
+use {
+    crate::python as py,
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+};
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 // The string primitives for almost all keywords are compiled in a build script
 // as string constants and included here. This is done in order to put these
@@ -18,6 +31,65 @@ pub const PKN: &str = "$PKn";
 pub const PKNN: &str = "$PKNn";
 pub const RNI: &str = "$RNI";
 pub const RNW: &str = "$RNW";
+
+impl_str_enum!(
+    /// All FCS versions this library supports.
+    ///
+    /// This appears as the first 6 bytes of any valid FCS file.
+    #[derive(Eq, PartialEq, PartialOrd, Ord, Debug, Hash, Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    pub Version,
+    /// Error when parsing [`TriFlag`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+    pub VersionFormatError,
+    FCS2_0 => ne_str!("FCS2.0"),
+    FCS3_0 => ne_str!("FCS3.0"),
+    FCS3_1 => ne_str!("FCS3.1"),
+    FCS3_2 => ne_str!("FCS3.2")
+);
+
+// TODO this could be put in the macro above
+pub const ALL_VERSIONS: [Version; 4] = [
+    Version::FCS2_0,
+    Version::FCS3_0,
+    Version::FCS3_1,
+    Version::FCS3_2,
+];
+
+// marker traits that denote a single version
+macro_rules! impl_version {
+    ($name:ident, $var:ident) => {
+        #[derive(Clone, Copy, Eq, PartialEq)]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
+        pub struct $name;
+
+        impl From<$name> for Version {
+            fn from(_: $name) -> Self {
+                Self::$var
+            }
+        }
+    };
+}
+
+impl_version!(Version2_0, FCS2_0);
+impl_version!(Version3_0, FCS3_0);
+impl_version!(Version3_1, FCS3_1);
+impl_version!(Version3_2, FCS3_2);
+
+impl Version {
+    #[must_use]
+    pub fn is_member(self, membership: VersionMembership) -> bool {
+        match self {
+            Self::FCS2_0 => membership.is_2_0(),
+            Self::FCS3_0 => membership.is_3_0(),
+            Self::FCS3_1 => membership.is_3_1(),
+            Self::FCS3_2 => membership.is_3_2(),
+        }
+    }
+}
 
 /// Data structure to classify root (non-indexed) keywords.
 ///
@@ -55,12 +127,12 @@ impl RootKeywordClass {
             Self::OptAny | Self::Mode | Self::Cyt | Self::Tot | Self::Byteord => {
                 VersionMembership::All
             }
-            Self::OptGE3_1 => VersionMembership::Two([KwVersion::FCS3_1, KwVersion::FCS3_2]),
-            Self::OptGE3_2 => VersionMembership::One(KwVersion::FCS3_2),
-            Self::OptEQ3_0or3_1 => VersionMembership::Two([KwVersion::FCS3_0, KwVersion::FCS3_1]),
-            Self::OptEQ3_0 => VersionMembership::One(KwVersion::FCS3_0),
+            Self::OptGE3_1 => VersionMembership::Two([Version::FCS3_1, Version::FCS3_2]),
+            Self::OptGE3_2 => VersionMembership::One(Version::FCS3_2),
+            Self::OptEQ3_0or3_1 => VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]),
+            Self::OptEQ3_0 => VersionMembership::One(Version::FCS3_0),
             Self::OptLE3_1 => {
-                VersionMembership::Three([KwVersion::FCS2_0, KwVersion::FCS3_0, KwVersion::FCS3_1])
+                VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
             }
             Self::Timestep
             | Self::Begindata
@@ -69,7 +141,7 @@ impl RootKeywordClass {
             | Self::Endanalysis
             | Self::Beginstext
             | Self::Endstext => {
-                VersionMembership::Three([KwVersion::FCS3_0, KwVersion::FCS3_1, KwVersion::FCS3_2])
+                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
             }
         }
     }
@@ -93,32 +165,24 @@ impl MeasKeywordClass {
                 VersionMembership::All
             }
             Self::OptGE3_0 => {
-                VersionMembership::Three([KwVersion::FCS3_0, KwVersion::FCS3_1, KwVersion::FCS3_2])
+                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
             }
-            Self::OptGE3_1 => VersionMembership::Two([KwVersion::FCS3_1, KwVersion::FCS3_2]),
-            Self::OptGE3_2 => VersionMembership::One(KwVersion::FCS3_2),
+            Self::OptGE3_1 => VersionMembership::Two([Version::FCS3_1, Version::FCS3_2]),
+            Self::OptGE3_2 => VersionMembership::One(Version::FCS3_2),
         }
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum KwVersion {
-    FCS2_0,
-    FCS3_0,
-    FCS3_1,
-    FCS3_2,
-}
-
 #[derive(Clone, Copy)]
 pub enum VersionMembership {
-    One(KwVersion),
-    Two([KwVersion; 2]),
-    Three([KwVersion; 3]),
+    One(Version),
+    Two([Version; 2]),
+    Three([Version; 3]),
     All,
 }
 
 impl VersionMembership {
-    fn contains_version(self, version: KwVersion) -> bool {
+    fn contains_version(self, version: Version) -> bool {
         match self {
             Self::One(x) => x == version,
             Self::Two(xs) => xs.contains(&version),
@@ -129,22 +193,22 @@ impl VersionMembership {
 
     #[must_use]
     pub fn is_2_0(&self) -> bool {
-        self.contains_version(KwVersion::FCS2_0)
+        self.contains_version(Version::FCS2_0)
     }
 
     #[must_use]
     pub fn is_3_0(&self) -> bool {
-        self.contains_version(KwVersion::FCS3_0)
+        self.contains_version(Version::FCS3_0)
     }
 
     #[must_use]
     pub fn is_3_1(&self) -> bool {
-        self.contains_version(KwVersion::FCS3_1)
+        self.contains_version(Version::FCS3_1)
     }
 
     #[must_use]
     pub fn is_3_2(&self) -> bool {
-        self.contains_version(KwVersion::FCS3_2)
+        self.contains_version(Version::FCS3_2)
     }
 }
 

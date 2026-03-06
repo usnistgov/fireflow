@@ -25,10 +25,11 @@ use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, Segmen
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
+use fireflow_types::keywords::{ALL_VERSIONS, Version as KwVersion, VersionFormatError};
+use fireflow_types::nonempty_string::NEStr;
+
 use derive_more::{Display, From};
 use derive_new::new;
-use fireflow_types::keywords::{KwVersion, VersionMembership};
-use fireflow_types::nonempty_string::NEStr;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
@@ -36,52 +37,15 @@ use thiserror::Error;
 
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
-use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
 };
-
-/// All FCS versions this library supports.
-///
-/// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-pub enum Version {
-    #[display("FCS2.0")]
-    FCS2_0,
-    #[display("FCS3.0")]
-    FCS3_0,
-    #[display("FCS3.1")]
-    FCS3_1,
-    #[display("FCS3.2")]
-    FCS3_2,
-}
-
-macro_rules! impl_version {
-    ($name:ident, $var:ident) => {
-        #[derive(Clone, Copy, Eq, PartialEq)]
-        #[cfg_attr(feature = "serde", derive(Serialize))]
-        pub struct $name;
-
-        impl From<$name> for Version {
-            fn from(_: $name) -> Self {
-                Self::$var
-            }
-        }
-    };
-}
-
-impl_version!(Version2_0, FCS2_0);
-impl_version!(Version3_0, FCS3_0);
-impl_version!(Version3_1, FCS3_1);
-impl_version!(Version3_2, FCS3_2);
 
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
@@ -113,10 +77,15 @@ pub(crate) struct WriteHeaderSegments<T> {
 }
 
 impl<T> WriteHeaderSegments<T> {
-    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
+    pub(crate) fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        version: KwVersion,
+    ) -> io::Result<()>
     where
         T: HeaderString + Zero,
     {
+        // TODO use write! for this
         let towrite = [
             version.to_string(),           // 6 bytes
             "    ".into(),                 // 4 bytes
@@ -147,7 +116,7 @@ impl<T> WriteHeaderSegments<T> {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
-    pub version: Version,
+    pub version: KwVersion,
     pub segments: ParsedHeaderSegments,
     pub uncorrected_segments: UncorrectedHeaderSegments,
 }
@@ -200,7 +169,7 @@ impl Header {
 
 #[derive(new)]
 struct ReqHeader {
-    version: Version,
+    version: KwVersion,
     text: (PrimaryTextSegment, UncorrectedSegment),
     data: (HeaderDataSegment, UncorrectedSegment),
     analysis: (HeaderAnalysisSegment, UncorrectedSegment),
@@ -217,7 +186,7 @@ impl ReqHeader {
         let data_cor = conf.data_correction;
         let anal_cor = conf.analysis_correction;
 
-        let vers_res = split_io!(Version::h_read(h, st))
+        let vers_res = split_io!(h_read_version(h, st))
             .ungroup()
             .map_errors(HeaderError::from);
         let space_res = split_io!(Self::h_read_spaces(h, st))
@@ -271,126 +240,88 @@ impl ReqHeader {
     }
 }
 
-// TODO clean this up
-impl From<KwVersion> for Version {
-    fn from(value: KwVersion) -> Self {
-        match value {
-            KwVersion::FCS2_0 => Self::FCS2_0,
-            KwVersion::FCS3_0 => Self::FCS3_0,
-            KwVersion::FCS3_1 => Self::FCS3_1,
-            KwVersion::FCS3_2 => Self::FCS3_2,
-        }
+fn h_read_version<R, C>(
+    h: &mut BufReader<R>,
+    st: &ReadState<C>,
+) -> IOGroupResult<KwVersion, VersionError, ()>
+where
+    R: Read + Seek,
+{
+    let remaining = st.remaining_bytes(h)?;
+    if remaining < 6 {
+        let e = VersionNoBytesError(remaining).into();
+        return Err(IOAnonErrorGroup::new_pure_one(e));
+    }
+    let mut buf = [0; 6];
+    h.read_exact(&mut buf)?;
+    if buf.is_ascii() {
+        // SAFETY: we just checked that all bytes are ASCII
+        let s = unsafe { str::from_utf8_unchecked(&buf) };
+        s.parse()
+            .map_err(VersionError::from)
+            .map_err(IOErrorGroup::new_pure_one)
+    } else {
+        let e = VersionNonUtf8Error(buf.to_vec());
+        Err(IOErrorGroup::new_pure_one(e.into()))
     }
 }
 
-impl Version {
-    pub(crate) fn is_member(self, membership: VersionMembership) -> bool {
-        match self {
-            Self::FCS2_0 => membership.is_2_0(),
-            Self::FCS3_0 => membership.is_3_0(),
-            Self::FCS3_1 => membership.is_3_1(),
-            Self::FCS3_2 => membership.is_3_2(),
-        }
-    }
-
-    fn h_read<R, C>(
-        h: &mut BufReader<R>,
-        st: &ReadState<C>,
-    ) -> IOGroupResult<Self, VersionError, ()>
-    where
-        R: Read + Seek,
-    {
-        let remaining = st.remaining_bytes(h)?;
-        if remaining < 6 {
-            let e = VersionNoBytesError(remaining).into();
-            return Err(IOAnonErrorGroup::new_pure_one(e));
-        }
-        let mut buf = [0; 6];
-        h.read_exact(&mut buf)?;
-        if buf.is_ascii() {
-            // SAFETY: we just checked that all bytes are ASCII
-            let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse()
-                .map_err(VersionError::from)
-                .map_err(IOErrorGroup::new_pure_one)
-        } else {
-            let e = VersionNonUtf8Error(buf.to_vec());
-            Err(IOErrorGroup::new_pure_one(e.into()))
-        }
-    }
-
-    pub(crate) fn autodetect(
-        self,
-        kws: &StdKeywords,
-        ver_override: Option<&VersionOverride>,
-    ) -> Result<(Self, Option<KeywordVersionScores>), GuessVersionError> {
-        let vs = [Self::FCS2_0, Self::FCS3_0, Self::FCS3_1, Self::FCS3_2];
-        match ver_override {
-            None => Ok((self, None)),
-            Some(VersionOverride::Force(v)) => Ok((*v, None)),
-            Some(VersionOverride::AutoDetect(strat)) => {
-                let rank =
-                    |(v0, s0): &(Self, KeywordVersionScore),
-                     (v1, s1): &(Self, KeywordVersionScore)| match strat {
-                        SelectVersionStrategy::Earliest => v1.cmp(v0),
-                        SelectVersionStrategy::Latest => v0.cmp(v1),
-                        SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
-                        SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
-                    };
-                if let Ok(par) = Par::get_metaroot_req(kws) {
-                    let mut opt = KeywordOptimizer::default();
-                    for (k, v) in kws {
-                        opt.classify_keyword(k, v);
-                    }
-                    let scores = vs.map(|v| (v, opt.get_score(v, par)));
-                    let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
-                    if let Some(xs) = scores
-                        .iter()
-                        .filter(|(_, s)| s.is_passing(false))
-                        .try_into_nonempty_iter()
-                    {
-                        // Found at least one version that doesn't require dropping,
-                        // rank by strategy to select
-                        Ok((xs.max_by(|&x, &y| rank(x, y)).0, ret_scores()))
-                    } else if let Some(xs) = scores
-                        .iter()
-                        .filter(|(_, s)| s.is_passing(true))
-                        .try_into_nonempty_iter()
-                    {
-                        // No versions found that can be satisfied without dropping
-                        // keywords, find versions with dropping and rank using
-                        // strategy.
-                        let ret = xs.max_by(|&x, &y| {
-                            if x.1.drop == y.1.drop {
-                                rank(x, y)
-                            } else {
-                                y.1.drop.cmp(&x.1.drop)
-                            }
-                        });
-                        Ok((ret.0, ret_scores()))
-                    } else {
-                        // No versions found that have valid keywords available,
-                        // return error
-                        Err(GuessVersionError::AllInvalid)
-                    }
-                } else {
-                    Err(GuessVersionError::NoPar)
+pub(crate) fn autodetect_version(
+    version: KwVersion,
+    kws: &StdKeywords,
+    ver_override: Option<&VersionOverride>,
+) -> Result<(KwVersion, Option<KeywordVersionScores>), GuessVersionError> {
+    match ver_override {
+        None => Ok((version, None)),
+        Some(VersionOverride::Force(v)) => Ok((*v, None)),
+        Some(VersionOverride::AutoDetect(strat)) => {
+            let rank =
+                |(v0, s0): &(KwVersion, KeywordVersionScore),
+                 (v1, s1): &(KwVersion, KeywordVersionScore)| match strat {
+                    SelectVersionStrategy::Earliest => v1.cmp(v0),
+                    SelectVersionStrategy::Latest => v0.cmp(v1),
+                    SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
+                    SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
+                };
+            if let Ok(par) = Par::get_metaroot_req(kws) {
+                let mut opt = KeywordOptimizer::default();
+                for (k, v) in kws {
+                    opt.classify_keyword(k, v);
                 }
+                let scores = ALL_VERSIONS.map(|v| (v, opt.get_score(v, par)));
+                let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
+                if let Some(xs) = scores
+                    .iter()
+                    .filter(|(_, s)| s.is_passing(false))
+                    .try_into_nonempty_iter()
+                {
+                    // Found at least one version that doesn't require dropping,
+                    // rank by strategy to select
+                    Ok((xs.max_by(|&x, &y| rank(x, y)).0, ret_scores()))
+                } else if let Some(xs) = scores
+                    .iter()
+                    .filter(|(_, s)| s.is_passing(true))
+                    .try_into_nonempty_iter()
+                {
+                    // No versions found that can be satisfied without dropping
+                    // keywords, find versions with dropping and rank using
+                    // strategy.
+                    let ret = xs.max_by(|&x, &y| {
+                        if x.1.drop == y.1.drop {
+                            rank(x, y)
+                        } else {
+                            y.1.drop.cmp(&x.1.drop)
+                        }
+                    });
+                    Ok((ret.0, ret_scores()))
+                } else {
+                    // No versions found that have valid keywords available,
+                    // return error
+                    Err(GuessVersionError::AllInvalid)
+                }
+            } else {
+                Err(GuessVersionError::NoPar)
             }
-        }
-    }
-}
-
-impl FromStr for Version {
-    type Err = VersionFormatError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "FCS2.0" => Ok(Self::FCS2_0),
-            "FCS3.0" => Ok(Self::FCS3_0),
-            "FCS3.1" => Ok(Self::FCS3_1),
-            "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionFormatError(s.to_owned())),
         }
     }
 }
@@ -435,13 +366,6 @@ pub enum VersionError {
     NonUtf8(VersionNonUtf8Error),
     Bytes(VersionNoBytesError),
 }
-
-/// Error when parsing FCS version
-#[derive(Debug, Error)]
-#[error("'{0}' is not a valid or supported FCS version")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct VersionFormatError(String);
 
 /// Error when parsing FCS version
 #[derive(Debug, Error)]
@@ -667,7 +591,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     pub(crate) fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        version: Version,
+        version: KwVersion,
         other_segs: &[Other],
     ) -> io::Result<()>
     where

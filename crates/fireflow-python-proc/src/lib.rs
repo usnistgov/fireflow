@@ -6586,7 +6586,7 @@ impl PyLiteral {
     }
 
     fn new_version() -> Self {
-        let path = parse_quote!(fireflow_core::header::Version);
+        let path = parse_quote!(fireflow_types::keywords::Version);
         Self::new2(ALL_VERSION_STRINGS, path)
     }
 

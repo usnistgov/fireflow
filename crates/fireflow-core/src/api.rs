@@ -14,8 +14,7 @@ use crate::core::{
 };
 use crate::data::EventsDiagnostics;
 use crate::header::{
-    GuessVersionError, Header, HeaderError, KeywordVersionScores, Version, Version2_0, Version3_0,
-    Version3_1, Version3_2,
+    GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
 use crate::logging::{
     DeferredIter as _, DeferredWarningsAndErrors, ErrorsResult, IOAnonErrorGroup, IOErrorGroup,
@@ -44,6 +43,9 @@ use crate::validated::keys::{
 };
 
 use fireflow_types::config::DelimEscapeMode;
+use fireflow_types::keywords::{
+    Version as KwVersion, Version2_0, Version3_0, Version3_1, Version3_2,
+};
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
@@ -145,8 +147,8 @@ pub fn fcs_read_flat_dataset(
         .map_commutative_warnings(FlatDatasetWarning::from)
         .and_then_commutative(|(flat, h, st)| {
             let version = flat.flat_diagnostics.header_supp.header.version;
-            version
-                .autodetect(&flat.keywords.std, conf.flat.version_override.as_ref())
+            let oride = conf.flat.version_override.as_ref();
+            autodetect_version(version, &flat.keywords.std, oride)
                 .map_err(FlatDatasetError::from)
                 .map_err(IOErrorGroup::new_pure_one)
                 .map(|(new_version, scores)| (new_version, flat, h, st, scores))
@@ -547,7 +549,7 @@ struct SplitTEXTOutputInner {
 #[allow(clippy::too_many_arguments)]
 pub struct DatasetSummary {
     /// FCS version
-    pub version: Version,
+    pub version: KwVersion,
 
     /// Length of TEXT (in bytes)
     pub text_len: u64,
@@ -1035,7 +1037,7 @@ impl FlatDatasetFromKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
-        new_version: Version,
+        new_version: KwVersion,
         kws: &StdKeywords,
         hns: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
@@ -1910,11 +1912,10 @@ where
 }
 
 fn kws_to_df_analysis<C, R>(
-    new_version: Version,
+    new_version: KwVersion,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
     hns: &mut HeaderAndSuppOffsets,
-    // segs: &mut NonDataSegments,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
     (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
@@ -1927,10 +1928,10 @@ where
     C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
 {
     match new_version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
+        KwVersion::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
+        KwVersion::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
+        KwVersion::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
+        KwVersion::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
     }
 }
 
@@ -1975,19 +1976,19 @@ where
         Some(VersionOverride::AutoDetect(_)) => {
             if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
                 if kws.contains_key(&Cyt::std()) {
-                    Version::FCS3_2
+                    KwVersion::FCS3_2
                 } else {
-                    Version::FCS3_1
+                    KwVersion::FCS3_1
                 }
             } else {
-                Version::FCS2_0
+                KwVersion::FCS2_0
             }
         }
     };
     let corr = hconf.supp_text_correction;
     let res = match ver {
-        Version::FCS2_0 => LogResult::new_ok(None),
-        Version::FCS3_0 | Version::FCS3_1 => {
+        KwVersion::FCS2_0 => LogResult::new_ok(None),
+        KwVersion::FCS3_0 | KwVersion::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
             match SupplementalTextSegmentId::with_req_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(Some(seg)),
@@ -2002,7 +2003,7 @@ where
                 }
             }
         }
-        Version::FCS3_2 => {
+        KwVersion::FCS3_2 => {
             let pair = SupplementalTextSegmentId::get_opt_pair(kws);
             match SupplementalTextSegmentId::with_opt_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(seg),

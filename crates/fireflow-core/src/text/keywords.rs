@@ -3,7 +3,6 @@ use crate::config::{
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::core::Key0LossError;
-use crate::header::Version;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
@@ -50,7 +49,7 @@ use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
 use fireflow_types::keywords::{
-    self as tk, KwVersion, MeasKeywordClass, RootKeywordClass, VersionMembership,
+    self as tk, ALL_VERSIONS, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
 };
 use fireflow_types::nonempty_string::{
     DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim,
@@ -3392,12 +3391,6 @@ impl ExtraStdKeywords {
         par: Par,
         gate: Gate,
     ) -> (Self, ExtraKeywordOutput) {
-        let all_versions = [
-            Version::FCS2_0,
-            Version::FCS3_0,
-            Version::FCS3_1,
-            Version::FCS3_2,
-        ];
         let mut pseudo = HashMap::new();
         let mut hyper_par = HashMap::new();
         let mut hyper_gate = HashMap::new();
@@ -3431,12 +3424,12 @@ impl ExtraStdKeywords {
                     }
                     ExtraKeywordClass::VersionLE(ver) => {
                         let mut vs = NEVec::new(ver);
-                        vs.extend(all_versions.iter().filter(|&&x| x < ver).copied());
+                        vs.extend(ALL_VERSIONS.iter().filter(|&&x| x < ver).copied());
                         go_version!(vs);
                     }
                     ExtraKeywordClass::VersionGE(ver) => {
                         let mut vs = NEVec::new(ver);
-                        vs.extend(all_versions.iter().filter(|&&x| x > ver).copied());
+                        vs.extend(ALL_VERSIONS.iter().filter(|&&x| x > ver).copied());
                         go_version!(vs);
                     }
                     ExtraKeywordClass::Version3_0or3_1 => {
@@ -4052,7 +4045,7 @@ kw_opt_meas!(
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Dfc(pub f32);
 
-impl_versioned_key!(Dfc, VersionMembership::One(KwVersion::FCS2_0));
+impl_versioned_key!(Dfc, VersionMembership::One(Version::FCS2_0));
 
 impl BiIndexedKey for Dfc {
     const PREFIX: &'static NEStr = ne_str!("DFC");
@@ -4085,7 +4078,7 @@ newtype_int!(CSVFlag, u32);
 opt_meas!(CSVFlag, Option<Self>);
 
 impl VersionedKey for CSVFlag {
-    const VERS: VersionMembership = VersionMembership::Two([KwVersion::FCS3_0, KwVersion::FCS3_1]);
+    const VERS: VersionMembership = VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]);
 }
 
 // TODO use macro for this
@@ -4095,7 +4088,7 @@ impl IndexedKey for CSVFlag {
 
 // $PKn (2.0-3.1)
 const PKN_VERS: VersionMembership =
-    VersionMembership::Three([KwVersion::FCS2_0, KwVersion::FCS3_0, KwVersion::FCS3_1]);
+    VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1]);
 
 newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, Option<Self>);

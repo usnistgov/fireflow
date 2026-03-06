@@ -16,8 +16,8 @@ use crate::data::{
     ReadDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
-    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, Version, Version2_0,
-    Version3_0, Version3_1, Version3_2, WriteTEXTHeaderError,
+    GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
+    autodetect_version,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -101,6 +101,9 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
+use fireflow_types::keywords::{
+    Version as KwVersion, Version2_0, Version3_0, Version3_1, Version3_2,
+};
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEStr, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
@@ -450,7 +453,7 @@ macro_rules! match_anycore {
 
 impl<A, D, O> AnyCore<A, D, O> {
     #[must_use]
-    pub fn version(&self) -> Version {
+    pub fn version(&self) -> KwVersion {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             (*x).fcs_version()
         })
@@ -493,7 +496,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
     pub(crate) fn parse_flat<C>(
-        version: Version,
+        version: KwVersion,
         kws: ValidKeywords,
         segs: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
@@ -524,12 +527,12 @@ impl AnyCoreTEXT {
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
-        match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
+        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
-                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
-                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
-                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
-                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
+                KwVersion::FCS2_0 => go!(CoreTEXT2_0, scores),
+                KwVersion::FCS3_0 => go!(CoreTEXT3_0, scores),
+                KwVersion::FCS3_1 => go!(CoreTEXT3_1, scores),
+                KwVersion::FCS3_2 => go!(CoreTEXT3_2, scores),
             },
             Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
         }
@@ -573,12 +576,12 @@ impl AnyCoreDataset {
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
 
-        match version.autodetect(&kws.std, sconf.version_override.as_ref()) {
+        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
-                Version::FCS2_0 => go!(CoreDataset2_0, scores),
-                Version::FCS3_0 => go!(CoreDataset3_0, scores),
-                Version::FCS3_1 => go!(CoreDataset3_1, scores),
-                Version::FCS3_2 => go!(CoreDataset3_2, scores),
+                KwVersion::FCS2_0 => go!(CoreDataset2_0, scores),
+                KwVersion::FCS3_0 => go!(CoreDataset3_0, scores),
+                KwVersion::FCS3_1 => go!(CoreDataset3_1, scores),
+                KwVersion::FCS3_2 => go!(CoreDataset3_2, scores),
             },
             Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
         }
@@ -1527,7 +1530,7 @@ pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
 
-    fn fcs_version() -> Version;
+    fn fcs_version() -> KwVersion;
 }
 
 pub(crate) trait PrivVersioned: Versioned {
@@ -2034,7 +2037,7 @@ impl<O> Optical<O> {
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         O: LookupOptical,
-        Version: From<O::Ver>,
+        KwVersion: From<O::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
@@ -2399,9 +2402,9 @@ where
     M: VersionedMetaroot,
 {
     /// Show FCS version.
-    pub fn fcs_version(&self) -> Version
+    pub fn fcs_version(&self) -> KwVersion
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         M::Ver::fcs_version()
     }
@@ -2412,7 +2415,7 @@ where
         conf: &WriteTEXTInnerConfig,
     ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let n = cores.len();
         let mut nd = None;
@@ -2433,7 +2436,7 @@ where
         conf: &WriteMultiTEXTConfig,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
@@ -2449,7 +2452,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         if conf.big_other.is_set() {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
@@ -2465,7 +2468,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
@@ -2478,7 +2481,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let hdr_kws: HeaderKeywordsToWrite<T> = self
@@ -3461,7 +3464,7 @@ where
         ConvertSummary,
     >
     where
-        Version: From<M::Ver> + From<ToM::Ver>,
+        KwVersion: From<M::Ver> + From<ToM::Ver>,
         ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
@@ -3876,7 +3879,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let req = self
@@ -3888,7 +3891,7 @@ where
             .opt_root_keywords()
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
-        if M::Ver::fcs_version() == Version::FCS2_0 {
+        if M::Ver::fcs_version() == KwVersion::FCS2_0 {
             let ks: Vec<_> = req
                 .map(AnyKeyword::from)
                 .chain(opt.map(AnyKeyword::from))
@@ -4128,7 +4131,7 @@ where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
         M::Name: Pointed<Shortname>,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         nonstd
             .iter_mut()
@@ -4164,7 +4167,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         M::Name: Pointed<Shortname>,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let mut found_time = false;
@@ -4355,7 +4358,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4396,7 +4399,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4421,7 +4424,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         M::Optical: LookupOptical + AsScaleOrTransform,
@@ -4684,7 +4687,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M::Optical: AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4812,7 +4815,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4855,7 +4858,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4902,7 +4905,7 @@ where
         WriteDatasetSummary,
     >
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let n = cores.len();
         let mut results = vec![];
@@ -4930,7 +4933,7 @@ where
         conf: &WriteMultiDatasetConfig,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let opts = conf.multi.append.file_options();
         let f = io_to_log!(opts.open(path));
@@ -4946,7 +4949,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
-        Version: From<M::Ver>,
+        KwVersion: From<M::Ver>,
     {
         let df = &self.data;
         let layout = &self.layout;
@@ -7246,41 +7249,23 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     }
 }
 
-impl Versioned for Version2_0 {
-    type Layout = DataLayout2_0;
-    type Offsets = TEXTOffsets2_0;
+macro_rules! impl_versioned {
+    ($v:ident, $l:ident, $o:ident) => {
+        impl Versioned for $v {
+            type Layout = $l;
+            type Offsets = $o;
 
-    fn fcs_version() -> Version {
-        Self.into()
-    }
+            fn fcs_version() -> KwVersion {
+                Self.into()
+            }
+        }
+    };
 }
 
-impl Versioned for Version3_0 {
-    type Layout = DataLayout3_0;
-    type Offsets = TEXTOffsets3_0;
-
-    fn fcs_version() -> Version {
-        Self.into()
-    }
-}
-
-impl Versioned for Version3_1 {
-    type Layout = DataLayout3_1;
-    type Offsets = TEXTOffsets3_0;
-
-    fn fcs_version() -> Version {
-        Self.into()
-    }
-}
-
-impl Versioned for Version3_2 {
-    type Layout = DataLayout3_2;
-    type Offsets = TEXTOffsets3_2;
-
-    fn fcs_version() -> Version {
-        Self.into()
-    }
-}
+impl_versioned!(Version2_0, DataLayout2_0, TEXTOffsets2_0);
+impl_versioned!(Version3_0, DataLayout3_0, TEXTOffsets3_0);
+impl_versioned!(Version3_1, DataLayout3_1, TEXTOffsets3_0);
+impl_versioned!(Version3_2, DataLayout3_2, TEXTOffsets3_2);
 
 impl PrivVersioned for Version2_0 {}
 impl PrivVersioned for Version3_0 {}
@@ -9558,14 +9543,14 @@ pub enum OpticalToTemporalError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
-    version: Version,
+    version: KwVersion,
 }
 
 impl fmt::Display for OpticalNonLinearError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
         let e = Scale::std(i);
-        if self.version < Version::FCS3_0 {
+        if self.version < KwVersion::FCS3_0 {
             write!(f, "{e} must be '0,0'")
         } else {
             let g = Gain::std(i);
@@ -10145,8 +10130,8 @@ def_summary!(NewCoreDatasetSummary, "could not make new CoreDataset");
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
 pub struct ConvertSummary {
-    from: Version,
-    to: Version,
+    from: KwVersion,
+    to: KwVersion,
 }
 
 def_summary!(

@@ -7,7 +7,6 @@ use crate::config::{
     ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
 use crate::fixed_vec::OneOrTwo;
-use crate::header::Version;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
@@ -29,6 +28,7 @@ use crate::validated::keys::{
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
+use fireflow_types::keywords::Version as KwVersion;
 
 use type_families::Functor as _;
 
@@ -1208,7 +1208,7 @@ impl<I: Copy> HeaderSegment<I> {
         h: &mut BufReader<R>,
         is_text: bool,
         corr: HeaderCorrection<I>,
-        version: Version,
+        version: KwVersion,
         st: &ReadState<C>,
     ) -> Result<(Self, UncorrectedSegment), IOErrorGroup<HeaderSegmentError, ()>>
     where
@@ -1265,7 +1265,7 @@ impl<I: Copy> HeaderSegment<I> {
         begin: i128,
         end: i128,
         squish_offsets: bool,
-        version: Version,
+        version: KwVersion,
         conf: &NewSegmentConfig<I, SegmentFromHeader>,
     ) -> Result<Self, SegmentError>
     where
@@ -1274,7 +1274,7 @@ impl<I: Copy> HeaderSegment<I> {
         // never run on 2.0 since offset "squishing" only applies to HEADER
         // offsets that overflow and necessitate TEXT offsets, which don't exist
         // in 2.0
-        let (b, e) = if version > Version::FCS2_0 && squish_offsets && end == 0 && begin > 0 {
+        let (b, e) = if version > KwVersion::FCS2_0 && squish_offsets && end == 0 && begin > 0 {
             (0, 0)
         } else {
             (begin, end)

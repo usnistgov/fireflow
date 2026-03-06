@@ -3,7 +3,6 @@ use crate::config::{
     AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
     UseLatin1,
 };
-use crate::header::Version;
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult,
@@ -16,7 +15,7 @@ use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
-use fireflow_types::keywords::VersionMembership;
+use fireflow_types::keywords::{Version, VersionMembership};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
     DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr, NEString,

@@ -55,7 +55,7 @@ macro_rules! impl_str_enum {
                         return Ok(Self::$var);
                     }
                 )*
-                    Err($error_name)
+                    Err($error_name(s.to_owned()))
             }
         }
 
@@ -73,15 +73,16 @@ macro_rules! impl_str_enum {
 
         $(#[$error_meta])*
         #[derive(Error, Debug)]
-        // TODO store and display the original string
-        $error_vis struct $error_name;
+        $error_vis struct $error_name(String);
 
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter>::iter_str().collect();
                 let (last, rest) = all.split_last().expect("should have at least 2 levels");
                 let ys = rest.iter().map(|x| format!("'{x}'")).join(", ");
-                write!(f, "must be one of {ys}, or '{last}'")
+                // TODO what is this string is really really long?
+                let original = &self.0;
+                write!(f, "must be one of {ys}, or '{last}', got '{original}'")
             }
         }
     };

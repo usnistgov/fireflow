@@ -3,8 +3,6 @@ use crate::nonempty_string::NEStr;
 
 use const_format::formatcp;
 use derive_more::Display;
-use itertools::Itertools as _;
-use thiserror::Error;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
@@ -72,17 +70,26 @@ macro_rules! impl_str_enum {
         }
 
         $(#[$error_meta])*
-        #[derive(Error, Debug)]
+        #[derive(thiserror::Error, Debug)]
         $error_vis struct $error_name(String);
 
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter>::iter_str().collect();
-                let (last, rest) = all.split_last().expect("should have at least 2 levels");
-                let ys = rest.iter().map(|x| format!("'{x}'")).join(", ");
                 // TODO what is this string is really really long?
                 let original = &self.0;
-                write!(f, "must be one of {ys}, or '{last}', got '{original}'")
+                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter>::iter_str().collect();
+                let ne = nonempty_collections::NESlice::try_from_slice(&all[..])
+                    .expect("macro should require at least one flag so this should never fail");
+                let (last, rest) = $crate::nonempty_string::NESliceExt::split_last(&ne);
+                if rest.is_empty() {
+                    write!(f, "must be '{last}', got '{original}'")
+                } else {
+                    write!(f, "must be one of ")?;
+                    for r in rest {
+                        write!(f, "'{r}', ")?;
+                    }
+                    write!(f, "or '{last}', got '{original}'")
+                }
             }
         }
     };

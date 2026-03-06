@@ -170,9 +170,13 @@ pub trait NESliceExt<'a> {
     #[must_use]
     fn by_ref(&'a self) -> NESlice<'a, Self::Inner>;
 
-    /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
+    /// Split the first element from the rest.
     #[must_use]
     fn split_first(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
+
+    /// Split the last element from the rest.
+    #[must_use]
+    fn split_last(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
 }
 
 impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
@@ -184,6 +188,10 @@ impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
 
     fn split_first(&'a self) -> (&'a T, &'a [T]) {
         self.as_ref().split_first().unwrap()
+    }
+
+    fn split_last(&'a self) -> (&'a T, &'a [T]) {
+        self.as_ref().split_last().unwrap()
     }
 }
 

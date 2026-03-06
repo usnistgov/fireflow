@@ -48,6 +48,33 @@ pub enum RootKeywordClass {
     Endstext,
 }
 
+impl RootKeywordClass {
+    #[must_use]
+    pub const fn membership(&self) -> VersionMembership {
+        match self {
+            Self::OptAny | Self::Mode | Self::Cyt | Self::Tot | Self::Byteord => {
+                VersionMembership::All
+            }
+            Self::OptGE3_1 => VersionMembership::Two([KwVersion::FCS3_1, KwVersion::FCS3_2]),
+            Self::OptGE3_2 => VersionMembership::One(KwVersion::FCS3_2),
+            Self::OptEQ3_0or3_1 => VersionMembership::Two([KwVersion::FCS3_0, KwVersion::FCS3_1]),
+            Self::OptEQ3_0 => VersionMembership::One(KwVersion::FCS3_0),
+            Self::OptLE3_1 => {
+                VersionMembership::Three([KwVersion::FCS2_0, KwVersion::FCS3_0, KwVersion::FCS3_1])
+            }
+            Self::Timestep
+            | Self::Begindata
+            | Self::Enddata
+            | Self::Beginanalysis
+            | Self::Endanalysis
+            | Self::Beginstext
+            | Self::Endstext => {
+                VersionMembership::Three([KwVersion::FCS3_0, KwVersion::FCS3_1, KwVersion::FCS3_2])
+            }
+        }
+    }
+}
+
 pub enum MeasKeywordClass {
     OptAny,
     OptGE3_0,
@@ -56,6 +83,69 @@ pub enum MeasKeywordClass {
     Scale,
     Shortname,
     Wavelength,
+}
+
+impl MeasKeywordClass {
+    #[must_use]
+    pub const fn membership(&self) -> VersionMembership {
+        match self {
+            Self::OptAny | Self::Scale | Self::Shortname | Self::Wavelength => {
+                VersionMembership::All
+            }
+            Self::OptGE3_0 => {
+                VersionMembership::Three([KwVersion::FCS3_0, KwVersion::FCS3_1, KwVersion::FCS3_2])
+            }
+            Self::OptGE3_1 => VersionMembership::Two([KwVersion::FCS3_1, KwVersion::FCS3_2]),
+            Self::OptGE3_2 => VersionMembership::One(KwVersion::FCS3_2),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum KwVersion {
+    FCS2_0,
+    FCS3_0,
+    FCS3_1,
+    FCS3_2,
+}
+
+#[derive(Clone, Copy)]
+pub enum VersionMembership {
+    One(KwVersion),
+    Two([KwVersion; 2]),
+    Three([KwVersion; 3]),
+    All,
+}
+
+impl VersionMembership {
+    fn contains_version(self, version: KwVersion) -> bool {
+        match self {
+            Self::One(x) => x == version,
+            Self::Two(xs) => xs.contains(&version),
+            Self::Three(xs) => xs.contains(&version),
+            Self::All => true,
+        }
+    }
+
+    #[must_use]
+    pub fn is_2_0(&self) -> bool {
+        self.contains_version(KwVersion::FCS2_0)
+    }
+
+    #[must_use]
+    pub fn is_3_0(&self) -> bool {
+        self.contains_version(KwVersion::FCS3_0)
+    }
+
+    #[must_use]
+    pub fn is_3_1(&self) -> bool {
+        self.contains_version(KwVersion::FCS3_1)
+    }
+
+    #[must_use]
+    pub fn is_3_2(&self) -> bool {
+        self.contains_version(KwVersion::FCS3_2)
+    }
 }
 
 // BYTEORD big/little flags

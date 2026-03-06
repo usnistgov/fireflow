@@ -27,6 +27,7 @@ use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use fireflow_types::keywords::{KwVersion, VersionMembership};
 use fireflow_types::nonempty_string::NEStr;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
@@ -270,7 +271,28 @@ impl ReqHeader {
     }
 }
 
+// TODO clean this up
+impl From<KwVersion> for Version {
+    fn from(value: KwVersion) -> Self {
+        match value {
+            KwVersion::FCS2_0 => Self::FCS2_0,
+            KwVersion::FCS3_0 => Self::FCS3_0,
+            KwVersion::FCS3_1 => Self::FCS3_1,
+            KwVersion::FCS3_2 => Self::FCS3_2,
+        }
+    }
+}
+
 impl Version {
+    pub(crate) fn is_member(self, membership: VersionMembership) -> bool {
+        match self {
+            Self::FCS2_0 => membership.is_2_0(),
+            Self::FCS3_0 => membership.is_3_0(),
+            Self::FCS3_1 => membership.is_3_1(),
+            Self::FCS3_2 => membership.is_3_2(),
+        }
+    }
+
     fn h_read<R, C>(
         h: &mut BufReader<R>,
         st: &ReadState<C>,

@@ -56,24 +56,27 @@ fn write_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
 
     let only3_0 = ["UNICODE", "COMP"];
 
-    let write_kw = |f: &mut BufWriter<File>, v: &str| -> io::Result<()> {
+    let write_kw = |f: &mut BufWriter<File>, v: &str, class: &str| -> io::Result<()> {
         writeln!(f, "pub const {v}: &str = \"${v}\";")?;
-        writeln!(f, "pub const {v}_KW: &str = \"{v}\";")
+        writeln!(f, "pub const {v}_KW: &str = \"{v}\";")?;
+        writeln!(
+            f,
+            "pub const {v}_VERS: VersionMembership = {class}.membership();"
+        )?;
+        Ok(())
     };
 
     macro_rules! go {
         ($pairs:expr, $class:expr) => {
             for v in $pairs {
-                write_kw(file, v)?;
-                // writeln!(file, "pub const {v}: &str = \"${v}\";")?;
-                // writeln!(file, "pub const {v}_KW: &str = \"{v}\";")?;
+                write_kw(file, v, $class)?;
                 m.entry(Ascii::new(v), $class);
             }
         };
     }
 
     for (v, p) in special {
-        write_kw(file, v)?;
+        write_kw(file, v, p)?;
         m.entry(Ascii::new(v), p);
     }
 
@@ -134,7 +137,7 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
     ];
 
     macro_rules! write_kw {
-        ($k:expr, $v:expr) => {
+        ($k:expr, $v:expr, $class:expr) => {
             writeln!(file, "pub const PN{v}: &str = \"$Pn{v}\";", v = $v)?;
             writeln!(
                 file,
@@ -142,12 +145,18 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
                 k = $k,
                 v = $v
             )?;
+            writeln!(
+                file,
+                "pub const PN{v}_VERS: VersionMembership = {class}.membership();",
+                v = $v,
+                class = $class,
+            )?;
         };
     }
 
     macro_rules! go_inner {
         ($k:expr, $v:expr, $also_gate:expr, $class:expr) => {{
-            write_kw!($k, $v);
+            write_kw!($k, $v, $class);
             meas_map.entry(Ascii::new($v), $class);
             if $also_gate {
                 writeln!(file, "pub const GM{v}: &str = \"$Gm{v}\";", v = $v)?;

@@ -3,6 +3,7 @@ use crate::config::{
     AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
     UseLatin1,
 };
+use crate::header::Version;
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult,
@@ -15,6 +16,7 @@ use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
 use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
+use fireflow_types::keywords::VersionMembership;
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
     DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr, NEString,
@@ -260,11 +262,20 @@ impl From<Vec<u8>> for StringOrBytes {
     }
 }
 
+/// An FCS key with a specific version;
+// TODO const_trait_impl will be able to clean this up once stable
+pub trait VersionedKey: Sized {
+    const VERS: VersionMembership;
+
+    fn is_version(&self, version: Version) -> bool {
+        version.is_member(Self::VERS)
+    }
+}
+
 /// A [`StdKey`] without an index
 ///
 /// The constant traits is validated to only contain ASCII characters.
-// TODO const_trait_impl will be able to clean this up once stable
-pub trait Key: Sized {
+pub trait Key: VersionedKey {
     const C: &'static NEStr;
 
     const _CHECK: () = {
@@ -304,7 +315,7 @@ impl PrefixSuffix {
 /// A [`StdKey`] with one index
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait IndexedKey: Sized {
+pub trait IndexedKey: VersionedKey {
     const C: PrefixSuffix;
 
     const _CHECK: () = {
@@ -367,7 +378,7 @@ pub trait IndexedKey: Sized {
 /// A [`StdKey`] with two indices
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait BiIndexedKey: Sized {
+pub trait BiIndexedKey: VersionedKey {
     const PREFIX: &'static NEStr;
     const MIDDLE: &'static NEStr;
     // we could add a suffix for completion's sake, but so far the only keyword

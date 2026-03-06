@@ -507,6 +507,10 @@ impl<T> DKey2<T> {
     pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
         Self(Key2::new_i2(i, j))
     }
+
+    pub(crate) fn index(&self) -> BiIndex {
+        self.0.index
+    }
 }
 
 /// Composite index for [`StdKey`] with two index values

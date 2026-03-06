@@ -36,17 +36,19 @@ use crate::text::keywords::{
     Trigger, UnstainedCenters,
 };
 use crate::validated::keys::{
-    BiIndex, BiIndexedKey as _, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
-    SpecificKey, StdKey,
+    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
+    StdKey,
 };
 use crate::validated::shortname::Shortname;
 
 use super::gating::Region;
 use super::index::RegionIndex;
+use super::keywords::{AsStdKeywordPair as _, SplitKeyword2};
 use super::spillover::Spillover;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use fireflow_types::nonempty_string::NEString;
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
@@ -158,9 +160,7 @@ pub enum RemovedLink {
 /// An invalid $DFCmTOn keyword that was removed
 #[derive(new)]
 pub struct RemovedComp2_0Cell {
-    row: MeasIndex,
-    col: MeasIndex,
-    value: f32,
+    kw: SplitKeyword2<Dfc>,
     missing: Comp2_0Missing,
 }
 
@@ -281,10 +281,10 @@ pub struct TemporalNamedLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct IndexLinkError<T, I> {
     indices: NEVec<MeasIndex>,
-    key: SpecificKey<T, I>,
+    key: DollarKey<T, I>,
 }
 
 /// Error when key which depends on another key which is invalid.
@@ -324,7 +324,7 @@ impl<T> TemporalNamedLinkError<T, ()> {
 
 impl<T> IndexLinkError<T, ()> {
     pub(crate) fn new_i0(js: NEVec<MeasIndex>) -> Self {
-        Self::new(js, SpecificKey::default())
+        Self::new(js, DollarKey::default())
     }
 }
 
@@ -365,7 +365,7 @@ impl RemovedLink {
             Self::Comp2_0(xs) => {
                 for x in xs {
                     let (k, v) = x.as_keyval();
-                    kws.insert_demoted(k, v);
+                    kws.insert_demoted(k, v.to_string());
                 }
             }
             Self::Comp3_0(x) => go_ref(&x.key, kws),
@@ -422,25 +422,22 @@ impl RemovedLink {
 }
 
 impl RemovedComp2_0Cell {
-    // TODO use common kw enum interface for this
-    fn as_keyval(&self) -> (StdKey, String) {
-        // NOTE col is first
-        let k = Dfc::std(self.col, self.row);
-        (k, self.value.to_string())
+    fn as_keyval(&self) -> (StdKey, NEString) {
+        self.kw.as_std_key_pair()
     }
 
     fn as_error(&self) -> BiIndexedKeyToIndexLinkError<Dfc> {
+        let i = self.kw.key.index();
         let xs = match self.missing {
-            Comp2_0Missing::Row => NEVec::new(self.row),
-            Comp2_0Missing::Col => NEVec::new(self.col),
+            Comp2_0Missing::Row => NEVec::new(i.i1.into()),
+            Comp2_0Missing::Col => NEVec::new(i.i0.into()),
             Comp2_0Missing::Both => {
-                let mut xs = NEVec::new(self.col);
-                xs.push(self.row);
+                let mut xs = NEVec::new(i.i0.into());
+                xs.push(i.i1.into());
                 xs
             }
         };
-        let k = SpecificKey::new_i2(self.col, self.row);
-        BiIndexedKeyToIndexLinkError::new(xs, k)
+        BiIndexedKeyToIndexLinkError::new(xs, self.kw.key)
     }
 }
 
@@ -504,7 +501,7 @@ impl<I> RemovedGateLink<I> {
     {
         let ri = self.region_index;
         let region_key = RegionGateIndex::<()>::std(ri);
-        let k = SpecificKey::new_i1(ri);
+        let k = DollarKey::new_i1(ri);
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentIndexedKeyError::new2(ri.into(), NEVec::new(region_key));
         [BrokenIndexedLinkError::from(e0).into(), e1.into()].into_iter()

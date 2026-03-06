@@ -6,7 +6,7 @@ use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, DKey2, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, DKey2, DollarKey, Key2, SpecificKey, StdKeywords};
 
 use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEDelim, ToDisplayNE};
 
@@ -26,7 +26,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-use super::keywords::LookupDfcError;
+use super::keywords::{LookupDfcError, SplitKeyword};
 use super::relational::BiIndexedKeyToIndexLinkError;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0 only)
@@ -64,7 +64,7 @@ impl<'a> ToDisplayNE<'a> for Compensation {
 pub struct DfcKeyword {
     pub(crate) row: MeasIndex,
     pub(crate) col: MeasIndex,
-    pub(crate) value: f32,
+    pub(crate) value: Dfc,
 }
 
 impl Compensation2_0 {
@@ -91,7 +91,7 @@ impl Compensation2_0 {
         let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
             LogResult::new_switchable_ok(None, flag)
         } else {
-            let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
+            let ys = xs.into_iter().map(Option::unwrap_or_default).map(f32::from);
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
@@ -113,7 +113,7 @@ impl Compensation2_0 {
                 Some(DfcKeyword {
                     col: col.into(),
                     row: row.into(),
-                    value,
+                    value: Dfc(value),
                 })
             }
         })
@@ -130,7 +130,7 @@ impl Compensation2_0 {
             let n = self.0.matrix.nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
             let cutoff = if bad_matrix { 0 } else { par.0 };
-            let k = Key2::new_i2(kw.col, kw.row);
+            let k = DKey2::new_i2(kw.col, kw.row);
             let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
             let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
             [r, c]
@@ -163,7 +163,8 @@ impl Compensation2_0 {
                 (false, true) => Some(Comp2_0Missing::Col),
                 (false, false) => None,
             };
-            which.map(|b| RemovedComp2_0Cell::new(kw.row, kw.col, kw.value, b))
+            let k = DollarKey::new_i2(kw.row, kw.col);
+            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword::new(k, kw.value), b))
         });
         let ret = es
             .try_into_nonempty_iter()

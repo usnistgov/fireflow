@@ -268,7 +268,7 @@ pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword<'a>),
-    Dfc(SplitKeyword<DKey2<Dfc>, f32>),
+    Dfc(SplitKeyword2<Dfc>),
     UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters>),
     Timestep(SplitKeyword0<Timestep>),
     CSMode(SplitKeyword0<CSMode>),
@@ -386,8 +386,8 @@ pub enum RegionKeyword<'a> {
 
 #[derive(Clone, new)]
 pub struct SplitKeyword<K, V> {
-    key: K,
-    value: V,
+    pub(crate) key: K,
+    pub(crate) value: V,
 }
 
 pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
@@ -3911,8 +3911,9 @@ kw_opt_meas!(Calibration3_1, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.1 do
 kw_opt_meas!(Calibration3_2, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ includes offset
 
 // 2.0 compensation matrix
-#[derive(Debug)]
-pub struct Dfc;
+#[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
+pub struct Dfc(pub f32);
 
 impl BiIndexedKey for Dfc {
     const PREFIX: &'static NEStr = ne_str!("DFC");
@@ -3923,9 +3924,9 @@ impl Dfc {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         k: Key2<Self>,
-    ) -> Result<Option<f32>, LookupDfcError> {
+    ) -> Result<Option<Self>, LookupDfcError> {
         kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
-            v.parse::<f32>()
+            v.parse::<Self>()
                 .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.clone())))
                 .map(Some)
         })

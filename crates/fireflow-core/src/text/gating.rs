@@ -758,7 +758,7 @@ impl<I> GatingScheme<I> {
             .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi);
-                IndexedKeyToIndexLinkError::new(js, Key1::new_i1(ri))
+                IndexedKeyToIndexLinkError::new(js, DKey1::new_i1(ri))
             })
     }
 

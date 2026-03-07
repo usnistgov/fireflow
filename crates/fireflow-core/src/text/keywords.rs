@@ -602,24 +602,8 @@ impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 pub(crate) trait HasMembership {
     fn membership(&self) -> VersionMembership;
 
-    // fn contains_version(&self, version: Version) -> bool {
-    //     self.membership().contains_version(version)
-    // }
-
-    fn is_2_0(&self) -> bool {
-        self.membership().is_2_0()
-    }
-
-    fn is_3_0(&self) -> bool {
-        self.membership().is_3_0()
-    }
-
-    fn is_3_1(&self) -> bool {
-        self.membership().is_3_1()
-    }
-
-    fn is_3_2(&self) -> bool {
-        self.membership().is_3_2()
+    fn contains_version(&self, version: Version) -> bool {
+        self.membership().contains_version(version)
     }
 }
 

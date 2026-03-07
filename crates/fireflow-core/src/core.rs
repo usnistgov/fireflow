@@ -23,8 +23,8 @@ use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult, ErrorsResult,
     GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _, Success,
-    SwitchableErrorResult, SwitchableErrorsResult, WarningAndErrorResult, WarningAndErrorsResult,
-    WarningAndGroupResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    SwitchableErrorResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
+    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
 };
 use crate::macros::{def_summary, match_many_to_one};
@@ -1627,20 +1627,64 @@ pub trait ConvertFromShortname<T>: Sized + MightHave<Shortname> {
     fn convert_from_shortname(value: T, i: MeasIndex) -> Result<Self, NameConversionError>;
 }
 
-pub trait ConvertFromMetaroot<M>: Sized + VersionedMetaroot {
-    fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
+pub trait ConvertFromMetaroot<M: VersionedMetaroot>: Sized + VersionedMetaroot {
+    fn convert_from_metaroot_inner(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
+
+    fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self> {
+        let target_version = Self::Ver::fcs_version();
+        let es: Vec<_> = value
+            .keywords_opt_inner()
+            .filter(|x| !x.contains_version(target_version))
+            .filter_map(|k| k.as_loss_error())
+            .collect();
+        let res = Self::convert_from_metaroot_inner(value, flag);
+        res.extend_warnings_or_errors3(
+            es,
+            |_| (),
+            MetarootConvertWarning::from,
+            MetarootConvertError::from,
+            flag,
+        )
+    }
 }
 
-pub trait ConvertFromOptical<O>: Sized + VersionedOptical {
-    fn convert_from_optical(value: O, i: MeasIndex, flag: AllowLoss) -> OpticalConvertResult<Self>;
+pub trait ConvertFromOptical<O: VersionedOptical>: Sized + VersionedOptical {
+    fn convert_from_optical_inner(
+        value: O,
+        i: MeasIndex,
+        flag: AllowLoss,
+    ) -> OpticalConvertResult<Self>;
+
+    fn convert_from_optical(value: O, i: MeasIndex, flag: AllowLoss) -> OpticalConvertResult<Self> {
+        let target_version = Self::Ver::fcs_version();
+        let es: Vec<_> = value
+            .opt_keywords_inner(i)
+            .filter(|x| !x.contains_version(target_version))
+            .filter_map(|k| k.as_loss_error())
+            .map(OpticalConvertWarning::from)
+            .collect();
+        let res = Self::convert_from_optical_inner(value, i, flag);
+        res.extend_warnings_or_errors3(es, |_| (), |w| w, OpticalConvertError::from, flag)
+    }
 }
 
-pub trait ConvertFromTemporal<T>: Sized + VersionedTemporal {
+pub trait ConvertFromTemporal<T: VersionedTemporal>: Sized + VersionedTemporal {
+    fn convert_from_temporal_inner(value: T) -> Self;
+
     fn convert_from_temporal(
         value: T,
         i: MeasIndex,
         flag: AllowLoss,
-    ) -> TemporalConvertResult<Self>;
+    ) -> TemporalConvertResult<Self> {
+        let target_version = Self::Ver::fcs_version();
+        let es: Vec<_> = value
+            .opt_meas_keywords_inner(i)
+            .filter(|x| !x.contains_version(target_version))
+            .filter_map(|k| k.as_loss_error())
+            .collect();
+        let res = Self::convert_from_temporal_inner(value);
+        LogResult::new_deferred_switchable_iter3(res, es, flag)
+    }
 }
 
 pub trait VersionedMetaroot: Sized {
@@ -1945,6 +1989,7 @@ impl<T> Temporal<T> {
     fn convert<ToT>(self, i: MeasIndex, flag: AllowLoss) -> TemporalConvertResult<Temporal<ToT>>
     where
         ToT: ConvertFromTemporal<T>,
+        T: VersionedTemporal,
     {
         ToT::convert_from_temporal(self.specific, i, flag)
             .map_deferred_value(|specific| Temporal::new(self.common, specific))
@@ -2008,7 +2053,10 @@ impl<O> Optical<O> {
         self,
         i: MeasIndex,
         flag: AllowLoss,
-    ) -> OpticalConvertResult<Optical<Of>> {
+    ) -> OpticalConvertResult<Optical<Of>>
+    where
+        O: VersionedOptical,
+    {
         Of::convert_from_optical(self.specific, i, flag).map_ok_value(|specific| {
             Optical::new(
                 self.common,
@@ -5908,7 +5956,7 @@ impl PeakData {
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_0,
         i: MeasIndex,
         flag: AllowLoss,
@@ -5926,20 +5974,12 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
 }
 
 impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_1,
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_2_0())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-        // let cal = value.calibration.indexed_key_loss_error(i);
-        // let dpy = value.display.indexed_key_loss_error(i);
-        // let check_errs = [cal, dpy].into_iter().flatten();
+        // TODO add scale back
 
         // let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
         //     .map_errors(AnyOpticalKeyLossError::from)
@@ -5956,7 +5996,6 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .nowarn_into_switchable3(flag)
-            .extend_deferred_switchable_errors3(es)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|wave| Self::new(scale, wave, value.peak))
@@ -5965,30 +6004,12 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
 }
 
 impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_2,
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_2_0())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-
         let scale = Some(value.scale.to_scale());
-
-        // let cal = value.calibration.indexed_key_loss_error(i);
-        // let dpy = value.display.indexed_key_loss_error(i);
-        // let anal = value.analyte.indexed_key_loss_error(i);
-        // let feat = value.feature.indexed_key_loss_error(i);
-        // let meas = value.measurement_type.indexed_key_loss_error(i);
-        // let tag = value.tag.indexed_key_loss_error(i);
-        // let det_name = value.detector_name.indexed_key_loss_error(i);
-        // let check_errs = [cal, dpy, anal, feat, meas, tag, det_name]
-        //     .into_iter()
-        //     .flatten();
 
         // let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
         //     .map_errors(AnyOpticalKeyLossError::from)
@@ -6002,7 +6023,6 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
             .nowarn_into_switchable3(flag)
-            .extend_deferred_switchable_errors3(es)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
             .map_ok_value(|wave| Self::new(scale, wave, PeakData::default()))
@@ -6011,7 +6031,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
 }
 
 impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical2_0,
         i: MeasIndex,
         _: AllowLoss,
@@ -6025,31 +6045,16 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_0 {
 }
 
 impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_1,
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_0())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-
-        // let cal = value.calibration.indexed_key_loss_error(i);
-        // let dpy = value.display.indexed_key_loss_error(i);
-        // let check_errs = [cal, dpy]
-        //     .into_iter()
-        //     .flatten()
-        //     .map(OpticalConvertWarning::Xfer);
-
         value
             .wavelengths
             .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
-            .extend_deferred_errors(es)
             .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
@@ -6059,36 +6064,16 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
 }
 
 impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_2,
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_0())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-        // let cal = value.calibration.indexed_key_loss_error(i);
-        // let dpy = value.display.indexed_key_loss_error(i);
-        // let anal = value.analyte.indexed_key_loss_error(i);
-        // let feat = value.feature.indexed_key_loss_error(i);
-        // let meas = value.measurement_type.indexed_key_loss_error(i);
-        // let tag = value.tag.indexed_key_loss_error(i);
-        // let det_name = value.detector_name.indexed_key_loss_error(i);
-
-        // let check_errs = [cal, dpy, anal, feat, meas, tag, det_name]
-        //     .into_iter()
-        //     .flatten()
-        //     .map(OpticalConvertWarning::Xfer);
-
         value
             .wavelengths
             .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
             .repack_errors::<Vec<_>>()
-            .extend_deferred_errors(es)
             .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
@@ -6098,7 +6083,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
 }
 
 impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical2_0,
         i: MeasIndex,
         _: AllowLoss,
@@ -6113,7 +6098,7 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_0,
         _: MeasIndex,
         _: AllowLoss,
@@ -6124,29 +6109,11 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
 }
 
 impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_2,
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_1())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-
-        // let anal = value.analyte.indexed_key_loss_error(i);
-        // let feat = value.feature.indexed_key_loss_error(i);
-        // let meas = value.measurement_type.indexed_key_loss_error(i);
-        // let tag = value.tag.indexed_key_loss_error(i);
-        // let det_name = value.detector_name.indexed_key_loss_error(i);
-
-        // let check_errs = [anal, feat, meas, tag, det_name]
-        //     .into_iter()
-        //     .flatten()
-        //     .map(OpticalConvertWarning::Xfer);
-
         let cal_res = value
             .calibration
             .map(|c| {
@@ -6158,11 +6125,10 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
             })
             .transpose_log_result();
 
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .zip_commutative(cal_res)
+        cal_res
             .map_errors(OpticalConvertError::from)
-            .map_ok_value(|((), cal)| {
+            .set_err_value(())
+            .map_ok_value(|cal| {
                 Self::new(
                     value.scale,
                     value.wavelengths,
@@ -6175,29 +6141,17 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
 }
 
 impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical2_0,
         i: MeasIndex,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        let scale_res = value.scale.ok_or(NoScaleError(i).into()).into_log();
-        // let es = value
-        //     .peak
-        //     .loss_errors(i)
-        //     .map(AnyOpticalKeyLossError::from)
-        //     .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_errors(OpticalConvertError::from)
-            .zip_commutative(scale_res)
-            .map_ok_value(|((), s)| {
+        value
+            .scale
+            .ok_or(NoScaleError(i).into())
+            .into_log()
+            .map_ok_value(|s| {
                 Self::new(
                     s,
                     wave,
@@ -6214,75 +6168,43 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_0,
-        i: MeasIndex,
-        flag: AllowLoss,
+        _: MeasIndex,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
         let wave = value.wavelength.map(Wavelengths::from).unwrap_or_default();
-        // let es = value
-        //     .peak
-        //     .loss_errors(i)
-        //     .map(AnyOpticalKeyLossError::from)
-        //     .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_errors(OpticalConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    value.scale,
-                    wave,
-                    None,
-                    None,
-                    Analyte::default(),
-                    None,
-                    OpticalType::default(),
-                    Tag::default(),
-                    DetectorName::default(),
-                )
-            })
+        LogResult::new_ok(Self::new(
+            value.scale,
+            wave,
+            None,
+            None,
+            Analyte::default(),
+            None,
+            OpticalType::default(),
+            Tag::default(),
+            DetectorName::default(),
+        ))
     }
 }
 
 impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
-    fn convert_from_optical(
+    fn convert_from_optical_inner(
         value: InnerOptical3_1,
-        i: MeasIndex,
-        flag: AllowLoss,
+        _: MeasIndex,
+        _: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let es: Vec<_> = value
-            .opt_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error())
-            .map(OpticalConvertWarning::from)
-            .collect();
-        // let es = value
-        //     .peak
-        //     .loss_errors(i)
-        //     .map(AnyOpticalKeyLossError::from)
-        //     .map(OpticalConvertWarning::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_errors(OpticalConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    value.scale,
-                    value.wavelengths,
-                    value.calibration.map(Into::into),
-                    value.display,
-                    Analyte::default(),
-                    None,
-                    OpticalType::default(),
-                    Tag::default(),
-                    DetectorName::default(),
-                )
-            })
+        LogResult::new_ok(Self::new(
+            value.scale,
+            value.wavelengths,
+            value.calibration.map(Into::into),
+            value.display,
+            Analyte::default(),
+            None,
+            OpticalType::default(),
+            Tag::default(),
+            DetectorName::default(),
+        ))
     }
 }
 
@@ -6550,138 +6472,66 @@ impl ConvertFromShortname<Identity<Shortname>> for Option<Shortname> {
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_2_0())
-            .filter_map(|k| k.as_loss_error());
-        // let c = value.cytsn.root_key_loss_error();
-        // let u = value.unicode.root_key_loss_error();
-        // let s = value
-        //     .subset
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let es = [c, u].into_iter().flatten().chain(s);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-        let ag_res = value
+        value
             .applied_gates
             .try_into_2_0(flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-        check_res.zip_commutative(ag_res).map_ok_value(|((), ag)| {
-            Self::new(
-                value.mode,
-                value.cyt,
-                value.comp.map(|x| x.0.into()),
-                value.timestamps.map(Into::into),
-                ag,
-            )
-        })
-    }
-}
-
-impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
-    fn convert_from_metaroot(
-        value: InnerMetaroot3_1,
-        flag: AllowLoss,
-    ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_2_0())
-            .filter_map(|k| k.as_loss_error());
-        // macro_rules! loss_errors {
-        //     ($x:expr) => {
-        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
-        //     };
-        // }
-        // let cytsn = value.cytsn.root_key_loss_error();
-        // let vol = value.vol.root_key_loss_error();
-        // let spill = value.spillover.root_key_loss_error();
-        // let plate = loss_errors!(value.plate);
-        // let subset = loss_errors!(value.subset);
-        // let modi = loss_errors!(value.modification);
-        // let es = [cytsn, vol, spill]
-        //     .into_iter()
-        //     .flatten()
-        //     .chain(plate)
-        //     .chain(subset)
-        //     .chain(modi);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-        let ag_res = value
-            .applied_gates
-            .try_into_2_0(flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-        let ts = value.timestamps.map(Into::into);
-        check_res
-            .zip_commutative(ag_res)
-            .map_ok_value(|((), ag)| Self::new(value.mode, value.cyt, None, ts, ag))
-    }
-}
-
-impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
-    fn convert_from_metaroot(
-        value: InnerMetaroot3_2,
-        flag: AllowLoss,
-    ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_2_0())
-            .filter_map(|k| k.as_loss_error());
-        // macro_rules! loss_errors {
-        //     ($x:expr) => {
-        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
-        //     };
-        // }
-        // let cytsn = value.cytsn.root_key_loss_error();
-        // let vol = value.vol.root_key_loss_error();
-        // let spill = value.spillover.root_key_loss_error();
-        // let flow = value.flowrate.root_key_loss_error();
-        // let modi = loss_errors!(value.modification);
-        // let plate = loss_errors!(value.plate);
-        // let dt = loss_errors!(value.datetimes);
-        // let carrier = loss_errors!(value.carrier);
-        // let us = loss_errors!(value.unstained);
-        // let ag = loss_errors!(value.applied_gates);
-
-        // let es = [cytsn, vol, spill, flow]
-        //     .into_iter()
-        //     .flatten()
-        //     .chain(modi)
-        //     .chain(plate)
-        //     .chain(dt)
-        //     .chain(carrier)
-        //     .chain(us)
-        //     .chain(ag);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
+            .set_err_value(())
+            .map_ok_value(|ag| {
                 Self::new(
-                    Mode::List,
+                    value.mode,
                     value.cyt,
-                    None,
+                    value.comp.map(|x| x.0.into()),
                     value.timestamps.map(Into::into),
-                    AppliedGates2_0::default(),
+                    ag,
                 )
             })
     }
 }
 
+impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
+    fn convert_from_metaroot_inner(
+        value: InnerMetaroot3_1,
+        flag: AllowLoss,
+    ) -> MetarootConvertResult<Self> {
+        let ts = value.timestamps.map(Into::into);
+        value
+            .applied_gates
+            .try_into_2_0(flag)
+            .switchable_into_commutative()
+            .map_commutative_warnings(MetarootConvertWarning::from)
+            .map_errors(MetarootConvertError::from)
+            .set_err_value(())
+            .map_ok_value(|ag| Self::new(value.mode, value.cyt, None, ts, ag))
+    }
+}
+
+impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
+    fn convert_from_metaroot_inner(
+        value: InnerMetaroot3_2,
+        _: AllowLoss,
+    ) -> MetarootConvertResult<Self> {
+        LogResult::new_ok(Self::new(
+            Mode::List,
+            value.cyt,
+            None,
+            value.timestamps.map(Into::into),
+            AppliedGates2_0::default(),
+        ))
+    }
+}
+
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
-    fn convert_from_metaroot(value: InnerMetaroot2_0, _: AllowLoss) -> MetarootConvertResult<Self> {
+    fn convert_from_metaroot_inner(
+        value: InnerMetaroot2_0,
+        _: AllowLoss,
+    ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
             value.mode,
             value.cyt,
@@ -6696,228 +6546,107 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_1,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_0())
-            .filter_map(|k| k.as_loss_error());
-        // macro_rules! loss_errors {
-        //     ($x:expr) => {
-        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
-        //     };
-        // }
-        // let plate = loss_errors!(value.plate);
-        // let modi = loss_errors!(value.modification);
-        // let vol = value.vol.root_key_loss_error();
-        // let es = vol.into_iter().chain(plate).chain(modi);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    value.mode,
-                    value.cyt,
-                    None,
-                    value.timestamps.map(Into::into),
-                    value.cytsn,
-                    None,
-                    SubsetData::default(),
-                    value.applied_gates,
-                )
-            })
+        LogResult::new_ok(Self::new(
+            value.mode,
+            value.cyt,
+            None,
+            value.timestamps.map(Into::into),
+            value.cytsn,
+            None,
+            SubsetData::default(),
+            value.applied_gates,
+        ))
     }
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_2,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_0())
-            .filter_map(|k| k.as_loss_error());
-        // macro_rules! loss_errors {
-        //     ($x:expr) => {
-        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
-        //     };
-        // }
-        // let vol = value.vol.root_key_loss_error();
-        // let flow = value.flowrate.root_key_loss_error();
-        // let modi = loss_errors!(value.modification);
-        // let plate = loss_errors!(value.plate);
-        // let dt = loss_errors!(value.datetimes);
-        // let carrier = loss_errors!(value.carrier);
-        // let us = loss_errors!(value.unstained);
-        // let es = [vol, flow]
-        //     .into_iter()
-        //     .flatten()
-        //     .chain(modi)
-        //     .chain(plate)
-        //     .chain(dt)
-        //     .chain(carrier)
-        //     .chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    Mode::List,
-                    value.cyt,
-                    None,
-                    value.timestamps.map(Into::into),
-                    value.cytsn,
-                    None,
-                    SubsetData::default(),
-                    value.applied_gates,
-                )
-            })
+        LogResult::new_ok(Self::new(
+            Mode::List,
+            value.cyt,
+            None,
+            value.timestamps.map(Into::into),
+            value.cytsn,
+            None,
+            SubsetData::default(),
+            value.applied_gates,
+        ))
     }
 }
 
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot2_0,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_1())
-            .filter_map(|k| k.as_loss_error());
-        // let es = value
-        //     .comp
-        //     .as_ref()
-        //     .into_iter()
-        //     .flat_map(Compensation2_0::loss_errors)
-        //     .map(AnyMetarootKeyLossError::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    value.mode,
-                    value.cyt,
-                    value.timestamps.map(Into::into),
-                    Cytsn::default(),
-                    None,
-                    ModificationData::default(),
-                    PlateData::default(),
-                    None,
-                    SubsetData::default(),
-                    value.applied_gates,
-                )
-            })
+        LogResult::new_ok(Self::new(
+            value.mode,
+            value.cyt,
+            value.timestamps.map(Into::into),
+            Cytsn::default(),
+            None,
+            ModificationData::default(),
+            PlateData::default(),
+            None,
+            SubsetData::default(),
+            value.applied_gates,
+        ))
     }
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_0,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_1())
-            .filter_map(|k| k.as_loss_error());
-        // let comp = value.comp.root_key_loss_error();
-        // let us = value.unicode.root_key_loss_error();
-        // let es = [comp, us].into_iter().flatten();
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::Loss)
-            .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    value.mode,
-                    value.cyt,
-                    value.timestamps.map(Into::into),
-                    value.cytsn,
-                    None,
-                    ModificationData::default(),
-                    PlateData::default(),
-                    None,
-                    value.subset,
-                    value.applied_gates,
-                )
-            })
+        LogResult::new_ok(Self::new(
+            value.mode,
+            value.cyt,
+            value.timestamps.map(Into::into),
+            value.cytsn,
+            None,
+            ModificationData::default(),
+            PlateData::default(),
+            None,
+            value.subset,
+            value.applied_gates,
+        ))
     }
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_2,
-        flag: AllowLoss,
+        _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_1())
-            .filter_map(|k| k.as_loss_error());
-        // let dt = value
-        //     .datetimes
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let carrier = value
-        //     .carrier
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let us = value
-        //     .unstained
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let flow = value.flowrate.root_key_loss_error();
-        // let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::Loss)
-            .map_errors(MetarootConvertError::from)
-            .map_ok_value(|()| {
-                Self::new(
-                    Mode::List,
-                    value.cyt,
-                    value.timestamps,
-                    value.cytsn,
-                    value.spillover,
-                    value.modification,
-                    value.plate,
-                    value.vol,
-                    SubsetData::default(),
-                    value.applied_gates,
-                )
-            })
+        LogResult::new_ok(Self::new(
+            Mode::List,
+            value.cyt,
+            value.timestamps,
+            value.cytsn,
+            value.spillover,
+            value.modification,
+            value.plate,
+            value.vol,
+            SubsetData::default(),
+            value.applied_gates,
+        ))
     }
 }
 
 impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_2())
-            .filter_map(|k| k.as_loss_error());
-        // let comp = value
-        //     .comp
-        //     .as_ref()
-        //     .into_iter()
-        //     .flat_map(Compensation2_0::loss_errors)
-        //     .map(AnyMetarootKeyLossError::from);
-        // let ag = value
-        //     .applied_gates
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let es = comp.chain(ag);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-
+        // TODO add back gates loss errors
         let mode_res = Mode3_2::try_from(value.mode)
             .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
@@ -6930,9 +6659,9 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res
-            .zip3_commutative(mode_res, cyt_res)
-            .map_ok_value(|((), mode, cyt)| {
+        mode_res
+            .zip_commutative(cyt_res)
+            .map_ok_value(|(mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps.map(Into::into),
@@ -6953,26 +6682,10 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_2())
-            .filter_map(|k| k.as_loss_error());
-        // let uni = value.unicode.root_key_loss_error();
-        // let comp = value.comp.root_key_loss_error();
-        // let subset = value
-        //     .subset
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        // let es = [uni, comp].into_iter().flatten().chain(subset);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-
         // TODO this may produce redundant loss errors
         let ag_res = value
             .applied_gates
@@ -6991,9 +6704,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res
-            .zip4_commutative(mode_res, ag_res, cyt_res)
-            .map_ok_value(|((), mode, applied_gates, cyt)| {
+        mode_res
+            .zip3_commutative(ag_res, cyt_res)
+            .map_ok_value(|(mode, applied_gates, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps.map(Into::into),
@@ -7014,23 +6727,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
 }
 
 impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
-    fn convert_from_metaroot(
+    fn convert_from_metaroot_inner(
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let es = value
-            .keywords_opt_inner()
-            .filter(|x| !x.is_3_2())
-            .filter_map(|k| k.as_loss_error());
-        // let es = value
-        //     .subset
-        //     .loss_errors()
-        //     .map(AnyMetarootKeyLossError::from);
-        let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .map_commutative_warnings(MetarootConvertWarning::from)
-            .map_errors(MetarootConvertError::from);
-
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
@@ -7048,9 +6748,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_err(MetarootConvertError::from)
             .into_log();
 
-        check_res
-            .zip4_commutative(ag_res, mode_rs, cyt_res)
-            .map_ok_value(|((), applied_gates, mode, cyt)| {
+        ag_res
+            .zip3_commutative(mode_rs, cyt_res)
+            .map_ok_value(|(applied_gates, mode, cyt)| {
                 Self::new(
                     mode,
                     value.timestamps,
@@ -7191,213 +6891,74 @@ impl Default for ScaleTransform {
 }
 
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_0,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_2_0())
-            .filter_map(|x| x.as_loss_error());
-        // let e = value
-        //     .timestep
-        //     .loss_error()
-        //     .map(AnyTemporalKeyLossError::from);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .set_deferred_value(Self::new(true, value.peak))
+    fn convert_from_temporal_inner(value: InnerTemporal3_0) -> Self {
+        Self::new(true, value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_1,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_2_0())
-            .filter_map(|x| x.as_loss_error());
-        // let t = value
-        //     .timestep
-        //     .loss_error()
-        //     .map(AnyTemporalKeyLossError::from);
-        // let d = value.display.indexed_key_loss_error(i);
-        // let es = [t, d].into_iter().flatten();
-        // let v = Self::new(true, value.peak);
-        LogResult::new_deferred_switchable_iter3((), es, flag)
-            .set_deferred_value(Self::new(true, value.peak))
+    fn convert_from_temporal_inner(value: InnerTemporal3_1) -> Self {
+        Self::new(true, value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_2,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_2_0())
-            .filter_map(|x| x.as_loss_error());
-        // let di = value.display.indexed_key_loss_error(i);
-        // let m = value.measurement_type.indexed_key_loss_error(i);
-        // let t = value
-        //     .timestep
-        //     .loss_error()
-        //     .map(AnyTemporalKeyLossError::from);
-        // let es = [di, m, t].into_iter().flatten();
-        // let v = Self::new(true, PeakData::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag)
-            .set_deferred_value(Self::new(true, PeakData::default()))
+    fn convert_from_temporal_inner(_: InnerTemporal3_2) -> Self {
+        Self::new(true, PeakData::default())
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal2_0,
-        _: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        LogResult::new_switchable_ok(Self::new(Timestep::default(), value.peak), flag)
+    fn convert_from_temporal_inner(value: InnerTemporal2_0) -> Self {
+        Self::new(Timestep::default(), value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_1,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_0())
-            .filter_map(|x| x.as_loss_error());
-        // let e = value.display.indexed_key_loss_error(i);
-        // let v = Self::new(value.timestep, value.peak);
-        LogResult::new_deferred_switchable_iter3((), es, flag)
-            .set_deferred_value(Self::new(value.timestep, value.peak))
+    fn convert_from_temporal_inner(value: InnerTemporal3_1) -> Self {
+        Self::new(value.timestep, value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_2,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_0())
-            .filter_map(|x| x.as_loss_error());
-        // let di = value.display.indexed_key_loss_error(i);
-        // let m = value.measurement_type.indexed_key_loss_error(i);
-        // let es = [di, m].into_iter().flatten();
-        // let v = Self::new(value.timestep, PeakData::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag)
-            .set_deferred_value(Self::new(value.timestep, PeakData::default()))
+    fn convert_from_temporal_inner(value: InnerTemporal3_2) -> Self {
+        Self::new(value.timestep, PeakData::default())
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
-    fn convert_from_temporal(
-        value: InnerTemporal2_0,
-        _: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        LogResult::new_switchable_ok(Self::new(Timestep::default(), None, value.peak), flag)
+    fn convert_from_temporal_inner(value: InnerTemporal2_0) -> Self {
+        Self::new(Timestep::default(), None, value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_0,
-        _: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        LogResult::new_switchable_ok(Self::new(value.timestep, None, value.peak), flag)
+    fn convert_from_temporal_inner(value: InnerTemporal3_0) -> Self {
+        Self::new(value.timestep, None, value.peak)
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_2,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_0())
-            .filter_map(|x| x.as_loss_error());
-        // let e = value.measurement_type.indexed_key_loss_error(i);
-        // let v = Self::new(value.timestep, value.display, PeakData::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag).set_deferred_value(Self::new(
-            value.timestep,
-            value.display,
-            PeakData::default(),
-        ))
+    fn convert_from_temporal_inner(value: InnerTemporal3_2) -> Self {
+        Self::new(value.timestep, value.display, PeakData::default())
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
-    fn convert_from_temporal(
-        value: InnerTemporal2_0,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error());
-
-        // let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
-        // let v = Self::new(Timestep::default(), None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag).set_deferred_value(Self::new(
-            Timestep::default(),
-            None,
-            TemporalType::default(),
-        ))
+    fn convert_from_temporal_inner(_: InnerTemporal2_0) -> Self {
+        Self::new(Timestep::default(), None, TemporalType::default())
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_0,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error());
-        // let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
-        // let v = Self::new(value.timestep, None, TemporalType::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag).set_deferred_value(Self::new(
-            value.timestep,
-            None,
-            TemporalType::default(),
-        ))
+    fn convert_from_temporal_inner(value: InnerTemporal3_0) -> Self {
+        Self::new(value.timestep, None, TemporalType::default())
     }
 }
 
 impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
-    fn convert_from_temporal(
-        value: InnerTemporal3_1,
-        i: MeasIndex,
-        flag: AllowLoss,
-    ) -> TemporalConvertResult<Self> {
-        let es = value
-            .opt_meas_keywords_inner(i)
-            .filter(|x| !x.is_3_2())
-            .filter_map(|x| x.as_loss_error());
-        // let es = value.peak.loss_errors(i).map(AnyTemporalKeyLossError::from);
-        // let v = Self::new(value.timestep, value.display, TemporalType::default());
-        LogResult::new_deferred_switchable_iter3((), es, flag).set_deferred_value(Self::new(
-            value.timestep,
-            None,
-            TemporalType::default(),
-        ))
+    fn convert_from_temporal_inner(value: InnerTemporal3_1) -> Self {
+        Self::new(value.timestep, value.display, TemporalType::default())
     }
 }
 

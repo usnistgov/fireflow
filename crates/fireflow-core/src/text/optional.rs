@@ -1,4 +1,4 @@
-use crate::core::{Key0LossError, Key1LossError, KeyLossError};
+use crate::core::{Key1LossError, KeyLossError};
 use crate::text::index::IndexFromOne;
 use crate::validated::keys::DKey1;
 
@@ -110,12 +110,12 @@ impl<T: Default + PartialEq> IsDefault for T {
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn root_key_loss_error<E>(&self) -> Option<E>
-    where
-        E: From<Key0LossError<Self::Inner>>,
-    {
-        (!self.is_default()).then_some(Key0LossError::<Self::Inner>::default().into())
-    }
+    // fn root_key_loss_error<E>(&self) -> Option<E>
+    // where
+    //     E: From<Key0LossError<Self::Inner>>,
+    // {
+    //     (!self.is_default()).then_some(Key0LossError::<Self::Inner>::default().into())
+    // }
 
     fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where

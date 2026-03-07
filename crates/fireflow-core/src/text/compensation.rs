@@ -1,5 +1,4 @@
 use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig};
-use crate::core::{Key2LossError, KeyLossError};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
@@ -188,10 +187,10 @@ impl Compensation2_0 {
         })
     }
 
-    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = Key2LossError<Dfc>> {
-        self.non_zero_indices()
-            .map(|kw| KeyLossError(DKey2::new_i2(kw.col, kw.row)))
-    }
+    // pub(crate) fn loss_errors(&self) -> impl Iterator<Item = Key2LossError<Dfc>> {
+    //     self.non_zero_indices()
+    //         .map(|kw| KeyLossError(DKey2::new_i2(kw.col, kw.row)))
+    // }
 }
 
 impl TryFrom<DMatrix<f32>> for Compensation {

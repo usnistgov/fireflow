@@ -159,13 +159,13 @@ impl Datetimes {
         [x, y].into_iter().flatten()
     }
 
-    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
-        let x0 = Key0LossError::<BeginDateTime>::default();
-        let y0 = self.begin.is_some().then_some(x0.into());
-        let x1 = Key0LossError::<EndDateTime>::default();
-        let y1 = self.end.is_some().then_some(x1.into());
-        [y0, y1].into_iter().flatten()
-    }
+    // pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
+    //     let x0 = Key0LossError::<BeginDateTime>::default();
+    //     let y0 = self.begin.is_some().then_some(x0.into());
+    //     let x1 = Key0LossError::<EndDateTime>::default();
+    //     let y1 = self.end.is_some().then_some(x1.into());
+    //     [y0, y1].into_iter().flatten()
+    // }
 }
 
 macro_rules! impl_from_str_with {
@@ -275,14 +275,6 @@ pub enum LookupDatetimesError {
     Begindatetime(OptKeyStError<BeginDateTime>),
     Enddatetime(OptKeyStError<EndDateTime>),
     Datetime(ReversedDatetimesError),
-}
-
-/// Error when $BEGINDATETIME or $ENDDATETIME are dropped due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatetimeLossError {
-    Begin(Key0LossError<BeginDateTime>),
-    End(Key0LossError<EndDateTime>),
 }
 
 #[cfg(test)]

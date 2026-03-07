@@ -2,7 +2,7 @@ use crate::config::{
     ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
-use crate::core::Key0LossError;
+use crate::core::{AnyMetarootKeyLossError, Key0LossError, KeyLossError};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
@@ -267,6 +267,7 @@ pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword<'a>),
@@ -321,6 +322,117 @@ pub enum OptRootKeyword<'a> {
     Wellid(NEStringKeyword0<'a, Wellid>),
 }
 
+// impl<'a> OptRootKeyword<'a> {
+//     pub(crate) fn not_2_0(&self) -> bool {
+//         matches!(
+//             self,
+//             Self::GateMeas(_)
+//                 | Self::Dfc(_)
+//                 | UnstainedCenters(_)
+//                 | Timestep(_)
+//                 | CSMode(_)
+//                 | CSVFlag(_)
+//                 | CSVBits(_)
+//                 | CSTot(_)
+//                 | Btim2_0(_)
+//                 | Btim3_0(_)
+//                 | Btim3_1(_)
+//                 | Etim2_0(_)
+//                 | Etim3_0(_)
+//                 | Etim3_1(_)
+//                 | Date(_)
+//                 | Begindatetime(_)
+//                 | Enddatetime(_)
+//                 | Gate(_)
+//                 | Comp(_)
+//                 | Unicode(_)
+//                 | Vol(_)
+//                 | LastModified(_)
+//                 | Originality(_)
+//                 | Mode3_2(_)
+//                 | Spillover(_)
+//                 | Cyt(_)
+//                 | Cytsn(_)
+//                 | Com(_)
+//                 | Cells(_)
+//                 | Exp(_)
+//                 | Fil(_)
+//                 | Inst(_)
+//                 | Op(_)
+//                 | Proj(_)
+//                 | Smno(_)
+//                 | Src(_)
+//                 | Sys(_)
+//                 | Flowrate(_)
+//                 | LastModifier(_)
+//                 | UnstainedInfo(_)
+//                 | Carrierid(_)
+//                 | Carriertype(_)
+//                 | Locationid(_)
+//                 | Plateid(_)
+//                 | Platename(_)
+//                 | Wellid(_)
+//         )
+//     }
+
+//     pub(crate) fn scratch(&self) {
+//         matches!(
+//             self,
+//             Self::GateMeas(_)
+//                 | Self::GateRegion(_)
+//                 | Self::Dfc(_)
+//                 | UnstainedCenters(_)
+//                 | Timestep(_)
+//                 | CSMode(_)
+//                 | CSVFlag(_)
+//                 | CSVBits(_)
+//                 | CSTot(_)
+//                 | Btim2_0(_)
+//                 | Btim3_0(_)
+//                 | Btim3_1(_)
+//                 | Etim2_0(_)
+//                 | Etim3_0(_)
+//                 | Etim3_1(_)
+//                 | Date(_)
+//                 | Begindatetime(_)
+//                 | Enddatetime(_)
+//                 | Gate(_)
+//                 | Gating(_)
+//                 | Comp(_)
+//                 | Unicode(_)
+//                 | Abrt(_)
+//                 | Lost(_)
+//                 | Tr(_)
+//                 | Vol(_)
+//                 | LastModified(_)
+//                 | Originality(_)
+//                 | Mode3_2(_)
+//                 | Spillover(_)
+//                 | Cyt(_)
+//                 | Cytsn(_)
+//                 | Com(_)
+//                 | Cells(_)
+//                 | Exp(_)
+//                 | Fil(_)
+//                 | Inst(_)
+//                 | Op(_)
+//                 | Proj(_)
+//                 | Smno(_)
+//                 | Src(_)
+//                 | Sys(_)
+//                 | Flowrate(_)
+//                 | LastModifier(_)
+//                 | UnstainedInfo(_)
+//                 | Carrierid(_)
+//                 | Carriertype(_)
+//                 | Locationid(_)
+//                 | Plateid(_)
+//                 | Platename(_)
+//                 | Wellid(_)
+//         )
+//     }
+// }
+
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -365,6 +477,7 @@ pub enum OptMeasKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum GateMeasKeyword<'a> {
     Scale(SplitKeyword1<GateScale>),
     Shortname(RefKeyword1<'a, GateShortname>),
@@ -379,6 +492,7 @@ pub enum GateMeasKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum RegionKeyword<'a> {
     GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
     GateIndex3_0(SplitKeyword1<RegionGateIndex<MeasOrGateIndex>>),
@@ -556,6 +670,27 @@ impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
 #[delegatable_trait]
+pub(crate) trait HasMembership {
+    fn membership(&self) -> VersionMembership;
+
+    fn is_2_0(&self) -> bool {
+        self.membership().is_2_0()
+    }
+
+    fn is_3_0(&self) -> bool {
+        self.membership().is_3_0()
+    }
+
+    fn is_3_1(&self) -> bool {
+        self.membership().is_3_1()
+    }
+
+    fn is_3_2(&self) -> bool {
+        self.membership().is_3_2()
+    }
+}
+
+#[delegatable_trait]
 pub(crate) trait AsStdKeywordPair {
     fn as_std_key_pair(&self) -> (StdKey, NEString);
 }
@@ -590,6 +725,12 @@ impl<T: AsStdKeywordPair> AsKeywordPair for T {
 impl AsKeywordPair for NonStdKeyword<'_> {
     fn as_key_pair(&self) -> (AnyKey, NEString) {
         (self.key.clone().into(), ToNE(&self.value).to_ne_string())
+    }
+}
+
+impl<I, V: VersionedKey, X> HasMembership for SplitKeyword<DollarKey<V, I>, X> {
+    fn membership(&self) -> VersionMembership {
+        V::VERS
     }
 }
 
@@ -692,6 +833,78 @@ impl HasDelim for GateMeasKeyword<'_> {
             Self::Shortname(x) => x.value.has_delim(d),
             _ => None,
         }
+    }
+}
+
+impl<'a> OptRootKeyword<'a> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyMetarootKeyLossError> {
+        let ret = match self {
+            Self::GateMeas(kw) => match kw {
+                GateMeasKeyword::Scale(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Shortname(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::PercentEmitted(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Range(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::DetectorVoltage(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Filter(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Longname(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::DetectorType(x) => KeyLossError(x.key).into(),
+            },
+            Self::Gate(kw) => KeyLossError(kw.key).into(),
+            Self::Dfc(kw) => KeyLossError(kw.key).into(),
+            Self::UnstainedCenters(kw) => KeyLossError(kw.key).into(),
+            Self::UnstainedInfo(kw) => KeyLossError(kw.key).into(),
+            Self::CSMode(kw) => KeyLossError(kw.key).into(),
+            Self::CSVFlag(kw) => KeyLossError(kw.key).into(),
+            Self::CSVBits(kw) => KeyLossError(kw.key).into(),
+            Self::CSTot(kw) => KeyLossError(kw.key).into(),
+            Self::Begindatetime(kw) => KeyLossError(kw.key).into(),
+            Self::Enddatetime(kw) => KeyLossError(kw.key).into(),
+            Self::Comp(kw) => KeyLossError(kw.key).into(),
+            Self::Unicode(kw) => KeyLossError(kw.key).into(),
+            Self::Vol(kw) => KeyLossError(kw.key).into(),
+            Self::LastModified(kw) => KeyLossError(kw.key).into(),
+            Self::Originality(kw) => KeyLossError(kw.key).into(),
+            Self::LastModifier(kw) => KeyLossError(kw.key).into(),
+            Self::Spillover(kw) => KeyLossError(kw.key).into(),
+            Self::Flowrate(kw) => KeyLossError(kw.key).into(),
+            Self::Carrierid(kw) => KeyLossError(kw.key).into(),
+            Self::Carriertype(kw) => KeyLossError(kw.key).into(),
+            Self::Locationid(kw) => KeyLossError(kw.key).into(),
+            Self::Plateid(kw) => KeyLossError(kw.key).into(),
+            Self::Platename(kw) => KeyLossError(kw.key).into(),
+            Self::Wellid(kw) => KeyLossError(kw.key).into(),
+            Self::Cytsn(kw) => KeyLossError(kw.key).into(),
+            // TODO what about $TIMESTEP?
+            // All of these are shared b/t versions and therefore cannot cause
+            // loss when converting. Note $MODE is valid in all versions but its
+            // value is constrained in 3.2; this is dealt with elsewhere
+            Self::GateRegion(_)
+            | Self::Gating(_)
+            | Self::Timestep(_)
+            | Self::Mode3_2(_)
+            | Self::Btim2_0(_)
+            | Self::Btim3_0(_)
+            | Self::Btim3_1(_)
+            | Self::Etim2_0(_)
+            | Self::Etim3_0(_)
+            | Self::Etim3_1(_)
+            | Self::Date(_)
+            | Self::Abrt(_)
+            | Self::Lost(_)
+            | Self::Tr(_)
+            | Self::Cyt(_)
+            | Self::Com(_)
+            | Self::Cells(_)
+            | Self::Exp(_)
+            | Self::Fil(_)
+            | Self::Inst(_)
+            | Self::Op(_)
+            | Self::Proj(_)
+            | Self::Smno(_)
+            | Self::Src(_)
+            | Self::Sys(_) => return None,
+        };
+        Some(ret)
     }
 }
 

@@ -36,8 +36,7 @@ use crate::segment::{
 };
 use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
-    BeginDateTime, DatetimeLossError, Datetimes, EndDateTime, LookupDatetimesError,
-    ReversedDatetimesError,
+    BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
 };
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
@@ -50,17 +49,18 @@ use crate::text::keywords::{
     CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
     Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage,
     Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate,
-    HyperGateError, HyperParError, Inst, Keyword0FromValue as _, Keyword1FromValue as _,
-    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LogScale, Longname,
-    LookupTemporalGainError, Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata,
-    NoCytError, NonStdKeyword, Op, OptKeyword, OptMeasKeyword, OptRootKeyword, OpticalFeature,
-    OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
-    Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range, ReqKeyword,
-    ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1, Src,
-    StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
-    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange,
+    GateScale, GateShortname, HasMembership as _, HyperGateError, HyperParError, Inst,
+    Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError, LastModified,
+    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
+    OptMeasKeyword, OptRootKeyword, OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par,
+    PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
+    PseudostandardError, Range, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno,
+    SplitKeyword, SplitKeyword1, Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys,
+    Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep,
+    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
+    Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -5713,11 +5713,11 @@ impl UnstainedData {
         [x0, x1].into_iter().flatten()
     }
 
-    fn loss_errors(&self) -> impl Iterator<Item = UnstainedLossError> {
-        let a = self.unstainedcenters.root_key_loss_error();
-        let b = self.unstainedinfo.root_key_loss_error();
-        [a, b].into_iter().flatten()
-    }
+    // fn loss_errors(&self) -> impl Iterator<Item = UnstainedLossError> {
+    //     let a = self.unstainedcenters.root_key_loss_error();
+    //     let b = self.unstainedinfo.root_key_loss_error();
+    //     [a, b].into_iter().flatten()
+    // }
 }
 
 impl SubsetData {
@@ -5748,13 +5748,13 @@ impl SubsetData {
             .chain(self.flags.opt_keywords())
     }
 
-    fn loss_errors(&self) -> impl Iterator<Item = SubsetLossError> {
-        let es = self.bits.root_key_loss_error();
-        self.flags
-            .loss_errors()
-            .map(SubsetLossError::from)
-            .chain(es)
-    }
+    // fn loss_errors(&self) -> impl Iterator<Item = SubsetLossError> {
+    //     let es = self.bits.root_key_loss_error();
+    //     self.flags
+    //         .loss_errors()
+    //         .map(SubsetLossError::from)
+    //         .chain(es)
+    // }
 }
 
 impl CSVFlags {
@@ -5798,11 +5798,11 @@ impl CSVFlags {
             .chain(mode)
     }
 
-    fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
-        let e = (!self.0.is_empty()).then_some(Key0LossError::<CSMode>::default().into());
-        let go = |(i, f): (usize, &Option<_>)| f.indexed_key_loss_error(i);
-        self.0.iter().enumerate().filter_map(go).chain(e)
-    }
+    // fn loss_errors(&self) -> impl Iterator<Item = CSVFlagsLossError> {
+    //     let e = (!self.0.is_empty()).then_some(Key0LossError::<CSMode>::default().into());
+    //     let go = |(i, f): (usize, &Option<_>)| f.indexed_key_loss_error(i);
+    //     self.0.iter().enumerate().filter_map(go).chain(e)
+    // }
 }
 
 impl ModificationData {
@@ -5833,12 +5833,12 @@ impl ModificationData {
         [x0, x1, x2].into_iter().flatten()
     }
 
-    fn loss_errors(&self) -> impl Iterator<Item = ModificationLossError> {
-        let a = self.last_modified.root_key_loss_error();
-        let b = self.last_modifier.root_key_loss_error();
-        let c = self.originality.root_key_loss_error();
-        [a, b, c].into_iter().flatten()
-    }
+    // fn loss_errors(&self) -> impl Iterator<Item = ModificationLossError> {
+    //     let a = self.last_modified.root_key_loss_error();
+    //     let b = self.last_modifier.root_key_loss_error();
+    //     let c = self.originality.root_key_loss_error();
+    //     [a, b, c].into_iter().flatten()
+    // }
 }
 
 impl CarrierData {
@@ -5856,12 +5856,12 @@ impl CarrierData {
         [a, b, c].into_iter().flatten()
     }
 
-    fn loss_errors(&self) -> impl Iterator<Item = CarrierLossError> {
-        let a = self.carrierid.root_key_loss_error();
-        let b = self.carriertype.root_key_loss_error();
-        let c = self.locationid.root_key_loss_error();
-        [a, b, c].into_iter().flatten()
-    }
+    // fn loss_errors(&self) -> impl Iterator<Item = CarrierLossError> {
+    //     let a = self.carrierid.root_key_loss_error();
+    //     let b = self.carriertype.root_key_loss_error();
+    //     let c = self.locationid.root_key_loss_error();
+    //     [a, b, c].into_iter().flatten()
+    // }
 }
 
 impl PlateData {
@@ -5879,12 +5879,12 @@ impl PlateData {
         [x0, x1, x2].into_iter().flatten()
     }
 
-    fn loss_errors(self) -> impl Iterator<Item = PlateLossError> {
-        let a = self.platename.root_key_loss_error();
-        let b = self.plateid.root_key_loss_error();
-        let c = self.wellid.root_key_loss_error();
-        [a, b, c].into_iter().flatten()
-    }
+    // fn loss_errors(self) -> impl Iterator<Item = PlateLossError> {
+    //     let a = self.platename.root_key_loss_error();
+    //     let b = self.plateid.root_key_loss_error();
+    //     let c = self.wellid.root_key_loss_error();
+    //     [a, b, c].into_iter().flatten()
+    // }
 }
 
 impl PeakData {
@@ -6511,13 +6511,17 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let c = value.cytsn.root_key_loss_error();
-        let u = value.unicode.root_key_loss_error();
-        let s = value
-            .subset
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let es = [c, u].into_iter().flatten().chain(s);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_2_0())
+            .filter_map(|k| k.as_loss_error());
+        // let c = value.cytsn.root_key_loss_error();
+        // let u = value.unicode.root_key_loss_error();
+        // let s = value
+        //     .subset
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let es = [c, u].into_iter().flatten().chain(s);
         let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6545,23 +6549,27 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        macro_rules! loss_errors {
-            ($x:expr) => {
-                $x.loss_errors().map(AnyMetarootKeyLossError::from)
-            };
-        }
-        let cytsn = value.cytsn.root_key_loss_error();
-        let vol = value.vol.root_key_loss_error();
-        let spill = value.spillover.root_key_loss_error();
-        let plate = loss_errors!(value.plate);
-        let subset = loss_errors!(value.subset);
-        let modi = loss_errors!(value.modification);
-        let es = [cytsn, vol, spill]
-            .into_iter()
-            .flatten()
-            .chain(plate)
-            .chain(subset)
-            .chain(modi);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_2_0())
+            .filter_map(|k| k.as_loss_error());
+        // macro_rules! loss_errors {
+        //     ($x:expr) => {
+        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
+        //     };
+        // }
+        // let cytsn = value.cytsn.root_key_loss_error();
+        // let vol = value.vol.root_key_loss_error();
+        // let spill = value.spillover.root_key_loss_error();
+        // let plate = loss_errors!(value.plate);
+        // let subset = loss_errors!(value.subset);
+        // let modi = loss_errors!(value.modification);
+        // let es = [cytsn, vol, spill]
+        //     .into_iter()
+        //     .flatten()
+        //     .chain(plate)
+        //     .chain(subset)
+        //     .chain(modi);
         let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6584,31 +6592,35 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        macro_rules! loss_errors {
-            ($x:expr) => {
-                $x.loss_errors().map(AnyMetarootKeyLossError::from)
-            };
-        }
-        let cytsn = value.cytsn.root_key_loss_error();
-        let vol = value.vol.root_key_loss_error();
-        let spill = value.spillover.root_key_loss_error();
-        let flow = value.flowrate.root_key_loss_error();
-        let modi = loss_errors!(value.modification);
-        let plate = loss_errors!(value.plate);
-        let dt = loss_errors!(value.datetimes);
-        let carrier = loss_errors!(value.carrier);
-        let us = loss_errors!(value.unstained);
-        let ag = loss_errors!(value.applied_gates);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_2_0())
+            .filter_map(|k| k.as_loss_error());
+        // macro_rules! loss_errors {
+        //     ($x:expr) => {
+        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
+        //     };
+        // }
+        // let cytsn = value.cytsn.root_key_loss_error();
+        // let vol = value.vol.root_key_loss_error();
+        // let spill = value.spillover.root_key_loss_error();
+        // let flow = value.flowrate.root_key_loss_error();
+        // let modi = loss_errors!(value.modification);
+        // let plate = loss_errors!(value.plate);
+        // let dt = loss_errors!(value.datetimes);
+        // let carrier = loss_errors!(value.carrier);
+        // let us = loss_errors!(value.unstained);
+        // let ag = loss_errors!(value.applied_gates);
 
-        let es = [cytsn, vol, spill, flow]
-            .into_iter()
-            .flatten()
-            .chain(modi)
-            .chain(plate)
-            .chain(dt)
-            .chain(carrier)
-            .chain(us)
-            .chain(ag);
+        // let es = [cytsn, vol, spill, flow]
+        //     .into_iter()
+        //     .flatten()
+        //     .chain(modi)
+        //     .chain(plate)
+        //     .chain(dt)
+        //     .chain(carrier)
+        //     .chain(us)
+        //     .chain(ag);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6645,15 +6657,19 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         value: InnerMetaroot3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        macro_rules! loss_errors {
-            ($x:expr) => {
-                $x.loss_errors().map(AnyMetarootKeyLossError::from)
-            };
-        }
-        let plate = loss_errors!(value.plate);
-        let modi = loss_errors!(value.modification);
-        let vol = value.vol.root_key_loss_error();
-        let es = vol.into_iter().chain(plate).chain(modi);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_0())
+            .filter_map(|k| k.as_loss_error());
+        // macro_rules! loss_errors {
+        //     ($x:expr) => {
+        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
+        //     };
+        // }
+        // let plate = loss_errors!(value.plate);
+        // let modi = loss_errors!(value.modification);
+        // let vol = value.vol.root_key_loss_error();
+        // let es = vol.into_iter().chain(plate).chain(modi);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6678,26 +6694,30 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        macro_rules! loss_errors {
-            ($x:expr) => {
-                $x.loss_errors().map(AnyMetarootKeyLossError::from)
-            };
-        }
-        let vol = value.vol.root_key_loss_error();
-        let flow = value.flowrate.root_key_loss_error();
-        let modi = loss_errors!(value.modification);
-        let plate = loss_errors!(value.plate);
-        let dt = loss_errors!(value.datetimes);
-        let carrier = loss_errors!(value.carrier);
-        let us = loss_errors!(value.unstained);
-        let es = [vol, flow]
-            .into_iter()
-            .flatten()
-            .chain(modi)
-            .chain(plate)
-            .chain(dt)
-            .chain(carrier)
-            .chain(us);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_0())
+            .filter_map(|k| k.as_loss_error());
+        // macro_rules! loss_errors {
+        //     ($x:expr) => {
+        //         $x.loss_errors().map(AnyMetarootKeyLossError::from)
+        //     };
+        // }
+        // let vol = value.vol.root_key_loss_error();
+        // let flow = value.flowrate.root_key_loss_error();
+        // let modi = loss_errors!(value.modification);
+        // let plate = loss_errors!(value.plate);
+        // let dt = loss_errors!(value.datetimes);
+        // let carrier = loss_errors!(value.carrier);
+        // let us = loss_errors!(value.unstained);
+        // let es = [vol, flow]
+        //     .into_iter()
+        //     .flatten()
+        //     .chain(modi)
+        //     .chain(plate)
+        //     .chain(dt)
+        //     .chain(carrier)
+        //     .chain(us);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6723,11 +6743,15 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let es = value
-            .comp
-            .as_ref()
-            .into_iter()
-            .flat_map(Compensation2_0::loss_errors)
-            .map(AnyMetarootKeyLossError::from);
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_1())
+            .filter_map(|k| k.as_loss_error());
+        // let es = value
+        //     .comp
+        //     .as_ref()
+        //     .into_iter()
+        //     .flat_map(Compensation2_0::loss_errors)
+        //     .map(AnyMetarootKeyLossError::from);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6754,9 +6778,13 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let comp = value.comp.root_key_loss_error();
-        let us = value.unicode.root_key_loss_error();
-        let es = [comp, us].into_iter().flatten();
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_1())
+            .filter_map(|k| k.as_loss_error());
+        // let comp = value.comp.root_key_loss_error();
+        // let us = value.unicode.root_key_loss_error();
+        // let es = [comp, us].into_iter().flatten();
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
@@ -6783,20 +6811,24 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         value: InnerMetaroot3_2,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let dt = value
-            .datetimes
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let carrier = value
-            .carrier
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let us = value
-            .unstained
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let flow = value.flowrate.root_key_loss_error();
-        let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_1())
+            .filter_map(|k| k.as_loss_error());
+        // let dt = value
+        //     .datetimes
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let carrier = value
+        //     .carrier
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let us = value
+        //     .unstained
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let flow = value.flowrate.root_key_loss_error();
+        // let es = flow.into_iter().chain(dt).chain(carrier).chain(us);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::Loss)
@@ -6823,17 +6855,21 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let comp = value
-            .comp
-            .as_ref()
-            .into_iter()
-            .flat_map(Compensation2_0::loss_errors)
-            .map(AnyMetarootKeyLossError::from);
-        let ag = value
-            .applied_gates
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let es = comp.chain(ag);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_2())
+            .filter_map(|k| k.as_loss_error());
+        // let comp = value
+        //     .comp
+        //     .as_ref()
+        //     .into_iter()
+        //     .flat_map(Compensation2_0::loss_errors)
+        //     .map(AnyMetarootKeyLossError::from);
+        // let ag = value
+        //     .applied_gates
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let es = comp.chain(ag);
         let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -6878,18 +6914,23 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        let uni = value.unicode.root_key_loss_error();
-        let comp = value.comp.root_key_loss_error();
-        let subset = value
-            .subset
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
-        let es = [uni, comp].into_iter().flatten().chain(subset);
+        let es = value
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_2())
+            .filter_map(|k| k.as_loss_error());
+        // let uni = value.unicode.root_key_loss_error();
+        // let comp = value.comp.root_key_loss_error();
+        // let subset = value
+        //     .subset
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
+        // let es = [uni, comp].into_iter().flatten().chain(subset);
         let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
             .map_errors(MetarootConvertError::from);
 
+        // TODO this may produce redundant loss errors
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
@@ -6935,9 +6976,13 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let es = value
-            .subset
-            .loss_errors()
-            .map(AnyMetarootKeyLossError::from);
+            .keywords_opt_inner()
+            .filter(|x| !x.is_3_2())
+            .filter_map(|k| k.as_loss_error());
+        // let es = value
+        //     .subset
+        //     .loss_errors()
+        //     .map(AnyMetarootKeyLossError::from);
         let check_res = SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_commutative_warnings(MetarootConvertWarning::from)
@@ -9595,17 +9640,37 @@ pub enum AnyMetarootKeyLossError {
     Comp2_0(Key2LossError<Dfc>),
     Comp3_0(Key0LossError<Compensation3_0>),
     Spillover(Key0LossError<Spillover>),
-    Unstained(UnstainedLossError),
-    Datetime(DatetimeLossError),
-    Carrier(CarrierLossError),
-    Plate(PlateLossError),
-    Modification(ModificationLossError),
-    Subset(SubsetLossError),
+    Begin(Key0LossError<BeginDateTime>),
+    End(Key0LossError<EndDateTime>),
+    Bits(Key0LossError<CSVBits>),
+    Tot(Key0LossError<CSTot>),
+    CSMode(Key0LossError<CSMode>),
+    CSVFlag(Key1LossError<CSVFlag>),
+    Carrierid(Key0LossError<Carrierid>),
+    Locationid(Key0LossError<Locationid>),
+    Carriertype(Key0LossError<Carriertype>),
+    Platename(Key0LossError<Platename>),
+    Plateid(Key0LossError<Plateid>),
+    Wellid(Key0LossError<Wellid>),
+    LastModifier(Key0LossError<LastModifier>),
+    LastModified(Key0LossError<LastModified>),
+    Originality(Key0LossError<Originality>),
+    UnstainedCenters(Key0LossError<UnstainedCenters>),
+    UnstainedInfo(Key0LossError<UnstainedInfo>),
+    Gate(Key0LossError<Gate>),
+    GateScale(Key1LossError<GateScale>),
+    GateFilter(Key1LossError<GateFilter>),
+    GateShortname(Key1LossError<GateShortname>),
+    GatePEmit(Key1LossError<GatePercentEmitted>),
+    GateRange(Key1LossError<GateRange>),
+    GateLongname(Key1LossError<GateLongname>),
+    GateDetType(Key1LossError<GateDetectorType>),
+    GateDetVolt(Key1LossError<GateDetectorVoltage>),
     // TODO maybe explain why these are dropped. The scheme keywords are present
     // in 3.2 but are incompabible with 2.0 since they reference measurements
     // rather than Gn* keywords.
     AppliedGates2_0To3_2(AppliedGates2_0To3_2LossError),
-    // TODO ditto (mostly)
+    // TODO ditto
     AppliedGates3_2To2_0(GatingSchemeLossError),
 }
 
@@ -9677,57 +9742,6 @@ pub enum AnyTemporalToOpticalKeyLossError {
 pub enum PeakLossError {
     Bin(Key1LossError<PeakBin>),
     Number(Key1LossError<PeakIndex>),
-}
-
-/// Error when "plate" keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum PlateLossError {
-    Platename(Key0LossError<Platename>),
-    Plateid(Key0LossError<Plateid>),
-    Wellid(Key0LossError<Wellid>),
-}
-
-/// Error when "subset" keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SubsetLossError {
-    Bits(Key0LossError<CSVBits>),
-    Flag(CSVFlagsLossError),
-}
-
-/// Error when $CSVnFLAG and $CSMode keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum CSVFlagsLossError {
-    CSMode(Key0LossError<CSMode>),
-    CSVFlag(Key1LossError<CSVFlag>),
-}
-
-/// Error when "modification" keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ModificationLossError {
-    LastModifier(Key0LossError<LastModifier>),
-    LastModified(Key0LossError<LastModified>),
-    Originality(Key0LossError<Originality>),
-}
-
-/// Error when "carrier" keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum CarrierLossError {
-    Carrierid(Key0LossError<Carrierid>),
-    Locationid(Key0LossError<Locationid>),
-    Carriertype(Key0LossError<Carriertype>),
-}
-
-/// Error when $UNSTAINED* keywords would be lost due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum UnstainedLossError {
-    UnstainedCenters(Key0LossError<UnstainedCenters>),
-    UnstainedInfo(Key0LossError<UnstainedInfo>),
 }
 
 /// Error when reading DATA segment from already-parsed keywords

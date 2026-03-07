@@ -273,7 +273,6 @@ pub enum OptRootKeyword<'a> {
     GateRegion(RegionKeyword<'a>),
     Dfc(SplitKeyword2<Dfc>),
     UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters>),
-    Timestep(SplitKeyword0<Timestep>),
     CSMode(SplitKeyword0<CSMode>),
     CSVFlag(SplitKeyword1<CSVFlag>),
     CSVBits(NonZeroU32Keyword0<CSVBits>),
@@ -322,117 +321,6 @@ pub enum OptRootKeyword<'a> {
     Wellid(NEStringKeyword0<'a, Wellid>),
 }
 
-// impl<'a> OptRootKeyword<'a> {
-//     pub(crate) fn not_2_0(&self) -> bool {
-//         matches!(
-//             self,
-//             Self::GateMeas(_)
-//                 | Self::Dfc(_)
-//                 | UnstainedCenters(_)
-//                 | Timestep(_)
-//                 | CSMode(_)
-//                 | CSVFlag(_)
-//                 | CSVBits(_)
-//                 | CSTot(_)
-//                 | Btim2_0(_)
-//                 | Btim3_0(_)
-//                 | Btim3_1(_)
-//                 | Etim2_0(_)
-//                 | Etim3_0(_)
-//                 | Etim3_1(_)
-//                 | Date(_)
-//                 | Begindatetime(_)
-//                 | Enddatetime(_)
-//                 | Gate(_)
-//                 | Comp(_)
-//                 | Unicode(_)
-//                 | Vol(_)
-//                 | LastModified(_)
-//                 | Originality(_)
-//                 | Mode3_2(_)
-//                 | Spillover(_)
-//                 | Cyt(_)
-//                 | Cytsn(_)
-//                 | Com(_)
-//                 | Cells(_)
-//                 | Exp(_)
-//                 | Fil(_)
-//                 | Inst(_)
-//                 | Op(_)
-//                 | Proj(_)
-//                 | Smno(_)
-//                 | Src(_)
-//                 | Sys(_)
-//                 | Flowrate(_)
-//                 | LastModifier(_)
-//                 | UnstainedInfo(_)
-//                 | Carrierid(_)
-//                 | Carriertype(_)
-//                 | Locationid(_)
-//                 | Plateid(_)
-//                 | Platename(_)
-//                 | Wellid(_)
-//         )
-//     }
-
-//     pub(crate) fn scratch(&self) {
-//         matches!(
-//             self,
-//             Self::GateMeas(_)
-//                 | Self::GateRegion(_)
-//                 | Self::Dfc(_)
-//                 | UnstainedCenters(_)
-//                 | Timestep(_)
-//                 | CSMode(_)
-//                 | CSVFlag(_)
-//                 | CSVBits(_)
-//                 | CSTot(_)
-//                 | Btim2_0(_)
-//                 | Btim3_0(_)
-//                 | Btim3_1(_)
-//                 | Etim2_0(_)
-//                 | Etim3_0(_)
-//                 | Etim3_1(_)
-//                 | Date(_)
-//                 | Begindatetime(_)
-//                 | Enddatetime(_)
-//                 | Gate(_)
-//                 | Gating(_)
-//                 | Comp(_)
-//                 | Unicode(_)
-//                 | Abrt(_)
-//                 | Lost(_)
-//                 | Tr(_)
-//                 | Vol(_)
-//                 | LastModified(_)
-//                 | Originality(_)
-//                 | Mode3_2(_)
-//                 | Spillover(_)
-//                 | Cyt(_)
-//                 | Cytsn(_)
-//                 | Com(_)
-//                 | Cells(_)
-//                 | Exp(_)
-//                 | Fil(_)
-//                 | Inst(_)
-//                 | Op(_)
-//                 | Proj(_)
-//                 | Smno(_)
-//                 | Src(_)
-//                 | Sys(_)
-//                 | Flowrate(_)
-//                 | LastModifier(_)
-//                 | UnstainedInfo(_)
-//                 | Carrierid(_)
-//                 | Carriertype(_)
-//                 | Locationid(_)
-//                 | Plateid(_)
-//                 | Platename(_)
-//                 | Wellid(_)
-//         )
-//     }
-// }
-
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -448,6 +336,16 @@ pub enum ReqMeasKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum OptMeasKeyword<'a> {
+    Shortname(RefKeyword1<'a, Shortname>),
+    NumType(SplitKeyword1<NumType>),
+    Optical(OptOpticalKeyword<'a>),
+    Temporal(OptTemporalKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub enum OptOpticalKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     Filter(NEStringKeyword1<'a, Filter>),
     DetectorType(NEStringKeyword1<'a, DetectorType>),
@@ -455,11 +353,7 @@ pub enum OptMeasKeyword<'a> {
     Tag(NEStringKeyword1<'a, Tag>),
     Analyte(NEStringKeyword1<'a, Analyte>),
     OpticalType(NEStringKeyword1<'a, OpticalType>),
-    TemporalType(OptZSTKeyword1<TemporalType, TemporalTypeInner>),
-    TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
     Wavelengths(SplitKeyword<DKey1<Wavelengths>, NEWavelengths<'a>>),
-    Shortname(RefKeyword1<'a, Shortname>),
-    NumType(SplitKeyword1<NumType>),
     Scale(SplitKeyword1<Scale>),
     Power(SplitKeyword1<Power>),
     PercentEmitted(SplitKeyword1<PercentEmitted>),
@@ -470,6 +364,25 @@ pub enum OptMeasKeyword<'a> {
     Feature(RefKeyword1<'a, Feature>),
     Calibration3_1(RefKeyword1<'a, Calibration3_1>),
     Calibration3_2(RefKeyword1<'a, Calibration3_2>),
+    Peak(OptPeakKeyword),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub enum OptTemporalKeyword<'a> {
+    Longname(NEStringKeyword1<'a, Longname>),
+    TemporalType(OptZSTKeyword1<TemporalType, TemporalTypeInner>),
+    TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
+    Display(SplitKeyword1<Display>),
+    Timestep(SplitKeyword0<Timestep>),
+    Peak(OptPeakKeyword),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub enum OptPeakKeyword {
     PeakBin(SplitKeyword1<PeakBin>),
     PeakIndex(SplitKeyword1<PeakIndex>),
 }
@@ -593,22 +506,17 @@ impl<'a> OptRootKeyword<'a> {
     }
 }
 
-impl<'a> OptMeasKeyword<'a> {
+impl<'a> OptOpticalKeyword<'a> {
     pub(crate) fn from_wavelengths(x: &'a Wavelengths, i: MeasIndex) -> Option<Self> {
         let ret = SplitKeyword::new(DKey1::new_i1(i), x.try_ne()?);
         Some(Self::from(ret))
     }
+}
 
-    pub(crate) fn from_opt_zst<T, Z>(x: T, i: MeasIndex) -> Option<Self>
-    where
-        Z: Copy,
-        T: AsRef<Option<Z>>,
-        Self: From<OptZSTKeyword1<T, Z>>,
-    {
-        let y: &Option<Z> = x.as_ref();
-        let z = y.as_ref().copied()?;
-        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i), z);
-        Some(Self::from(ret))
+impl<'a> OptTemporalKeyword<'a> {
+    pub(crate) fn from_timestep(x: Timestep) -> Self {
+        let ret = SplitKeyword::new(DKey0::default(), x);
+        Self::from(ret)
     }
 }
 
@@ -658,6 +566,18 @@ pub(crate) trait Keyword1FromValue<'a> {
     {
         NEStringKeyword1::try_new_ne_str1(x, i).map(Self::from)
     }
+
+    fn from_opt_zst<T, Z>(x: T, i: MeasIndex) -> Option<Self>
+    where
+        Z: Copy,
+        T: AsRef<Option<Z>>,
+        Self: From<OptZSTKeyword1<T, Z>>,
+    {
+        let y: &Option<Z> = x.as_ref();
+        let z = y.as_ref().copied()?;
+        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i), z);
+        Some(Self::from(ret))
+    }
 }
 
 impl Keyword0FromValue<'_> for OffsetKeyword {}
@@ -666,6 +586,9 @@ impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 
 impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
+impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
@@ -808,7 +731,17 @@ impl HasDelim for OptRootKeyword<'_> {
 impl HasDelim for OptMeasKeyword<'_> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         match self {
-            Self::Shortname(x) => x.has_delim(d),
+            Self::Shortname(x) => x.value.has_delim(d),
+            Self::Optical(x) => x.has_delim(d),
+            Self::Temporal(x) => x.has_delim(d),
+            _ => None,
+        }
+    }
+}
+
+impl HasDelim for OptOpticalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
             Self::Feature(x) => x.has_delim(d),
             Self::Calibration3_1(x) => x.has_delim(d),
             Self::Calibration3_2(x) => x.has_delim(d),
@@ -820,6 +753,16 @@ impl HasDelim for OptMeasKeyword<'_> {
             Self::Analyte(x) => x.value.has_delim(d),
             Self::OpticalType(x) => x.value.has_delim(d),
             _ => None,
+        }
+    }
+}
+
+impl HasDelim for OptTemporalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Longname(x) = self {
+            x.value.has_delim(d)
+        } else {
+            None
         }
     }
 }
@@ -836,7 +779,7 @@ impl HasDelim for GateMeasKeyword<'_> {
     }
 }
 
-impl<'a> OptRootKeyword<'a> {
+impl OptRootKeyword<'_> {
     pub(crate) fn as_loss_error(&self) -> Option<AnyMetarootKeyLossError> {
         let ret = match self {
             Self::GateMeas(kw) => match kw {
@@ -874,13 +817,11 @@ impl<'a> OptRootKeyword<'a> {
             Self::Platename(kw) => KeyLossError(kw.key).into(),
             Self::Wellid(kw) => KeyLossError(kw.key).into(),
             Self::Cytsn(kw) => KeyLossError(kw.key).into(),
-            // TODO what about $TIMESTEP?
             // All of these are shared b/t versions and therefore cannot cause
             // loss when converting. Note $MODE is valid in all versions but its
             // value is constrained in 3.2; this is dealt with elsewhere
             Self::GateRegion(_)
             | Self::Gating(_)
-            | Self::Timestep(_)
             | Self::Mode3_2(_)
             | Self::Btim2_0(_)
             | Self::Btim3_0(_)
